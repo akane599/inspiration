@@ -16,6 +16,9 @@ import com.akane.inspiration.ipc.client.PowerManagerClient
 import com.akane.inspiration.ipc.client.PowerStatsClient
 import com.akane.inspiration.ipc.model.BatteryHistorySnapshot
 import com.akane.inspiration.ipc.model.BatteryUsageSnapshot
+import com.akane.inspiration.ipc.model.BgDexoptReason
+import com.akane.inspiration.ipc.model.BgDexoptState
+import com.akane.inspiration.ipc.model.BgDexoptStatus
 import com.akane.inspiration.ipc.model.ClusterFreqTime
 import com.akane.inspiration.ipc.model.CpuTimeSnapshot
 import com.akane.inspiration.ipc.model.DeviceIdleSnapshot
@@ -24,6 +27,17 @@ import com.akane.inspiration.ipc.model.DumpTarget
 import com.akane.inspiration.ipc.model.KernelBatterySnapshot
 import com.akane.inspiration.ipc.model.PowerMonitorSnapshot
 import com.akane.inspiration.ipc.model.Reasons
+import com.akane.inspiration.ipc.model.ToolkitApi
+import com.akane.inspiration.ipc.model.ToolkitCode
+import com.akane.inspiration.ipc.model.ToolkitResult
+import com.akane.inspiration.ipc.toolkit.AndroidPackageInspector
+import com.akane.inspiration.ipc.toolkit.AndroidPluggedProbe
+import com.akane.inspiration.ipc.toolkit.BgDexoptController
+import com.akane.inspiration.ipc.toolkit.CommandRunner
+import com.akane.inspiration.ipc.toolkit.NoContextInspector
+import com.akane.inspiration.ipc.toolkit.NoContextPluggedProbe
+import com.akane.inspiration.ipc.toolkit.ProcessCommandRunner
+import com.akane.inspiration.ipc.toolkit.ToolkitExecutor
 import java.io.File
 import java.io.FileDescriptor
 import java.io.IOException
@@ -79,6 +93,7 @@ class TelemetryUserService private constructor(
     private val serviceBinder: (String) -> IBinder?,
     private val pipeFactory: () -> DumpPipe,
     private val startThread: (Runnable) -> Unit,
+    private val toolkit: ToolkitExecutor,
     @Suppress("unused") constructionMarker: Unit,
 ) : ITelemetryUserService.Stub() {
     /** Shizuku's fallback construction path has no Context, so it deliberately fails closed. */
@@ -90,6 +105,7 @@ class TelemetryUserService private constructor(
         serviceBinder = ServiceManager::getService,
         pipeFactory = ParcelFileDescriptorDumpPipe::create,
         startThread = { runnable -> Thread(runnable).start() },
+        toolkit = failClosedToolkit(),
         constructionMarker = Unit,
     )
 
@@ -103,6 +119,7 @@ class TelemetryUserService private constructor(
         serviceBinder = ServiceManager::getService,
         pipeFactory = ParcelFileDescriptorDumpPipe::create,
         startThread = { runnable -> Thread(runnable).start() },
+        toolkit = createToolkit(context),
         constructionMarker = Unit,
     )
 
@@ -114,6 +131,7 @@ class TelemetryUserService private constructor(
         serviceBinder: (String) -> IBinder? = { null },
         pipeFactory: () -> DumpPipe = ParcelFileDescriptorDumpPipe::create,
         startThread: (Runnable) -> Unit = { runnable -> Thread(runnable).start() },
+        toolkit: ToolkitExecutor = failClosedToolkit(),
     ) : this(
         appUid,
         fileRoot,
@@ -122,6 +140,7 @@ class TelemetryUserService private constructor(
         serviceBinder,
         pipeFactory,
         startThread,
+        toolkit,
         Unit,
     )
 
@@ -226,6 +245,45 @@ class TelemetryUserService private constructor(
         return DumpResult(available = true, reason = null, fd = pipe.readEnd)
     }
 
+    // Typed privileged actions (txns 20-31). The caller-UID check runs first, on the binder thread;
+    // a denied caller gets a CALLER refusal with no parsing and no process spawned.
+    override fun setAppOp(packageName: String?, op: Int, mode: Int): ToolkitResult =
+        guarded { toolkit.setAppOp(packageName, op, mode) }
+
+    override fun getAppOps(packageName: String?): ToolkitResult = guarded { toolkit.getAppOps(packageName) }
+
+    override fun setStandbyBucket(packageName: String?, bucket: Int): ToolkitResult =
+        guarded { toolkit.setStandbyBucket(packageName, bucket) }
+
+    override fun getStandbyBucket(packageName: String?): ToolkitResult =
+        guarded { toolkit.getStandbyBucket(packageName) }
+
+    override fun applyDozeProfile(profile: Int, expectedBeforeRaw: String?): ToolkitResult =
+        guarded { toolkit.applyDozeProfile(profile, expectedBeforeRaw) }
+
+    override fun getDozeState(): ToolkitResult = guarded { toolkit.getDozeState() }
+
+    override fun forceStop(packageName: String?): ToolkitResult = guarded { toolkit.forceStop(packageName) }
+
+    override fun startBgDexopt(): ToolkitResult = guarded { toolkit.startBgDexopt() }
+
+    override fun getBgDexoptStatus(): BgDexoptStatus =
+        if (isCallerAllowed()) {
+            toolkit.bgDexoptStatus()
+        } else {
+            BgDexoptStatus(BgDexoptState.UNKNOWN, 0L, 0L, 0, BgDexoptReason.CALLER)
+        }
+
+    override fun cancelBgDexopt(): ToolkitResult = guarded { toolkit.cancelBgDexopt() }
+
+    override fun restoreDozeRaw(rawOrNull: String?, expectedCurrentRaw: String?): ToolkitResult =
+        guarded { toolkit.restoreDozeRaw(rawOrNull, expectedCurrentRaw) }
+
+    override fun getApiVersion(): Int = if (isCallerAllowed()) ToolkitApi.VERSION else -1
+
+    private inline fun guarded(block: () -> ToolkitResult): ToolkitResult =
+        if (isCallerAllowed()) block() else ToolkitResult.refused(ToolkitCode.CALLER)
+
     private fun isCallerAllowed(): Boolean = try {
         appUid != null && callingUid() == appUid
     } catch (_: RuntimeException) {
@@ -296,6 +354,37 @@ class TelemetryUserService private constructor(
         const val POWER_STATS_SERVICE = "powerstats"
         const val DEVICE_IDLE_SERVICE = "deviceidle"
         const val POWER_SERVICE = "power"
+
+        fun failClosedToolkit(): ToolkitExecutor {
+            val runner = CommandRunner { throw IOException("toolkit unavailable without a Context") }
+            return ToolkitExecutor(
+                runner = runner,
+                inspector = NoContextInspector,
+                dexopt = BgDexoptController(
+                    runner = runner,
+                    plugged = NoContextPluggedProbe,
+                    clockMs = System::currentTimeMillis,
+                    startThread = { },
+                ),
+                ownPackage = "",
+            )
+        }
+
+        fun createToolkit(context: Context): ToolkitExecutor {
+            val runner = ProcessCommandRunner()
+            val dexopt = BgDexoptController(
+                runner = runner,
+                plugged = AndroidPluggedProbe(context),
+                clockMs = System::currentTimeMillis,
+                startThread = { job -> Thread(job, "bg-dexopt").apply { isDaemon = true }.start() },
+            )
+            return ToolkitExecutor(
+                runner = runner,
+                inspector = AndroidPackageInspector(context, runner),
+                dexopt = dexopt,
+                ownPackage = context.packageName,
+            )
+        }
 
         fun resolveApplicationUid(context: Context): Int? = try {
             context.packageManager.getPackageUid(context.packageName, 0)
