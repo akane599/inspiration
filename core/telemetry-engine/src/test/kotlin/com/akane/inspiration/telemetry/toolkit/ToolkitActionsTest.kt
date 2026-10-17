@@ -142,11 +142,39 @@ class ToolkitActionsTest {
     }
 
     @Test
-    fun successWithoutABeforeValueIsNotRecordedAsDone() = runTest {
+    fun successWithoutABeforeValueIsRecordedDoneButFlaggedUnrestorable() = runTest {
         backend.nullBeforeOnAppOpWrite = true
         val outcome = actions.execute(ToolkitAction.SetAppOp(PKG, AppOp.RUN_IN_BACKGROUND, AppOpMode.IGNORE))
-        assertEquals(ToolkitOutcome.Failed(ToolkitCode.PARSE), outcome)
-        assertEquals(ToolkitActionStatus.FAILED, audit.rows.single().status)
+        val row = (outcome as ToolkitOutcome.Done).value
+        // the change happened, so the log must say so
+        assertEquals("ignore", backend.device(PKG)[AppOp.RUN_IN_BACKGROUND])
+        assertEquals(ToolkitActionStatus.DONE, row.status)
+        assertNull(row.beforeRaw)
+        assertEquals("ignore", row.afterRaw)
+        assertEquals(ToolkitClientCode.BEFORE_MISSING, row.code)
+        assertEquals(ToolkitActionStatus.DONE, audit.rows.single().status)
+        assertEquals(ToolkitOutcome.Refused(ToolkitRefusal.NOT_RESTORABLE), actions.restore(row.id))
+    }
+
+    @Test
+    fun aBucketSuccessWithoutABeforeValueIsAlsoDoneAndUnrestorable() = runTest {
+        backend.nullBeforeOnBucketWrite = true
+        val row = (actions.execute(ToolkitAction.SetBucket(PKG, StandbyBucket.RARE)) as ToolkitOutcome.Done).value
+        assertEquals(ToolkitActionStatus.DONE, row.status)
+        assertNull(row.beforeRaw)
+        assertEquals(ToolkitClientCode.BEFORE_MISSING, row.code)
+        assertEquals(ToolkitOutcome.Refused(ToolkitRefusal.NOT_RESTORABLE), actions.restore(row.id))
+    }
+
+    @Test
+    fun anUnrestorableDoneRowStillListsAsANonRestorableOverride() = runTest {
+        backend.nullBeforeOnAppOpWrite = true
+        val row = (actions.execute(ToolkitAction.SetAppOp(PKG, AppOp.RUN_IN_BACKGROUND, AppOpMode.IGNORE)) as ToolkitOutcome.Done).value
+        val bucket = (actions.execute(ToolkitAction.SetBucket(PKG, StandbyBucket.RARE)) as ToolkitOutcome.Done).value
+        val overrides = actions.activeOverrides().first().associateBy { it.actionId }
+        assertEquals(false, overrides.getValue(row.id).restorable)
+        assertNull(overrides.getValue(row.id).previousRaw)
+        assertEquals(true, overrides.getValue(bucket.id).restorable)
     }
 
     @Test

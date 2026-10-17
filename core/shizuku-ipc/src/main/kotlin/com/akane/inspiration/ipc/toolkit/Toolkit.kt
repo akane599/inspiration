@@ -106,9 +106,11 @@ object DozeRaw {
     fun isSafe(raw: String): Boolean = SAFE.matches(raw)
 
     private const val MAX_LENGTH = 1024
-    private val PAIR = Regex("([a-z_]+)=(\\d{1,18}(\\.\\d{1,9})?|true|false)")
+    private val PAIR = Regex("([a-z][a-z0-9_]{0,63})=(\\d{1,18}(\\.\\d{1,9})?|true|false)")
 
     /**
+     * Documentation and test reference only; [isRestorable] does not gate on it, because OEM builds
+     * add their own keys and a restore after a service restart must still be able to replay them.
      * Every `device_idle_constants` key AOSP's `DeviceIdleController.Constants` has parsed in API 31-37:
      * the union of the `KEY_*` string constants in
      * `frameworks/base/apex/jobscheduler/service/java/com/android/server/DeviceIdleController.java`
@@ -159,16 +161,18 @@ object DozeRaw {
     )
 
     /**
-     * Comma-separated `key=value` pairs: every key in [AOSP_KEYS], no key repeated, every value a
-     * non-negative integer, an optional decimal (factors) or `true`/`false`; at most 1024 characters.
-     * A restore may replay this without the service having read it itself.
+     * Comma-separated `key=value` pairs: every key an identifier (`[a-z][a-z0-9_]{0,63}`, so OEM keys
+     * outside [AOSP_KEYS] qualify), no key repeated, every value a non-negative integer, an optional
+     * decimal (factors) or `true`/`false`; at most 1024 characters. The value grammar carries the
+     * safety (no separators or shell metacharacters), and the write uses fixed argv and a CAS, so a
+     * restore may replay this without the service having read it itself.
      */
     fun isRestorable(raw: String): Boolean {
         if (raw.isEmpty() || raw.length > MAX_LENGTH) return false
         val seen = HashSet<String>()
         return raw.split(',').all { pair ->
             val key = PAIR.matchEntire(pair)?.groupValues?.get(1)
-            key != null && key in AOSP_KEYS && seen.add(key)
+            key != null && seen.add(key)
         }
     }
 }
