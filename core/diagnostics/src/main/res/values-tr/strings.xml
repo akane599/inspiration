@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Battery Story: %1$s = hours, %2$d = percent of battery used -->
+    <plurals name="story_summary">
+        <item quantity="one">Son %1$s saatte pilin %%%2$d kadarını kullandın.</item>
+        <item quantity="other">Son %1$s saatte pilin %%%2$d kadarını kullandın.</item>
+    </plurals>
+    <string name="story_screen_on_rate">Ekran açıkken saatte %%%1$s tükettin (%2$s).</string>
+    <string name="story_screen_off_rate">Ekran kapalıyken saatte %%%1$s tükettin (%2$s).</string>
+    <string name="story_deep_sleep">Derin uyku oranı %%%1$s.</string>
+    <string name="story_anomalies_none">Herhangi bir anomali tespit edilmedi.</string>
+    <plurals name="story_anomalies_count">
+        <item quantity="one">%1$d anomali tespit edildi.</item>
+        <item quantity="other">%1$d anomali tespit edildi.</item>
+    </plurals>
+    <plurals name="story_anomalies_top">
+        <item quantity="one">%1$d anomali tespit edildi, en belirgini: %2$s.</item>
+        <item quantity="other">%1$d anomali tespit edildi, en belirgini: %2$s.</item>
+    </plurals>
+
+    <string name="story_rating_excellent">kusursuz</string>
+    <string name="story_rating_normal">normal</string>
+    <string name="story_rating_high">yüksek</string>
+    <string name="story_rating_very_high">çok yüksek</string>
+
+    <string name="rule_name_night_vampire">Gece vampiri</string>
+    <string name="rule_name_awake_violation">Uyanıklık ihlali</string>
+    <string name="rule_name_modem_drain">Modem sömürüsü</string>
+    <string name="rule_name_sensor_leak">Sensör sızıntısı</string>
+</resources>
