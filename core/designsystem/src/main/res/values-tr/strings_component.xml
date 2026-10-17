@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- LiveGauge -->
+    <string name="gauge_charging">Şarj oluyor</string>
+    <string name="gauge_discharging">Deşarj oluyor</string>
+    <string name="gauge_label_power">Güç</string>
+    <string name="gauge_label_voltage">Gerilim</string>
+    <string name="gauge_label_temperature">Sıcaklık</string>
+
+    <!-- TimeSliceBanner -->
+    <string name="slice_requested">İstenen</string>
+    <string name="slice_covered">Kapsanan</string>
+    <string name="slice_clear">Temizle</string>
+</resources>

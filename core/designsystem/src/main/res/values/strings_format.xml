@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Units. Used by TelemetryFormat; never concatenate these inline. -->
+    <string name="telemetry_unit_ma">mA</string>
+    <string name="telemetry_unit_w">W</string>
+    <string name="telemetry_unit_mv">mV</string>
+    <string name="telemetry_unit_celsius">°C</string>
+    <string name="telemetry_unit_percent_per_hour" formatted="false">%/h</string>
+    <string name="telemetry_unit_mah_per_hour">mAh/h</string>
+
+    <!-- Duration units: "1 h 05 min" -->
+    <string name="telemetry_unit_hour">h</string>
+    <string name="telemetry_unit_minute">min</string>
+</resources>

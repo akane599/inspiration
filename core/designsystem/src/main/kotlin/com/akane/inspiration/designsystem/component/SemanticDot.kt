@@ -11,7 +11,7 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 
-private object DotMetrics {
+internal object DotMetrics {
     val Diameter = 10.dp
 }
 
