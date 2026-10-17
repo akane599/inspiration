@@ -266,10 +266,15 @@ internal class ScrubRenderer(
     private val temperatureTimes: LongArray,
     private val temperatureValues: FloatArray,
 ) {
-    fun draw(scope: DrawScope, state: ScrubInteractionState, inputs: ScrubDrawInputs) {
+    /** The data-only part (labels, grid, series, lanes, axis). It reads no snapshot state. */
+    fun drawStatic(scope: DrawScope) {
         scope.drawValueLabels()
+        scope.translate(left = plotLeft, top = 0f) { drawPlot() }
+    }
+
+    /** The per-frame part (selection and cursor), drawn over [drawStatic]. */
+    fun drawOverlay(scope: DrawScope, state: ScrubInteractionState, inputs: ScrubDrawInputs) {
         scope.translate(left = plotLeft, top = 0f) {
-            drawPlot()
             drawSelection(state, inputs)
             drawCursor(state, inputs)
         }

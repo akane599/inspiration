@@ -23,6 +23,8 @@ import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.translate
+import androidx.compose.ui.graphics.layer.CompositingStrategy
+import androidx.compose.ui.graphics.layer.drawLayer
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalResources
@@ -191,7 +193,12 @@ fun SleepHypnogram(
                     textStyle = labelStyle,
                     measurer = textMeasurer,
                 )
-                onDrawBehind { drawLayer(layer, selectionState, cursorState) }
+                // Static data in its own offscreen layer: a cursor frame redraws only the overlay.
+                val dataLayer = obtainGraphicsLayer().apply {
+                    compositingStrategy = CompositingStrategy.Offscreen
+                    record { drawHypnogramData(layer) }
+                }
+                onDrawBehind { drawLayer(dataLayer); drawHypnogramOverlay(layer, selectionState, cursorState) }
             },
     )
 }
@@ -376,12 +383,8 @@ private fun buildLayer(
     )
 }
 
-/** The per-frame path: paths and layouts come from the cache; only State reads and primitive math happen here. */
-private fun DrawScope.drawLayer(
-    layer: HypnogramLayer,
-    selectionState: State<TimeRange?>,
-    cursorState: State<() -> Long?>,
-) {
+/** The data-only part, recorded once per cache build into its own layer. It reads no snapshot state. */
+private fun DrawScope.drawHypnogramData(layer: HypnogramLayer) {
     val palette = layer.palette
     drawPath(layer.gridPath, palette.grid, style = layer.hairStroke)
     drawPath(layer.gapFillPath, palette.grid)
@@ -395,7 +398,15 @@ private fun DrawScope.drawLayer(
     translate(left = layer.plotLeft, top = layer.rowsBottom) {
         drawTimeAxis(layer.ticks, layer.scale, layer.axisStyle)
     }
+}
 
+/** The per-frame path: only State reads and primitive math happen here. */
+private fun DrawScope.drawHypnogramOverlay(
+    layer: HypnogramLayer,
+    selectionState: State<TimeRange?>,
+    cursorState: State<() -> Long?>,
+) {
+    val palette = layer.palette
     val selection = selectionState.value
     if (selection != null) {
         val plotRight = layer.plotLeft + layer.plotWidth
