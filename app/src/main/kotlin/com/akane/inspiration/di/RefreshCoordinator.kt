@@ -34,10 +34,25 @@ class RefreshCoordinator(
 ) {
     private val mutex = Mutex()
     private val mutableLastRefreshWallMs = MutableStateFlow<Long?>(null)
+    @Volatile
     private var lastFailure: Pair<Long, RefreshResult.Failed>? = null
+
+    /** Bumped by [clearFailureBackoff]; a capture that started before the bump does not record its failure. */
+    @Volatile
+    private var backoffEpoch = 0
 
     /** Wall time of the last successful refresh in this process; null until one has happened. */
     val lastRefreshWallMs: StateFlow<Long?> = mutableLastRefreshWallMs.asStateFlow()
+
+    /**
+     * Forgets the failure backoff so the next [refresh] captures at once. Call it when what made the capture
+     * fail has changed (Shizuku became Ready): the cached [RefreshResult.Failed] describes the old state. The
+     * 60 s success debounce is untouched. Never blocks, so it is safe from any thread, mid-capture included.
+     */
+    fun clearFailureBackoff() {
+        backoffEpoch += 1
+        lastFailure = null
+    }
 
     suspend fun refresh(): RefreshResult = mutex.withLock {
         val last = mutableLastRefreshWallMs.value
@@ -48,8 +63,9 @@ class RefreshCoordinator(
         if (failure != null && nowWallMs() - failure.first in 0 until failureBackoffMs) {
             return@withLock failure.second
         }
+        val epoch = backoffEpoch
         val result = withContext(NonCancellable) { capture() }
-        lastFailure = (result as? RefreshResult.Failed)?.let { nowWallMs() to it }
+        lastFailure = (result as? RefreshResult.Failed)?.takeIf { epoch == backoffEpoch }?.let { nowWallMs() to it }
         if (result is RefreshResult.Refreshed) mutableLastRefreshWallMs.value = result.wallMs
         result
     }

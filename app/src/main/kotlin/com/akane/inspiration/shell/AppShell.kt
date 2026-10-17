@@ -13,6 +13,11 @@ import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.WindowInsetsSides
+import androidx.compose.foundation.layout.displayCutout
+import androidx.compose.foundation.layout.ime
+import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.layout.systemBars
+import androidx.compose.foundation.layout.union
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
@@ -80,25 +85,34 @@ fun AppShell(
             if (ShellNavigation.usesRail(maxWidth.value)) {
                 Row(Modifier.fillMaxSize()) {
                     ShellRail(state)
+                    // The rail has no bottom bar to carry the gesture-bar inset, so the content area takes the
+                    // bottom safe-drawing inset itself; safeDrawing includes the IME, so a text field in a screen
+                    // is never covered either.
                     destinationArea(
                         Modifier
                             .weight(1f)
                             .fillMaxHeight()
                             .windowInsetsPadding(
-                                WindowInsets.safeDrawing.only(WindowInsetsSides.Top + WindowInsetsSides.End),
+                                WindowInsets.safeDrawing.only(
+                                    WindowInsetsSides.Top + WindowInsetsSides.End + WindowInsetsSides.Bottom,
+                                ),
                             ),
                     )
                 }
             } else {
+                // While the keyboard is up the bar steps aside: the content area lifts by the IME height and
+                // takes the room the bar leaves, instead of the keyboard covering the bar and the field.
+                val imeVisible = WindowInsets.ime.getBottom(LocalDensity.current) > 0
                 Column(Modifier.fillMaxSize()) {
                     destinationArea(
                         Modifier
                             .weight(1f)
                             .windowInsetsPadding(
                                 WindowInsets.safeDrawing.only(WindowInsetsSides.Horizontal + WindowInsetsSides.Top),
-                            ),
+                            )
+                            .imePadding(),
                     )
-                    ShellBar(state)
+                    if (!imeVisible) ShellBar(state)
                 }
             }
         }
@@ -119,9 +133,20 @@ private fun WithCappedFontScale(content: @Composable () -> Unit) {
 
 private const val NAV_MAX_FONT_SCALE = 1.2f
 
+/**
+ * A navigation label of at most two lines. In the bar, each item centres its icon and label as one block, so a
+ * label that wraps ("Sleep Lab" at a large font) would push its icon above its neighbours'. With
+ * [reserveSecondLine] every label occupies two lines and keeps its text at the top, so all five icons sit on
+ * one line whether or not a label wraps. The rail stacks its items, so it needs no reserve.
+ */
 @Composable
-private fun NavLabel(destination: Destination) {
-    Text(stringResource(destination.labelRes()), maxLines = 2, textAlign = TextAlign.Center)
+private fun NavLabel(destination: Destination, reserveSecondLine: Boolean = false) {
+    Text(
+        text = stringResource(destination.labelRes()),
+        maxLines = 2,
+        minLines = if (reserveSecondLine) 2 else 1,
+        textAlign = TextAlign.Center,
+    )
 }
 
 @Composable
@@ -133,7 +158,7 @@ private fun ShellBar(state: ShellState) {
                     selected = state.selected == destination,
                     onClick = { state.select(destination) },
                     icon = { Icon(destination.icon(), contentDescription = null) },
-                    label = { NavLabel(destination) },
+                    label = { NavLabel(destination, reserveSecondLine = true) },
                 )
             }
         }
@@ -143,7 +168,13 @@ private fun ShellBar(state: ShellState) {
 @Composable
 private fun ShellRail(state: ShellState) {
     WithCappedFontScale {
-        NavigationRail {
+        // Top and bottom system bars, the start side and the display cutout, so the first and last item clear
+        // the status and gesture bars. Not the IME: the rail stays where it is while a keyboard is up.
+        NavigationRail(
+            windowInsets = WindowInsets.systemBars
+                .union(WindowInsets.displayCutout)
+                .only(WindowInsetsSides.Vertical + WindowInsetsSides.Start),
+        ) {
             Destination.entries.forEach { destination ->
                 NavigationRailItem(
                     selected = state.selected == destination,
