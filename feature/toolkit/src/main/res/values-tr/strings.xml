@@ -110,13 +110,13 @@
     <string name="toolkit_op_short_wake_lock">Wakelock\'lar</string>
     <string name="toolkit_op_run_any_title">Arka plan etkinliğini kısıtla</string>
     <string name="toolkit_op_run_any_body">Uygulamanın arka planda çalışmasını durdurur. Siz açana kadar eşitleme yapmayabilir veya bildirim göndermeyebilir.</string>
-    <string name="toolkit_op_run_in_title">Arka planda çalışmayı engelle</string>
+    <string name="toolkit_op_run_in_title">Arka planda çalışmayı kısıtla</string>
     <string name="toolkit_op_run_in_body">Uygulamanın kendi arka plan hizmetlerini başlatmasını durdurur.</string>
-    <string name="toolkit_op_wake_lock_title">Wakelock\'ları engelle</string>
+    <string name="toolkit_op_wake_lock_title">Wakelock\'ları kısıtla</string>
     <string name="toolkit_op_wake_lock_body">Uygulamanın telefonu uyanık tutmasını durdurur.</string>
     <string name="toolkit_op_wake_lock_warning">Alarmlar ve mesajlaşma bozulabilir.</string>
     <string name="toolkit_op_custom">Bu iznin değeri Inspiration\'ın değiştiremeyeceği bir değer.</string>
-    <string name="toolkit_op_blocked_line">%2$s: %1$s engellendi</string>
+    <string name="toolkit_op_blocked_line">%2$s: %1$s kısıtlandı</string>
     <string name="toolkit_op_allowed_line">%2$s: %1$s yeniden izinli</string>
     <string name="toolkit_bucket_title">Bekleme grubu</string>
     <string name="toolkit_bucket_body">Sistemin uygulamaya ne sıklıkla iş ve alarm çalıştırma izni verdiğini belirler.</string>
@@ -128,7 +128,7 @@
     <string name="toolkit_bucket_restricted">Kısıtlı</string>
     <string name="toolkit_force_stop">Durmaya zorla</string>
     <string name="toolkit_force_stop_body">Uygulamayı hemen durdurur, alarmlarını ve bekleyen işlerini temizler.</string>
-    <string name="toolkit_notice_op_blocked">%1$s engellendi.</string>
+    <string name="toolkit_notice_op_blocked">%1$s kısıtlandı.</string>
     <string name="toolkit_notice_op_allowed">%1$s yeniden izinli.</string>
     <string name="toolkit_notice_bucket">Bekleme grubu: %1$s.</string>
     <string name="toolkit_notice_force_stopped">Uygulama durmaya zorlandı.</string>
@@ -155,7 +155,7 @@
 
     <!-- Confirmation -->
     <string name="toolkit_confirm_title_doze">%1$s doze profili uygulansın mı?</string>
-    <string name="toolkit_confirm_title_block">%2$s için %1$s engellensin mi?</string>
+    <string name="toolkit_confirm_title_block">%2$s için %1$s kısıtlansın mı?</string>
     <string name="toolkit_confirm_title_allow">%2$s için %1$s yeniden izinli olsun mu?</string>
     <string name="toolkit_confirm_title_bucket">%1$s, %2$s grubuna taşınsın mı?</string>
     <string name="toolkit_confirm_title_force_stop">%1$s durmaya zorlansın mı?</string>
@@ -168,7 +168,7 @@
     <string name="toolkit_confirm_reset_body">Inspiration\'ın yaptığı her değişiklik eski haline getirilir. Geri alınamayan değişiklikler, nedenleriyle birlikte listede kalır.</string>
     <string name="toolkit_confirm_stale">Siz karar verirken ayar değişti. Aşağıdaki, şu anki değeridir.</string>
     <string name="toolkit_confirm_action_apply">Uygula</string>
-    <string name="toolkit_confirm_action_block">Engelle</string>
+    <string name="toolkit_confirm_action_block">Kısıtla</string>
     <string name="toolkit_confirm_action_allow">İzin ver</string>
     <string name="toolkit_confirm_action_move">Taşı</string>
     <string name="toolkit_confirm_action_force_stop">Durmaya zorla</string>

@@ -68,3 +68,7 @@ import com.android.tools.screenshot.PreviewTest
 // The case S6 fixes: Turkish labels at the narrowest width and the largest font scale.
 @PreviewTest @Preview(name = "turkish-360-large-font", showBackground = true, widthDp = 360, heightDp = 860, fontScale = 1.5f, locale = "tr")
 @Composable fun ToggleTurkishNarrowLargeFont() = InspirationTheme(darkTheme = true) { ToggleSheet() }
+
+// The case SQ-107 fixes: a NBSP-joined duration in a MetricTile at the narrowest width and the largest font scale.
+@PreviewTest @Preview(name = "narrow-360-large-font", showBackground = true, widthDp = 360, heightDp = 560, fontScale = 1.5f)
+@Composable fun DurationTilesNarrowLargeFont() = InspirationTheme(darkTheme = true) { DurationTilesSheet() }

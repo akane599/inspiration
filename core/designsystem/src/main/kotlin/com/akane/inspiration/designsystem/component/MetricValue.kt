@@ -2,6 +2,7 @@ package com.akane.inspiration.designsystem.component
 
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.text.TextAutoSize
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -13,7 +14,8 @@ import com.akane.inspiration.designsystem.theme.spacing
 
 /**
  * A telemetry value with a smaller unit, baseline-aligned. Uses tabular figures so digits don't jitter.
- * Value and unit are announced as one node.
+ * Value and unit are announced as one node. With [shrinkToFit] the value stays on one line and shrinks from
+ * [style] down to `labelLarge` instead of wrapping mid-word when space is narrow (large font, 360 dp).
  */
 @Composable
 fun MetricValue(
@@ -21,14 +23,29 @@ fun MetricValue(
     unit: String,
     modifier: Modifier = Modifier,
     style: TextStyle = MaterialTheme.numericTypography.title,
+    shrinkToFit: Boolean = false,
 ) {
     Row(modifier = modifier.semantics(mergeDescendants = true) {}) {
-        Text(
-            text = value,
-            style = style,
-            color = MaterialTheme.colorScheme.onSurface,
-            modifier = Modifier.alignByBaseline(),
-        )
+        if (shrinkToFit) {
+            Text(
+                text = value,
+                style = style,
+                color = MaterialTheme.colorScheme.onSurface,
+                maxLines = 1,
+                autoSize = TextAutoSize.StepBased(
+                    minFontSize = MaterialTheme.typography.labelLarge.fontSize,
+                    maxFontSize = style.fontSize,
+                ),
+                modifier = Modifier.weight(1f, fill = false).alignByBaseline(),
+            )
+        } else {
+            Text(
+                text = value,
+                style = style,
+                color = MaterialTheme.colorScheme.onSurface,
+                modifier = Modifier.alignByBaseline(),
+            )
+        }
         if (unit.isNotEmpty()) {
             Text(
                 text = unit,
