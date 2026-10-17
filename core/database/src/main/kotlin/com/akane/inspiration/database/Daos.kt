@@ -203,7 +203,12 @@ interface ChargeSessionDao {
     @Query("SELECT * FROM charge_session ORDER BY endWallMs, id")
     suspend fun all(): List<ChargeSessionEntity>
 
-    @Query("SELECT estimateMah FROM charge_session WHERE accepted = 1 AND estimateMah IS NOT NULL ORDER BY endWallMs ASC LIMIT :limit")
+    // Newest `limit` accepted estimates, returned oldest first.
+    @Query(
+        "SELECT estimateMah FROM (SELECT estimateMah, endWallMs FROM charge_session " +
+            "WHERE accepted = 1 AND estimateMah IS NOT NULL ORDER BY endWallMs DESC LIMIT :limit) " +
+            "ORDER BY endWallMs ASC",
+    )
     suspend fun acceptedEstimatesChronological(limit: Int): List<Double>
 }
 

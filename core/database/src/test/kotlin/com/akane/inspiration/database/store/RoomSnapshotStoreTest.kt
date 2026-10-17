@@ -274,6 +274,25 @@ class RoomSnapshotStoreTest {
     }
 
     @Test
+    fun `acceptedEstimatesChronological returns the newest N oldest first`() = runBlocking {
+        for (i in 1..5) {
+            store.upsertChargeSession(
+                10L,
+                segment(startHistoryTimeMs = i * 100L, endWallMs = i * 1_000L),
+                accepted(4_000.0 + i),
+            )
+        }
+        store.upsertChargeSession(
+            10L,
+            segment(startHistoryTimeMs = 600L, endWallMs = 6_000L),
+            SegmentVerdict(estimateMah = null, independent = false, accepted = false, rejectReason = "too_short"),
+        )
+
+        assertEquals(listOf(4_003.0, 4_004.0, 4_005.0), store.acceptedEstimatesChronological(3))
+        assertEquals(listOf(4_001.0, 4_002.0, 4_003.0, 4_004.0, 4_005.0), store.acceptedEstimatesChronological(100))
+    }
+
+    @Test
     fun `toolkit action inserts updates and lists with an explicit stored status code`() = runBlocking {
         val pending = ToolkitActionRecord(
             startedAt = 1_000L,
