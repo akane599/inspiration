@@ -20,11 +20,12 @@ _Work items, stories and blockers live on the Sidequest board. This file keeps w
 - 2026-10-17: Charging job (E1c/d) after review SQ-32 → repair SQ-33: boot arms with no latency, and only the job's own re-arm waits 45 min. onStopJob cancels the run. Idempotency keys on the last PLUGGED *history event* (not the warm-only POWER_CONNECTED snapshot), plus a boot-count change. A failed run still finishes and re-arms (applicationScope has no exception handler). (US-2)
 - 2026-10-17: Phase 2 device evidence on API 35/36/37: PROBE_CAPTURE/PROBE_DIFF work; journal_mode = wal. On the boot arm the job runs at once, and with Shizuku not up yet it records a capture_miss and re-arms at +45 min. A forced run captures; a second run in the same plug session skips. A cold plug (process killed) is detected from history. Usage read: UserService 88–104 ms vs in-process 81–93 ms on the same call, so D1 (UserService-primary) stands. API 35+: a cached app is frozen and its runtime SCREEN_* broadcasts coalesce, so screen boundaries come from history_event (E5), with light snapshots only as a supplement. (US-2)
 - 2026-10-17: Device findings: the battery history buffer survives a stats reset, so history_event identity is (historyTimeMs, kind, wallMs) (SQ-34). BatteryUsageStats sensor estimates are non-monotonic on API 37, so a negative Δ invalidates only that UID/component, never the whole delta (SQ-35). (US-2)
+- 2026-10-17: Phase 3 plan rev 2 (docs/plans/phase-3.md, F1–F9) audited by SQ-37 (Opus) + SQ-38 (GPT Terra): R2 culprits are attributed only over a derived screen-off-only covered interval, otherwise labelled whole-interval contributors; R4 eligibility is derived from IntervalMetrics; SnapshotDiff gains a system-timer delta; rule output types are owned by T3; the in-place schema v1 edit requires `pm clear` before device runs (schema v2 rejected); the dictionary stays bilingual JSON. (US-3)
 
 ## Audit status
 | Area | Last run | Result | How |
 |---|---|---|---|
-| Plan audit | 2026-10-17 | Phase 1: approve with fixes (applied) | SQ-3 + SQ-4 |
+| Plan audit | 2026-10-17 | Phase 3: approve with fixes (applied); Phase 1/2 likewise | SQ-37 + SQ-38 (Phase 2: SQ-18/19/20) |
 | Bug hunt | — | — | `/bug-hunt` |
 | Security | — | — | `/claude-security` |
 | UI / design | — | — | `/ui-overhaul` phase review |
