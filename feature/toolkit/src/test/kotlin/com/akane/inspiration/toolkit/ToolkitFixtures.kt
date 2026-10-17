@@ -32,6 +32,7 @@ import com.akane.inspiration.telemetry.store.ToolkitActionStatus
 import com.akane.inspiration.telemetry.toolkit.ToolkitActions
 import com.akane.inspiration.telemetry.toolkit.ToolkitGateway
 import java.lang.reflect.Proxy
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -71,6 +72,9 @@ internal class FakeDevice {
     fun app(pkg: String): FakeApp = apps.getOrPut(pkg) { FakeApp() }
 
     var serviceUp = true
+
+    /** While set and not completed, every service call suspends: a test completes it to let an in-flight call finish. */
+    var gate: CompletableDeferred<Unit>? = null
 
     /** `device_idle_constants`; null is unset. */
     var dozeRaw: String? = null
@@ -212,8 +216,10 @@ private class FakeShizuku(private val device: FakeDevice) : ShizukuManager {
 
     override fun start() = Unit
 
-    override suspend fun <T> withTelemetryService(timeoutMs: Long, block: suspend (ITelemetryUserService) -> T): T? =
-        if (device.serviceUp) block(device.service) else null
+    override suspend fun <T> withTelemetryService(timeoutMs: Long, block: suspend (ITelemetryUserService) -> T): T? {
+        device.gate?.await()
+        return if (device.serviceUp) block(device.service) else null
+    }
 
     override fun holdBinding(): AutoCloseable = AutoCloseable {}
 

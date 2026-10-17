@@ -95,7 +95,23 @@ internal object ToolkitPreviewData {
         ),
     )
 
+    /** Nothing is changed: the doze profile is the system's own and no action has left a result line behind. */
+    private val untouchedDoze = DozeSection(
+        load = DozeLoad.Loaded(
+            DozeInfo(
+                profile = DozeProfile.STANDARD,
+                raw = null,
+                effective = persistentListOf(
+                    DozeValue("inactive_to", 1_800_000L),
+                    DozeValue("light_after_inactive_to", 300_000L),
+                    DozeValue("idle_after_inactive_to", 1_800_000L),
+                ),
+            ),
+        ),
+    )
+
     val noChanges = ready.copy(
+        doze = untouchedDoze,
         overrides = persistentListOf(),
         history = persistentListOf(),
         apps = AppsSection(phase = AppsPhase.READY, query = "zzz", total = 5),

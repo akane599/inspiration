@@ -108,7 +108,7 @@
     <string name="toolkit_op_short_run_any">Arka plan etkinliği</string>
     <string name="toolkit_op_short_run_in">Arka planda çalışma</string>
     <string name="toolkit_op_short_wake_lock">Wakelock\'lar</string>
-    <string name="toolkit_op_run_any_title">Arka plan etkinliğini engelle</string>
+    <string name="toolkit_op_run_any_title">Arka plan etkinliğini kısıtla</string>
     <string name="toolkit_op_run_any_body">Uygulamanın arka planda çalışmasını durdurur. Siz açana kadar eşitleme yapmayabilir veya bildirim göndermeyebilir.</string>
     <string name="toolkit_op_run_in_title">Arka planda çalışmayı engelle</string>
     <string name="toolkit_op_run_in_body">Uygulamanın kendi arka plan hizmetlerini başlatmasını durdurur.</string>

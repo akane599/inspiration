@@ -7,6 +7,7 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.GridItemSpan
@@ -15,7 +16,6 @@ import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
@@ -23,16 +23,21 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.TextStyle
 import com.akane.inspiration.designsystem.component.EmptyState
 import com.akane.inspiration.designsystem.component.EmptyStateAction
+import com.akane.inspiration.designsystem.component.ScreenHeader
 import com.akane.inspiration.designsystem.component.SemanticDot
 import com.akane.inspiration.designsystem.theme.spacing
+import com.akane.inspiration.designsystem.theme.statusColors
 import com.akane.inspiration.designsystem.theme.telemetryColors
 import java.util.TimeZone
 
@@ -80,8 +85,8 @@ private fun ToolkitBody(state: ToolkitState, onIntent: (ToolkitIntent) -> Unit, 
         horizontalArrangement = Arrangement.spacedBy(spacing.md),
         verticalArrangement = Arrangement.spacedBy(spacing.md),
     ) {
-        fullWidth { Header() }
-        fullWidth { PersistWarning(state = state, onIntent = onIntent) }
+        fullWidth { ScreenHeader(title = stringResource(R.string.toolkit_title), subtitle = stringResource(R.string.toolkit_subtitle)) }
+        fullWidth { PersistWarning() }
         when (state.status) {
             ToolkitPhase.LOADING -> fullWidth { LoadingBlock() }
             ToolkitPhase.FAILED -> fullWidth { ErrorBlock(onIntent) }
@@ -107,26 +112,9 @@ private fun LazyGridScope.ready(state: ToolkitState, onIntent: (ToolkitIntent) -
     appsSection(state.apps, onIntent, loadIcon)
 }
 
+/** Every change here outlives the app, so the warning is always on screen, next to the list that undoes it. */
 @Composable
-private fun Header() {
-    Column(verticalArrangement = Arrangement.spacedBy(MaterialTheme.spacing.xs)) {
-        Text(
-            text = stringResource(R.string.toolkit_title),
-            style = MaterialTheme.typography.headlineMedium,
-            color = MaterialTheme.colorScheme.onSurface,
-            modifier = Modifier.semantics { heading() },
-        )
-        Text(
-            text = stringResource(R.string.toolkit_subtitle),
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
-    }
-}
-
-/** Every change here outlives the app, so the warning is always on screen, next to the way back. */
-@Composable
-private fun PersistWarning(state: ToolkitState, onIntent: (ToolkitIntent) -> Unit) {
+private fun PersistWarning() {
     val spacing = MaterialTheme.spacing
     Surface(
         modifier = Modifier.fillMaxWidth(),
@@ -134,8 +122,8 @@ private fun PersistWarning(state: ToolkitState, onIntent: (ToolkitIntent) -> Uni
         color = MaterialTheme.colorScheme.surfaceContainerHigh,
     ) {
         Column(modifier = Modifier.padding(spacing.md), verticalArrangement = Arrangement.spacedBy(spacing.sm)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                SemanticDot(color = MaterialTheme.telemetryColors.awake)
+            Row(verticalAlignment = Alignment.Top) {
+                LineDot(color = MaterialTheme.statusColors.warning, style = MaterialTheme.typography.titleMedium)
                 Text(
                     text = stringResource(R.string.toolkit_persist_title),
                     style = MaterialTheme.typography.titleMedium,
@@ -148,15 +136,6 @@ private fun PersistWarning(state: ToolkitState, onIntent: (ToolkitIntent) -> Uni
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
-            if (state.status == ToolkitPhase.READY) {
-                OutlinedButton(
-                    onClick = { onIntent(ToolkitIntent.Act(ToolkitRequest.ResetAll)) },
-                    enabled = state.overrides.isNotEmpty() && !state.busy,
-                    modifier = Modifier.filterTouchesWhenObscured(),
-                ) {
-                    Text(stringResource(R.string.toolkit_reset_all))
-                }
-            }
         }
     }
 }
@@ -206,6 +185,7 @@ internal fun BlockedCard(reason: BlockedReason?, onIntent: (ToolkitIntent) -> Un
 
 // ---- small shared pieces -------------------------------------------------------------------------
 
+/** The title of the app sheet; the cards use the shared `CardTitle`. */
 @Composable
 internal fun SectionHeading(text: String, modifier: Modifier = Modifier) {
     Text(
@@ -230,16 +210,27 @@ internal fun LoadingLine(text: String, modifier: Modifier = Modifier) {
     }
 }
 
+/**
+ * A status dot centred on the first line of the text that follows it, so it sits on the text's middle at any
+ * font scale. [style] is the style of that text.
+ */
+@Composable
+internal fun LineDot(color: Color, modifier: Modifier = Modifier, style: TextStyle = MaterialTheme.typography.bodyMedium) {
+    val lineHeight = with(LocalDensity.current) { style.lineHeight.toDp() }
+    Box(modifier = modifier.height(lineHeight), contentAlignment = Alignment.Center) {
+        SemanticDot(color = color)
+    }
+}
+
 /** The result line of the last action: green dot for done, red for refused. A polite live region for TalkBack. */
 @Composable
 internal fun NoticeLine(notice: ToolkitNotice, modifier: Modifier = Modifier) {
-    val telemetry = MaterialTheme.telemetryColors
-    val color = if (notice is ToolkitNotice.Applied) telemetry.deepSleep else telemetry.critical
+    val color = if (notice is ToolkitNotice.Applied) MaterialTheme.statusColors.ok else MaterialTheme.telemetryColors.critical
     Row(
         modifier = modifier.fillMaxWidth().semantics { liveRegion = LiveRegionMode.Polite },
         verticalAlignment = Alignment.Top,
     ) {
-        SemanticDot(color = color, modifier = Modifier.padding(top = MaterialTheme.spacing.sm))
+        LineDot(color = color)
         Text(
             text = noticeText(notice),
             style = MaterialTheme.typography.bodyMedium,

@@ -2,7 +2,6 @@ package com.akane.inspiration.toolkit
 
 import androidx.annotation.StringRes
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.remember
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
@@ -16,26 +15,14 @@ import com.akane.inspiration.telemetry.toolkit.BgDexoptStatus
 import com.akane.inspiration.telemetry.toolkit.ToolkitRefusal
 import com.akane.inspiration.telemetry.toolkit.ToolkitUnavailable
 import com.akane.inspiration.telemetry.toolkit.ToolkitWarning
-import java.text.DateFormat
-import java.util.Date
+import java.time.ZoneId
 import java.util.Locale
-import java.util.TimeZone
 
 private const val MS_PER_SECOND = 1_000L
 private const val MS_PER_MINUTE = 60_000L
 
 @Composable
 internal fun currentLocale(): Locale = LocalConfiguration.current.locales[0] ?: Locale.getDefault()
-
-@Composable
-internal fun timeFormatter(timeZone: TimeZone): DateFormat {
-    val locale = currentLocale()
-    return remember(locale, timeZone) {
-        DateFormat.getDateTimeInstance(DateFormat.SHORT, DateFormat.SHORT, locale).apply { this.timeZone = timeZone }
-    }
-}
-
-internal fun DateFormat.at(ms: Long): String = format(Date(ms))
 
 /** Whole minutes through the shared formatter, anything else in seconds (the doze timers go down to 15 s). */
 @Composable
@@ -232,11 +219,11 @@ internal fun statusRes(status: ToolkitActionStatus): Int = when (status) {
 }
 
 @Composable
-internal fun dexoptStatusText(status: BgDexoptStatus, formatter: DateFormat): String = when (status) {
+internal fun dexoptStatusText(status: BgDexoptStatus, format: TelemetryFormat, zone: ZoneId): String = when (status) {
     BgDexoptStatus.Idle -> stringResource(R.string.toolkit_dexopt_idle)
     is BgDexoptStatus.Running ->
         if (status.startedAtMs > 0) {
-            stringResource(R.string.toolkit_dexopt_running_since, formatter.at(status.startedAtMs))
+            stringResource(R.string.toolkit_dexopt_running_since, format.dateTime(status.startedAtMs, zone))
         } else {
             stringResource(R.string.toolkit_dexopt_running)
         }

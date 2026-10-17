@@ -108,7 +108,7 @@
     <string name="toolkit_op_short_run_any">Background activity</string>
     <string name="toolkit_op_short_run_in">Background running</string>
     <string name="toolkit_op_short_wake_lock">Wakelocks</string>
-    <string name="toolkit_op_run_any_title">Block background activity</string>
+    <string name="toolkit_op_run_any_title">Restrict background activity</string>
     <string name="toolkit_op_run_any_body">Stops the app from running in the background. It may not sync or notify you until you open it.</string>
     <string name="toolkit_op_run_in_title">Block background running</string>
     <string name="toolkit_op_run_in_body">Stops the app from starting background services of its own.</string>
