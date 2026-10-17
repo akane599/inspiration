@@ -21,31 +21,23 @@ object SnapshotDiffer {
 
         val batteryStatsSessionValid = sameBatteryStatsSession(ref, now)
         val kernelCounterSessionValid = sameBootWithIncreasingElapsed(ref, now)
-        var batteryStatsValid = batteryStatsSessionValid
-        var kernelCountersValid = kernelCounterSessionValid
+        val batteryStatsValid = batteryStatsSessionValid
+        val kernelCountersValid = kernelCounterSessionValid
         if (!batteryStatsSessionValid) problems += "battery_stats_session"
         if (!kernelCounterSessionValid) problems += "kernel_clock_session"
 
         val uids = if (batteryStatsSessionValid) {
-            diffUids(ref, now, problems).also { deltas ->
-                if (deltas.any(::hasNegative)) batteryStatsValid = false
-            }
+            diffUids(ref, now, problems)
         } else {
             emptyList()
         }
         val components = if (batteryStatsSessionValid) {
-            diffComponents(ref.deviceComponentsMah, now.deviceComponentsMah, "device_component", problems).also {
-                if (it.values.any { value -> value < 0.0 }) batteryStatsValid = false
-            }
+            diffComponents(ref.deviceComponentsMah, now.deviceComponentsMah, "device_component", problems)
         } else {
             emptyMap()
         }
         val kernelWakelocks = if (kernelCounterSessionValid) {
-            diffKernelWakelocks(ref.kernelWakelocks, now.kernelWakelocks, problems).also {
-                if (it.any { wakelock -> wakelock.durationMs < 0 || wakelock.count < 0 }) {
-                    kernelCountersValid = false
-                }
-            }
+            diffKernelWakelocks(ref.kernelWakelocks, now.kernelWakelocks, problems)
         } else {
             emptyList()
         }
@@ -57,6 +49,10 @@ object SnapshotDiffer {
                 batteryStats = batteryStatsValid,
                 kernelCounters = kernelCountersValid,
                 problems = problems,
+                invalidDeviceComponents = components.filterValues { it < 0.0 }.keys,
+                invalidKernelWakelocks = kernelWakelocks
+                    .filter { it.durationMs < 0 || it.count < 0 }
+                    .mapTo(sortedSetOf()) { it.name },
             ),
             durationMs = now.clock.elapsedRealtimeMs - ref.clock.elapsedRealtimeMs,
             uids = uids,
@@ -104,6 +100,7 @@ object SnapshotDiffer {
                     uid = uid,
                     packageName = previous?.packageName,
                     packageChanged = false,
+                    valid = true,
                     totalMah = 0.0,
                     fgMah = previous?.fgMah?.let { 0.0 },
                     bgMah = previous?.bgMah?.let { 0.0 },
@@ -124,6 +121,7 @@ object SnapshotDiffer {
                     uid = uid,
                     packageName = current.packageName,
                     packageChanged = packageChanged,
+                    valid = true,
                     totalMah = current.totalMah - (baseline?.totalMah ?: 0.0),
                     fgMah = delta(current.fgMah, baseline?.fgMah),
                     bgMah = delta(current.bgMah, baseline?.bgMah),
@@ -137,8 +135,9 @@ object SnapshotDiffer {
                     partialWakelocks = diffUidWakelocks(baseline?.partialWakelocks.orEmpty(), current.partialWakelocks, uid, problems),
                     wakeupAlarms = diffUidAlarms(baseline?.wakeupAlarms.orEmpty(), current.wakeupAlarms, uid, problems),
                 )
-                if (hasNegative(delta)) problems += "negative_uid:$uid"
-                delta
+                val valid = !hasNegative(delta)
+                if (!valid) problems += "negative_uid:$uid"
+                delta.copy(valid = valid)
             }
         }
     }

@@ -288,6 +288,7 @@ class ProbeReceiver : BroadcastReceiver() {
                     .put("durationMs", diff.durationMs)
                     .put("batteryStatsValid", diff.validity.batteryStats)
                     .put("kernelCountersValid", diff.validity.kernelCounters)
+                    .put("invalidUidCount", diff.uids.count { !it.valid })
                     .put("problems", JSONArray(diff.validity.problems)),
             ),
         )

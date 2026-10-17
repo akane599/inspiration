@@ -4,6 +4,7 @@ import com.akane.inspiration.ipc.model.HistoryEvent
 import com.akane.inspiration.ipc.model.HistoryKind
 import com.akane.inspiration.telemetry.capacity.ChargeSegment
 import com.akane.inspiration.telemetry.capacity.SegmentVerdict
+import com.akane.inspiration.telemetry.dump.KernelWakelock
 import com.akane.inspiration.telemetry.dump.UidAlarm
 import com.akane.inspiration.telemetry.snapshot.BatterySnapshot
 import com.akane.inspiration.telemetry.snapshot.BatteryState
@@ -62,15 +63,48 @@ class SnapshotDifferTest {
     }
 
     @Test
-    fun `negative uid delta is reported without clamping`() {
+    fun `negative component is reported without invalidating the battery stats session`() {
         val diff = SnapshotDiffer.diff(
-            snapshot(elapsed = 1_000, uids = listOf(uid(totalMah = 3.0))),
-            snapshot(elapsed = 2_000, duration = 2_000, uids = listOf(uid(totalMah = 2.0))),
+            snapshot(
+                elapsed = 1_000,
+                uids = listOf(
+                    uid(totalMah = 3.0, components = mapOf("SENSORS" to 0.053898)),
+                    uid(uid = 10_002, totalMah = 1.0),
+                ),
+                components = mapOf("SENSORS" to 0.053898),
+            ),
+            snapshot(
+                elapsed = 2_000,
+                duration = 2_000,
+                uids = listOf(
+                    uid(totalMah = 3.0, components = mapOf("SENSORS" to 0.045978)),
+                    uid(uid = 10_002, totalMah = 1.1),
+                ),
+                components = mapOf("SENSORS" to 0.045978),
+            ),
         )
 
-        assertFalse(diff.validity.batteryStats)
-        assertEquals(-1.0, diff.uids.single().totalMah, 0.0)
-        assertTrue(diff.validity.problems.contains("negative_uid:10001"))
+        assertTrue(diff.validity.batteryStats)
+        assertFalse(diff.uids.first().valid)
+        assertTrue(diff.uids.last().valid)
+        assertEquals(setOf("SENSORS"), diff.validity.invalidDeviceComponents)
+        assertEquals(-0.00792, diff.uids.first().componentsMah.getValue("SENSORS"), 0.000_001)
+        assertEquals(0.1, diff.uids.last().totalMah, 0.000_001)
+        assertTrue(diff.validity.problems.contains("negative_uid_component:10001:SENSORS"))
+        assertTrue(diff.validity.problems.contains("negative_device_component:SENSORS"))
+    }
+
+    @Test
+    fun `negative kernel wakelock is reported without invalidating kernel counters session`() {
+        val diff = SnapshotDiffer.diff(
+            snapshot(elapsed = 1_000, kernelWakelocks = listOf(KernelWakelock("sensor", 10, 1))),
+            snapshot(elapsed = 2_000, duration = 2_000, kernelWakelocks = listOf(KernelWakelock("sensor", 9, 1))),
+        )
+
+        assertTrue(diff.validity.kernelCounters)
+        assertEquals(setOf("sensor"), diff.validity.invalidKernelWakelocks)
+        assertEquals(-1, diff.kernelWakelocks.single().durationMs)
+        assertTrue(diff.validity.problems.contains("negative_kernel_wakelock:sensor"))
     }
 
     @Test
@@ -142,6 +176,7 @@ class SnapshotDifferTest {
         systemStart: Long? = null,
         uids: List<UidSnapshot> = emptyList(),
         components: Map<String, Double> = emptyMap(),
+        kernelWakelocks: List<KernelWakelock> = emptyList(),
         level: Int? = null,
         discharged: Double? = null,
     ) = BatterySnapshot(
@@ -153,7 +188,7 @@ class SnapshotDifferTest {
         system = systemStart?.let { start -> systemTimers(start) },
         uids = uids,
         deviceComponentsMah = components,
-        kernelWakelocks = emptyList(),
+        kernelWakelocks = kernelWakelocks,
         wakeupReasons = emptyList(),
         cpuFreq = emptyList(),
         availability = emptyMap(),
@@ -161,11 +196,12 @@ class SnapshotDifferTest {
     )
 
     private fun uid(
+        uid: Int = 10_001,
         totalMah: Double,
         packageName: String = "package",
         components: Map<String, Double> = emptyMap(),
     ) = UidSnapshot(
-        uid = 10_001,
+        uid = uid,
         packageName = packageName,
         totalMah = totalMah,
         fgMah = null,
