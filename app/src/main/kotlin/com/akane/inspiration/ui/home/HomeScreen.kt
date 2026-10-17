@@ -20,7 +20,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.akane.inspiration.R
-import com.akane.inspiration.ui.theme.spacing
+import com.akane.inspiration.designsystem.theme.spacing
 
 @Composable
 fun HomeRoute(viewModel: HomeViewModel = viewModel()) {

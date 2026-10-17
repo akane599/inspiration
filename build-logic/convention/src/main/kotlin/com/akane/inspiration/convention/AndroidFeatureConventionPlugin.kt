@@ -11,6 +11,7 @@ class AndroidFeatureConventionPlugin : Plugin<Project> {
 
         val libs = extensions.getByType<VersionCatalogsExtension>().named("libs")
         dependencies.apply {
+            add("implementation", project(":core:designsystem"))
             add("implementation", project(":core:telemetry-engine"))
             add("implementation", project(":core:diagnostics"))
             add("implementation", libs.findLibrary("androidx-lifecycle-viewmodel-compose").get())

@@ -38,6 +38,7 @@ dependencies {
     implementation(project(":feature:sleeplab"))
     implementation(project(":feature:health"))
     implementation(project(":feature:toolkit"))
+    implementation(project(":core:designsystem"))
     implementation(project(":core:shizuku-ipc"))
     implementation(project(":core:telemetry-engine"))
     implementation(project(":core:database"))
