@@ -15,6 +15,12 @@ import com.akane.inspiration.ipc.toolkit.StandbyBucket
 import com.akane.inspiration.telemetry.store.SnapshotStore
 import com.akane.inspiration.telemetry.store.ToolkitActionRecord
 import com.akane.inspiration.telemetry.store.ToolkitActionStatus
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -22,8 +28,10 @@ import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withContext
 
 /** Client-side result codes stored in `toolkit_action.code`; they sit above the service's [ToolkitCode] range. */
 object ToolkitClientCode {
@@ -33,10 +41,22 @@ object ToolkitClientCode {
 
     /** A PENDING row whose effect cannot be read back (force-stop), so it is never reported as done. */
     const val UNVERIFIED = 103
+
+    /**
+     * A DONE write whose service reply carried no "before" value (appop, bucket). The change happened and is
+     * recorded as DONE, but it cannot be restored, so it is flagged rather than reported as a failure.
+     */
+    const val BEFORE_MISSING = 104
+
+    /** The privileged call threw after the PENDING row existed; the row is finalized FAILED and the error rethrown. */
+    const val WRITE_ERROR = 105
 }
 
-/** The privileged calls [ToolkitActions] needs. [GatewayBackend] adapts the raw [ToolkitGateway]. */
-interface ToolkitBackend {
+/**
+ * The privileged calls [ToolkitActions] needs. [GatewayBackend] adapts the raw [ToolkitGateway]. Internal:
+ * a feature that could build one could write without confirmation or an audit row.
+ */
+internal interface ToolkitBackend {
     suspend fun setAppOp(pkg: String, op: AppOp, mode: AppOpMode): GatewayReply<ToolkitResult>
 
     suspend fun getAppOps(pkg: String): GatewayReply<ToolkitResult>
@@ -60,7 +80,7 @@ interface ToolkitBackend {
     suspend fun cancelBgDexopt(): GatewayReply<ToolkitResult>
 }
 
-class GatewayBackend(private val gateway: ToolkitGateway) : ToolkitBackend {
+internal class GatewayBackend(private val gateway: ToolkitGateway) : ToolkitBackend {
     override suspend fun setAppOp(pkg: String, op: AppOp, mode: AppOpMode) = gateway.setAppOp(pkg, op, mode)
 
     override suspend fun getAppOps(pkg: String) = gateway.getAppOps(pkg)
@@ -87,7 +107,7 @@ class GatewayBackend(private val gateway: ToolkitGateway) : ToolkitBackend {
 }
 
 /** The slice of [SnapshotStore] the audit log uses. */
-interface ToolkitAuditStore {
+internal interface ToolkitAuditStore {
     suspend fun insert(record: ToolkitActionRecord): Long
 
     suspend fun update(record: ToolkitActionRecord)
@@ -99,7 +119,7 @@ interface ToolkitAuditStore {
     suspend fun pending(): List<ToolkitActionRecord>
 }
 
-class SnapshotStoreAudit(private val store: SnapshotStore) : ToolkitAuditStore {
+internal class SnapshotStoreAudit(private val store: SnapshotStore) : ToolkitAuditStore {
     override suspend fun insert(record: ToolkitActionRecord) = store.insertToolkitAction(record)
 
     override suspend fun update(record: ToolkitActionRecord) = store.updateToolkitAction(record)
@@ -118,21 +138,36 @@ class SnapshotStoreAudit(private val store: SnapshotStore) : ToolkitAuditStore {
  * Reads (plan, appState, overrides) go to the service every time: the audit log is history, not state.
  *
  * Nothing polls on its own. The flows re-read when this object changes something, and the dexopt
- * status flow re-reads on a timer only while a job is RUNNING and the flow is collected.
+ * status flow re-reads on a timer only while a job is RUNNING and the flow is collected. The one other
+ * timer is the hold supervisor: while the dexopt binding hold is taken (job RUNNING, user-initiated) it
+ * re-checks the status once a minute so the hold ends with the job even when nothing is collecting.
+ *
+ * Once a PENDING row exists, the privileged write, its settlement and the RESTORED update of a restored
+ * original run to completion even if the calling coroutine is cancelled.
+ *
+ * The primary constructor and the backend/audit seams are internal, so a feature cannot build an instance
+ * that skips confirmation or the audit log; the container uses the gateway constructor.
  */
-class ToolkitActions(
+class ToolkitActions internal constructor(
     private val backend: ToolkitBackend,
     private val audit: ToolkitAuditStore,
     private val holdBinding: () -> AutoCloseable,
     private val nowMs: () -> Long = System::currentTimeMillis,
     private val dexoptPollMs: Long = DEFAULT_DEXOPT_POLL_MS,
+    private val supervisorScope: CoroutineScope = defaultSupervisorScope(),
+    private val holdCheckMs: Long = DEFAULT_HOLD_CHECK_MS,
 ) {
+    /**
+     * The production constructor. [supervisorScope] outlives any screen: it runs the bounded supervisor that
+     * releases the dexopt binding hold when the job ends, whether or not anything is collecting.
+     */
     constructor(
         gateway: ToolkitGateway,
         store: SnapshotStore,
         holdBinding: () -> AutoCloseable,
         nowMs: () -> Long = System::currentTimeMillis,
-    ) : this(GatewayBackend(gateway), SnapshotStoreAudit(store), holdBinding, nowMs)
+        supervisorScope: CoroutineScope = defaultSupervisorScope(),
+    ) : this(GatewayBackend(gateway), SnapshotStoreAudit(store), holdBinding, nowMs, supervisorScope = supervisorScope)
 
     /** Serializes execute, restore, reconcile and status handling so a PENDING row is never seen half-written. */
     private val mutex = Mutex()
@@ -145,6 +180,7 @@ class ToolkitActions(
 
     private val holdLock = Any()
     private var dexoptHold: AutoCloseable? = null
+    private var holdSupervisor: Job? = null
 
     // ---- reads -----------------------------------------------------------------------------
 
@@ -243,17 +279,36 @@ class ToolkitActions(
 
     // ---- bg-dexopt -------------------------------------------------------------------------
 
-    suspend fun startBgDexopt(): ToolkitOutcome<ToolkitActionRecord> = mutex.withLock {
-        val pending = insertPending(Spec(KIND_DEXOPT, null, OP_BG_DEXOPT, null), restoresId = null, beforeRaw = null)
-        val reply = backend.startBgDexopt()
-        val outcome = settle(pending, reply, requireBefore = true, keepPendingOnDone = true)
-        if (outcome is ToolkitOutcome.Done) {
-            syncHold(running = true)
-            supersedeOtherDexoptRows(outcome.value.id)
-            dexoptEvents.value += 1
+    /**
+     * The PENDING row is inserted under the client lock, the service call (which includes the plugged
+     * probes and can take seconds) runs outside it so cancel, status and reads are not blocked, and the
+     * result is settled under the lock again. Once the row exists the rest runs to completion even if
+     * the caller is cancelled, so the hold is taken and the row never stays PENDING without an owner.
+     */
+    suspend fun startBgDexopt(): ToolkitOutcome<ToolkitActionRecord> = withContext(NonCancellable) {
+        val pending = mutex.withLock {
+            insertPending(Spec(KIND_DEXOPT, null, OP_BG_DEXOPT, null), restoresId = null, beforeRaw = null)
         }
-        changes.value += 1
-        outcome
+        val reply = try {
+            backend.startBgDexopt()
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Throwable) {
+            mutex.withLock { failPending(pending) }
+            changes.value += 1
+            throw e
+        }
+        mutex.withLock {
+            // The "before" value is not used for anything on a dexopt row, so its absence is not an error.
+            val outcome = settle(pending, reply, requireBefore = false, keepPendingOnDone = true)
+            if (outcome is ToolkitOutcome.Done) {
+                syncHold(running = true)
+                supersedeOtherDexoptRows(outcome.value.id)
+                dexoptEvents.value += 1
+            }
+            changes.value += 1
+            outcome
+        }
     }
 
     /** Cancel is system-side and idempotent, so it is valid whether or not this process started the job. */
@@ -411,15 +466,34 @@ class ToolkitActions(
         if (!confirmed && prep.warnings().isNotEmpty()) {
             return refuse(spec, restoresId, ToolkitRefusal.NOT_CONFIRMED, ToolkitClientCode.NOT_CONFIRMED)
         }
-        // Write-ahead: the PENDING row exists before the privileged call is made.
-        val pending = insertPending(spec, restoresId, beforeRaw = if (action is ToolkitAction.ForceStop) null else prep.current)
-        val reply = write(action, prep)
-        val outcome = settle(pending, reply, requireBefore = spec.kind != KIND_DOZE, keepPendingOnDone = false)
-        if (outcome is ToolkitOutcome.Done && restoring != null) {
-            audit.update(restoring.copy(status = ToolkitActionStatus.RESTORED))
+        // Write-ahead: the PENDING row exists before the privileged call is made. From the insert on, the
+        // whole sequence (write, settle, RESTORED update) must finish even if the caller is cancelled (a
+        // screen left mid-write): a cancelled caller must not leave a changed system with a PENDING row that
+        // `activeOverrides` cannot see, or an original that can be restored twice.
+        return withContext(NonCancellable) {
+            val before = if (action is ToolkitAction.ForceStop) null else prep.current
+            val pending = insertPending(spec, restoresId, beforeRaw = before)
+            val reply = try {
+                write(action, prep)
+            } catch (e: CancellationException) {
+                // Not ours to settle: whether the write happened is unknown, so reconcile() reads it back.
+                throw e
+            } catch (e: Throwable) {
+                failPending(pending)
+                changes.value += 1
+                throw e
+            }
+            val outcome = settle(pending, reply, requireBefore = spec.kind != KIND_DOZE, keepPendingOnDone = false)
+            if (outcome is ToolkitOutcome.Done && restoring != null) {
+                audit.update(restoring.copy(status = ToolkitActionStatus.RESTORED))
+            }
+            changes.value += 1
+            outcome
         }
-        changes.value += 1
-        return outcome
+    }
+
+    private suspend fun failPending(pending: ToolkitActionRecord) {
+        audit.update(pending.copy(status = ToolkitActionStatus.FAILED, endedAt = nowMs(), code = ToolkitClientCode.WRITE_ERROR))
     }
 
     private suspend fun write(action: ToolkitAction, prep: Prep.Ok): GatewayReply<ToolkitResult> = when (action) {
@@ -502,14 +576,12 @@ class ToolkitActions(
         requireBefore: Boolean,
         keepPendingOnDone: Boolean,
     ): ToolkitOutcome<ToolkitActionRecord> {
-        // A success without a recorded "before" could not be reversed: never write it as DONE.
-        if (requireBefore && result.beforeRaw == null) {
-            val failed = finished(pending, ToolkitActionStatus.FAILED, result, now).copy(code = ToolkitCode.PARSE)
-            audit.update(failed)
-            return ToolkitOutcome.Failed(ToolkitCode.PARSE)
-        }
         val status = if (keepPendingOnDone) ToolkitActionStatus.PENDING else ToolkitActionStatus.DONE
-        val done = finished(pending, status, result, now).copy(endedAt = if (keepPendingOnDone) null else now)
+        // A success without a recorded "before" happened but cannot be reversed. It is still DONE (the log must
+        // not say a change that took effect failed); the distinct code marks it unrestorable.
+        val beforeMissing = requireBefore && result.beforeRaw == null
+        val code = if (beforeMissing) ToolkitClientCode.BEFORE_MISSING else result.code
+        val done = finished(pending, status, result, now).copy(endedAt = if (keepPendingOnDone) null else now, code = code)
         audit.update(done)
         return ToolkitOutcome.Done(done)
     }
@@ -672,7 +744,15 @@ class ToolkitActions(
         currentRaw = current,
         previousRaw = row.beforeRaw,
         sinceMs = row.endedAt ?: row.startedAt,
+        restorable = isRestorable(row),
     )
+
+    /** Whether [decodeRestore] could turn this row's recorded previous value back into an action. */
+    private fun isRestorable(row: ToolkitActionRecord): Boolean = when (row.kind) {
+        KIND_APPOP -> row.beforeRaw?.let { modeOf(it) } != null
+        KIND_BUCKET -> StandbyBucket.entries.any { it.rawValue.toString() == row.beforeRaw }
+        else -> true
+    }
 
     // ---- reconcile -------------------------------------------------------------------------
 
@@ -756,7 +836,7 @@ class ToolkitActions(
             is GatewayReply.Reply -> reply.value
         }
         val status = statusOf(service)
-        syncHold(running = status is BgDexoptStatus.Running)
+        syncHold(running = status is BgDexoptStatus.Running, startedAtMs = (status as? BgDexoptStatus.Running)?.startedAtMs ?: 0L)
         if (pending.isNotEmpty()) {
             when (status) {
                 is BgDexoptStatus.Finished -> finalizeDexoptRows(
@@ -814,14 +894,47 @@ class ToolkitActions(
         }
     }
 
-    private fun syncHold(running: Boolean) {
+    /**
+     * Keeps the binding hold in step with the job. Taking the hold also starts [superviseHold], which ends it
+     * on any terminal status or at the cap, so the hold cannot outlive the job when nothing is collecting.
+     * [startedAtMs] is the service's wall-clock job start when known (0 = just started, use now).
+     */
+    private fun syncHold(running: Boolean, startedAtMs: Long = 0L) {
         synchronized(holdLock) {
             if (running) {
-                if (dexoptHold == null) dexoptHold = holdBinding()
+                if (dexoptHold == null) {
+                    dexoptHold = holdBinding()
+                    val deadline = (startedAtMs.takeIf { it > 0 } ?: nowMs()) + DEXOPT_CAP_MS + DEXOPT_CAP_MARGIN_MS
+                    holdSupervisor = supervisorScope.launch { superviseHold(deadline) }
+                }
             } else {
+                holdSupervisor?.cancel()
+                holdSupervisor = null
                 dexoptHold?.close()
                 dexoptHold = null
             }
+        }
+    }
+
+    private fun holdTaken(): Boolean = synchronized(holdLock) { dexoptHold != null }
+
+    /**
+     * Re-reads the job status every [holdCheckMs], only while the hold is taken (so only while the job is
+     * RUNNING, and with nobody collecting). [refreshDexoptLocked] releases the hold on any terminal status;
+     * at [deadlineMs] (the service's own 60-minute cap plus a margin) the hold is dropped even if the service
+     * cannot be asked, leaving the rows PENDING for the next status read or [reconcile].
+     */
+    private suspend fun superviseHold(deadlineMs: Long) {
+        while (true) {
+            delay(holdCheckMs)
+            if (nowMs() >= deadlineMs) {
+                syncHold(running = false)
+                return
+            }
+            // A terminal status makes the refresh release the hold, which cancels this very job; the row
+            // updates that follow in the same refresh must still complete.
+            withContext(NonCancellable) { mutex.withLock { refreshDexoptLocked() } }
+            if (!holdTaken()) return
         }
     }
 
@@ -912,6 +1025,15 @@ class ToolkitActions(
 
     private companion object {
         const val DEFAULT_DEXOPT_POLL_MS = 5_000L
+
+        /** How often the hold supervisor re-checks a RUNNING job nobody is watching. */
+        const val DEFAULT_HOLD_CHECK_MS = 60_000L
+
+        /** The service's own job cap (`BgDexoptController.CAP_MS`), plus slack for its wind-down. */
+        const val DEXOPT_CAP_MS = 60L * 60_000L
+        const val DEXOPT_CAP_MARGIN_MS = 2L * 60_000L
+
+        fun defaultSupervisorScope(): CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
         const val MAX_ROWS = 500
 
         const val KIND_APPOP = "appop"

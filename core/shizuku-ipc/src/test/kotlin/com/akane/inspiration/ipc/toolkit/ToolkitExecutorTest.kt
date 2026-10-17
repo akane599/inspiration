@@ -4,6 +4,7 @@ import com.akane.inspiration.ipc.model.ToolkitCode
 import com.akane.inspiration.ipc.model.ToolkitResult
 import com.akane.inspiration.ipc.model.ToolkitStatus
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -386,12 +387,15 @@ class ToolkitExecutorTest {
     }
 
     @Test
-    fun `restoreDozeRaw refuses unknown keys non numeric values duplicates and over long strings`() {
+    fun `restoreDozeRaw refuses malformed keys non numeric values duplicates and over long strings`() {
         val device = FakeDozeDevice(raw = "a=1")
         val executor = dozeExecutor(device)
         val rejected = listOf(
-            "foo=1",
-            "inactive_to=1000,foo=1",
+            "Foo=1",
+            "1foo=1",
+            "foo-bar=1",
+            "inactive_to=1000,Foo=1",
+            "${"k".repeat(65)}=1",
             "inactive_to=abc",
             "inactive_to=-1",
             "inactive_to=",
@@ -454,20 +458,51 @@ class ToolkitExecutorTest {
     }
 
     @Test
-    fun `restoreDozeRaw accepts a controlled key string and a value the executor itself read`() {
-        val device = FakeDozeDevice(raw = "oem_key=5")
-        val executor = dozeExecutor(device)
+    fun `restoreDozeRaw replays a Samsung-style OEM key after a service restart`() {
+        // A fresh executor has not read anything, so only the key grammar can admit this value.
+        val samsungPrior = "sec_deep_idle_to=300000,sec_motion_wait_to=45000,inactive_to=1800000,sec_flag_2=true"
+        assertTrue(DozeRaw.isRestorable(samsungPrior))
+        val device = FakeDozeDevice(raw = DozeProfile.BALANCED.constants)
 
-        // Not yet read by this executor and not a controlled key: refused.
-        assertEquals(ToolkitCode.ARG_VALUE, executor.restoreDozeRaw("oem_key=5", "oem_key=5").code)
-
-        // Applying a profile reads the prior raw value, which makes it replayable.
-        executor.applyDozeProfile(DozeProfile.BALANCED.code, "oem_key=5")
-        val restored = executor.restoreDozeRaw("oem_key=5", DozeProfile.BALANCED.constants)
+        val restored = dozeExecutor(device).restoreDozeRaw(samsungPrior, DozeProfile.BALANCED.constants)
 
         assertEquals(ToolkitStatus.DONE, restored.status)
-        assertEquals("oem_key=5", device.raw)
-        assertEquals(ToolkitStatus.DONE, executor.restoreDozeRaw("sensing_to=0,inactive_to=60000", "oem_key=5").status)
+        assertEquals(samsungPrior, device.raw)
+        assertEquals(
+            listOf(CMD, "settings", "put", "--user", "0", "global", "device_idle_constants", samsungPrior),
+            device.writes.single(),
+        )
+    }
+
+    @Test
+    fun `isRestorable accepts identifier keys only and still rejects bad pairs`() {
+        assertTrue(DozeRaw.isRestorable("a=1"))
+        assertTrue(DozeRaw.isRestorable("${"k".repeat(64)}=1"))
+        assertFalse(DozeRaw.isRestorable("${"k".repeat(65)}=1"))
+        assertFalse(DozeRaw.isRestorable("1key=1"))
+        assertFalse(DozeRaw.isRestorable("_key=1"))
+        assertFalse(DozeRaw.isRestorable("Key=1"))
+        assertFalse(DozeRaw.isRestorable("key-x=1"))
+        assertFalse(DozeRaw.isRestorable("oem_key=1,oem_key=2"))
+        assertFalse(DozeRaw.isRestorable("oem_key=-1"))
+    }
+
+    @Test
+    fun `restoreDozeRaw accepts a value the executor itself read even when it is not well formed`() {
+        // Safe characters but not a key=number pair list, so only the read-back memory admits it.
+        val odd = "oem_key=5.5.5"
+        val device = FakeDozeDevice(raw = odd)
+        val executor = dozeExecutor(device)
+
+        assertEquals(ToolkitCode.ARG_VALUE, executor.restoreDozeRaw(odd, odd).code)
+
+        // Applying a profile reads the prior raw value, which makes it replayable.
+        executor.applyDozeProfile(DozeProfile.BALANCED.code, odd)
+        val restored = executor.restoreDozeRaw(odd, DozeProfile.BALANCED.constants)
+
+        assertEquals(ToolkitStatus.DONE, restored.status)
+        assertEquals(odd, device.raw)
+        assertEquals(ToolkitStatus.DONE, executor.restoreDozeRaw("sensing_to=0,inactive_to=60000", odd).status)
     }
 
     @Test

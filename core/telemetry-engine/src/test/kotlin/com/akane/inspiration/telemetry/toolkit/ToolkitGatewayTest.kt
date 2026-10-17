@@ -14,8 +14,11 @@ import com.akane.inspiration.ipc.toolkit.AppOpMode
 import com.akane.inspiration.ipc.toolkit.DozeProfile
 import com.akane.inspiration.ipc.toolkit.StandbyBucket
 import java.lang.reflect.Proxy
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.test.advanceTimeBy
+import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -163,6 +166,28 @@ class ToolkitGatewayTest {
 
         dexoptState = BgDexoptState.FINISHED
         gateway.bgDexoptStatus()
+        assertEquals(0, shizuku.openHolds)
+    }
+
+    @OptIn(ExperimentalCoroutinesApi::class)
+    @Test
+    fun `the in-session hold is only a bridge and lapses by itself when nothing renews it`() = runTest {
+        val bridged = ToolkitGateway(shizuku, holdBridgeScope = backgroundScope)
+
+        bridged.startBgDexopt()
+        assertEquals(1, shizuku.openHolds)
+
+        // each RUNNING read renews the bridge, so it outlives the first window while someone keeps asking
+        advanceTimeBy(10_000)
+        bridged.bgDexoptStatus()
+        advanceTimeBy(10_000)
+        runCurrent()
+        assertEquals(1, shizuku.holds)
+        assertEquals(1, shizuku.openHolds)
+
+        // nobody asks again (the screen left and ToolkitActions' own supervised hold took over): it lapses
+        advanceTimeBy(60_000)
+        runCurrent()
         assertEquals(0, shizuku.openHolds)
     }
 
