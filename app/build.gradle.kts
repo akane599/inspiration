@@ -52,6 +52,8 @@ dependencies {
     implementation(libs.androidx.compose.material3)
     implementation(libs.kotlinx.collections.immutable)
     debugImplementation(libs.androidx.compose.ui.tooling)
+    debugImplementation(project(":core:telemetry-engine"))
+    debugImplementation(libs.shizuku.api)
 
     testImplementation(libs.junit)
     testImplementation(libs.kotlinx.coroutines.test)

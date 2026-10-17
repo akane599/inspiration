@@ -1,0 +1,13 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <application>
+        <receiver
+            android:name=".debug.ProbeReceiver"
+            android:exported="true"
+            android:permission="android.permission.DUMP">
+            <intent-filter>
+                <action android:name="com.akane.inspiration.debug.PROBE" />
+                <action android:name="com.akane.inspiration.debug.PROBE_REQUEST_PERMISSION" />
+            </intent-filter>
+        </receiver>
+    </application>
+</manifest>
