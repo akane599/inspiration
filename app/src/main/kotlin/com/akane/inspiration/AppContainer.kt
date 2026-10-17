@@ -2,6 +2,11 @@ package com.akane.inspiration
 
 import android.content.Context
 import com.akane.inspiration.database.InspirationDatabase
+import com.akane.inspiration.diagnostics.R as DiagnosticsR
+import com.akane.inspiration.diagnostics.dictionary.DiagnosticDictionary
+import com.akane.inspiration.diagnostics.dictionary.DictionaryLoader
+import com.akane.inspiration.diagnostics.rules.DiagnosticRuleEngine
+import com.akane.inspiration.diagnostics.sensor.AndroidSensorCatalog
 import com.akane.inspiration.database.store.RoomSnapshotStore
 import com.akane.inspiration.ipc.ShizukuManager
 import com.akane.inspiration.ipc.ShizukuManagerImpl
@@ -30,4 +35,12 @@ class AppContainer(context: Context) {
         store = store,
         clocks = clocks,
     )
+
+    /** Parses the bundled dictionary on first access (disk read): call from IO, never the main thread. */
+    val dictionary: DiagnosticDictionary by lazy {
+        val json = appContext.resources.openRawResource(DiagnosticsR.raw.diagnostic_dictionary)
+            .bufferedReader().use { it.readText() }
+        DiagnosticDictionary(DictionaryLoader.parse(json))
+    }
+    val ruleEngine: DiagnosticRuleEngine by lazy { DiagnosticRuleEngine(AndroidSensorCatalog(appContext)) }
 }

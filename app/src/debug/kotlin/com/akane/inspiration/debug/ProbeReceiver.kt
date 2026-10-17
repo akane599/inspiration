@@ -10,6 +10,16 @@ import android.os.SystemClock
 import android.database.sqlite.SQLiteDatabase
 import android.util.Log
 import com.akane.inspiration.InspirationApplication
+import com.akane.inspiration.diagnostics.dictionary.DiagnosticDictionary
+import com.akane.inspiration.diagnostics.dictionary.EntryKind
+import com.akane.inspiration.diagnostics.model.AwakeViolation
+import com.akane.inspiration.diagnostics.model.Insight
+import com.akane.inspiration.diagnostics.model.ModemDrain
+import com.akane.inspiration.diagnostics.model.NightVampire
+import com.akane.inspiration.diagnostics.model.SensorLeak
+import com.akane.inspiration.diagnostics.rules.DiagnosticInput
+import com.akane.inspiration.diagnostics.story.AndroidStoryWriter
+import com.akane.inspiration.diagnostics.story.BatteryStoryBuilder
 import com.akane.inspiration.ipc.ShizukuState
 import com.akane.inspiration.ipc.client.BatteryStatsClient
 import com.akane.inspiration.ipc.model.DumpTarget
@@ -18,7 +28,12 @@ import com.akane.inspiration.telemetry.calibration.PowerCalibrator
 import com.akane.inspiration.telemetry.diff.ReferenceKind
 import com.akane.inspiration.telemetry.diff.ReferenceResolver
 import com.akane.inspiration.telemetry.diff.SnapshotDiffer
+import com.akane.inspiration.telemetry.interval.IntervalMetrics
+import com.akane.inspiration.telemetry.interval.IntervalMetricsCalculator
+import com.akane.inspiration.telemetry.snapshot.BatterySnapshot
 import com.akane.inspiration.telemetry.snapshot.CaptureTrigger
+import com.akane.inspiration.telemetry.snapshot.SnapshotKind
+import com.akane.inspiration.telemetry.store.SnapshotStore
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.TimeoutCancellationException
@@ -29,6 +44,7 @@ import org.json.JSONObject
 import rikka.shizuku.ShizukuBinderWrapper
 import rikka.shizuku.SystemServiceHelper
 import java.io.InputStream
+import java.util.Locale
 
 class ProbeReceiver : BroadcastReceiver() {
     override fun onReceive(
@@ -36,7 +52,7 @@ class ProbeReceiver : BroadcastReceiver() {
         intent: Intent,
     ) {
         val action = intent.action ?: return
-        if (action !in setOf(ACTION_PROBE, ACTION_PROBE_CAPTURE, ACTION_PROBE_DIFF, ACTION_REQUEST_PERMISSION)) return
+        if (action !in ACTIONS) return
 
         val pendingResult = goAsync()
         CoroutineScope(Dispatchers.IO).launch {
@@ -46,6 +62,7 @@ class ProbeReceiver : BroadcastReceiver() {
                         ACTION_PROBE -> runProbe(context.applicationContext)
                         ACTION_PROBE_CAPTURE -> probeCapture(context.applicationContext)
                         ACTION_PROBE_DIFF -> probeDiff(context.applicationContext, intent)
+                        ACTION_PROBE_INSIGHTS -> probeInsights(context.applicationContext, intent)
                         ACTION_REQUEST_PERMISSION -> requestPermission(context.applicationContext)
                     }
                 }
@@ -262,23 +279,182 @@ class ProbeReceiver : BroadcastReceiver() {
         logJournalMode(app)
     }
 
-    private suspend fun probeDiff(context: Context, intent: Intent) {
-        val app = context as InspirationApplication
-        val store = app.appContainer.store
+    /** The snapshot pair a diff probe works on, with the covered bounds and per-UID availability. */
+    private class ProbeDiffInput(
+        val ref: BatterySnapshot,
+        val now: BatterySnapshot,
+        val coveredFromWallMs: Long,
+        val coveredToWallMs: Long,
+        val perUidAvailable: Boolean,
+    )
+
+    /** Resolves the PROBE_DIFF / PROBE_INSIGHTS snapshot pair; logs the reason under [section] when none exists. */
+    private suspend fun resolveProbeDiffInput(store: SnapshotStore, intent: Intent, section: String): ProbeDiffInput? {
         val latest = store.latest()
         if (latest == null) {
-            log(JSONObject().put("diff", JSONObject().put("available", false).put("reason", "no_snapshots")))
-            return
+            log(JSONObject().put(section, JSONObject().put("available", false).put("reason", "no_snapshots")))
+            return null
         }
-        val reference = intent.getStringExtra(EXTRA_REFERENCE_KIND)
+        val resolved = intent.getStringExtra(EXTRA_REFERENCE_KIND)
             ?.let(::referenceKind)
-            ?.let { ReferenceResolver(store).resolve(it, latest.clock.wallMs)?.let { resolved -> resolved.ref to resolved.now } }
-            ?: store.lastAtOrBefore(latest.clock.wallMs - 1, null)?.let { it to latest }
-        if (reference == null) {
-            log(JSONObject().put("diff", JSONObject().put("available", false).put("reason", "no_reference")))
-            return
+            ?.let { ReferenceResolver(store).resolve(it, latest.clock.wallMs) }
+        val input = if (resolved != null) {
+            ProbeDiffInput(
+                resolved.ref,
+                resolved.now,
+                resolved.coveredFromWallMs,
+                resolved.coveredToWallMs,
+                resolved.perUidAvailable,
+            )
+        } else {
+            store.lastAtOrBefore(latest.clock.wallMs - 1, null)?.let { ref ->
+                ProbeDiffInput(
+                    ref,
+                    latest,
+                    ref.clock.wallMs,
+                    latest.clock.wallMs,
+                    ref.kind == SnapshotKind.FULL && latest.kind == SnapshotKind.FULL,
+                )
+            }
         }
-        val diff = SnapshotDiffer.diff(reference.first, reference.second)
+        if (input == null) {
+            log(JSONObject().put(section, JSONObject().put("available", false).put("reason", "no_reference")))
+        }
+        return input
+    }
+
+    // Usage: adb shell am broadcast -a com.akane.inspiration.debug.PROBE_INSIGHTS [--es reference_kind since_unplugged] -n com.akane.inspiration/.debug.ProbeReceiver
+    private suspend fun probeInsights(context: Context, intent: Intent) {
+        val app = context as InspirationApplication
+        val container = app.appContainer
+        val input = resolveProbeDiffInput(container.store, intent, "insights") ?: return
+        val diff = SnapshotDiffer.diff(input.ref, input.now)
+        val events = container.store.historyBetween(0, Long.MAX_VALUE).sortedBy { it.wallMs }
+        val metrics = IntervalMetricsCalculator.compute(events, input.coveredFromWallMs, input.coveredToWallMs)
+        val report = container.ruleEngine.evaluate(DiagnosticInput(diff, metrics, input.perUidAvailable))
+        val story = BatteryStoryBuilder().build(metrics, diff.sleep, report)
+
+        log(JSONObject().put("insightsMetrics", metrics.toJson().put("perUidAvailable", input.perUidAvailable)))
+        report.insights.forEach { log(JSONObject().put("insight", it.toJson())) }
+        log(
+            JSONObject().put(
+                "insightsReport",
+                JSONObject()
+                    .put("count", report.insights.size)
+                    .put("notEvaluable", JSONObject().apply { report.notEvaluable.forEach { (rule, why) -> put(rule.name, why) } })
+                    .put("skippedInvalidUids", report.skippedInvalidUids),
+            ),
+        )
+        log(
+            JSONObject().put(
+                "story",
+                JSONObject()
+                    .put("sentences", JSONArray(story.sentences.map { it.javaClass.simpleName }))
+                    .put("en", AndroidStoryWriter(app).render(story, Locale.ENGLISH)),
+            ),
+        )
+
+        val dictionary = container.dictionary
+        val partials = diff.uids.filter { it.valid }
+            .flatMap { it.partialWakelocks }
+            .groupBy { it.name }
+            .mapValues { (_, locks) -> locks.sumOf { it.durationMs } }
+            .entries.sortedByDescending { it.value }.take(TOP_LOOKUPS)
+        val kernels = diff.kernelWakelocks.sortedByDescending { it.durationMs }.take(TOP_LOOKUPS)
+        log(
+            JSONObject().put(
+                "dictionary",
+                JSONObject()
+                    .put("partial", dictionaryLookups(dictionary, EntryKind.PARTIAL, partials.map { it.key to it.value }))
+                    .put("kernel", dictionaryLookups(dictionary, EntryKind.KERNEL, kernels.map { it.name to it.durationMs })),
+            ),
+        )
+    }
+
+    private fun dictionaryLookups(
+        dictionary: DiagnosticDictionary,
+        kind: EntryKind,
+        names: List<Pair<String, Long>>,
+    ): JSONArray = JSONArray().apply {
+        names.forEach { (name, durationMs) ->
+            val explanation = dictionary.explain(kind, name, Locale.ENGLISH)
+            put(
+                JSONObject()
+                    .put("name", name)
+                    .put("durationMs", durationMs)
+                    .putNullable("id", explanation?.id)
+                    .putNullable("title", explanation?.title),
+            )
+        }
+    }
+
+    private fun IntervalMetrics.toJson(): JSONObject =
+        JSONObject()
+            .put("fromWallMs", fromWallMs)
+            .put("toWallMs", toWallMs)
+            .put("screenOnMs", screenOnMs)
+            .put("screenOffMs", screenOffMs)
+            .put("unknownMs", unknownMs)
+            .put("chargingMs", chargingMs)
+            .putNullable("startLevel", startLevel)
+            .putNullable("endLevel", endLevel)
+            .put("levelUsedPct", levelUsedPct)
+            .put("levelDropScreenOn", levelDropScreenOn)
+            .put("levelDropScreenOff", levelDropScreenOff)
+            .putNullable("screenOnPctPerHour", screenOnPctPerHour)
+            .putNullable("screenOffPctPerHour", screenOffPctPerHour)
+            .put("discontinuities", JSONArray(discontinuities))
+
+    private fun Insight.toJson(): JSONObject {
+        val json = JSONObject()
+            .put("rule", rule.name)
+            .put("severity", severity.name)
+            .putNullable("uid", subjectUid)
+        when (this) {
+            is NightVampire -> json
+                .putNullable("packageName", packageName)
+                .put("totalMah", totalMah)
+                .put("bgShare", bgShare)
+                .put("fgActivityMs", fgActivityMs)
+            is AwakeViolation -> json
+                .put("awakeRatio", awakeRatio)
+                .put("screenOffMs", screenOffMs)
+                .put("culpritScope", culpritScope.name)
+                .put("culpritCount", culprits.size)
+                .put(
+                    "culprits",
+                    JSONArray().apply {
+                        culprits.take(MAX_LOGGED_CULPRITS).forEach { culprit ->
+                            put(
+                                JSONObject()
+                                    .put("kind", culprit.kind.name)
+                                    .put("name", culprit.name)
+                                    .putNullable("uid", culprit.uid)
+                                    .putNullable("durationMs", culprit.durationMs)
+                                    .putNullable("count", culprit.count),
+                            )
+                        }
+                    },
+                )
+            is ModemDrain -> json
+                .put("mobileRadioMah", mobileRadioMah)
+                .put("screenMah", screenMah)
+                .put("signalAvailable", signalAvailable)
+                .put("signalBinPct", JSONArray(signalBinPct))
+                .putNullable("scanningMs", scanningMs)
+                .putNullable("radioActiveMs", radioActiveMs)
+            is SensorLeak -> json
+                .putNullable("packageName", packageName)
+                .put("sensor", sensor.name)
+                .put("durationMs", durationMs)
+        }
+        return json
+    }
+
+    private suspend fun probeDiff(context: Context, intent: Intent) {
+        val app = context as InspirationApplication
+        val input = resolveProbeDiffInput(app.appContainer.store, intent, "diff") ?: return
+        val diff = SnapshotDiffer.diff(input.ref, input.now)
         log(
             JSONObject().put(
                 "diff",
@@ -416,7 +592,17 @@ class ProbeReceiver : BroadcastReceiver() {
         const val ACTION_PROBE = "com.akane.inspiration.debug.PROBE"
         const val ACTION_PROBE_CAPTURE = "com.akane.inspiration.debug.PROBE_CAPTURE"
         const val ACTION_PROBE_DIFF = "com.akane.inspiration.debug.PROBE_DIFF"
+        const val ACTION_PROBE_INSIGHTS = "com.akane.inspiration.debug.PROBE_INSIGHTS"
         const val ACTION_REQUEST_PERMISSION = "com.akane.inspiration.debug.PROBE_REQUEST_PERMISSION"
+        val ACTIONS = setOf(
+            ACTION_PROBE,
+            ACTION_PROBE_CAPTURE,
+            ACTION_PROBE_DIFF,
+            ACTION_PROBE_INSIGHTS,
+            ACTION_REQUEST_PERMISSION,
+        )
+        const val MAX_LOGGED_CULPRITS = 5
+        const val TOP_LOOKUPS = 3
         const val EXTRA_REFERENCE_KIND = "reference_kind"
         const val BATTERY_STATS_SERVICE = "batterystats"
         const val DATABASE_NAME = "inspiration.db"

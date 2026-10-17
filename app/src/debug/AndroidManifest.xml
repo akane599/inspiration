@@ -8,6 +8,7 @@
                 <action android:name="com.akane.inspiration.debug.PROBE" />
                 <action android:name="com.akane.inspiration.debug.PROBE_CAPTURE" />
                 <action android:name="com.akane.inspiration.debug.PROBE_DIFF" />
+                <action android:name="com.akane.inspiration.debug.PROBE_INSIGHTS" />
                 <action android:name="com.akane.inspiration.debug.PROBE_REQUEST_PERMISSION" />
             </intent-filter>
         </receiver>
