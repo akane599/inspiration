@@ -8,6 +8,11 @@ import com.akane.inspiration.ui.home.HomeRoute
 import com.akane.inspiration.ui.theme.AppTheme
 
 class MainActivity : ComponentActivity() {
+    override fun onStart() {
+        super.onStart()
+        (application as InspirationApplication).captureAppOpen()
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()

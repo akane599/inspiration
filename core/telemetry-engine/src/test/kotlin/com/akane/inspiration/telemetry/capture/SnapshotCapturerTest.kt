@@ -87,6 +87,21 @@ class SnapshotCapturerTest {
         assertEquals(CaptureTrigger.MARKER, store.misses.single().first)
     }
 
+    @Test
+    fun `history ingest persists history without saving a capture snapshot`() = runTest {
+        val store = FakeStore()
+        val capturer = SnapshotCapturer(
+            FakeSource(history = listOf(page(truncated = false, historyEvent(9)))),
+            store,
+            TestClocks(),
+        )
+
+        capturer.ingestHistory(deadlineMs = 100)
+
+        assertEquals(listOf(historyEvent(9)), store.history)
+        assertTrue(store.snapshots.isEmpty())
+    }
+
     private open class FakeSource(
         private val history: List<BatteryHistorySnapshot> = emptyList(),
         private val usage: BatteryUsageSnapshot = BatteryUsageSnapshot.unavailable("not_needed"),
