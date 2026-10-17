@@ -58,7 +58,7 @@ class RefreshCoordinatorTest {
     }
 
     @Test
-    fun `a failed capture is not remembered so a retry runs at once`() = runTest {
+    fun `a failed capture is not remembered by the 60 second debounce`() = runTest {
         var succeed = false
         val coordinator = coordinator {
             if (succeed) RefreshResult.Refreshed(now) else RefreshResult.Failed("service_unavailable")
@@ -68,9 +68,42 @@ class RefreshCoordinatorTest {
         assertNull(coordinator.lastRefreshWallMs.value)
 
         succeed = true
-        now += 1_000L
-        assertEquals(RefreshResult.Refreshed(now), coordinator.refresh())
+        now += 12_000L
+        assertEquals("a retry after the backoff, far inside 60 s, captures", RefreshResult.Refreshed(now), coordinator.refresh())
         assertEquals(2, captures)
+    }
+
+    @Test
+    fun `a failed capture backs off for 12 seconds then retries`() = runTest {
+        val coordinator = coordinator { RefreshResult.Failed("deadline") }
+        val failedAt = now
+        assertEquals(RefreshResult.Failed("deadline"), coordinator.refresh())
+
+        now = failedAt + 11_999L
+        assertEquals("inside the backoff the failure is replayed without a capture", RefreshResult.Failed("deadline"), coordinator.refresh())
+        assertEquals(1, captures)
+
+        now = failedAt + 12_000L
+        assertEquals(RefreshResult.Failed("deadline"), coordinator.refresh())
+        assertEquals("the backoff has ended, so this call captured", 2, captures)
+    }
+
+    @Test
+    fun `a success clears the failure backoff and a backwards clock does not back off`() = runTest {
+        var succeed = false
+        val coordinator = coordinator {
+            if (succeed) RefreshResult.Refreshed(now) else RefreshResult.Failed("x")
+        }
+        coordinator.refresh()
+        now -= 5_000L
+        succeed = true
+        assertTrue("backwards clock: no backoff", coordinator.refresh() is RefreshResult.Refreshed)
+        assertEquals(2, captures)
+
+        succeed = false
+        now += 60_000L
+        assertEquals(RefreshResult.Failed("x"), coordinator.refresh())
+        assertEquals("the earlier failure no longer applies once a refresh succeeded", 3, captures)
     }
 
     @Test

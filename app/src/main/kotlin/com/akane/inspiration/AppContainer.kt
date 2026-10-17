@@ -9,8 +9,10 @@ import com.akane.inspiration.database.store.RoomSnapshotStore
 import com.akane.inspiration.di.AppEntries
 import com.akane.inspiration.di.CachedAppLabels
 import com.akane.inspiration.di.PackageManagerAppLabelSource
+import com.akane.inspiration.di.Preloaded
 import com.akane.inspiration.di.RefreshCoordinator
 import com.akane.inspiration.di.TimelineEvents
+import com.akane.inspiration.di.reconcileOnEachReady
 import com.akane.inspiration.diagnostics.R as DiagnosticsR
 import com.akane.inspiration.diagnostics.analysis.AnalysisSelection
 import com.akane.inspiration.diagnostics.analysis.AnalysisSession
@@ -90,12 +92,15 @@ class AppContainer(context: Context) :
     )
     private val liveTelemetry = LiveTelemetry(telemetrySource, PowerCalibrator(), clocks, store)
 
-    /** Parses the bundled dictionary on first access (disk read): call from IO, never the main thread. */
-    val dictionary: DiagnosticDictionary by lazy {
+    // The bundled dictionary (a disk read plus a parse) loads on IO from construction; see [Preloaded].
+    private val dictionaryLoad = Preloaded(applicationScope) {
         val json = appContext.resources.openRawResource(DiagnosticsR.raw.diagnostic_dictionary)
             .bufferedReader().use { it.readText() }
         DiagnosticDictionary(DictionaryLoader.parse(json))
     }
+
+    /** The preloaded dictionary: it never parses on the calling thread (at most it waits for the IO load). */
+    val dictionary: DiagnosticDictionary get() = dictionaryLoad.get()
     val ruleEngine: DiagnosticRuleEngine by lazy { DiagnosticRuleEngine(AndroidSensorCatalog(appContext)) }
 
     // ---- refresh (H7) ----------------------------------------------------------------------
@@ -143,7 +148,7 @@ class AppContainer(context: Context) :
      */
     override suspend fun timeline(from: Long, to: Long): Timeline {
         val events = TimelineEvents.withSeeds(
-            before = store.historyBetween(0, from - 1),
+            before = store.lastHistoryOfEachKindBefore(from),
             inWindow = store.historyBetween(from, to),
         )
         return TimelineBuilder.build(events, from, to)
@@ -220,16 +225,13 @@ class AppContainer(context: Context) :
     // ---- start-up --------------------------------------------------------------------------
 
     /**
-     * Off-main-thread start-up work. The dictionary is parsed now so `dictionary()` is cheap later. Toolkit
-     * rows left PENDING by a crash are reconciled once, as soon as Shizuku is Ready (a read-back needs the
-     * service); with Shizuku never ready nothing runs and the rows simply stay PENDING.
+     * Off-main-thread start-up work (the dictionary already loads from construction). Toolkit rows left
+     * PENDING by a crash are reconciled on every transition to Shizuku Ready (a read-back needs the
+     * service, so a run against an unreachable service is retried at the next Ready); with Shizuku never
+     * ready nothing runs and the rows simply stay PENDING.
      */
     fun start() {
-        applicationScope.launch { dictionary }
-        applicationScope.launch {
-            shizukuManager.state.first { it is ShizukuState.Ready }
-            toolkit.reconcile()
-        }
+        applicationScope.launch { reconcileOnEachReady(shizukuManager.state, toolkit::reconcile) }
     }
 
     private companion object {

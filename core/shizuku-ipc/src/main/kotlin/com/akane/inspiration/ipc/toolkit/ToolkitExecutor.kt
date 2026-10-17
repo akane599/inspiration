@@ -136,7 +136,8 @@ internal class ToolkitExecutor(
 
     fun restoreDozeRaw(rawOrNull: String?, expectedCurrentRaw: String?): ToolkitResult = synchronized(writeLock) {
         val target = rawOrNull?.takeIf { it.isNotEmpty() }
-        // Only a well-formed AOSP-key string or a value this executor itself read may be replayed.
+        // Only a well-formed `key=value` list (any `[a-z][a-z0-9_]{0,63}` key, OEM keys included; see
+        // DozeRaw.isRestorable) or a value this executor itself read may be replayed.
         if (target != null && !(DozeRaw.isRestorable(target) || target in seenDozeRaws)) {
             return ToolkitResult.refused(ToolkitCode.ARG_VALUE)
         }

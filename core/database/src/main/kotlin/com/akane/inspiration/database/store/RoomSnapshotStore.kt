@@ -119,7 +119,10 @@ class RoomSnapshotStore(
     override suspend fun historyBetween(fromWallMs: Long, toWallMs: Long): List<HistoryEvent> =
         database.historyDao().between(fromWallMs, toWallMs).map { it.toDomain() }
 
-    override suspend fun historyCursor(): Pair<Long, Long>? = database.historyDao().cursor()?.let {
+    override suspend fun lastHistoryOfEachKindBefore(wallMs: Long): List<HistoryEvent> =
+        database.historyDao().lastOfEachKindBefore(wallMs).map { it.toDomain() }
+
+    override suspend fun historyCursor(): Pair<Long, Long>? =database.historyDao().cursor()?.let {
         it.statsStartMs to it.lastHistoryTimeMs
     }
 

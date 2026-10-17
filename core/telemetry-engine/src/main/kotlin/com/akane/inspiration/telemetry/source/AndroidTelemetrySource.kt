@@ -15,6 +15,9 @@ import com.akane.inspiration.telemetry.dump.DumpParser
 import com.akane.inspiration.telemetry.dump.DumpReader
 import com.akane.inspiration.telemetry.snapshot.CaptureTrigger
 import com.akane.inspiration.telemetry.snapshot.SnapshotClock
+import kotlinx.coroutines.CoroutineDispatcher
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 
 class AndroidTelemetrySource(
     private val context: Context,
@@ -22,6 +25,7 @@ class AndroidTelemetrySource(
     private val clocks: Clocks = AndroidClocks(context),
     private val calibrationInputReader: CalibrationInputReader = AndroidCalibrationInputReader(context),
     private val serviceTimeoutMs: Long = DEFAULT_SERVICE_TIMEOUT_MS,
+    private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
 ) : TelemetrySource {
     private val batteryManager = context.getSystemService(BatteryManager::class.java)
     private val powerManager = context.getSystemService(PowerManager::class.java)
@@ -84,11 +88,12 @@ class AndroidTelemetrySource(
     // Available at minSdk 31; a missing manager or service failure reads as unknown, never as "none".
     private fun thermalStatus(): Int? = runCatching { powerManager?.currentThermalStatus }.getOrNull()
 
-    override suspend fun kernelReading(): KernelRead? {
+    // The battery-manager reads and the sysfs reads (first call) block, so the whole reading runs on IO.
+    override suspend fun kernelReading(): KernelRead? = withContext(ioDispatcher) {
         val light = light()
         val kernel = shizuku.withTelemetryService(serviceTimeoutMs) { service ->
             runCatching { service.readKernelBattery() }.getOrNull()
-        } ?: return null
+        } ?: return@withContext null
         val calibration = calibrationInputReader.read().copy(
             sysfsCurrentRaw = kernel?.currentNowRaw ?: calibrationInputReader.read().sysfsCurrentRaw,
             sysfsVoltageRaw = kernel?.voltageNowRaw ?: calibrationInputReader.read().sysfsVoltageRaw,
@@ -97,7 +102,7 @@ class AndroidTelemetrySource(
             isCharging = light.status == "charging" || light.status == "full",
             plugged = light.plugged == true,
         )
-        return KernelRead(kernel, calibration, light)
+        KernelRead(kernel, calibration, light)
     }
 
     private fun readBatteryStats(service: com.akane.inspiration.ipc.ITelemetryUserService): DumpParse<com.akane.inspiration.telemetry.dump.DumpSnapshot> =
