@@ -7,10 +7,13 @@ import com.akane.inspiration.telemetry.source.KernelRead
 import com.akane.inspiration.telemetry.source.LightRead
 import com.akane.inspiration.telemetry.source.TelemetrySource
 import com.akane.inspiration.telemetry.store.SnapshotStore
+import kotlinx.coroutines.CoroutineDispatcher
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.isActive
 import kotlin.math.roundToInt
 
@@ -19,7 +22,9 @@ class LiveTelemetry(
     private val calibrator: PowerCalibrator,
     private val clocks: Clocks,
     private val store: SnapshotStore? = null,
+    private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
 ) {
+    /** Cold; each tick reads sysfs and the Shizuku service, so the whole loop runs on [ioDispatcher], never main. */
     fun readings(periodMs: Long = DEFAULT_PERIOD_MS): Flow<LiveReading> = flow {
         require(periodMs > 0) { "periodMs must be positive" }
         while (currentCoroutineContext().isActive) {
@@ -29,7 +34,7 @@ class LiveTelemetry(
             }
             delay(periodMs)
         }
-    }
+    }.flowOn(ioDispatcher)
 
     private fun KernelRead.toReading(): LiveReading {
         val power = calibrationInput?.let { input ->

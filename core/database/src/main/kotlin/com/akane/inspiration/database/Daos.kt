@@ -137,6 +137,18 @@ interface HistoryDao {
     @Query("SELECT * FROM history_event WHERE wallMs BETWEEN :fromWallMs AND :toWallMs ORDER BY wallMs, id")
     suspend fun between(fromWallMs: Long, toWallMs: Long): List<HistoryEventEntity>
 
+    /**
+     * The newest event of each `kind` with `wallMs < beforeWallMs`, oldest first: at most one row per kind,
+     * however much history precedes the bound. (SQLite returns the bare `id` of the row that holds each
+     * group's `MAX(wallMs)`.)
+     */
+    @Query(
+        "SELECT * FROM history_event WHERE id IN " +
+            "(SELECT id FROM (SELECT id, MAX(wallMs) FROM history_event WHERE wallMs < :beforeWallMs GROUP BY kind)) " +
+            "ORDER BY wallMs, id",
+    )
+    suspend fun lastOfEachKindBefore(beforeWallMs: Long): List<HistoryEventEntity>
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsertCursor(cursor: HistoryCursorEntity)
 

@@ -6,16 +6,23 @@ import android.content.ContextWrapper
 import android.content.ServiceConnection
 import android.content.pm.PackageManager
 import android.os.Binder
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.asCoroutineDispatcher
 import kotlinx.coroutines.async
+import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNotEquals
+import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertSame
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import rikka.shizuku.Shizuku
+import java.util.concurrent.Executors
 
 class ShizukuManagerImplTest {
     @Test
@@ -205,6 +212,36 @@ class ShizukuManagerImplTest {
         assertTrue(fixture.facade.lastUnbindRemove)
     }
 
+    @Test
+    fun withTelemetryServiceRunsBlockOffTheCallersMainThread() {
+        val mainThread = Executors.newSingleThreadExecutor { Thread(it, "main-sim") }
+        try {
+            val main = mainThread.asCoroutineDispatcher()
+            val facade = FakeShizukuFacade()
+            val manager = ShizukuManagerImpl(
+                context = TestContext(),
+                facade = facade,
+                scope = CoroutineScope(main),
+                applicationInfoProvider = ShizukuApplicationInfoProvider { ShizukuApplicationInfo(42, true) },
+            )
+            manager.start()
+            val holder = manager.holdBinding()
+            facade.deliverServiceConnected()
+
+            val threads = runBlocking(main) {
+                val caller = Thread.currentThread().name.substringBefore(" @")
+                caller to manager.withTelemetryService(5_000L) { Thread.currentThread().name.substringBefore(" @") }
+            }
+
+            holder.close()
+            assertEquals("main-sim", threads.first)
+            assertNotNull(threads.second)
+            assertNotEquals("the service block must not run on the caller's (main) thread", "main-sim", threads.second)
+        } finally {
+            mainThread.shutdownNow()
+        }
+    }
+
     private class Fixture(
         scope: TestScope,
         applicationInfo: ShizukuApplicationInfo? = ShizukuApplicationInfo(42, true),
@@ -215,6 +252,7 @@ class ShizukuManagerImplTest {
             facade = facade,
             scope = scope,
             applicationInfoProvider = ShizukuApplicationInfoProvider { applicationInfo },
+            ioDispatcher = StandardTestDispatcher(scope.testScheduler),
         )
     }
 

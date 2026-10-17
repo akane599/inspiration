@@ -8,11 +8,16 @@ import com.akane.inspiration.telemetry.source.FullRead
 import com.akane.inspiration.telemetry.source.KernelRead
 import com.akane.inspiration.telemetry.source.LightRead
 import com.akane.inspiration.telemetry.source.TelemetrySource
+import kotlinx.coroutines.asCoroutineDispatcher
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.take
 import kotlinx.coroutines.flow.toList
+import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNotEquals
 import org.junit.Test
+import java.util.concurrent.Executors
 
 class LiveTelemetryTest {
     @Test
@@ -58,6 +63,29 @@ class LiveTelemetryTest {
         assertEquals(null, reading.thermalStatus)
     }
 
+    @Test
+    fun `readings never reads the kernel on the collector's main thread`() {
+        val mainThread = Executors.newSingleThreadExecutor { Thread(it, "main-sim") }
+        try {
+            val main = mainThread.asCoroutineDispatcher()
+            val source = CountingSource()
+
+            val collectedOn = runBlocking(main) {
+                LiveTelemetry(source, PowerCalibrator(), TestClocks()).readings(periodMs = 1_500)
+                    .take(1)
+                    .map { Thread.currentThread().name.substringBefore(" @") }
+                    .toList()
+                    .single()
+            }
+
+            assertEquals("the collector stays on main", "main-sim", collectedOn)
+            assertEquals(1, source.kernelThreads.size)
+            assertNotEquals("kernelReading must not run on main", "main-sim", source.kernelThreads.single())
+        } finally {
+            mainThread.shutdownNow()
+        }
+    }
+
     private fun lightRead() = LightRead(
         clock = SnapshotClock(1, 2, 3, 4, null, null),
         levelPct = 50,
@@ -71,6 +99,7 @@ class LiveTelemetryTest {
 
     private inner class CountingSource(private val light: LightRead = lightRead()) : TelemetrySource {
         var kernelCalls = 0
+        val kernelThreads = java.util.concurrent.CopyOnWriteArrayList<String>()
 
         override suspend fun full(trigger: CaptureTrigger, historyCursor: Pair<Long, Long>?): FullRead? = null
 
@@ -78,6 +107,7 @@ class LiveTelemetryTest {
 
         override suspend fun kernelReading(): KernelRead {
             kernelCalls++
+            kernelThreads += Thread.currentThread().name.substringBefore(" @")
             return KernelRead(kernel = null, calibrationInput = null, light = light())
         }
     }

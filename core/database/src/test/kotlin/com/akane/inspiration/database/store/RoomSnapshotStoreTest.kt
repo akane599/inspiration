@@ -147,6 +147,48 @@ class RoomSnapshotStoreTest {
     }
 
     @Test
+    fun `lastHistoryOfEachKindBefore returns only the newest event per kind strictly before the bound`() = runBlocking {
+        fun event(kind: Int, wallMs: Long) = HistoryEvent(
+            historyTimeMs = wallMs,
+            wallMs = wallMs,
+            kind = kind,
+            levelPct = 50,
+            chargeUah = -1L,
+            temperatureDeciC = 300,
+            voltageMv = 3_900,
+            plugType = 0,
+        )
+        val events = listOf(
+            event(HistoryKind.SCREEN_ON, 100),
+            event(HistoryKind.SCREEN_OFF, 200),
+            event(HistoryKind.SCREEN_ON, 300),
+            event(HistoryKind.PLUGGED, 150),
+            event(HistoryKind.LEVEL, 350),
+            event(HistoryKind.LEVEL, 360),
+            event(HistoryKind.SHUTDOWN, 50),
+            event(HistoryKind.SCREEN_OFF, 400),
+            event(HistoryKind.DEEP_IDLE_ON, 500),
+        )
+        store.insertHistory(events, statsStartMs = 1L)
+
+        val seeds = store.lastHistoryOfEachKindBefore(400L)
+
+        assertEquals(
+            "one row per kind, oldest first; the bound is exclusive and later events are ignored",
+            listOf(
+                event(HistoryKind.SHUTDOWN, 50),
+                event(HistoryKind.PLUGGED, 150),
+                event(HistoryKind.SCREEN_OFF, 200),
+                event(HistoryKind.SCREEN_ON, 300),
+                event(HistoryKind.LEVEL, 360),
+            ),
+            seeds,
+        )
+        assertEquals(emptyList<HistoryEvent>(), store.lastHistoryOfEachKindBefore(50L))
+        assertEquals(events.map { it.kind }.toSet().size, store.lastHistoryOfEachKindBefore(Long.MAX_VALUE).size)
+    }
+
+    @Test
     fun `history ignores reingested events across stats sessions and cursor round trips`() = runBlocking {
         val event = HistoryEvent(
             historyTimeMs = 10L,

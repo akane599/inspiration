@@ -63,6 +63,40 @@ class TimelineEventsTest {
     }
 
     @Test
+    fun `the last event of each kind is enough to seed the same state as the full history`() {
+        val full = listOf(
+            event(HistoryKind.SCREEN_ON, 10),
+            event(HistoryKind.SCREEN_OFF, 20),
+            event(HistoryKind.SCREEN_ON, 30),
+            event(HistoryKind.PLUGGED, 15),
+            event(HistoryKind.UNPLUGGED, 25),
+            event(HistoryKind.DEEP_IDLE_ON, 12),
+            event(HistoryKind.DEEP_IDLE_OFF, 22),
+            event(HistoryKind.DEEP_IDLE_ON, 32),
+            event(HistoryKind.LIGHT_IDLE_ON, 14),
+            event(HistoryKind.LIGHT_IDLE_OFF, 16),
+            event(HistoryKind.LEVEL, 40),
+        )
+        val lastOfEachKind = full.groupBy { it.kind }.values.map { events -> events.maxBy { it.wallMs } }
+        val inWindow = listOf(event(HistoryKind.LEVEL, 1_000))
+
+        val fromFull = TimelineEvents.withSeeds(full, inWindow)
+        val fromLast = TimelineEvents.withSeeds(lastOfEachKind, inWindow)
+
+        assertEquals("same screen, plug and idle seeds", fromFull.map { it.kind to it.wallMs }, fromLast.map { it.kind to it.wallMs })
+        assertEquals(
+            listOf(
+                HistoryKind.DEEP_IDLE_OFF,
+                HistoryKind.UNPLUGGED,
+                HistoryKind.SCREEN_ON,
+                HistoryKind.DEEP_IDLE_ON,
+                HistoryKind.LEVEL,
+            ),
+            fromLast.map { it.kind },
+        )
+    }
+
+    @Test
     fun `a window that opens mid screen-on and mid charge still shows both lanes`() {
         val before = listOf(event(HistoryKind.PLUGGED, 100), event(HistoryKind.SCREEN_ON, 200))
         val inWindow = listOf(event(HistoryKind.SCREEN_OFF, 2_500))

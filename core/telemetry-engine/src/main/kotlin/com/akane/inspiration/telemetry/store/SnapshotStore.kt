@@ -30,6 +30,18 @@ interface SnapshotStore {
 
     suspend fun historyBetween(fromWallMs: Long, toWallMs: Long): List<HistoryEvent>
 
+    /**
+     * The newest event of each kind strictly before [wallMs], oldest first: at most one per kind, so the cost
+     * does not grow with the history before the bound. The default scans everything before it (for fakes);
+     * the Room store answers it in one query.
+     */
+    suspend fun lastHistoryOfEachKindBefore(wallMs: Long): List<HistoryEvent> =
+        historyBetween(0L, wallMs - 1)
+            .groupBy { it.kind }
+            .values
+            .map { events -> events.maxBy { it.wallMs } }
+            .sortedBy { it.wallMs }
+
     suspend fun historyCursor(): Pair<Long, Long>?
 
     suspend fun setHistoryCursor(statsStartMs: Long, lastHistoryTimeMs: Long)

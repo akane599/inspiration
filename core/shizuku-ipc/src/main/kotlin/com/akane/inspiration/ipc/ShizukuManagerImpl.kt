@@ -8,12 +8,15 @@ import android.content.pm.PackageManager
 import android.os.IBinder
 import android.os.RemoteException
 import android.util.Log
+import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 import rikka.shizuku.Shizuku
 
@@ -22,20 +25,23 @@ class ShizukuManagerImpl private constructor(
     private val facade: ShizukuFacade,
     @Suppress("unused") private val scope: CoroutineScope,
     private val applicationInfoProvider: ShizukuApplicationInfoProvider,
+    private val ioDispatcher: CoroutineDispatcher,
     @Suppress("unused") ignored: Unit,
 ) : ShizukuManager {
     constructor(
         context: Context,
         facade: ShizukuFacade = RealShizukuFacade,
         scope: CoroutineScope,
-    ) : this(context, facade, scope, androidApplicationInfoProvider(context), Unit)
+        ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
+    ) : this(context, facade, scope, androidApplicationInfoProvider(context), ioDispatcher, Unit)
 
     internal constructor(
         context: Context,
         facade: ShizukuFacade,
         scope: CoroutineScope,
         applicationInfoProvider: ShizukuApplicationInfoProvider,
-    ) : this(context, facade, scope, applicationInfoProvider, Unit)
+        ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
+    ) : this(context, facade, scope, applicationInfoProvider, ioDispatcher, Unit)
 
     private val mutableState = MutableStateFlow<ShizukuState>(ShizukuState.NotRunning)
     private val mutableTelemetryService = MutableStateFlow<ITelemetryUserService?>(null)
@@ -114,6 +120,10 @@ class ShizukuManagerImpl private constructor(
         updateState()
     }
 
+    /**
+     * [block] runs on [ioDispatcher]: every service call is a blocking Binder round trip into the shell-UID
+     * process (a `cmd` run can take seconds), and callers include `viewModelScope` on the main thread.
+     */
     override suspend fun <T> withTelemetryService(
         timeoutMs: Long,
         block: suspend (ITelemetryUserService) -> T,
@@ -125,7 +135,7 @@ class ShizukuManagerImpl private constructor(
             val service = withTimeoutOrNull(timeoutMs) { telemetryService.filterNotNull().first() } ?: return null
             val serviceGeneration = synchronized(bindingLock) { serviceGeneration }
             return try {
-                val result = block(service)
+                val result = withContext(ioDispatcher) { block(service) }
                 if (synchronized(bindingLock) { serviceGeneration == this.serviceGeneration }) {
                     result
                 } else {
