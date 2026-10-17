@@ -7,6 +7,7 @@ _Work items, stories and blockers live on the Sidequest board. This file keeps w
 - 2026-10-17 @ end of Phase 1 (6a9e787): build ok incl. minifyReleaseWithR8; 60 unit tests (app 1, shizuku-ipc 47, telemetry-engine 12), 0 failing; screenshot refs validate.
 - 2026-10-17 @ end of Phase 2: build ok incl. minifyReleaseWithR8; 137 unit tests (app 8, shizuku-ipc 78, telemetry-engine 41, database 10), 0 failing; screenshot refs validate.
 - 2026-10-17 @ end of Phase 3 (b74c3a2): build ok incl. minifyReleaseWithR8; 260 unit tests (app 8, shizuku-ipc 78, telemetry-engine 59, database 13, diagnostics 102), 0 failing; screenshot refs validate.
+- 2026-10-17 @ end of Phase 4 (91beb5a): build ok incl. minifyReleaseWithR8; 336 unit tests (app 15, shizuku-ipc 78, telemetry-engine 59, database 13, diagnostics 102, designsystem 69), 0 failing; 36 screenshot refs validate (app + designsystem).
 
 ## Decision log (never delete; one line each)
 - 2026-10-17: scaffolded with android-kit snapshot — Gradle 9.8.0, AGP 9.4.1, Kotlin 2.4.20, Compose BOM 2026.09.00, lifecycle 2.11.0, core-ktx 1.19.1, screenshot 0.0.1-alpha16. (bootstrap)
@@ -26,6 +27,9 @@ _Work items, stories and blockers live on the Sidequest board. This file keeps w
 - 2026-10-17: Rule engine accepted deviations from F4: R2 adds NotEvaluable "no_awake_time" when screenOffAwakeMs is null; ModemDrain.signalBinPct is 0–100. The story uses a minutes form under 1 h (SQ-49). (US-3)
 - 2026-10-17: Phase 3 device evidence on API 36/37 (after `pm clear`, via the device-probe skill): PROBE_INSIGHTS runs the full chain (diff → IntervalMetrics → rules → story → dictionary). With an unplug at 80% and ~160 s screen off, screen-off time and the 1% drop are attributed correctly (unknownMs 0, rates null below 15 min). R1/R3 evaluate and stay quiet on the emulator; R2/R4 report not-evaluable for a short, mixed interval. Unplugging at 100% resets batterystats, so that diff is battery_stats_invalid, as designed. Emulator deep sleep is 0% (emulator_wake_lock is always held), so the thresholds are unverified on hardware. (US-3)
 - 2026-10-17: Phase 4 plan rev 2 (docs/plans/phase-4.md, G1–G13) audited by SQ-51 (Opus): `:core:designsystem` leaf module exposing material3/BOM/immutable as `api`; `MaterialExpressiveTheme` with the default (expressive) motion scheme, because `MotionScheme.expressive()` is internal in material3 1.4.0; forced dark AMOLED including the window theme and system bars; Inter static TTFs with tnum on title/label and numeric styles only (a variable font was rejected for layoutlib risk); chart models use sanitizing factories, not constructor `require`; draw-phase cursor/brush state with an isolated readout child; T1 split into T1a tokens / T1b app migration. (US-4)
+- 2026-10-17: Correction to the line above: `MaterialExpressiveTheme`/`MotionScheme` are Kotlin-internal in material3 1.4.0 (public bytecode, hidden metadata), so InspirationTheme wraps plain `MaterialTheme(colorScheme, shapes, typography)`; motion is explicit `tween(150 ms)` for effects and `spring(0.9f, StiffnessMediumLow)` for spatial moves. (US-4)
+- 2026-10-17: Phase 4 visual review (SQ-58, approve with fixes) → SQ-59. A shared SELECTION_DIM_ALPHA 0.6 toward surfaceContainer is used by both charts. The scrub legend names the Battery/Temperature series. A window of exactly 24 h counts as spanning days (dates shown). Brush handles sit at the plot top. Hypnogram maintenance alpha is 0.85 light / 0.7 dark. Hypnogram connectors stay chartAxisLabel at 50%, and the light-theme hues near 3:1 were accepted. The readout title reserves two lines, so it doesn't truncate at 360 dp or jump (SQ-61). Deferred to Phase 5: the hypnogram font-scale cap and totals gutter (F7), crowded 840 dp edge ticks, a consistent empty state, "45°C", the light Home FAB shadow, and U+2212 minus in formatters. (US-4)
+- 2026-10-17: Chart perf (SQ-60): cursor/selection reads shared a draw node with static content, so every drag frame re-rasterized all paths on the RenderThread (the UI thread blocked in postAndWait). Static data is now recorded once per cache build into an Offscreen GraphicsLayer, and the overlay draws on top. New charts must keep that split. On the API 36 emulator (software rendering via SwiftShader, so read the numbers as relative): drag frames p50 34 → 17 ms, p90 40 → 23 ms, and janky 17% → 0.7% (final run, `build/gfx-final-api36.txt`). Drags trigger 0 recompositions, and a committed brush 1/1. (US-4)
 
 ## Audit status
 | Area | Last run | Result | How |
@@ -33,9 +37,9 @@ _Work items, stories and blockers live on the Sidequest board. This file keeps w
 | Plan audit | 2026-10-17 | Phase 4: approve with fixes (3 blockers + fixes applied); Phase 1–3 likewise | SQ-51 (Phase 3: SQ-37/38; Phase 2: SQ-18/19/20) |
 | Bug hunt | — | — | `/bug-hunt` |
 | Security | — | — | `/claude-security` |
-| UI / design | — | — | `/ui-overhaul` phase review |
+| UI / design | 2026-10-17 | Phase 4 design system + charts: approve with fixes; F1–F6 applied (SQ-59), readout truncation fixed (SQ-61); F7 + nits deferred to Phase 5 | SQ-58 visual-evaluation (Opus) |
 | Lint | — | — | `./gradlew :app:lintDebug -q` |
-| Device QA | 2026-10-17 | Phase 3 PROBE_INSIGHTS pass on API 36/37 (2 defects → SQ-49); Phase 2 capture/diff/job pass on API 35/36/37 (SQ-34/35) | `.claude/skills/device-probe` (`device-probe.sh --probe PROBE_INSIGHTS --extras "--es reference_kind since_unplugged"`) |
+| Device QA | 2026-10-17 | Phase 4 DesignGalleryActivity drag frame stats on API 36: pass after SQ-60 (p50 17 ms, 0.7% janky, software renderer); Phase 3 PROBE_INSIGHTS pass on API 36/37 (2 defects → SQ-49); Phase 2 capture/diff/job pass on API 35/36/37 (SQ-34/35) | `.claude/skills/device-probe` (`device-probe.sh --probe PROBE_INSIGHTS --extras "--es reference_kind since_unplugged"`) |
 | Content review | 2026-10-17 | Dictionary en/tr wording: 7 findings applied (SQ-48) | SQ-47 review-audit |
 
 ## Environment notes
