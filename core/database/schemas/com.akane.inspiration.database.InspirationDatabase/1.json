@@ -2,7 +2,7 @@
   "formatVersion": 1,
   "database": {
     "version": 1,
-    "identityHash": "5b6bc7b7fbfab34ca15ff964336fece7",
+    "identityHash": "91c29856b09d898606138b12a0b74b3f",
     "entities": [
       {
         "tableName": "snapshot",
@@ -147,7 +147,7 @@
       },
       {
         "tableName": "snapshot_system",
-        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`snapshotId` INTEGER NOT NULL, `startClockTimeMs` INTEGER NOT NULL, `totalRealtimeMs` INTEGER NOT NULL, `totalUptimeMs` INTEGER NOT NULL, `batteryRealtimeMs` INTEGER NOT NULL, `batteryUptimeMs` INTEGER NOT NULL, `screenOffRealtimeMs` INTEGER NOT NULL, `screenOffUptimeMs` INTEGER NOT NULL, `screenDozeMs` INTEGER NOT NULL, `screenOnMs` INTEGER NOT NULL, `interactiveMs` INTEGER NOT NULL, `deepDozeMs` INTEGER NOT NULL, `deepDozeCount` INTEGER NOT NULL, `lightDozeMs` INTEGER NOT NULL, `dischargeTotalMah` REAL NOT NULL, `dischargeScreenOffMah` REAL NOT NULL, `chargeTimeRemainingMs` INTEGER, `dischargeTimeRemainingMs` INTEGER, PRIMARY KEY(`snapshotId`), FOREIGN KEY(`snapshotId`) REFERENCES `snapshot`(`id`) ON UPDATE NO ACTION ON DELETE CASCADE )",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`snapshotId` INTEGER NOT NULL, `startClockTimeMs` INTEGER NOT NULL, `totalRealtimeMs` INTEGER NOT NULL, `totalUptimeMs` INTEGER NOT NULL, `batteryRealtimeMs` INTEGER NOT NULL, `batteryUptimeMs` INTEGER NOT NULL, `screenOffRealtimeMs` INTEGER NOT NULL, `screenOffUptimeMs` INTEGER NOT NULL, `screenDozeMs` INTEGER NOT NULL, `screenOnMs` INTEGER NOT NULL, `interactiveMs` INTEGER NOT NULL, `deepDozeMs` INTEGER NOT NULL, `deepDozeCount` INTEGER NOT NULL, `lightDozeMs` INTEGER NOT NULL, `dischargeTotalMah` REAL NOT NULL, `dischargeScreenOffMah` REAL NOT NULL, `chargeTimeRemainingMs` INTEGER, `dischargeTimeRemainingMs` INTEGER, `signalBin0Ms` INTEGER, `signalBin1Ms` INTEGER, `signalBin2Ms` INTEGER, `signalBin3Ms` INTEGER, `signalBin4Ms` INTEGER, `signalScanningMs` INTEGER, `mobileRadioActiveMs` INTEGER, PRIMARY KEY(`snapshotId`), FOREIGN KEY(`snapshotId`) REFERENCES `snapshot`(`id`) ON UPDATE NO ACTION ON DELETE CASCADE )",
         "fields": [
           {
             "fieldPath": "snapshotId",
@@ -253,6 +253,41 @@
           {
             "fieldPath": "dischargeTimeRemainingMs",
             "columnName": "dischargeTimeRemainingMs",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "signalBin0Ms",
+            "columnName": "signalBin0Ms",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "signalBin1Ms",
+            "columnName": "signalBin1Ms",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "signalBin2Ms",
+            "columnName": "signalBin2Ms",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "signalBin3Ms",
+            "columnName": "signalBin3Ms",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "signalBin4Ms",
+            "columnName": "signalBin4Ms",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "signalScanningMs",
+            "columnName": "signalScanningMs",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "mobileRadioActiveMs",
+            "columnName": "mobileRadioActiveMs",
             "affinity": "INTEGER"
           }
         ],
@@ -574,6 +609,69 @@
             "snapshotId",
             "uid",
             "tag"
+          ]
+        },
+        "foreignKeys": [
+          {
+            "table": "snapshot",
+            "onDelete": "CASCADE",
+            "onUpdate": "NO ACTION",
+            "columns": [
+              "snapshotId"
+            ],
+            "referencedColumns": [
+              "id"
+            ]
+          }
+        ]
+      },
+      {
+        "tableName": "snapshot_uid_sensor",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`snapshotId` INTEGER NOT NULL, `uid` INTEGER NOT NULL, `handle` INTEGER NOT NULL, `totalMs` INTEGER NOT NULL, `bgMs` INTEGER NOT NULL, `count` INTEGER NOT NULL, PRIMARY KEY(`snapshotId`, `uid`, `handle`), FOREIGN KEY(`snapshotId`) REFERENCES `snapshot`(`id`) ON UPDATE NO ACTION ON DELETE CASCADE )",
+        "fields": [
+          {
+            "fieldPath": "snapshotId",
+            "columnName": "snapshotId",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "uid",
+            "columnName": "uid",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "handle",
+            "columnName": "handle",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "totalMs",
+            "columnName": "totalMs",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "bgMs",
+            "columnName": "bgMs",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "count",
+            "columnName": "count",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "snapshotId",
+            "uid",
+            "handle"
           ]
         },
         "foreignKeys": [
@@ -1114,7 +1212,7 @@
     ],
     "setupQueries": [
       "CREATE TABLE IF NOT EXISTS room_master_table (id INTEGER PRIMARY KEY,identity_hash TEXT)",
-      "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, '5b6bc7b7fbfab34ca15ff964336fece7')"
+      "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, '91c29856b09d898606138b12a0b74b3f')"
     ]
   }
 }

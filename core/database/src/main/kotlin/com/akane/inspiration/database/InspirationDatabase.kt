@@ -14,6 +14,7 @@ import androidx.room.RoomDatabase
         SnapshotComponentEntity::class,
         SnapshotWakelockEntity::class,
         SnapshotAlarmEntity::class,
+        SnapshotUidSensorEntity::class,
         SnapshotCpuFreqEntity::class,
         MarkerEntity::class,
         HistoryEventEntity::class,

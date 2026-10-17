@@ -65,6 +65,15 @@ data class SnapshotSystemEntity(
     val dischargeScreenOffMah: Double,
     val chargeTimeRemainingMs: Long? = null,
     val dischargeTimeRemainingMs: Long? = null,
+    // Signal-strength bins 0..4 (index i -> signalBin{i}Ms). Only the first 5 bins reported by the
+    // dump are persisted; all null means the dump carried no bins.
+    val signalBin0Ms: Long? = null,
+    val signalBin1Ms: Long? = null,
+    val signalBin2Ms: Long? = null,
+    val signalBin3Ms: Long? = null,
+    val signalBin4Ms: Long? = null,
+    val signalScanningMs: Long? = null,
+    val mobileRadioActiveMs: Long? = null,
 )
 
 @Entity(
@@ -170,6 +179,27 @@ data class SnapshotAlarmEntity(
     val snapshotId: Long,
     val uid: Int,
     val tag: String,
+    val count: Long,
+)
+
+@Entity(
+    tableName = "snapshot_uid_sensor",
+    primaryKeys = ["snapshotId", "uid", "handle"],
+    foreignKeys = [
+        ForeignKey(
+            entity = SnapshotEntity::class,
+            parentColumns = ["id"],
+            childColumns = ["snapshotId"],
+            onDelete = ForeignKey.CASCADE,
+        ),
+    ],
+)
+data class SnapshotUidSensorEntity(
+    val snapshotId: Long,
+    val uid: Int,
+    val handle: Int,
+    val totalMs: Long,
+    val bgMs: Long,
     val count: Long,
 )
 

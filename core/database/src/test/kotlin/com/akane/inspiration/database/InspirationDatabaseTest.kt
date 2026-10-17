@@ -53,6 +53,18 @@ class InspirationDatabaseTest {
     }
 
     @Test
+    fun `deleting a snapshot cascades to its uid sensors`() = runBlocking {
+        val snapshotId = database.snapshotDao().insert(snapshot(wallMs = 1L))
+        database.snapshotDao().insertUidSensors(
+            listOf(SnapshotUidSensorEntity(snapshotId, uid = 10_001, handle = -10_000, totalMs = 5L, bgMs = 1L, count = 2L)),
+        )
+        assertEquals(1, database.snapshotDao().uidSensorsForSnapshot(snapshotId).size)
+
+        assertEquals(1, database.snapshotDao().deleteById(snapshotId))
+        assertTrue(database.snapshotDao().uidSensorsForSnapshot(snapshotId).isEmpty())
+    }
+
+    @Test
     fun `history events deduplicate by stats history time and kind`() = runBlocking {
         val event = HistoryEventEntity(
             statsStartMs = 10L,
@@ -89,6 +101,9 @@ class InspirationDatabaseTest {
         database.snapshotDao().insertAvailability(
             SnapshotAvailabilityEntity(unmarkedSnapshotId, source = "usage", available = true),
         )
+        database.snapshotDao().insertUidSensors(
+            listOf(SnapshotUidSensorEntity(unmarkedSnapshotId, uid = 10_001, handle = 3, totalMs = 5L, bgMs = 1L, count = 2L)),
+        )
         database.markerDao().insert(MarkerEntity(snapshotId = oldSnapshotId, label = "baseline", wallMs = now))
 
         database.maintenanceDao().prune(now)
@@ -97,6 +112,7 @@ class InspirationDatabaseTest {
         assertNull(database.snapshotDao().byId(unmarkedSnapshotId))
         assertNotNull(database.snapshotDao().byId(currentSnapshotId))
         assertTrue(database.snapshotDao().availabilityForSnapshot(unmarkedSnapshotId).isEmpty())
+        assertTrue(database.snapshotDao().uidSensorsForSnapshot(unmarkedSnapshotId).isEmpty())
     }
 
     @Test

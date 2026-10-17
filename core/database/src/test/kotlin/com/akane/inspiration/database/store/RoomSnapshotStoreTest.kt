@@ -7,6 +7,7 @@ import com.akane.inspiration.ipc.model.HistoryKind
 import com.akane.inspiration.telemetry.dump.KernelWakelock
 import com.akane.inspiration.telemetry.dump.SystemTimers
 import com.akane.inspiration.telemetry.dump.UidAlarm
+import com.akane.inspiration.telemetry.dump.UidSensor
 import com.akane.inspiration.telemetry.dump.UidWakelock
 import com.akane.inspiration.telemetry.snapshot.BatterySnapshot
 import com.akane.inspiration.telemetry.snapshot.BatteryState
@@ -78,6 +79,37 @@ class RoomSnapshotStoreTest {
             val id = store.insert(snapshot)
             assertEquals(snapshot.copy(id = id), store.byId(id))
         }
+    }
+
+    @Test
+    fun `round trips signal columns for empty and five bins and uid sensors`() = runBlocking {
+        val emptyBins = fullSnapshot(system = timers().copy(signalScanningMs = 5L, mobileRadioActiveMs = 6L))
+        val emptyId = store.insert(emptyBins)
+        val emptyRead = store.byId(emptyId)!!
+        assertEquals(emptyList<Long>(), emptyRead.system!!.signalStrengthMs)
+        assertEquals(5L, emptyRead.system!!.signalScanningMs)
+        assertEquals(6L, emptyRead.system!!.mobileRadioActiveMs)
+        assertNull(database.snapshotDao().systemForSnapshot(emptyId)!!.signalBin0Ms)
+
+        val sensors = listOf(UidSensor(-10_000, 100L, 40L, 3L), UidSensor(7, 200L, 0L, 9L))
+        val fiveBins = fullSnapshot(
+            wallMs = 2_000L,
+            system = timers().copy(
+                signalStrengthMs = listOf(1L, 0L, 3L, 4L, 5L),
+                signalScanningMs = 7L,
+                mobileRadioActiveMs = 8L,
+            ),
+            uids = listOf(uidSnapshot().copy(sensors = sensors)),
+        )
+        val fiveId = store.insert(fiveBins)
+        assertEquals(fiveBins.copy(id = fiveId), store.byId(fiveId))
+        assertEquals(sensors.sortedBy { it.handle }, store.byId(fiveId)!!.uids.single().sensors)
+    }
+
+    @Test
+    fun `signal bins beyond five are not persisted`() = runBlocking {
+        val id = store.insert(fullSnapshot(system = timers().copy(signalStrengthMs = listOf(1L, 2L, 3L, 4L, 5L, 6L))))
+        assertEquals(listOf(1L, 2L, 3L, 4L, 5L), store.byId(id)!!.system!!.signalStrengthMs)
     }
 
     @Test
