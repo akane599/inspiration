@@ -28,6 +28,19 @@ data class SystemTimers(
     val dischargeScreenOffMah: Double,
     val chargeTimeRemainingMs: Long?,
     val dischargeTimeRemainingMs: Long?,
+    // Index = signal bin 0..4; empty when the dump carries no bins. The defaults below are
+    // placeholders until persistence (T1b) maps these fields.
+    val signalStrengthMs: List<Long> = emptyList(),
+    val signalScanningMs: Long? = null,
+    val mobileRadioActiveMs: Long? = null,
+)
+
+/** Per-UID sensor use; [handle] is the sensor handle (GPS is -10000). */
+data class UidSensor(
+    val handle: Int,
+    val totalMs: Long,
+    val bgMs: Long,
+    val count: Long,
 )
 
 data class KernelWakelock(
@@ -45,6 +58,7 @@ data class UidDump(
     val fgActivityMs: Long,
     val fgServiceMs: Long,
     val processStateMs: Map<Int, Long>,
+    val sensors: List<UidSensor>,
 )
 
 data class UidWakelock(

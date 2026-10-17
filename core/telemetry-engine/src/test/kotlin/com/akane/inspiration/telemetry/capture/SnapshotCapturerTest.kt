@@ -7,6 +7,10 @@ import com.akane.inspiration.ipc.model.HistoryKind
 import com.akane.inspiration.ipc.model.UidUsage
 import com.akane.inspiration.telemetry.common.Clocks
 import com.akane.inspiration.telemetry.dump.DumpParse
+import com.akane.inspiration.telemetry.dump.DumpSnapshot
+import com.akane.inspiration.telemetry.dump.SystemTimers
+import com.akane.inspiration.telemetry.dump.UidDump
+import com.akane.inspiration.telemetry.dump.UidSensor
 import com.akane.inspiration.telemetry.snapshot.BatterySnapshot
 import com.akane.inspiration.telemetry.snapshot.CaptureTrigger
 import com.akane.inspiration.telemetry.snapshot.LiveReading
@@ -46,6 +50,49 @@ class SnapshotCapturerTest {
         assertEquals(0.5, saved.uids.single().cachedMah!!, 0.0)
         assertEquals(1.5, saved.deviceComponentsMah.getValue("cpu"), 0.0)
         assertEquals("device_from_uid_sum", saved.availability.getValue("usage").reason)
+    }
+
+    @Test
+    fun `full capture carries dump uid sensors and system signal timers into the snapshot`() = runTest {
+        val store = FakeStore()
+        val sensors = listOf(UidSensor(-10_000, 900, 100, 2), UidSensor(7, 50, 0, 1))
+        val dump = DumpSnapshot(
+            reportVersion = 36,
+            system = SystemTimers(
+                startClockTimeMs = 10, totalRealtimeMs = 0, totalUptimeMs = 0, batteryRealtimeMs = 0,
+                batteryUptimeMs = 0, screenOffRealtimeMs = 0, screenOffUptimeMs = 0, screenDozeMs = 0,
+                screenOnMs = 0, interactiveMs = 0, deepDozeMs = 0, deepDozeCount = 0, lightDozeMs = 0,
+                dischargeTotalMah = 0.0, dischargeScreenOffMah = 0.0, chargeTimeRemainingMs = null,
+                dischargeTimeRemainingMs = null, signalStrengthMs = listOf(1, 2, 3, 4, 5),
+                signalScanningMs = 6, mobileRadioActiveMs = 7,
+            ),
+            kernelWakelocks = emptyList(),
+            wakeupReasons = emptyList(),
+            uids = listOf(
+                UidDump(12345, emptyList(), emptyList(), 0, 0, 0, 0, emptyMap(), sensors),
+            ),
+            cpuFrequenciesKhz = emptyList(),
+            warnings = emptyList(),
+        )
+        val usage = BatteryUsageSnapshot(
+            available = true,
+            reason = null,
+            statsStartMs = 10,
+            statsEndMs = 20,
+            dischargedPowerMah = 1.0,
+            batteryTimeRemainingMs = 0,
+            chargeTimeRemainingMs = 0,
+            uids = listOf(UidUsage(12345, "pkg", 2.0, emptyMap(), emptyMap())),
+        )
+        val capturer = SnapshotCapturer(FakeSource(usage = usage, batteryStats = DumpParse.Ok(dump)), store, TestClocks())
+
+        capturer.captureFull(CaptureTrigger.APP_OPEN, deadlineMs = 100, ingestHistory = false)
+
+        val saved = store.snapshots.single()
+        assertEquals(sensors, saved.uids.single().sensors)
+        assertEquals(listOf(1L, 2L, 3L, 4L, 5L), saved.system!!.signalStrengthMs)
+        assertEquals(6L, saved.system.signalScanningMs)
+        assertEquals(7L, saved.system.mobileRadioActiveMs)
     }
 
     @Test
@@ -127,6 +174,7 @@ class SnapshotCapturerTest {
         private val history: List<BatteryHistorySnapshot> = emptyList(),
         private val histories: List<List<BatteryHistorySnapshot>> = emptyList(),
         private val usage: BatteryUsageSnapshot = BatteryUsageSnapshot.unavailable("not_needed"),
+        private val batteryStats: DumpParse<DumpSnapshot> = DumpParse.Unavailable("not_needed"),
     ) : TelemetrySource {
         val receivedCursors = mutableListOf<Pair<Long, Long>?>()
         private var fullReadCount = 0
@@ -137,7 +185,7 @@ class SnapshotCapturerTest {
             return FullRead(
                 light = light(),
                 usage = usage,
-                batteryStats = DumpParse.Unavailable("not_needed"),
+                batteryStats = batteryStats,
                 power = DumpParse.Unavailable("not_needed"),
                 alarm = DumpParse.Unavailable("not_needed"),
                 kernel = null,

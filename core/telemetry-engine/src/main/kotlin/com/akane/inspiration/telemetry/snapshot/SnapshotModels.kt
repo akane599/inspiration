@@ -3,6 +3,7 @@ package com.akane.inspiration.telemetry.snapshot
 import com.akane.inspiration.telemetry.dump.KernelWakelock
 import com.akane.inspiration.telemetry.dump.SystemTimers
 import com.akane.inspiration.telemetry.dump.UidAlarm
+import com.akane.inspiration.telemetry.dump.UidSensor
 import com.akane.inspiration.telemetry.dump.UidWakelock
 
 enum class CaptureTrigger {
@@ -79,6 +80,8 @@ data class UidSnapshot(
     val fgServiceMs: Long,
     val partialWakelocks: List<UidWakelock>,
     val wakeupAlarms: List<UidAlarm>,
+    // Default is a placeholder until persistence (T1b) maps sensors.
+    val sensors: List<UidSensor> = emptyList(),
 )
 
 data class CpuFreqTime(
@@ -104,6 +107,7 @@ data class UidDelta(
     val fgServiceMs: Long,
     val partialWakelocks: List<UidWakelock>,
     val wakeupAlarms: List<UidAlarm>,
+    val sensors: List<UidSensor>,
 )
 
 data class DiffValidity(
@@ -134,6 +138,11 @@ data class SnapshotDiff(
     val sleep: SleepStats?,
     val levelDropPct: Int?,
     val dischargedMah: Double?,
+    // Delta of the SystemTimers signal bins (empty if either side lacks bins), scanning and radio-active
+    // time; null when absent on either side or negative (a problem string is recorded then).
+    val signalStrengthMs: List<Long>,
+    val signalScanningMs: Long?,
+    val mobileRadioActiveMs: Long?,
 )
 
 data class LiveReading(

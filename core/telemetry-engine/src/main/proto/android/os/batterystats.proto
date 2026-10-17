@@ -13,6 +13,17 @@
 // limitations under the License.
 //
 // Trimmed from AOSP frameworks/base/core/proto/android/os/batterystats.proto.
+//
+// Field numbers for the signal-strength, scanning, radio-active and sensor
+// fields below are taken from AOSP tag android-15.0.0_r36,
+// frameworks/base/core/proto/android/os/batterystats.proto:
+//   SystemProto.Misc.mobile_radio_active_duration_ms = 5
+//   SystemProto.phone_signal_strength = 16 (PhoneSignalStrength: name = 1, total = 2)
+//   SystemProto.signal_scanning = 21
+//   UidProto.sensors = 21 (Sensor: id = 1, apportioned = 2, background = 3)
+// PhoneSignalStrength.name is the telephony SignalStrength.Name enum upstream
+// (android/telephony/enums.proto, not vendored); it is declared int32 here, which
+// is wire-compatible. Sensor.id is the sensor handle (GPS is -10000).
 
 syntax = "proto2";
 
@@ -72,11 +83,20 @@ message SystemProto {
   message Misc {
     optional int64 screen_on_duration_ms = 1;
     optional int64 interactive_duration_ms = 9;
+    optional int64 mobile_radio_active_duration_ms = 5;
     optional int64 deep_doze_enabled_duration_ms = 12;
     optional int32 deep_doze_count = 13;
     optional int64 light_doze_enabled_duration_ms = 17;
   }
   optional Misc misc = 15;
+
+  message PhoneSignalStrength {
+    optional int32 name = 1;
+    optional TimerProto total = 2;
+  }
+  repeated PhoneSignalStrength phone_signal_strength = 16;
+
+  optional TimerProto signal_scanning = 21;
 
   message WakeupReason {
     optional string name = 1;
@@ -139,4 +159,11 @@ message UidProto {
     optional int32 count = 2;
   }
   repeated WakeupAlarm wakeup_alarm = 26;
+
+  message Sensor {
+    optional int32 id = 1;
+    optional TimerProto apportioned = 2;
+    optional TimerProto background = 3;
+  }
+  repeated Sensor sensors = 21;
 }
