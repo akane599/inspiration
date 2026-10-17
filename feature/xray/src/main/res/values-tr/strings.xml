@@ -1,0 +1,168 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Screen -->
+    <string name="xray_title">Röntgen</string>
+    <string name="xray_subtitle">Seçili aralıkta pilin nereye gittiği.</string>
+    <string name="xray_tab_components">Bileşenler</string>
+    <string name="xray_tab_apps">Uygulamalar</string>
+    <string name="xray_value_unavailable">mevcut değil</string>
+
+    <!-- Numbers. Pattern strings only: the number itself comes from TelemetryFormat. -->
+    <string name="xray_mah_value">%1$s mAh</string>
+    <string name="xray_share_percent">%%%1$s</string>
+    <string name="xray_share_under_one" formatted="false">&lt;%1</string>
+    <string name="xray_uid_label">UID %1$d</string>
+
+    <!-- Loading, empty, error -->
+    <string name="xray_loading_title">Pil verileri okunuyor</string>
+    <string name="xray_loading_body">Röntgen bu aralığın kayıtlarını karşılaştırıyor.</string>
+    <string name="xray_empty_title">Bu aralık için henüz veri yok</string>
+    <string name="xray_empty_body">Röntgen iki pil kaydını karşılaştırır. Telefonu şarjdan çıkarın, bir süre kullanın, sonra yeniden kayıt alın.</string>
+    <string name="xray_empty_action">Şimdi kaydet</string>
+    <string name="xray_error_title">Bu aralık analiz edilemedi</string>
+    <string name="xray_error_body">Pil verileri okunurken bir sorun oluştu. Yeniden denemek için tekrar kayıt alın.</string>
+    <string name="xray_error_action">Yeniden dene</string>
+    <string name="xray_refresh_failed">Yeni veri alınamadı. Son kayıt gösteriliyor.</string>
+
+    <!-- Time slice -->
+    <string name="xray_range">%1$s – %2$s</string>
+    <string name="xray_slice_gap">İstenen aralığın %1$s kadarı için veri yok</string>
+
+    <!-- Components tab -->
+    <string name="xray_components_heading">Donanım bileşenleri</string>
+    <string name="xray_components_unavailable_title">Bileşen dökümü yok</string>
+    <string name="xray_components_unavailable_body">Bu aralığın pil istatistikleri bileşen başına enerjiyi içermiyor.</string>
+    <string name="xray_component_screen">Ekran</string>
+    <string name="xray_component_cpu">CPU</string>
+    <string name="xray_component_mobile_radio">Mobil şebeke</string>
+    <string name="xray_component_wifi">Wi-Fi</string>
+    <string name="xray_component_idle">Boşta</string>
+    <string name="xray_component_bluetooth">Bluetooth</string>
+    <string name="xray_component_gps">GPS</string>
+    <string name="xray_component_sensors">Sensörler</string>
+    <string name="xray_component_camera">Kamera</string>
+    <string name="xray_component_audio">Ses</string>
+    <string name="xray_component_video">Video</string>
+    <string name="xray_component_flashlight">El feneri</string>
+    <string name="xray_component_system_services">Sistem hizmetleri</string>
+    <string name="xray_component_memory">Bellek</string>
+    <string name="xray_component_phone">Telefon görüşmeleri</string>
+    <string name="xray_component_ambient_display">Her zaman açık ekran</string>
+    <string name="xray_component_wakelock">Wakelock\'lar</string>
+    <string name="xray_component_other">Diğer</string>
+
+    <!-- Apps tab -->
+    <string name="xray_apps_heading">Enerji kullanımına göre uygulamalar</string>
+    <string name="xray_group_screen">Ekran</string>
+    <string name="xray_group_cpu">CPU ve wakelock\'lar</string>
+    <string name="xray_group_radios">Radyolar</string>
+    <string name="xray_group_other">Diğer</string>
+    <string name="xray_apps_needs_snapshots_title">İki uçta da tam kayıt gerekir</string>
+    <string name="xray_apps_needs_snapshots_body">Uygulama başına değerler için aralığın başında ve sonunda tam pil kaydı gerekir. Bu aralığın bir ucunda yalnızca hafif kayıt var, bu yüzden uygulamalar sıralanamıyor. Bileşen toplamları yine de gösteriliyor.</string>
+    <string name="xray_apps_unavailable_title">Uygulama dökümü yok</string>
+    <string name="xray_apps_unavailable_body">Bu aralığın pil istatistiklerine, örneğin istatistik sıfırlamasından sonra, uygulama başına güvenilemiyor.</string>
+    <string name="xray_apps_none_title">Ölçülebilir enerji kullanan uygulama yok</string>
+    <string name="xray_apps_none_body">Bu aralıkta hiçbir uygulama listeye girecek kadar güç çekmedi.</string>
+    <string name="xray_app_icon_placeholder">Uygulama simgesi yok</string>
+
+    <!-- App detail sheet -->
+    <string name="xray_detail_components">Bileşene göre enerji</string>
+    <string name="xray_detail_states">İşlem durumuna göre enerji</string>
+    <string name="xray_detail_state_foreground">Ön plan</string>
+    <string name="xray_detail_state_background">Arka plan</string>
+    <string name="xray_detail_state_foreground_service">Ön plan hizmeti</string>
+    <string name="xray_detail_state_cached">Önbellekte</string>
+    <string name="xray_detail_network_note">Yalnızca radyo enerjisi. Uygulama başına kullanılan veri ölçülmez.</string>
+    <string name="xray_detail_activity">Etkinlik</string>
+    <string name="xray_detail_cpu_time">CPU süresi</string>
+    <string name="xray_detail_foreground_time">Ön plandaki süre</string>
+    <string name="xray_detail_wakelocks">Wakelock\'lar</string>
+    <string name="xray_detail_alarms">Uyandıran alarmlar</string>
+    <string name="xray_detail_none_recorded">Bu aralıkta kayıt yok.</string>
+    <string name="xray_detail_wakelock_line">%1$s tutuldu</string>
+    <plurals name="xray_count_times">
+        <item quantity="one">%d kez</item>
+        <item quantity="other">%d kez</item>
+    </plurals>
+
+    <!-- Quick actions -->
+    <string name="xray_actions_title">Hızlı işlemler</string>
+    <string name="xray_actions_loading">Uygulamanın mevcut ayarları okunuyor…</string>
+    <string name="xray_actions_no_package">Tek bir uygulama paketi olmadığı için bu kayıtta hızlı işlemler kullanılamaz.</string>
+    <string name="xray_actions_retry">Yeniden oku</string>
+    <string name="xray_blocked_title">Shizuku hazır değil</string>
+    <string name="xray_blocked_not_installed">Uygulama ayarlarını buradan değiştirmek için Shizuku\'yu kurup başlatın.</string>
+    <string name="xray_blocked_not_running">Shizuku\'yu başlatın, sonra bu ekrana dönün.</string>
+    <string name="xray_blocked_permission_required">Shizuku\'da Inspiration\'a izin verin. Erişimi Kokpit veya Araçlar\'dan verebilirsiniz.</string>
+    <string name="xray_blocked_permission_denied">Shizuku\'da erişim reddedildi. Erişimi Kokpit veya Araçlar\'dan yeniden verebilirsiniz.</string>
+    <string name="xray_action_restrict_title">Arka plan etkinliğini kısıtla</string>
+    <string name="xray_action_restrict_body">Uygulamanın arka planda çalışmasını durdurur. Siz açana kadar eşitleme yapmayabilir veya bildirim göndermeyebilir.</string>
+    <string name="xray_action_restrict_custom">Bu iznin değeri Inspiration\'ın değiştiremeyeceği bir değer.</string>
+    <string name="xray_action_bucket_title">Bekleme grubu</string>
+    <string name="xray_action_bucket_body">Sistemin uygulamaya ne sıklıkla iş ve alarm çalıştırma izni verdiğini belirler.</string>
+    <string name="xray_action_bucket_other">Mevcut grup (%1$d) sistem tarafından ayarlanmış.</string>
+    <string name="xray_bucket_active">Etkin</string>
+    <string name="xray_bucket_working_set">Çalışma kümesi</string>
+    <string name="xray_bucket_frequent">Sık</string>
+    <string name="xray_bucket_rare">Nadir</string>
+    <string name="xray_bucket_restricted">Kısıtlı</string>
+    <string name="xray_action_force_stop">Durmaya zorla</string>
+    <string name="xray_action_force_stop_body">Uygulamayı hemen durdurur, alarmlarını ve bekleyen işlerini temizler.</string>
+    <string name="xray_actions_busy">Değişiklik uygulanıyor…</string>
+
+    <!-- Overrides made by Inspiration -->
+    <string name="xray_overrides_title">Inspiration\'ın yaptığı değişiklikler</string>
+    <string name="xray_override_run_any_in_background">Arka plan etkinliği kısıtlandı</string>
+    <string name="xray_override_run_in_background">Arka planda çalışma kısıtlandı</string>
+    <string name="xray_override_wake_lock">Wakelock\'lar engellendi</string>
+    <string name="xray_override_bucket">Bekleme grubu: %1$s</string>
+    <string name="xray_override_bucket_other">Bekleme grubu değiştirildi</string>
+    <string name="xray_override_restore">Geri al</string>
+    <string name="xray_override_not_restorable">Otomatik olarak geri alınamaz.</string>
+
+    <!-- Results -->
+    <string name="xray_notice_restricted">Arka plan etkinliği kısıtlandı.</string>
+    <string name="xray_notice_unrestricted">Arka plan kısıtlaması kaldırıldı.</string>
+    <string name="xray_notice_bucket">Bekleme grubu: %1$s.</string>
+    <string name="xray_notice_force_stopped">Uygulama durmaya zorlandı.</string>
+    <string name="xray_notice_restored">Değişiklik geri alındı.</string>
+    <string name="xray_refused_invalid_argument">Bu istek geçerli değil.</string>
+    <string name="xray_refused_not_installed">Bu uygulama yüklü değil.</string>
+    <string name="xray_refused_protected_app">Bu korumalı bir uygulama. Inspiration sistem, kalıcı veya rol sahibi uygulamaları değiştirmez.</string>
+    <string name="xray_refused_caller">Shizuku bu isteği reddetti.</string>
+    <string name="xray_refused_stale">Ayar bu arada değişti. Kontrol edip yeniden deneyin.</string>
+    <string name="xray_refused_busy">Başka bir değişiklik sürüyor. Birazdan yeniden deneyin.</string>
+    <string name="xray_refused_not_plugged">Önce telefonu şarja takın.</string>
+    <string name="xray_refused_read_failed">Uygulamanın mevcut ayarları okunamadı.</string>
+    <string name="xray_refused_not_confirmed">Devam etmek için işlemi onaylayın.</string>
+    <string name="xray_refused_service_unavailable">Shizuku hizmeti şu an kullanılamıyor.</string>
+    <string name="xray_refused_not_restorable">Bu değişiklik otomatik olarak geri alınamaz.</string>
+    <string name="xray_refused_already_restored">Bu değişiklik zaten geri alınmış.</string>
+    <string name="xray_refused_unknown_action">Inspiration bu işlemi tanımıyor.</string>
+    <string name="xray_refused_other">İstek reddedildi.</string>
+    <string name="xray_unavailable_no_service">Shizuku hizmetine ulaşılamıyor. Shizuku\'nun çalıştığını kontrol edin.</string>
+    <string name="xray_unavailable_stale_service">Shizuku hizmeti güncel değil. Shizuku\'yu yeniden başlatıp tekrar deneyin.</string>
+    <string name="xray_unavailable_not_effective">Değişiklik etkili olmadı ve geri alındı.</string>
+    <string name="xray_failed_code">Komut başarısız oldu (kod %1$d).</string>
+    <string name="xray_failed">Komut başarısız oldu.</string>
+
+    <!-- Confirmation -->
+    <string name="xray_confirm_title_restrict">%1$s kısıtlansın mı?</string>
+    <string name="xray_confirm_title_unrestrict">%1$s için arka plan kısıtlaması kaldırılsın mı?</string>
+    <string name="xray_confirm_title_bucket">%1$s, %2$s grubuna taşınsın mı?</string>
+    <string name="xray_confirm_title_force_stop">%1$s durmaya zorlansın mı?</string>
+    <string name="xray_confirm_title_restore">%1$s için önceki ayar geri yüklensin mi?</string>
+    <string name="xray_confirm_action_restrict">Kısıtla</string>
+    <string name="xray_confirm_action_unrestrict">Kısıtlamayı kaldır</string>
+    <string name="xray_confirm_action_bucket">Taşı</string>
+    <string name="xray_confirm_action_force_stop">Durmaya zorla</string>
+    <string name="xray_confirm_action_restore">Geri yükle</string>
+    <string name="xray_confirm_cancel">Vazgeç</string>
+    <string name="xray_warning_force_stop">Durmaya zorlamak uygulamayı hemen sonlandırır, alarmlarını ve bekleyen işlerini siler.</string>
+    <string name="xray_warning_wake_lock_ignore">Wakelock\'ları yok saymak alarmları ve mesajlaşmayı bozabilir.</string>
+    <string name="xray_warning_restricted_bucket">Kısıtlı grup, uygulamanın işlerini, alarmlarını ve ağ erişimini ciddi biçimde sınırlar.</string>
+    <string name="xray_warning_run_any_in_background_ignore">Uygulama tüm arka plan işlerini durdurur; siz açana kadar eşitleme yapmayabilir veya bildirim göndermeyebilir.</string>
+    <string name="xray_warning_updated_system_app">Bu güncellenmiş bir sistem uygulaması. Değiştirmek sistemin bazı bölümlerini etkileyebilir.</string>
+    <string name="xray_warning_doze_over_custom">Standart doze, özel bir doze ayarının yerine geçer.</string>
+    <string name="xray_warning_restore_state_changed">Ayar, Inspiration bu değişikliği yaptığından beri değişti. Geri yükleme mevcut değerin üzerine yazar.</string>
+</resources>

@@ -1,0 +1,168 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Screen -->
+    <string name="xray_title">X-Ray</string>
+    <string name="xray_subtitle">Where the battery went in the selected interval.</string>
+    <string name="xray_tab_components">Components</string>
+    <string name="xray_tab_apps">Apps</string>
+    <string name="xray_value_unavailable">not available</string>
+
+    <!-- Numbers. Pattern strings only: the number itself comes from TelemetryFormat. -->
+    <string name="xray_mah_value">%1$s mAh</string>
+    <string name="xray_share_percent">%1$s%%</string>
+    <string name="xray_share_under_one" formatted="false">&lt;1%</string>
+    <string name="xray_uid_label">UID %1$d</string>
+
+    <!-- Loading, empty, error -->
+    <string name="xray_loading_title">Reading battery data</string>
+    <string name="xray_loading_body">X-Ray is comparing the captures of this interval.</string>
+    <string name="xray_empty_title">No data for this interval yet</string>
+    <string name="xray_empty_body">X-Ray compares two battery captures. Unplug the phone, use it for a while, then capture again.</string>
+    <string name="xray_empty_action">Capture now</string>
+    <string name="xray_error_title">Couldn\'t analyze this interval</string>
+    <string name="xray_error_body">Something went wrong while reading the battery data. Capture again to retry.</string>
+    <string name="xray_error_action">Try again</string>
+    <string name="xray_refresh_failed">Couldn\'t capture fresh data. Showing the last capture.</string>
+
+    <!-- Time slice -->
+    <string name="xray_range">%1$s – %2$s</string>
+    <string name="xray_slice_gap">No data for %1$s of the requested range</string>
+
+    <!-- Components tab -->
+    <string name="xray_components_heading">Hardware components</string>
+    <string name="xray_components_unavailable_title">No component breakdown</string>
+    <string name="xray_components_unavailable_body">The battery statistics of this interval don\'t include energy per component.</string>
+    <string name="xray_component_screen">Screen</string>
+    <string name="xray_component_cpu">CPU</string>
+    <string name="xray_component_mobile_radio">Mobile radio</string>
+    <string name="xray_component_wifi">Wi-Fi</string>
+    <string name="xray_component_idle">Idle</string>
+    <string name="xray_component_bluetooth">Bluetooth</string>
+    <string name="xray_component_gps">GPS</string>
+    <string name="xray_component_sensors">Sensors</string>
+    <string name="xray_component_camera">Camera</string>
+    <string name="xray_component_audio">Audio</string>
+    <string name="xray_component_video">Video</string>
+    <string name="xray_component_flashlight">Flashlight</string>
+    <string name="xray_component_system_services">System services</string>
+    <string name="xray_component_memory">Memory</string>
+    <string name="xray_component_phone">Phone calls</string>
+    <string name="xray_component_ambient_display">Always-on display</string>
+    <string name="xray_component_wakelock">Wakelocks</string>
+    <string name="xray_component_other">Other</string>
+
+    <!-- Apps tab -->
+    <string name="xray_apps_heading">Apps by energy use</string>
+    <string name="xray_group_screen">Screen</string>
+    <string name="xray_group_cpu">CPU and wakelocks</string>
+    <string name="xray_group_radios">Radios</string>
+    <string name="xray_group_other">Other</string>
+    <string name="xray_apps_needs_snapshots_title">Needs full snapshots at both ends</string>
+    <string name="xray_apps_needs_snapshots_body">Per-app figures need a full battery snapshot at the start and at the end of the interval. One end of this interval only has a light snapshot, so apps can\'t be ranked. The component totals are still shown.</string>
+    <string name="xray_apps_unavailable_title">No per-app breakdown</string>
+    <string name="xray_apps_unavailable_body">The battery statistics of this interval can\'t be trusted per app, for example after a statistics reset.</string>
+    <string name="xray_apps_none_title">No app used measurable energy</string>
+    <string name="xray_apps_none_body">In this interval no app drew enough power to show up.</string>
+    <string name="xray_app_icon_placeholder">App icon unavailable</string>
+
+    <!-- App detail sheet -->
+    <string name="xray_detail_components">Energy by component</string>
+    <string name="xray_detail_states">Energy by process state</string>
+    <string name="xray_detail_state_foreground">Foreground</string>
+    <string name="xray_detail_state_background">Background</string>
+    <string name="xray_detail_state_foreground_service">Foreground service</string>
+    <string name="xray_detail_state_cached">Cached</string>
+    <string name="xray_detail_network_note">Radio energy only. Data used per app isn\'t measured.</string>
+    <string name="xray_detail_activity">Activity</string>
+    <string name="xray_detail_cpu_time">CPU time</string>
+    <string name="xray_detail_foreground_time">Time in the foreground</string>
+    <string name="xray_detail_wakelocks">Wakelocks</string>
+    <string name="xray_detail_alarms">Wake-up alarms</string>
+    <string name="xray_detail_none_recorded">None recorded in this interval.</string>
+    <string name="xray_detail_wakelock_line">%1$s held</string>
+    <plurals name="xray_count_times">
+        <item quantity="one">%d time</item>
+        <item quantity="other">%d times</item>
+    </plurals>
+
+    <!-- Quick actions -->
+    <string name="xray_actions_title">Quick actions</string>
+    <string name="xray_actions_loading">Reading the app\'s current settings…</string>
+    <string name="xray_actions_no_package">Quick actions aren\'t available for this entry, because it has no single app package.</string>
+    <string name="xray_actions_retry">Read again</string>
+    <string name="xray_blocked_title">Shizuku isn\'t ready</string>
+    <string name="xray_blocked_not_installed">Install and start Shizuku to change app settings from here.</string>
+    <string name="xray_blocked_not_running">Start Shizuku, then come back to this screen.</string>
+    <string name="xray_blocked_permission_required">Allow Inspiration in Shizuku. You can grant access from Cockpit or Toolkit.</string>
+    <string name="xray_blocked_permission_denied">Access was denied in Shizuku. You can grant it again from Cockpit or Toolkit.</string>
+    <string name="xray_action_restrict_title">Restrict background activity</string>
+    <string name="xray_action_restrict_body">Stops the app from running in the background. It may not sync or notify you until you open it.</string>
+    <string name="xray_action_restrict_custom">This permission has a value that Inspiration can\'t change.</string>
+    <string name="xray_action_bucket_title">Standby bucket</string>
+    <string name="xray_action_bucket_body">Controls how often the system lets the app run jobs and alarms.</string>
+    <string name="xray_action_bucket_other">The current bucket (%1$d) is set by the system.</string>
+    <string name="xray_bucket_active">Active</string>
+    <string name="xray_bucket_working_set">Working set</string>
+    <string name="xray_bucket_frequent">Frequent</string>
+    <string name="xray_bucket_rare">Rare</string>
+    <string name="xray_bucket_restricted">Restricted</string>
+    <string name="xray_action_force_stop">Force stop</string>
+    <string name="xray_action_force_stop_body">Stops the app now and clears its alarms and pending work.</string>
+    <string name="xray_actions_busy">Applying the change…</string>
+
+    <!-- Overrides made by Inspiration -->
+    <string name="xray_overrides_title">Changes made by Inspiration</string>
+    <string name="xray_override_run_any_in_background">Background activity restricted</string>
+    <string name="xray_override_run_in_background">Background running restricted</string>
+    <string name="xray_override_wake_lock">Wakelocks blocked</string>
+    <string name="xray_override_bucket">Standby bucket set to %1$s</string>
+    <string name="xray_override_bucket_other">Standby bucket changed</string>
+    <string name="xray_override_restore">Restore</string>
+    <string name="xray_override_not_restorable">Can\'t be restored automatically.</string>
+
+    <!-- Results -->
+    <string name="xray_notice_restricted">Background activity restricted.</string>
+    <string name="xray_notice_unrestricted">Background restriction removed.</string>
+    <string name="xray_notice_bucket">Standby bucket set to %1$s.</string>
+    <string name="xray_notice_force_stopped">The app was force-stopped.</string>
+    <string name="xray_notice_restored">Change restored.</string>
+    <string name="xray_refused_invalid_argument">That request isn\'t valid.</string>
+    <string name="xray_refused_not_installed">This app isn\'t installed.</string>
+    <string name="xray_refused_protected_app">This is a protected app. Inspiration doesn\'t change system, persistent or role-holder apps.</string>
+    <string name="xray_refused_caller">Shizuku refused this request.</string>
+    <string name="xray_refused_stale">The setting changed in the meantime. Check it and try again.</string>
+    <string name="xray_refused_busy">Another change is in progress. Try again in a moment.</string>
+    <string name="xray_refused_not_plugged">Plug the phone in first.</string>
+    <string name="xray_refused_read_failed">Couldn\'t read the app\'s current settings.</string>
+    <string name="xray_refused_not_confirmed">Confirm the action to continue.</string>
+    <string name="xray_refused_service_unavailable">The Shizuku service isn\'t available right now.</string>
+    <string name="xray_refused_not_restorable">This change can\'t be restored automatically.</string>
+    <string name="xray_refused_already_restored">This change was already restored.</string>
+    <string name="xray_refused_unknown_action">Inspiration doesn\'t recognize that action.</string>
+    <string name="xray_refused_other">The request was refused.</string>
+    <string name="xray_unavailable_no_service">The Shizuku service can\'t be reached. Check that Shizuku is running.</string>
+    <string name="xray_unavailable_stale_service">The Shizuku service is out of date. Restart Shizuku, then try again.</string>
+    <string name="xray_unavailable_not_effective">The change didn\'t take effect and was rolled back.</string>
+    <string name="xray_failed_code">The command failed (code %1$d).</string>
+    <string name="xray_failed">The command failed.</string>
+
+    <!-- Confirmation -->
+    <string name="xray_confirm_title_restrict">Restrict %1$s?</string>
+    <string name="xray_confirm_title_unrestrict">Remove the background restriction of %1$s?</string>
+    <string name="xray_confirm_title_bucket">Move %1$s to the %2$s bucket?</string>
+    <string name="xray_confirm_title_force_stop">Force stop %1$s?</string>
+    <string name="xray_confirm_title_restore">Restore the previous setting of %1$s?</string>
+    <string name="xray_confirm_action_restrict">Restrict</string>
+    <string name="xray_confirm_action_unrestrict">Remove restriction</string>
+    <string name="xray_confirm_action_bucket">Move</string>
+    <string name="xray_confirm_action_force_stop">Force stop</string>
+    <string name="xray_confirm_action_restore">Restore</string>
+    <string name="xray_confirm_cancel">Cancel</string>
+    <string name="xray_warning_force_stop">Force-stopping ends the app right now and drops its alarms and pending work.</string>
+    <string name="xray_warning_wake_lock_ignore">Ignoring wakelocks can break alarms and messaging.</string>
+    <string name="xray_warning_restricted_bucket">The restricted bucket heavily limits the app\'s jobs, alarms and network.</string>
+    <string name="xray_warning_run_any_in_background_ignore">The app will stop all background work, so it may not sync or notify you until you open it.</string>
+    <string name="xray_warning_updated_system_app">This is an updated system app. Changing it can affect parts of the system.</string>
+    <string name="xray_warning_doze_over_custom">Standard doze would replace a custom doze setting.</string>
+    <string name="xray_warning_restore_state_changed">The setting has changed since Inspiration made this change. Restoring overwrites its current value.</string>
+</resources>
