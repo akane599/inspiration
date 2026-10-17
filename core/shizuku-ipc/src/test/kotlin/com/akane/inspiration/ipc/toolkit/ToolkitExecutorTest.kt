@@ -386,7 +386,7 @@ class ToolkitExecutorTest {
     }
 
     @Test
-    fun `restoreDozeRaw refuses keys outside the controlled profile keys and non numeric values`() {
+    fun `restoreDozeRaw refuses unknown keys non numeric values duplicates and over long strings`() {
         val device = FakeDozeDevice(raw = "a=1")
         val executor = dozeExecutor(device)
         val rejected = listOf(
@@ -395,17 +395,62 @@ class ToolkitExecutorTest {
             "inactive_to=abc",
             "inactive_to=-1",
             "inactive_to=",
-            "inactive_to=1.5",
-            "inactive_to=1234567890",
+            "inactive_to=1.",
+            "inactive_to=.5",
+            "inactive_to=1.5.2",
+            "inactive_to=TRUE",
+            "inactive_to=1234567890123456789",
             "inactive_to",
             "x".repeat(1024),
             "inactive_to=1,,sensing_to=0",
+            "inactive_to=1,inactive_to=2",
+            "inactive_to=1;sensing_to=0",
+            "inactive_to=1,sensing_to=\$(id)",
+            "inactive_to=1\nsensing_to=0",
+            "inactive_to=1,sensing_to=0\n",
+            "-inactive_to=1",
+            "--user=1",
+            overLongButWellFormed(),
         )
 
         for (value in rejected) {
             assertEquals(value, ToolkitCode.ARG_VALUE, executor.restoreDozeRaw(value, "a=1").code)
         }
         assertTrue("no command at all for a refused value", runner.calls.isEmpty())
+    }
+
+    /** Every pair is individually valid and no key repeats, so only the 1024 length cap can refuse it. */
+    private fun overLongButWellFormed(): String {
+        val pairs = DozeRaw.AOSP_KEYS.map { "$it=123456789012345678" }
+        val ok = pairs.fold("") { acc, pair ->
+            val next = if (acc.isEmpty()) pair else "$acc,$pair"
+            if (next.length <= 1024) next else acc
+        }
+        assertTrue(DozeRaw.isRestorable(ok))
+        return pairs.joinToString(",").also { assertTrue(it.length > 1024) }
+    }
+
+    @Test
+    fun `restoreDozeRaw replays a realistic OEM prior whose keys are not profile keys`() {
+        val oemPrior = "light_after_inactive_to=30000,light_idle_to=60000,light_idle_factor=2.0," +
+            "light_max_idle_to=900000,min_light_maintenance_time=5000,min_deep_maintenance_time=30000," +
+            "inactive_to=1800000,sensing_to=240000,locating_to=30000,location_accuracy=20.0," +
+            "motion_inactive_to=600000,idle_after_inactive_to=1800000,idle_pending_to=300000," +
+            "max_idle_pending_to=600000,idle_pending_factor=2.0,quick_doze_delay_to=60000," +
+            "idle_to=3600000,max_idle_to=21600000,idle_factor=2.0,min_time_to_alarm=3600000," +
+            "notification_allowlist_duration_ms=30000,pre_idle_factor_long=1.67,pre_idle_factor_short=1.33," +
+            "wait_for_unlock=true,use_window_alarms=false"
+        assertTrue(DozeRaw.isRestorable(oemPrior))
+        val device = FakeDozeDevice(raw = DozeProfile.BALANCED.constants)
+
+        val result = dozeExecutor(device).restoreDozeRaw(oemPrior, DozeProfile.BALANCED.constants)
+
+        assertEquals(ToolkitResult.done(before = DozeProfile.BALANCED.constants, after = oemPrior), result)
+        assertEquals(oemPrior, device.raw)
+        assertEquals(
+            listOf(CMD, "settings", "put", "--user", "0", "global", "device_idle_constants", oemPrior),
+            device.writes.single(),
+        )
     }
 
     @Test
