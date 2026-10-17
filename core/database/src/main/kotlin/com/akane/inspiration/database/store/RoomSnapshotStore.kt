@@ -16,7 +16,9 @@ import com.akane.inspiration.database.SnapshotSystemEntity
 import com.akane.inspiration.database.SnapshotUidEntity
 import com.akane.inspiration.database.SnapshotUidSensorEntity
 import com.akane.inspiration.database.SnapshotWakelockEntity
+import com.akane.inspiration.database.HealthSampleEntity
 import com.akane.inspiration.database.TelemetrySampleEntity
+import com.akane.inspiration.database.ToolkitActionEntity
 import com.akane.inspiration.ipc.model.HistoryEvent
 import com.akane.inspiration.telemetry.capacity.ChargeSegment
 import com.akane.inspiration.telemetry.capacity.SegmentVerdict
@@ -34,7 +36,13 @@ import com.akane.inspiration.telemetry.snapshot.SnapshotClock
 import com.akane.inspiration.telemetry.snapshot.SnapshotKind
 import com.akane.inspiration.telemetry.snapshot.SourceAvailability
 import com.akane.inspiration.telemetry.snapshot.UidSnapshot
+import com.akane.inspiration.telemetry.store.ChargeSessionRecord
+import com.akane.inspiration.telemetry.store.HealthSample
+import com.akane.inspiration.telemetry.store.Marker
 import com.akane.inspiration.telemetry.store.SnapshotStore
+import com.akane.inspiration.telemetry.store.TelemetrySample
+import com.akane.inspiration.telemetry.store.ToolkitActionRecord
+import com.akane.inspiration.telemetry.store.ToolkitActionStatus
 
 class RoomSnapshotStore(
     private val database: InspirationDatabase,
@@ -135,6 +143,37 @@ class RoomSnapshotStore(
             database.snapshotDao().byId(marker.snapshotId)?.let { marker.snapshotId to readSnapshot(it) }
         }
     }
+
+    override suspend fun markers(): List<Marker> =
+        database.markerDao().all().map { Marker(it.id, it.snapshotId, it.label, it.wallMs) }
+
+    override suspend fun samplesBetween(from: Long, to: Long): List<TelemetrySample> =
+        database.telemetryDao().between(from, to).map { it.toDomain() }
+
+    override suspend fun chargeSessions(): List<ChargeSessionRecord> =
+        database.chargeSessionDao().all().map { it.toDomain() }
+
+    override suspend fun healthSamples(): List<HealthSample> =
+        database.healthDao().all().map { HealthSample(it.wallMs, it.fccMah, it.designMah, it.cycleCount, it.measuredMah) }
+
+    override suspend fun insertHealthSample(sample: HealthSample) {
+        database.healthDao().insert(
+            HealthSampleEntity(sample.wallMs, sample.fccMah, sample.designMah, sample.cycleCount, sample.measuredMah),
+        )
+    }
+
+    override suspend fun insertToolkitAction(record: ToolkitActionRecord): Long =
+        database.toolkitActionDao().insertAndPrune(record.toEntity().copy(id = 0))
+
+    override suspend fun updateToolkitAction(record: ToolkitActionRecord) {
+        database.toolkitActionDao().update(record.toEntity())
+    }
+
+    override suspend fun toolkitActions(limit: Int): List<ToolkitActionRecord> =
+        database.toolkitActionDao().newest(limit).mapNotNull { it.toDomain() }
+
+    override suspend fun pendingToolkitActions(): List<ToolkitActionRecord> =
+        database.toolkitActionDao().withStatus(ToolkitActionStatus.PENDING.code).mapNotNull { it.toDomain() }
 
     override suspend fun insertSamples(samples: List<LiveReading>) {
         if (samples.isEmpty()) return
@@ -352,8 +391,10 @@ class RoomSnapshotStore(
         fgActivityMs = fgActivityMs,
         fgServiceMs = fgServiceMs,
         partialWakelocks = wakelocks.map { UidWakelock(it.name, it.durationMs, it.bgDurationMs, it.count) },
-        wakeupAlarms = alarms.map { UidAlarm(it.tag, it.count) },
+        // A row with no batterystats count but an alarm-dump count was reported by the dump only.
+        wakeupAlarms = alarms.filterNot { it.count == 0L && it.alarmDumpWakeups > 0L }.map { UidAlarm(it.tag, it.count) },
         sensors = sensors.map { UidSensor(it.handle, it.totalMs, it.bgMs, it.count) },
+        alarmDumpWakeups = alarms.filter { it.alarmDumpWakeups > 0L }.map { UidAlarm(it.tag, it.alarmDumpWakeups) },
     )
 
     private fun BatterySnapshot.componentEntities(snapshotId: Long): List<SnapshotComponentEntity> = buildList {
@@ -405,10 +446,17 @@ class RoomSnapshotStore(
         }
     }
 
-    private fun BatterySnapshot.alarmEntities(snapshotId: Long): List<SnapshotAlarmEntity> =
-        uids.flatMap { uid -> uid.wakeupAlarms.map { alarm -> uid.uid to alarm } }
-            .groupBy({ (uid, alarm) -> uid to alarm.tag }, { it.second.count })
-            .map { (key, counts) -> SnapshotAlarmEntity(snapshotId, key.first, key.second, counts.sum()) }
+    private fun BatterySnapshot.alarmEntities(snapshotId: Long): List<SnapshotAlarmEntity> {
+        val counts = uids.flatMap { uid -> uid.wakeupAlarms.map { alarm -> (uid.uid to alarm.tag) to alarm.count } }
+            .groupBy({ it.first }, { it.second })
+            .mapValues { it.value.sum() }
+        val dumpWakeups = uids.flatMap { uid -> uid.alarmDumpWakeups.map { alarm -> (uid.uid to alarm.tag) to alarm.count } }
+            .groupBy({ it.first }, { it.second })
+            .mapValues { it.value.sum() }
+        return (counts.keys + dumpWakeups.keys).map { key ->
+            SnapshotAlarmEntity(snapshotId, key.first, key.second, counts[key] ?: 0L, dumpWakeups[key] ?: 0L)
+        }
+    }
 
     private fun BatterySnapshot.sensorEntities(snapshotId: Long): List<SnapshotUidSensorEntity> =
         uids.flatMap { uid ->
@@ -449,6 +497,68 @@ class RoomSnapshotStore(
         levelPct = levelPct,
         plugged = plugged,
     )
+
+    private fun TelemetrySampleEntity.toDomain() = TelemetrySample(
+        wallMs = wallMs,
+        elapsedRealtimeMs = elapsedRealtimeMs,
+        bootCount = bootCount,
+        currentMa = currentMa,
+        voltageMv = voltageMv,
+        watts = watts,
+        temperatureDeciC = temperatureDeciC,
+        levelPct = levelPct,
+        plugged = plugged,
+    )
+
+    private fun ChargeSessionEntity.toDomain() = ChargeSessionRecord(
+        statsStartMs = statsStartMs,
+        startHistoryTimeMs = startHistoryTimeMs,
+        startWallMs = startWallMs,
+        endWallMs = endWallMs,
+        startPct = startPct,
+        endPct = endPct,
+        deltaChargeUah = deltaChargeUah,
+        integratedMah = integratedMah,
+        maxTemperatureDeciC = maxTemperatureDeciC,
+        estimateMah = estimateMah,
+        independent = independent,
+        accepted = accepted,
+        rejectReason = rejectReason,
+    )
+
+    private fun ToolkitActionRecord.toEntity() = ToolkitActionEntity(
+        id = id,
+        startedAt = startedAt,
+        endedAt = endedAt,
+        kind = kind,
+        pkg = pkg,
+        op = op,
+        param = param,
+        status = status.code,
+        code = code,
+        beforeRaw = beforeRaw,
+        afterRaw = afterRaw,
+        restoresId = restoresId,
+    )
+
+    /** Null when the stored status code is unknown, so a row written by a newer build is skipped, not mislabelled. */
+    private fun ToolkitActionEntity.toDomain(): ToolkitActionRecord? {
+        val parsed = ToolkitActionStatus.fromCode(status) ?: return null
+        return ToolkitActionRecord(
+            id = id,
+            startedAt = startedAt,
+            endedAt = endedAt,
+            kind = kind,
+            pkg = pkg,
+            op = op,
+            param = param,
+            status = parsed,
+            code = code,
+            beforeRaw = beforeRaw,
+            afterRaw = afterRaw,
+            restoresId = restoresId,
+        )
+    }
 
     private companion object {
         const val DEVICE_UID = -1

@@ -12,7 +12,12 @@ import com.akane.inspiration.telemetry.snapshot.CaptureTrigger
 import com.akane.inspiration.telemetry.snapshot.LiveReading
 import com.akane.inspiration.telemetry.snapshot.SnapshotClock
 import com.akane.inspiration.telemetry.snapshot.SnapshotKind
+import com.akane.inspiration.telemetry.store.ChargeSessionRecord
+import com.akane.inspiration.telemetry.store.HealthSample
+import com.akane.inspiration.telemetry.store.Marker
 import com.akane.inspiration.telemetry.store.SnapshotStore
+import com.akane.inspiration.telemetry.store.TelemetrySample
+import com.akane.inspiration.telemetry.store.ToolkitActionRecord
 import kotlinx.coroutines.CompletableDeferred
 
 internal fun ruleEngine() = DiagnosticRuleEngine(SensorCatalog { SensorKind.OTHER })
@@ -82,4 +87,13 @@ internal class FakeSnapshotStore(
     override suspend fun acceptedEstimatesChronological(limit: Int): List<Double> = emptyList()
     override suspend fun recordMiss(wallMs: Long, trigger: CaptureTrigger, reason: String) = Unit
     override suspend fun prune(nowWallMs: Long) = Unit
+    override suspend fun markers(): List<Marker> = emptyList()
+    override suspend fun samplesBetween(from: Long, to: Long): List<TelemetrySample> = emptyList()
+    override suspend fun chargeSessions(): List<ChargeSessionRecord> = emptyList()
+    override suspend fun healthSamples(): List<HealthSample> = emptyList()
+    override suspend fun insertHealthSample(sample: HealthSample) = Unit
+    override suspend fun insertToolkitAction(record: ToolkitActionRecord): Long = error("unused")
+    override suspend fun updateToolkitAction(record: ToolkitActionRecord) = Unit
+    override suspend fun toolkitActions(limit: Int): List<ToolkitActionRecord> = emptyList()
+    override suspend fun pendingToolkitActions(): List<ToolkitActionRecord> = emptyList()
 }

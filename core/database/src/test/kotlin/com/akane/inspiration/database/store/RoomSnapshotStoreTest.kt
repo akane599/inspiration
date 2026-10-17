@@ -2,8 +2,11 @@ package com.akane.inspiration.database.store
 
 import androidx.test.core.app.ApplicationProvider
 import com.akane.inspiration.database.InspirationDatabase
+import com.akane.inspiration.database.ToolkitActionEntity
 import com.akane.inspiration.ipc.model.HistoryEvent
 import com.akane.inspiration.ipc.model.HistoryKind
+import com.akane.inspiration.telemetry.capacity.ChargeSegment
+import com.akane.inspiration.telemetry.capacity.SegmentVerdict
 import com.akane.inspiration.telemetry.dump.KernelWakelock
 import com.akane.inspiration.telemetry.dump.SystemTimers
 import com.akane.inspiration.telemetry.dump.UidAlarm
@@ -18,9 +21,16 @@ import com.akane.inspiration.telemetry.snapshot.SnapshotClock
 import com.akane.inspiration.telemetry.snapshot.SnapshotKind
 import com.akane.inspiration.telemetry.snapshot.SourceAvailability
 import com.akane.inspiration.telemetry.snapshot.UidSnapshot
+import com.akane.inspiration.telemetry.store.ChargeSessionRecord
+import com.akane.inspiration.telemetry.store.HealthSample
+import com.akane.inspiration.telemetry.store.Marker
+import com.akane.inspiration.telemetry.store.TelemetrySample
+import com.akane.inspiration.telemetry.store.ToolkitActionRecord
+import com.akane.inspiration.telemetry.store.ToolkitActionStatus
 import kotlinx.coroutines.runBlocking
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
@@ -158,6 +168,172 @@ class RoomSnapshotStoreTest {
     }
 
     @Test
+    fun `alarm dump wakeups round trip beside batterystats alarm counts`() = runBlocking {
+        val both = uidSnapshot().copy(
+            wakeupAlarms = listOf(UidAlarm("sync", 7L)),
+            alarmDumpWakeups = listOf(UidAlarm("sync", 4L), UidAlarm("dump-only", 2L)),
+        )
+        val snapshot = fullSnapshot(uids = listOf(both))
+
+        val id = store.insert(snapshot)
+
+        val read = store.byId(id)!!.uids.single()
+        assertEquals(listOf(UidAlarm("sync", 7L)), read.wakeupAlarms)
+        assertEquals(listOf(UidAlarm("dump-only", 2L), UidAlarm("sync", 4L)), read.alarmDumpWakeups)
+        val rows = database.snapshotDao().alarmsForSnapshot(id)
+        assertEquals(7L, rows.single { it.tag == "sync" }.count)
+        assertEquals(4L, rows.single { it.tag == "sync" }.alarmDumpWakeups)
+        assertEquals(0L, rows.single { it.tag == "dump-only" }.count)
+        assertEquals(2L, rows.single { it.tag == "dump-only" }.alarmDumpWakeups)
+    }
+
+    @Test
+    fun `markers are listed newest first`() = runBlocking {
+        val snapshotId = store.insert(fullSnapshot())
+        val first = store.addMarker(snapshotId, "first", wallMs = 100L)
+        val third = store.addMarker(snapshotId, "third", wallMs = 300L)
+        val second = store.addMarker(snapshotId, "second", wallMs = 200L)
+
+        assertEquals(
+            listOf(
+                Marker(third, snapshotId, "third", 300L),
+                Marker(second, snapshotId, "second", 200L),
+                Marker(first, snapshotId, "first", 100L),
+            ),
+            store.markers(),
+        )
+    }
+
+    @Test
+    fun `samplesBetween is inclusive and ordered`() = runBlocking {
+        store.insertSamples(
+            listOf(
+                LiveReading(300L, 3L, 1, -30, 4_000, 1.2, 310, 50, false),
+                LiveReading(100L, 1L, 1, -10, 4_100, 0.4, 290, 52, true),
+                LiveReading(200L, 2L, 1, null, null, null, null, null, null),
+                LiveReading(400L, 4L, 1, -40, 3_900, 1.6, 320, 48, false),
+            ),
+        )
+
+        val samples = store.samplesBetween(from = 100L, to = 300L)
+
+        assertEquals(listOf(100L, 200L, 300L), samples.map { it.wallMs })
+        assertEquals(TelemetrySample(100L, 1L, 1, -10, 4_100, 0.4, 290, 52, true), samples.first())
+        assertNull(samples[1].currentMa)
+        assertTrue(store.samplesBetween(from = 500L, to = 600L).isEmpty())
+    }
+
+    @Test
+    fun `health samples round trip oldest first and an equal wallMs replaces`() = runBlocking {
+        store.insertHealthSample(HealthSample(2_000L, 4_800.0, 5_000.0, 120, measuredMah = 4_700.0))
+        store.insertHealthSample(HealthSample(1_000L, 4_900.0, 5_000.0, 100))
+        store.insertHealthSample(HealthSample(2_000L, 4_750.0, 5_000.0, 121))
+
+        assertEquals(
+            listOf(
+                HealthSample(1_000L, 4_900.0, 5_000.0, 100, measuredMah = null),
+                HealthSample(2_000L, 4_750.0, 5_000.0, 121, measuredMah = null),
+            ),
+            store.healthSamples(),
+        )
+    }
+
+    @Test
+    fun `charge sessions read back what upsertChargeSession wrote ordered by end time`() = runBlocking {
+        store.upsertChargeSession(10L, segment(startHistoryTimeMs = 500L, endWallMs = 9_000L), accepted(4_900.0))
+        store.upsertChargeSession(
+            10L,
+            segment(startHistoryTimeMs = 100L, endWallMs = 3_000L),
+            SegmentVerdict(estimateMah = null, independent = false, accepted = false, rejectReason = "too_short"),
+        )
+
+        val sessions = store.chargeSessions()
+
+        assertEquals(listOf(3_000L, 9_000L), sessions.map { it.endWallMs })
+        assertEquals("too_short", sessions.first().rejectReason)
+        assertFalse(sessions.first().accepted)
+        assertEquals(
+            ChargeSessionRecord(
+                statsStartMs = 10L,
+                startHistoryTimeMs = 500L,
+                startWallMs = 1_000L,
+                endWallMs = 9_000L,
+                startPct = 20,
+                endPct = 80,
+                deltaChargeUah = 3_000_000L,
+                integratedMah = 2_950.0,
+                maxTemperatureDeciC = 380,
+                estimateMah = 4_900.0,
+                independent = true,
+                accepted = true,
+                rejectReason = null,
+            ),
+            sessions.last(),
+        )
+    }
+
+    @Test
+    fun `toolkit action inserts updates and lists with an explicit stored status code`() = runBlocking {
+        val pending = ToolkitActionRecord(
+            startedAt = 1_000L,
+            kind = "app_op",
+            pkg = "com.example.app",
+            op = "RUN_ANY_IN_BACKGROUND",
+            param = "IGNORE",
+            status = ToolkitActionStatus.PENDING,
+        )
+        val id = store.insertToolkitAction(pending)
+        assertTrue(id > 0L)
+        val refused = store.insertToolkitAction(pending.copy(startedAt = 2_000L, status = ToolkitActionStatus.REFUSED, code = 3))
+        assertEquals("pending", database.toolkitActionDao().newest(10).last().status)
+        assertEquals(listOf(pending.copy(id = id)), store.pendingToolkitActions())
+
+        val done = pending.copy(
+            id = id,
+            endedAt = 1_500L,
+            status = ToolkitActionStatus.DONE,
+            code = 0,
+            beforeRaw = "allow",
+            afterRaw = "ignore",
+            restoresId = null,
+        )
+        store.updateToolkitAction(done)
+
+        assertEquals(listOf(refused, id), store.toolkitActions(10).map { it.id })
+        assertEquals(done, store.toolkitActions(10).last())
+        assertTrue(store.pendingToolkitActions().isEmpty())
+        assertEquals(listOf(refused), store.toolkitActions(1).map { it.id })
+        assertEquals("done", database.toolkitActionDao().newest(10).last().status)
+    }
+
+    @Test
+    fun `toolkit action skips rows whose stored status is unknown`() = runBlocking {
+        val id = store.insertToolkitAction(
+            ToolkitActionRecord(startedAt = 1L, kind = "force_stop", pkg = "a.b", op = "FORCE_STOP", status = ToolkitActionStatus.DONE),
+        )
+        database.toolkitActionDao().insert(
+            ToolkitActionEntity(startedAt = 2L, kind = "x", op = "x", status = "from_a_newer_build"),
+        )
+
+        assertEquals(listOf(id), store.toolkitActions(10).map { it.id })
+    }
+
+    @Test
+    fun `toolkit actions are pruned to the newest 500 rows on insert`() = runBlocking {
+        val ids = (1..502).map { n ->
+            store.insertToolkitAction(
+                ToolkitActionRecord(startedAt = n.toLong(), kind = "k", op = "o", status = ToolkitActionStatus.DONE),
+            )
+        }
+
+        val remaining = store.toolkitActions(limit = 1_000)
+
+        assertEquals(500, remaining.size)
+        assertEquals(ids.last(), remaining.first().id)
+        assertEquals(ids[2], remaining.last().id)
+    }
+
+    @Test
     fun `prune delegates retention to database sql`() = runBlocking {
         val now = 100L * DAY_MS
         val retained = store.insert(fullSnapshot(wallMs = now - 31L * DAY_MS))
@@ -208,6 +384,20 @@ class RoomSnapshotStoreTest {
         availability = availability,
         truncatedUids = 2,
     )
+
+    private fun segment(startHistoryTimeMs: Long, endWallMs: Long) = ChargeSegment(
+        startHistoryTimeMs = startHistoryTimeMs,
+        startWallMs = 1_000L,
+        endWallMs = endWallMs,
+        startPct = 20,
+        endPct = 80,
+        deltaChargeUah = 3_000_000L,
+        integratedMah = 2_950.0,
+        maxTemperatureDeciC = 380,
+    )
+
+    private fun accepted(estimateMah: Double) =
+        SegmentVerdict(estimateMah = estimateMah, independent = true, accepted = true, rejectReason = null)
 
     private fun uidSnapshot() = UidSnapshot(
         uid = 10_001,

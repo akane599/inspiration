@@ -16,7 +16,12 @@ import com.akane.inspiration.telemetry.snapshot.LiveReading
 import com.akane.inspiration.telemetry.snapshot.SnapshotClock
 import com.akane.inspiration.telemetry.snapshot.SnapshotKind
 import com.akane.inspiration.telemetry.snapshot.UidSnapshot
+import com.akane.inspiration.telemetry.store.ChargeSessionRecord
+import com.akane.inspiration.telemetry.store.HealthSample
+import com.akane.inspiration.telemetry.store.Marker
 import com.akane.inspiration.telemetry.store.SnapshotStore
+import com.akane.inspiration.telemetry.store.TelemetrySample
+import com.akane.inspiration.telemetry.store.ToolkitActionRecord
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -265,6 +270,52 @@ class SnapshotDifferTest {
     }
 
     @Test
+    fun `alarm dump wakeups diff on their own and never mix into batterystats alarm deltas`() {
+        val diff = SnapshotDiffer.diff(
+            snapshot(
+                elapsed = 1_000,
+                uids = listOf(
+                    uid(totalMah = 1.0).copy(
+                        wakeupAlarms = listOf(UidAlarm("sync", 10)),
+                        alarmDumpWakeups = listOf(UidAlarm("sync", 3)),
+                    ),
+                ),
+            ),
+            snapshot(
+                elapsed = 2_000,
+                duration = 2_000,
+                uids = listOf(
+                    uid(totalMah = 1.0).copy(
+                        wakeupAlarms = listOf(UidAlarm("sync", 15)),
+                        alarmDumpWakeups = listOf(UidAlarm("sync", 4), UidAlarm("new", 2)),
+                    ),
+                ),
+            ),
+        )
+
+        val delta = diff.uids.single()
+        assertTrue(delta.valid)
+        assertEquals(listOf(UidAlarm("sync", 5)), delta.wakeupAlarms)
+        assertEquals(listOf(UidAlarm("new", 2), UidAlarm("sync", 1)), delta.alarmDumpWakeups)
+    }
+
+    @Test
+    fun `negative alarm dump wakeup delta invalidates only that uid delta`() {
+        val diff = SnapshotDiffer.diff(
+            snapshot(elapsed = 1_000, uids = listOf(uid(totalMah = 1.0).copy(alarmDumpWakeups = listOf(UidAlarm("sync", 5))))),
+            snapshot(
+                elapsed = 2_000,
+                duration = 2_000,
+                uids = listOf(uid(totalMah = 1.0).copy(alarmDumpWakeups = listOf(UidAlarm("sync", 2)))),
+            ),
+        )
+
+        assertFalse(diff.uids.single().valid)
+        assertEquals(-3L, diff.uids.single().alarmDumpWakeups.single().count)
+        assertTrue(diff.validity.problems.contains("negative_uid_alarm_dump:10001:sync"))
+    }
+
+    @Test
     fun `negative kernel wakelock is reported without invalidating kernel counters session`() {
         val diff = SnapshotDiffer.diff(
             snapshot(elapsed = 1_000, kernelWakelocks = listOf(KernelWakelock("sensor", 10, 1))),
@@ -453,6 +504,15 @@ class SnapshotDifferTest {
         override suspend fun acceptedEstimatesChronological(limit: Int): List<Double> = emptyList()
         override suspend fun recordMiss(wallMs: Long, trigger: CaptureTrigger, reason: String) = Unit
         override suspend fun prune(nowWallMs: Long) = Unit
+        override suspend fun markers(): List<Marker> = emptyList()
+        override suspend fun samplesBetween(from: Long, to: Long): List<TelemetrySample> = emptyList()
+        override suspend fun chargeSessions(): List<ChargeSessionRecord> = emptyList()
+        override suspend fun healthSamples(): List<HealthSample> = emptyList()
+        override suspend fun insertHealthSample(sample: HealthSample) = Unit
+        override suspend fun insertToolkitAction(record: ToolkitActionRecord): Long = error("unused")
+        override suspend fun updateToolkitAction(record: ToolkitActionRecord) = Unit
+        override suspend fun toolkitActions(limit: Int): List<ToolkitActionRecord> = emptyList()
+        override suspend fun pendingToolkitActions(): List<ToolkitActionRecord> = emptyList()
 
         private fun List<BatterySnapshot>.filterKind(kind: SnapshotKind?) = if (kind == null) this else filter { it.kind == kind }
     }

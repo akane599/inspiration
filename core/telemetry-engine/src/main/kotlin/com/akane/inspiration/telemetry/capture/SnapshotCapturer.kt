@@ -76,8 +76,9 @@ class SnapshotCapturer(
             statsDurationMs = usage?.statsDurationMs,
         )
         val uidDump = usableDump?.uids?.associateBy { it.uid }.orEmpty()
-        val alarms = mergeAlarms(uidDump.mapValues { it.value.wakeupAlarms }, read.alarm)
-        val uids = (usage?.uids.orEmpty().map { it.uid } + uidDump.keys + alarms.keys)
+        val alarms = mergeAlarms(uidDump.mapValues { it.value.wakeupAlarms })
+        val alarmDumps = alarmDumpWakeups(read.alarm)
+        val uids = (usage?.uids.orEmpty().map { it.uid } + uidDump.keys + alarmDumps.keys)
             .distinct()
             .sorted()
             .map { uid ->
@@ -100,6 +101,7 @@ class SnapshotCapturer(
                     partialWakelocks = mergeWakelocks(dumpUid?.partialWakelocks.orEmpty()),
                     wakeupAlarms = alarms[uid].orEmpty(),
                     sensors = dumpUid?.sensors.orEmpty(),
+                    alarmDumpWakeups = alarmDumps[uid].orEmpty(),
                 )
             }
         val deviceComponents = usage?.deviceComponents?.takeIf { it.isNotEmpty() }
@@ -158,26 +160,20 @@ class SnapshotCapturer(
         truncatedUids = 0,
     )
 
-    private fun mergeAlarms(
-        dumpAlarms: Map<Int, List<UidAlarm>>,
-        alarm: DumpParse<AlarmDump>,
-    ): Map<Int, List<UidAlarm>> {
-        val merged = linkedMapOf<Pair<Int, String>, Long>()
-        dumpAlarms.forEach { (uid, alarms) ->
-            alarms.forEach { item ->
-                val key = uid to item.tag
-                merged[key] = (merged[key] ?: 0L) + item.count
+    /** Batterystats wakeup-alarm counts per uid, duplicate tags summed. The alarm dump is not mixed in. */
+    private fun mergeAlarms(dumpAlarms: Map<Int, List<UidAlarm>>): Map<Int, List<UidAlarm>> =
+        dumpAlarms.mapValues { (_, alarms) ->
+            alarms.groupBy { it.tag }.map { (tag, items) -> UidAlarm(tag, items.sumOf { it.count }) }
+        }
+
+    /** The alarm dump's `wakeupCount` per uid and tag, kept apart from the batterystats counts. */
+    private fun alarmDumpWakeups(alarm: DumpParse<AlarmDump>): Map<Int, List<UidAlarm>> =
+        (alarm as? DumpParse.Ok)?.value?.filterStats.orEmpty()
+            .filter { it.wakeupCount > 0 }
+            .groupBy { it.uid }
+            .mapValues { (_, stats) ->
+                stats.groupBy { it.tag }.map { (tag, items) -> UidAlarm(tag, items.sumOf { it.wakeupCount }) }
             }
-        }
-        (alarm as? DumpParse.Ok)?.value?.filterStats.orEmpty().forEach { item ->
-            val key = item.uid to item.tag
-            merged[key] = (merged[key] ?: 0L) + item.count
-        }
-        return merged.entries.groupBy(
-            keySelector = { it.key.first },
-            valueTransform = { UidAlarm(it.key.second, it.value) },
-        )
-    }
 
     private fun mergeWakelocks(rows: List<UidWakelock>): List<UidWakelock> = rows
         .groupBy { it.name.ifBlank { "<unnamed>" } }

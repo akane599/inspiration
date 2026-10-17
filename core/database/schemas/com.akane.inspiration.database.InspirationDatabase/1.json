@@ -2,7 +2,7 @@
   "formatVersion": 1,
   "database": {
     "version": 1,
-    "identityHash": "91c29856b09d898606138b12a0b74b3f",
+    "identityHash": "faba44efe9f19c0719e45beb9ca0eac8",
     "entities": [
       {
         "tableName": "snapshot",
@@ -576,7 +576,7 @@
       },
       {
         "tableName": "snapshot_alarm",
-        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`snapshotId` INTEGER NOT NULL, `uid` INTEGER NOT NULL, `tag` TEXT NOT NULL, `count` INTEGER NOT NULL, PRIMARY KEY(`snapshotId`, `uid`, `tag`), FOREIGN KEY(`snapshotId`) REFERENCES `snapshot`(`id`) ON UPDATE NO ACTION ON DELETE CASCADE )",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`snapshotId` INTEGER NOT NULL, `uid` INTEGER NOT NULL, `tag` TEXT NOT NULL, `count` INTEGER NOT NULL, `alarmDumpWakeups` INTEGER NOT NULL DEFAULT 0, PRIMARY KEY(`snapshotId`, `uid`, `tag`), FOREIGN KEY(`snapshotId`) REFERENCES `snapshot`(`id`) ON UPDATE NO ACTION ON DELETE CASCADE )",
         "fields": [
           {
             "fieldPath": "snapshotId",
@@ -601,6 +601,13 @@
             "columnName": "count",
             "affinity": "INTEGER",
             "notNull": true
+          },
+          {
+            "fieldPath": "alarmDumpWakeups",
+            "columnName": "alarmDumpWakeups",
+            "affinity": "INTEGER",
+            "notNull": true,
+            "defaultValue": "0"
           }
         ],
         "primaryKey": {
@@ -1208,11 +1215,140 @@
             "createSql": "CREATE INDEX IF NOT EXISTS `index_capture_miss_wallMs` ON `${TABLE_NAME}` (`wallMs`)"
           }
         ]
+      },
+      {
+        "tableName": "battery_health_sample",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`wallMs` INTEGER NOT NULL, `fccMah` REAL NOT NULL, `designMah` REAL NOT NULL, `cycleCount` INTEGER NOT NULL, `measuredMah` REAL, PRIMARY KEY(`wallMs`))",
+        "fields": [
+          {
+            "fieldPath": "wallMs",
+            "columnName": "wallMs",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "fccMah",
+            "columnName": "fccMah",
+            "affinity": "REAL",
+            "notNull": true
+          },
+          {
+            "fieldPath": "designMah",
+            "columnName": "designMah",
+            "affinity": "REAL",
+            "notNull": true
+          },
+          {
+            "fieldPath": "cycleCount",
+            "columnName": "cycleCount",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "measuredMah",
+            "columnName": "measuredMah",
+            "affinity": "REAL"
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "wallMs"
+          ]
+        }
+      },
+      {
+        "tableName": "toolkit_action",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `startedAt` INTEGER NOT NULL, `endedAt` INTEGER, `kind` TEXT NOT NULL, `pkg` TEXT, `op` TEXT NOT NULL, `param` TEXT, `status` TEXT NOT NULL, `code` INTEGER, `beforeRaw` TEXT, `afterRaw` TEXT, `restoresId` INTEGER)",
+        "fields": [
+          {
+            "fieldPath": "id",
+            "columnName": "id",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "startedAt",
+            "columnName": "startedAt",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "endedAt",
+            "columnName": "endedAt",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "kind",
+            "columnName": "kind",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "pkg",
+            "columnName": "pkg",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "op",
+            "columnName": "op",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "param",
+            "columnName": "param",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "status",
+            "columnName": "status",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "code",
+            "columnName": "code",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "beforeRaw",
+            "columnName": "beforeRaw",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "afterRaw",
+            "columnName": "afterRaw",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "restoresId",
+            "columnName": "restoresId",
+            "affinity": "INTEGER"
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": true,
+          "columnNames": [
+            "id"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_toolkit_action_status",
+            "unique": false,
+            "columnNames": [
+              "status"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_toolkit_action_status` ON `${TABLE_NAME}` (`status`)"
+          }
+        ]
       }
     ],
     "setupQueries": [
       "CREATE TABLE IF NOT EXISTS room_master_table (id INTEGER PRIMARY KEY,identity_hash TEXT)",
-      "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, '91c29856b09d898606138b12a0b74b3f')"
+      "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, 'faba44efe9f19c0719e45beb9ca0eac8')"
     ]
   }
 }

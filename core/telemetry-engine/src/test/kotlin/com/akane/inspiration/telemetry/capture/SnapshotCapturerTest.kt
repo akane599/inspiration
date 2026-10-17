@@ -6,9 +6,12 @@ import com.akane.inspiration.ipc.model.HistoryEvent
 import com.akane.inspiration.ipc.model.HistoryKind
 import com.akane.inspiration.ipc.model.UidUsage
 import com.akane.inspiration.telemetry.common.Clocks
+import com.akane.inspiration.telemetry.dump.AlarmDump
+import com.akane.inspiration.telemetry.dump.AlarmFilterStat
 import com.akane.inspiration.telemetry.dump.DumpParse
 import com.akane.inspiration.telemetry.dump.DumpSnapshot
 import com.akane.inspiration.telemetry.dump.SystemTimers
+import com.akane.inspiration.telemetry.dump.UidAlarm
 import com.akane.inspiration.telemetry.dump.UidDump
 import com.akane.inspiration.telemetry.dump.UidSensor
 import com.akane.inspiration.telemetry.snapshot.BatterySnapshot
@@ -18,7 +21,12 @@ import com.akane.inspiration.telemetry.snapshot.SnapshotKind
 import com.akane.inspiration.telemetry.source.FullRead
 import com.akane.inspiration.telemetry.source.LightRead
 import com.akane.inspiration.telemetry.source.TelemetrySource
+import com.akane.inspiration.telemetry.store.ChargeSessionRecord
+import com.akane.inspiration.telemetry.store.HealthSample
+import com.akane.inspiration.telemetry.store.Marker
 import com.akane.inspiration.telemetry.store.SnapshotStore
+import com.akane.inspiration.telemetry.store.TelemetrySample
+import com.akane.inspiration.telemetry.store.ToolkitActionRecord
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
@@ -93,6 +101,53 @@ class SnapshotCapturerTest {
         assertEquals(listOf(1L, 2L, 3L, 4L, 5L), saved.system!!.signalStrengthMs)
         assertEquals(6L, saved.system.signalScanningMs)
         assertEquals(7L, saved.system.mobileRadioActiveMs)
+    }
+
+    @Test
+    fun `alarm dump wakeups are carried separately and never added to batterystats alarm counts`() = runTest {
+        val store = FakeStore()
+        val dump = DumpSnapshot(
+            reportVersion = 36,
+            system = SystemTimers(
+                startClockTimeMs = 10, totalRealtimeMs = 0, totalUptimeMs = 0, batteryRealtimeMs = 0,
+                batteryUptimeMs = 0, screenOffRealtimeMs = 0, screenOffUptimeMs = 0, screenDozeMs = 0,
+                screenOnMs = 0, interactiveMs = 0, deepDozeMs = 0, deepDozeCount = 0, lightDozeMs = 0,
+                dischargeTotalMah = 0.0, dischargeScreenOffMah = 0.0, chargeTimeRemainingMs = null,
+                dischargeTimeRemainingMs = null,
+            ),
+            kernelWakelocks = emptyList(),
+            wakeupReasons = emptyList(),
+            uids = listOf(
+                UidDump(12345, emptyList(), listOf(UidAlarm("sync", 5), UidAlarm("sync", 2)), 0, 0, 0, 0, emptyMap(), emptyList()),
+            ),
+            cpuFrequenciesKhz = emptyList(),
+            warnings = emptyList(),
+        )
+        val alarm = AlarmDump(
+            filterStats = listOf(
+                AlarmFilterStat(12345, "pkg", "sync", count = 9, wakeupCount = 4, totalFlightMs = 0),
+                AlarmFilterStat(12345, "pkg", "quiet", count = 3, wakeupCount = 0, totalFlightMs = 0),
+                // A uid the dump never saw: it still gets a snapshot row for its alarm-dump wakeups.
+                AlarmFilterStat(20000, "other", "tick", count = 8, wakeupCount = 6, totalFlightMs = 0),
+            ),
+            pendingWakeups = 0,
+        )
+        val capturer = SnapshotCapturer(
+            FakeSource(batteryStats = DumpParse.Ok(dump), alarm = DumpParse.Ok(alarm)),
+            store,
+            TestClocks(),
+        )
+
+        capturer.captureFull(CaptureTrigger.APP_OPEN, deadlineMs = 100, ingestHistory = false)
+
+        val uids = store.snapshots.single().uids.associateBy { it.uid }
+        val known = uids.getValue(12345)
+        // Batterystats tags keep their own counts (duplicates summed); the dump's count/wakeupCount stay out.
+        assertEquals(listOf(UidAlarm("sync", 7)), known.wakeupAlarms)
+        assertEquals(listOf(UidAlarm("sync", 4)), known.alarmDumpWakeups)
+        val dumpOnly = uids.getValue(20000)
+        assertEquals(emptyList<UidAlarm>(), dumpOnly.wakeupAlarms)
+        assertEquals(listOf(UidAlarm("tick", 6)), dumpOnly.alarmDumpWakeups)
     }
 
     @Test
@@ -175,6 +230,7 @@ class SnapshotCapturerTest {
         private val histories: List<List<BatteryHistorySnapshot>> = emptyList(),
         private val usage: BatteryUsageSnapshot = BatteryUsageSnapshot.unavailable("not_needed"),
         private val batteryStats: DumpParse<DumpSnapshot> = DumpParse.Unavailable("not_needed"),
+        private val alarm: DumpParse<AlarmDump> = DumpParse.Unavailable("not_needed"),
     ) : TelemetrySource {
         val receivedCursors = mutableListOf<Pair<Long, Long>?>()
         private var fullReadCount = 0
@@ -187,7 +243,7 @@ class SnapshotCapturerTest {
                 usage = usage,
                 batteryStats = batteryStats,
                 power = DumpParse.Unavailable("not_needed"),
-                alarm = DumpParse.Unavailable("not_needed"),
+                alarm = alarm,
                 kernel = null,
                 cpuTimes = emptyList(),
                 history = pageSet,
@@ -239,6 +295,15 @@ class SnapshotCapturerTest {
         override suspend fun acceptedEstimatesChronological(limit: Int): List<Double> = emptyList()
         override suspend fun recordMiss(wallMs: Long, trigger: CaptureTrigger, reason: String) { misses += trigger to reason }
         override suspend fun prune(nowWallMs: Long) = Unit
+        override suspend fun markers(): List<Marker> = emptyList()
+        override suspend fun samplesBetween(from: Long, to: Long): List<TelemetrySample> = emptyList()
+        override suspend fun chargeSessions(): List<ChargeSessionRecord> = emptyList()
+        override suspend fun healthSamples(): List<HealthSample> = emptyList()
+        override suspend fun insertHealthSample(sample: HealthSample) = Unit
+        override suspend fun insertToolkitAction(record: ToolkitActionRecord): Long = 0
+        override suspend fun updateToolkitAction(record: ToolkitActionRecord) = Unit
+        override suspend fun toolkitActions(limit: Int): List<ToolkitActionRecord> = emptyList()
+        override suspend fun pendingToolkitActions(): List<ToolkitActionRecord> = emptyList()
     }
 
     private class TestClocks : Clocks {
