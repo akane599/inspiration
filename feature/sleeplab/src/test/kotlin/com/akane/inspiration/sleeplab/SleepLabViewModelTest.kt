@@ -1,0 +1,273 @@
+package com.akane.inspiration.sleeplab
+
+import com.akane.inspiration.designsystem.chart.model.HypnogramStage
+import com.akane.inspiration.diagnostics.analysis.AnalysisState
+import com.akane.inspiration.diagnostics.analysis.SegmentKind
+import com.akane.inspiration.diagnostics.analysis.Timeline
+import com.akane.inspiration.telemetry.app.RefreshResult
+import com.akane.inspiration.telemetry.diff.ReferenceKind
+import com.akane.inspiration.telemetry.dump.UidAlarm
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.test.StandardTestDispatcher
+import kotlinx.coroutines.test.TestScope
+import kotlinx.coroutines.test.resetMain
+import kotlinx.coroutines.test.runCurrent
+import kotlinx.coroutines.test.runTest
+import kotlinx.coroutines.test.setMain
+import org.junit.After
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
+import org.junit.Before
+import org.junit.Test
+
+@OptIn(ExperimentalCoroutinesApi::class)
+class SleepLabViewModelTest {
+    private val dispatcher = StandardTestDispatcher()
+    private lateinit var deps: FakeSleepLabDeps
+
+    @Before
+    fun setUp() {
+        Dispatchers.setMain(dispatcher)
+        deps = FakeSleepLabDeps()
+    }
+
+    @After
+    fun tearDown() {
+        Dispatchers.resetMain()
+    }
+
+    private fun TestScope.viewModel(): SleepLabViewModel = SleepLabViewModel(deps).also { runCurrent() }
+
+    private fun TestScope.visible(vm: SleepLabViewModel) {
+        vm.onIntent(SleepLabIntent.Visible)
+        runCurrent()
+    }
+
+    private val night = Timeline(
+        segments = listOf(
+            segment(SegmentKind.SCREEN_ON, NOW_MS - 10 * HOUR_MS, NOW_MS - 8 * HOUR_MS),
+            segment(SegmentKind.LIGHT_IDLE, NOW_MS - 8 * HOUR_MS, NOW_MS - 7 * HOUR_MS),
+            segment(SegmentKind.DEEP_IDLE, NOW_MS - 7 * HOUR_MS, NOW_MS - 2 * HOUR_MS),
+        ),
+        levelPoints = emptyList(),
+        temperaturePoints = emptyList(),
+        wakePulsesMs = listOf(NOW_MS - 4 * HOUR_MS),
+        from = NOW_MS - 10 * HOUR_MS,
+        to = NOW_MS,
+    )
+
+    private val withWakelocks = intervalAnalysis(
+        diff = snapshotDiff(
+            uids = listOf(
+                uidDelta(10_001, "com.chat", wakelocks = listOf(wakelock("push", 90_000, 2)), alarms = listOf(UidAlarm("t", 3))),
+                uidDelta(10_002, "com.mail", wakelocks = listOf(wakelock("fetch", 5_000, 9))),
+            ),
+        ),
+    )
+
+    @Test
+    fun `nothing is shaped and nothing is read before the screen is visible`() = runTest(dispatcher) {
+        deps.analysis.value = AnalysisState.Ready(withWakelocks)
+        val vm = viewModel()
+        runCurrent()
+
+        assertEquals(SleepLabState.Initial, vm.state.value)
+        assertEquals(0, deps.refreshCalls)
+        assertTrue(deps.timelineCalls.isEmpty())
+        assertTrue("no label lookup while hidden", deps.appLabels.looked.isEmpty())
+    }
+
+    @Test
+    fun `visible refreshes once and shapes the ready analysis with owner labels`() = runTest(dispatcher) {
+        deps.appLabels.labels["com.chat"] = "Chat"
+        deps.analysis.value = AnalysisState.Ready(withWakelocks)
+        val vm = viewModel()
+
+        visible(vm)
+
+        assertEquals("becoming visible refreshes once", 1, deps.refreshCalls)
+        val analysis = vm.state.value.analysis as AnalysisUi.Ready
+        val rows = (analysis.appWakelocks as ListUi.Rows).rows
+        assertEquals(listOf("push", "fetch"), rows.map { it.name })
+        assertEquals("Chat", rows[0].appLabel)
+        assertEquals("com.mail", rows[1].appLabel)
+        assertEquals(listOf("com.chat", "com.mail"), deps.appLabels.looked.distinct().sorted())
+    }
+
+    @Test
+    fun `the hypnogram is read for the covered range of the interval and mapped to screen-off stages`() = runTest(dispatcher) {
+        deps.timelineResult = night
+        val covered = resolved(boundaryFrom = NOW_MS - 12 * HOUR_MS, coveredFrom = NOW_MS - 10 * HOUR_MS, coveredTo = NOW_MS)
+        deps.analysis.value = AnalysisState.Ready(intervalAnalysis(resolved = covered))
+        val vm = viewModel()
+
+        visible(vm)
+
+        assertEquals(listOf((NOW_MS - 10 * HOUR_MS) to NOW_MS), deps.timelineCalls)
+        val hypnogram = vm.state.value.hypnogram as HypnogramUi.Ready
+        assertEquals(listOf(HypnogramStage.LIGHT_IDLE, HypnogramStage.DEEP_IDLE), hypnogram.data.segments.map { it.stage })
+        assertEquals(listOf(NOW_MS - 4 * HOUR_MS), hypnogram.data.wakePulsesMs.toList())
+    }
+
+    @Test
+    fun `an unavailable timeline leaves the hypnogram failed, and a later one recovers it`() = runTest(dispatcher) {
+        deps.timelineResult = null
+        deps.analysis.value = AnalysisState.Ready(intervalAnalysis())
+        val vm = viewModel()
+        visible(vm)
+        assertEquals(HypnogramUi.Failed, vm.state.value.hypnogram)
+        assertTrue("the tabs do not depend on the timeline", vm.state.value.analysis is AnalysisUi.Ready)
+
+        deps.timelineResult = night
+        // A refresh produced a newer analysis (a different object; an equal one would be conflated away).
+        deps.analysis.value = AnalysisState.Ready(intervalAnalysis(resolved = resolved(coveredTo = NOW_MS - MIN_MS)))
+        runCurrent()
+
+        assertTrue(vm.state.value.hypnogram is HypnogramUi.Ready)
+    }
+
+    @Test
+    fun `a refresh whose timeline read fails keeps the hypnogram already shown`() = runTest(dispatcher) {
+        deps.timelineResult = night
+        deps.analysis.value = AnalysisState.Ready(intervalAnalysis())
+        val vm = viewModel()
+        visible(vm)
+        val shown = vm.state.value.hypnogram
+        assertTrue(shown is HypnogramUi.Ready)
+
+        deps.timelineResult = null
+        deps.analysis.value = AnalysisState.Ready(withWakelocks)
+        runCurrent()
+
+        assertEquals(shown, vm.state.value.hypnogram)
+        assertEquals(2, (vm.state.value.analysis as AnalysisUi.Ready).let { (it.appWakelocks as ListUi.Rows).rows.size })
+    }
+
+    @Test
+    fun `loading empty and failed analyses become designed states and clear the hypnogram`() = runTest(dispatcher) {
+        deps.timelineResult = night
+        deps.analysis.value = AnalysisState.Ready(intervalAnalysis())
+        val vm = viewModel()
+        visible(vm)
+        assertTrue(vm.state.value.hypnogram is HypnogramUi.Ready)
+
+        deps.analysis.value = AnalysisState.Loading
+        runCurrent()
+        assertEquals(AnalysisUi.Loading, vm.state.value.analysis)
+        assertEquals("another interval's hypnogram must not linger", HypnogramUi.Loading, vm.state.value.hypnogram)
+
+        deps.analysis.value = AnalysisState.Empty
+        runCurrent()
+        assertEquals(AnalysisUi.Empty, vm.state.value.analysis)
+
+        deps.analysis.value = AnalysisState.Failed("boom")
+        runCurrent()
+        assertEquals(AnalysisUi.Error, vm.state.value.analysis)
+    }
+
+    @Test
+    fun `without per-app snapshots the state carries the needs-full-snapshots lists`() = runTest(dispatcher) {
+        deps.analysis.value = AnalysisState.Ready(intervalAnalysis(resolved = resolved(perUidAvailable = false), diff = withWakelocks.diff))
+        val vm = viewModel()
+
+        visible(vm)
+
+        val analysis = vm.state.value.analysis as AnalysisUi.Ready
+        assertEquals(ListUi.NeedsFullSnapshots, analysis.appWakelocks)
+        assertEquals(ListUi.NeedsFullSnapshots, analysis.alarms)
+        assertTrue("labels are not looked up for lists that are not shown", deps.appLabels.looked.isEmpty())
+    }
+
+    @Test
+    fun `hidden stops shaping, and visible again shows the newest analysis`() = runTest(dispatcher) {
+        deps.analysis.value = AnalysisState.Ready(intervalAnalysis())
+        val vm = viewModel()
+        visible(vm)
+        val calls = deps.timelineCalls.size
+
+        vm.onIntent(SleepLabIntent.Hidden)
+        runCurrent()
+        deps.analysis.value = AnalysisState.Ready(withWakelocks)
+        runCurrent()
+
+        assertEquals("no timeline read while hidden", calls, deps.timelineCalls.size)
+        assertTrue("the old analysis stays until the screen is visible", (vm.state.value.analysis as AnalysisUi.Ready).let { (it.appWakelocks as ListUi.Rows).rows.isEmpty() })
+
+        visible(vm)
+
+        assertEquals(2, ((vm.state.value.analysis as AnalysisUi.Ready).appWakelocks as ListUi.Rows).rows.size)
+        assertEquals(calls + 1, deps.timelineCalls.size)
+    }
+
+    @Test
+    fun `a time slice selection produces the banner and clearing it goes through the selection`() = runTest(dispatcher) {
+        val from = NOW_MS - 6 * HOUR_MS
+        val to = NOW_MS - 2 * HOUR_MS
+        deps.selection.select(ReferenceKind.TimeSlice(from, to))
+        deps.analysis.value = AnalysisState.Ready(
+            intervalAnalysis(resolved(boundaryFrom = from, boundaryTo = to, coveredFrom = from + 9 * MIN_MS, coveredTo = to)),
+        )
+        val vm = viewModel()
+
+        visible(vm)
+
+        val slice = vm.state.value.slice
+        assertNotNull(slice)
+        assertEquals(from, slice!!.requested.startMs)
+        assertEquals(9 * MIN_MS, slice.gapMs)
+
+        vm.onIntent(SleepLabIntent.ClearSlice)
+        runCurrent()
+
+        assertEquals(ReferenceKind.SinceUnplugged, deps.selection.selected.value)
+        assertNull("the banner leaves with the slice", vm.state.value.slice)
+    }
+
+    @Test
+    fun `select tab changes only the tab`() = runTest(dispatcher) {
+        val vm = viewModel()
+
+        vm.onIntent(SleepLabIntent.SelectTab(SleepTab.Alarms))
+        runCurrent()
+
+        assertEquals(SleepTab.Alarms, vm.state.value.tab)
+        assertEquals(SleepLabState.Initial.copy(tab = SleepTab.Alarms), vm.state.value)
+    }
+
+    @Test
+    fun `a user refresh that fails raises one effect and a quiet one does not`() = runTest(dispatcher) {
+        deps.refreshResult = RefreshResult.Failed("no shizuku")
+        val vm = viewModel()
+        val effects = mutableListOf<SleepLabEffect>()
+        backgroundScope.launch { vm.effects.collect { effects += it } }
+
+        visible(vm)
+        assertTrue("the start-up refresh fails quietly", effects.isEmpty())
+
+        vm.onIntent(SleepLabIntent.Refresh)
+        runCurrent()
+
+        assertEquals(listOf<SleepLabEffect>(SleepLabEffect.RefreshFailed), effects)
+        assertFalse(vm.state.value.refreshing)
+    }
+
+    @Test
+    fun `a debounced or successful user refresh raises no effect and ends the spinner`() = runTest(dispatcher) {
+        deps.refreshResult = RefreshResult.Debounced(NOW_MS)
+        val vm = viewModel()
+        val effects = mutableListOf<SleepLabEffect>()
+        backgroundScope.launch { vm.effects.collect { effects += it } }
+
+        vm.onIntent(SleepLabIntent.Refresh)
+        runCurrent()
+
+        assertTrue(effects.isEmpty())
+        assertEquals(1, deps.refreshCalls)
+        assertFalse(vm.state.value.refreshing)
+    }
+}

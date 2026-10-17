@@ -74,17 +74,25 @@ private val BarRadius = 4.dp
 private val BarMaxHeight = 22.dp
 private val MinRowHeight = 24.dp
 private val ColumnGap = 8.dp
+
+/** Space between the plot's right edge and the totals column, so a wide total never touches a bar. */
+private val TotalsGutter = 16.dp
 private val TickLength = 4.dp
 private val TickLabelGap = 2.dp
 private val MinTickSpacing = 16.dp
 private val HatchSpacing = 6.dp
 private val HairStroke = 1.dp
 private val CursorStroke = 1.5.dp
+private val EdgeStroke = 2.dp
 private const val BAR_FRACTION = 0.62f
 private const val LABEL_COLUMN_FRACTION = 0.32f
 private const val DURATION_COLUMN_FRACTION = 0.28f
 
-/** Chart text follows the system font scale up to this factor, so labels at 1.5x don't squeeze the plot away. */
+/**
+ * Lane labels, totals and tick labels follow the system font scale only up to this factor. Past it the label
+ * columns would take the plot's width (at 360 dp and 1.5x or 2x they otherwise clip or crowd the bars); the
+ * screen around the chart still scales fully.
+ */
 private const val MAX_CHART_FONT_SCALE = 1.2f
 private const val MIN_VISIBLE_PX = 2f
 private const val TWO_DAYS_MS = 2 * 24 * 60 * 60_000L
@@ -130,7 +138,7 @@ fun SleepHypnogram(
     val telemetry = MaterialTheme.telemetryColors
     val scheme = MaterialTheme.colorScheme
     val textMeasurer = rememberTextMeasurer()
-    val palette = remember(telemetry, scheme.background, scheme.surfaceContainer, scheme.onSurface) {
+    val palette = remember(telemetry, scheme.background, scheme.surfaceContainer, scheme.onSurface, scheme.primary) {
         val maintenanceAlpha = if (scheme.background.luminance() < 0.5f) MAINTENANCE_ALPHA_DARK else MAINTENANCE_ALPHA_LIGHT
         HypnogramPalette(
             stage = arrayOf(
@@ -146,6 +154,7 @@ fun SleepHypnogram(
             label = telemetry.chartAxisLabel,
             dim = scheme.surfaceContainer.copy(alpha = SELECTION_DIM_ALPHA),
             cursor = scheme.onSurface,
+            edge = scheme.primary,
         )
     }
     val stageNames = remember(resources) { HypnogramStage.entries.map { resources.getString(it.labelRes) } }
@@ -212,6 +221,7 @@ private class HypnogramPalette(
     val label: Color,
     val dim: Color,
     val cursor: Color,
+    val edge: Color,
 )
 
 /** Everything the draw lambda needs, built once per data/size/colors/density change. */
@@ -229,6 +239,7 @@ private class HypnogramLayer(
     val pulsePath: Path,
     val hairStroke: Stroke,
     val cursorStrokePx: Float,
+    val edgeStrokePx: Float,
     val textLayouts: Array<TextLayoutResult>,
     val textOffsets: Array<Offset>,
     val ticks: List<TimeTick>,
@@ -263,9 +274,8 @@ private fun buildLayer(
     val stages = HypnogramStage.entries
     val nameLayouts = stages.map { measure(stageNames[it.ordinal], (size.width * LABEL_COLUMN_FRACTION).toInt()) }
     val durationLayouts = stages.map { measure(durationTexts[it.ordinal], (size.width * DURATION_COLUMN_FRACTION).toInt()) }
-    val columnGap = ColumnGap.toPx()
-    val plotLeft = nameLayouts.maxOf { it.size.width } + columnGap
-    val plotRight = size.width - durationLayouts.maxOf { it.size.width } - columnGap
+    val plotLeft = nameLayouts.maxOf { it.size.width } + ColumnGap.toPx()
+    val plotRight = size.width - durationLayouts.maxOf { it.size.width } - TotalsGutter.toPx()
     val plotWidth = maxOf(1f, plotRight - plotLeft)
     val scale = TimeScale(data.window, plotWidth)
 
@@ -370,6 +380,7 @@ private fun buildLayer(
         pulsePath = pulsePath,
         hairStroke = Stroke(width = HairStroke.toPx()),
         cursorStrokePx = CursorStroke.toPx(),
+        edgeStrokePx = EdgeStroke.toPx(),
         textLayouts = textLayouts,
         textOffsets = textOffsets,
         ticks = ticks,
@@ -414,6 +425,14 @@ private fun DrawScope.drawHypnogramOverlay(
         val end = layer.plotLeft + layer.scale.toX(selection.endMs).coerceIn(0f, layer.plotWidth)
         drawRect(palette.dim, Offset(layer.plotLeft, 0f), Size(start - layer.plotLeft, layer.rowsBottom))
         drawRect(palette.dim, Offset(end, 0f), Size(plotRight - end, layer.rowsBottom))
+        // Edge lines only where the range ends inside the window; a clamped edge would just trace the plot's border.
+        val window = layer.scale.window
+        if (selection.startMs > window.startMs && selection.startMs < window.endMs) {
+            drawLine(palette.edge, Offset(start, 0f), Offset(start, layer.rowsBottom), strokeWidth = layer.edgeStrokePx)
+        }
+        if (selection.endMs > window.startMs && selection.endMs < window.endMs) {
+            drawLine(palette.edge, Offset(end, 0f), Offset(end, layer.rowsBottom), strokeWidth = layer.edgeStrokePx)
+        }
     }
 
     val cursor = cursorState.value()

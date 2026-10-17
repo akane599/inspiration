@@ -1,0 +1,94 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="sleeplab_title">Sleep Lab</string>
+
+    <!-- Loading, empty and error states of the whole screen -->
+    <string name="sleeplab_loading">Reading your sleep data…</string>
+    <string name="sleeplab_empty_title">Nothing to analyse yet</string>
+    <string name="sleeplab_empty_body">There is no pair of snapshots for this period yet. Keep using your phone, then refresh.</string>
+    <string name="sleeplab_empty_refresh">Refresh</string>
+    <string name="sleeplab_error_title">Couldn\'t analyse this period</string>
+    <string name="sleeplab_error_body">Something went wrong while reading your battery history. Try again, or pick another period.</string>
+    <string name="sleeplab_error_retry">Try again</string>
+    <string name="sleeplab_refresh_failed">Couldn\'t refresh. Is Shizuku running?</string>
+
+    <!-- Time slice banner -->
+    <!-- %1$s: how far the nearest snapshot is from the requested range -->
+    <string name="sleeplab_slice_gap">Snapshots are %1$s away from the requested range, so the figures are approximate.</string>
+
+    <!-- Hypnogram card -->
+    <string name="sleeplab_hypnogram_title">Screen-off sleep</string>
+    <string name="sleeplab_hypnogram_subtitle">Doze stages and wake-ups while the screen was off</string>
+    <string name="sleeplab_hypnogram_loading">Reading the history…</string>
+    <string name="sleeplab_hypnogram_failed_title">Couldn\'t read the history</string>
+    <string name="sleeplab_hypnogram_failed_body">The battery history for this period could not be loaded.</string>
+    <string name="sleeplab_hypnogram_empty_title">No screen-off doze data</string>
+    <string name="sleeplab_hypnogram_empty_body">This period has no screen-off time with recorded doze, or it has not been collected yet.</string>
+    <!-- %1$s: the number of wake-ups -->
+    <plurals name="sleeplab_wakeups">
+        <item quantity="one">%1$s wake-up</item>
+        <item quantity="other">%1$s wake-ups</item>
+    </plurals>
+    <string name="sleeplab_hypnogram_note">Hatched areas mean the screen was on or nothing was recorded. A wake-up marks a screen-on or a doze exit; it doesn\'t say what caused it.</string>
+
+    <!-- Diagnostics card and its tabs -->
+    <string name="sleeplab_diagnostics_title">What kept it awake</string>
+    <string name="sleeplab_tab_apps">Apps</string>
+    <string name="sleeplab_tab_kernel">Kernel</string>
+    <string name="sleeplab_tab_alarms">Alarms</string>
+    <string name="sleeplab_caption_apps">Partial wakelocks held by apps, longest first.</string>
+    <string name="sleeplab_caption_kernel">Kernel wakelocks from battery stats, longest first. /sys/class/wakeup is not read.</string>
+    <string name="sleeplab_caption_alarms">Apps that woke the device with alarms, most wake-ups first.</string>
+
+    <string name="sleeplab_list_empty">Nothing recorded for this period.</string>
+    <string name="sleeplab_needs_full_title">Needs full snapshots</string>
+    <string name="sleeplab_needs_full_body">Per-app lists need a full snapshot at both ends of the period. Refresh, or pick a longer period.</string>
+    <string name="sleeplab_apps_unavailable_title">Counters were reset</string>
+    <string name="sleeplab_apps_unavailable_body">Battery stats restarted during this period, so per-app counters can\'t be compared. Pick a period after the reset.</string>
+    <string name="sleeplab_kernel_unavailable_title">Counters were reset</string>
+    <string name="sleeplab_kernel_unavailable_body">The device restarted during this period, so kernel counters can\'t be compared. Pick a period after the restart.</string>
+
+    <!-- %1$d: the app\'s UID, shown when its package is unknown -->
+    <string name="sleeplab_owner_uid">UID %1$d</string>
+    <!-- %1$s: the number of times -->
+    <plurals name="sleeplab_times">
+        <item quantity="one">%1$s time</item>
+        <item quantity="other">%1$s times</item>
+    </plurals>
+    <!-- %1$s: an alarm tag, %2$s: how many times it fired -->
+    <string name="sleeplab_tag_line">%1$s · %2$s</string>
+    <plurals name="sleeplab_more_tags">
+        <item quantity="one">+%1$s more tag</item>
+        <item quantity="other">+%1$s more tags</item>
+    </plurals>
+    <plurals name="sleeplab_rows_hidden">
+        <item quantity="one">%1$s more not shown</item>
+        <item quantity="other">%1$s more not shown</item>
+    </plurals>
+    <string name="sleeplab_unit_second">s</string>
+
+    <!-- CPU card -->
+    <string name="sleeplab_cpu_title">CPU frequency</string>
+    <string name="sleeplab_cpu_subtitle">Time spent at each frequency, per cluster</string>
+    <string name="sleeplab_deep_sleep_title">Deep sleep</string>
+    <!-- %1$s: how long the CPU was suspended, e.g. "5 h 20 min" -->
+    <string name="sleeplab_deep_sleep_detail">CPU suspended %1$s</string>
+    <string name="sleeplab_deep_sleep_note">Deep sleep is the CPU fully suspended. It is not the same as deep doze.</string>
+    <string name="sleeplab_unit_percent">%</string>
+    <string name="sleeplab_cluster_little">Little cluster</string>
+    <string name="sleeplab_cluster_big">Big cluster</string>
+    <string name="sleeplab_cluster_mid">Mid cluster</string>
+    <string name="sleeplab_cluster_prime">Prime cluster</string>
+    <string name="sleeplab_cluster_generic">Cluster</string>
+    <!-- %1$s: the cluster name, %2$d: the kernel cpufreq policy number -->
+    <string name="sleeplab_cluster_title">%1$s · policy %2$d</string>
+    <string name="sleeplab_unit_mhz">MHz</string>
+    <string name="sleeplab_unit_ghz">GHz</string>
+    <!-- %1$s: a percentage figure, %2$s: a duration -->
+    <string name="sleeplab_freq_share">%1$s%% · %2$s</string>
+    <string name="sleeplab_freq_other">Other frequencies</string>
+    <string name="sleeplab_cpu_unavailable_title">No frequency data</string>
+    <string name="sleeplab_cpu_unavailable_body">The device restarted during this period, so frequency counters can\'t be compared.</string>
+    <string name="sleeplab_cpu_nodata_title">No frequency data</string>
+    <string name="sleeplab_cpu_nodata_body">The kernel did not report time per frequency for this period.</string>
+</resources>
