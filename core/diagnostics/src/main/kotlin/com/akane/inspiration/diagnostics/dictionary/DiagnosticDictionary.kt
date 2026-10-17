@@ -9,6 +9,8 @@ import java.util.Locale
  * other kinds are case-sensitive. For ALARM and PARTIAL names that start with "*walarm*:" or
  * "*alarm*:", the remainder is looked up first with the same precedence; the full name is only
  * looked up (and so reaches the prefix entries) when nothing specific matches the remainder.
+ * PARTIAL names with a JobScheduler variant letter (r, e, u) after the "*job*" tag are looked up
+ * without it, so the unlettered "*job*" entries match.
  */
 class DiagnosticDictionary(entries: List<DictionaryEntry>) {
     private class Compiled(val entry: DictionaryEntry, val regex: Regex?) {
@@ -25,7 +27,8 @@ class DiagnosticDictionary(entries: List<DictionaryEntry>) {
     }
 
     fun explain(kind: EntryKind, name: String, locale: Locale): Explanation? {
-        val subject = if (kind.caseInsensitive) name.lowercase(Locale.ROOT) else name
+        val lowered = if (kind.caseInsensitive) name.lowercase(Locale.ROOT) else name
+        val subject = if (kind == EntryKind.PARTIAL) JOB_VARIANT.replace(lowered, "*job*/") else lowered
         val stripped = if (kind == EntryKind.ALARM || kind == EntryKind.PARTIAL) stripAlarmPrefix(subject) else null
         // Alarm subjects arrive as "*walarm*:<tag>" / "*alarm*:<tag>": a specific entry for the tag
         // wins; the prefix entries (walarm_prefix, alarm_prefix) are the fallback for the full name.
@@ -90,5 +93,8 @@ class DiagnosticDictionary(entries: List<DictionaryEntry>) {
     private companion object {
         /** AlarmManagerService stats tag prefixes: wakeup alarms, then non-wakeup alarms. */
         val ALARM_PREFIXES = listOf("*walarm*:", "*alarm*:")
+
+        /** JobScheduler wakelock tags carry one variant letter: regular, expedited, user-initiated. */
+        val JOB_VARIANT = Regex("""^\*job\*[a-z]/""")
     }
 }

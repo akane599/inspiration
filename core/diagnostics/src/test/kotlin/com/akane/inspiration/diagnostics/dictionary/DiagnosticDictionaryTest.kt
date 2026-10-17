@@ -208,6 +208,33 @@ class DiagnosticDictionaryTest {
     }
 
     @Test
+    fun jobSchedulerVariantLetterIsNormalizedForPartialWakelocks() {
+        assertEquals(
+            "job_prefix",
+            real.idOf(EntryKind.PARTIAL, "*job*r/DownloadManager:com.android.providers.downloads"),
+        )
+        assertEquals("job_gms", real.idOf(EntryKind.PARTIAL, "*job*e/com.google.android.gms/.x.Y"))
+        assertEquals("job_firebase", real.idOf(EntryKind.PARTIAL, "*job*u/com.google.firebase.iid.Service"))
+        assertEquals("job_google", real.idOf(EntryKind.PARTIAL, "*job*r/com.google.android.apps.maps/.Job"))
+        assertEquals("job_gms", real.idOf(EntryKind.PARTIAL, "*job*/com.google.android.gms/.x.Y"))
+        assertEquals(
+            "job_prefix",
+            real.idOf(EntryKind.PARTIAL, "*job*r/@class com.android.server.healthconnect.migration.MigrationStateChangeJob@android/x"),
+        )
+    }
+
+    @Test
+    fun jobVariantNormalizationIsLimitedToPartialAndOneLowercaseLetter() {
+        val dict = dictionaryOf(
+            entryJson("job", "prefix", "*job*/", kinds = "\"alarm\",\"partial\""),
+        )
+        assertEquals("job", dict.idOf(EntryKind.PARTIAL, "*job*r/pkg/.Svc"))
+        assertNull(dict.idOf(EntryKind.ALARM, "*job*r/pkg/.Svc"))
+        assertNull(dict.idOf(EntryKind.PARTIAL, "*job*R/pkg/.Svc"))
+        assertNull(dict.idOf(EntryKind.PARTIAL, "*job*rr/pkg/.Svc"))
+    }
+
+    @Test
     fun realWordingFixesFromReview() {
         val qcom = real.explain(EntryKind.KERNEL, "qcom_rx_wakelock", Locale.ENGLISH)
         assertEquals("wifi", qcom?.category)
