@@ -146,6 +146,36 @@ fun ControlsSheet() {
     )
 }
 
+/**
+ * Duration headlines in MetricTile, NBSP-joined so they cannot wrap at a space. At 360 dp and 1.5x font the value
+ * shrinks to fit instead of breaking mid-word ("2 h 05 mi" / "n"). English and Turkish units, short and long.
+ */
+@Composable
+fun DurationTilesSheet() {
+    val spacing = MaterialTheme.spacing
+    val nbsp = " "
+    SheetFrame(
+        title = "Duration tiles",
+        left = {
+            Row(
+                modifier = Modifier.fillMaxWidth().height(IntrinsicSize.Min),
+                horizontalArrangement = Arrangement.spacedBy(spacing.sm),
+            ) {
+                MetricTile("Screen time", "2${nbsp}h${nbsp}05${nbsp}min", "Awake off-screen 14${nbsp}min", null, Modifier.weight(1f).fillMaxHeight())
+                MetricTile("Ekran süresi", "2${nbsp}sa${nbsp}05${nbsp}dk", "Ekran kapalıyken 14${nbsp}dk", null, Modifier.weight(1f).fillMaxHeight())
+            }
+            Row(
+                modifier = Modifier.fillMaxWidth().height(IntrinsicSize.Min),
+                horizontalArrangement = Arrangement.spacedBy(spacing.sm),
+            ) {
+                MetricTile("Screen time", "12${nbsp}h${nbsp}45${nbsp}min", null, null, Modifier.weight(1f).fillMaxHeight())
+                MetricTile("Drain", "3.2", "Screen off", null, Modifier.weight(1f).fillMaxHeight(), primaryUnit = "%/h")
+            }
+        },
+        right = {},
+    )
+}
+
 /** MetricTile bento, LiveGauge (discharging, charging, unavailable). */
 @Composable
 fun TelemetrySheet() {

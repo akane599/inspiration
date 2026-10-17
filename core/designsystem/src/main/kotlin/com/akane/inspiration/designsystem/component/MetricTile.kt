@@ -12,7 +12,7 @@ import com.akane.inspiration.designsystem.theme.spacing
 /**
  * One cell of the 2x2 bento grid: a [title], the headline reading [primary] (with an optional [primaryUnit]),
  * an optional [secondary] line and an optional [progress] bar (0..1, drawn as a [MetricBar]). With [onClick] the
- * whole tile is one tap target. Place two per row with equal weights; the tile fills the height it is given.
+ * whole tile is one tap target. The headline shrinks to fit on one line, never wrapping mid-word. Place two per row with equal weights; the tile fills the height it is given.
  */
 @Composable
 fun MetricTile(
@@ -31,6 +31,7 @@ fun MetricTile(
             unit = primaryUnit,
             modifier = Modifier.padding(top = MaterialTheme.spacing.xs),
             style = MaterialTheme.numericTypography.headline,
+            shrinkToFit = true,
         )
         if (secondary != null) {
             Text(
