@@ -387,12 +387,15 @@ class ToolkitExecutorTest {
     }
 
     @Test
-    fun `restoreDozeRaw refuses unknown keys non numeric values duplicates and over long strings`() {
+    fun `restoreDozeRaw refuses malformed keys non numeric values duplicates and over long strings`() {
         val device = FakeDozeDevice(raw = "a=1")
         val executor = dozeExecutor(device)
         val rejected = listOf(
-            "foo=1",
-            "inactive_to=1000,foo=1",
+            "Foo=1",
+            "1foo=1",
+            "foo-bar=1",
+            "inactive_to=1000,Foo=1",
+            "${"k".repeat(65)}=1",
             "inactive_to=abc",
             "inactive_to=-1",
             "inactive_to=",
