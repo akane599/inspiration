@@ -213,7 +213,7 @@ data class MarkerEntity(
 
 @Entity(
     tableName = "history_event",
-    indices = [Index(value = ["wallMs"]), Index(value = ["statsStartMs", "historyTimeMs", "kind"], unique = true)],
+    indices = [Index(value = ["wallMs"]), Index(value = ["historyTimeMs", "kind", "wallMs"], unique = true)],
 )
 data class HistoryEventEntity(
     @PrimaryKey(autoGenerate = true) val id: Long = 0,

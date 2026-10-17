@@ -2,7 +2,7 @@
   "formatVersion": 1,
   "database": {
     "version": 1,
-    "identityHash": "dd57bd688bfd69ccb38cd68f7845694f",
+    "identityHash": "5b6bc7b7fbfab34ca15ff964336fece7",
     "entities": [
       {
         "tableName": "snapshot",
@@ -778,15 +778,15 @@
             "createSql": "CREATE INDEX IF NOT EXISTS `index_history_event_wallMs` ON `${TABLE_NAME}` (`wallMs`)"
           },
           {
-            "name": "index_history_event_statsStartMs_historyTimeMs_kind",
+            "name": "index_history_event_historyTimeMs_kind_wallMs",
             "unique": true,
             "columnNames": [
-              "statsStartMs",
               "historyTimeMs",
-              "kind"
+              "kind",
+              "wallMs"
             ],
             "orders": [],
-            "createSql": "CREATE UNIQUE INDEX IF NOT EXISTS `index_history_event_statsStartMs_historyTimeMs_kind` ON `${TABLE_NAME}` (`statsStartMs`, `historyTimeMs`, `kind`)"
+            "createSql": "CREATE UNIQUE INDEX IF NOT EXISTS `index_history_event_historyTimeMs_kind_wallMs` ON `${TABLE_NAME}` (`historyTimeMs`, `kind`, `wallMs`)"
           }
         ]
       },
@@ -1114,7 +1114,7 @@
     ],
     "setupQueries": [
       "CREATE TABLE IF NOT EXISTS room_master_table (id INTEGER PRIMARY KEY,identity_hash TEXT)",
-      "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, 'dd57bd688bfd69ccb38cd68f7845694f')"
+      "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, '5b6bc7b7fbfab34ca15ff964336fece7')"
     ]
   }
 }
