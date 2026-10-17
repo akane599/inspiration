@@ -1,4 +1,7 @@
 <resources>
-    <!-- Window theme only; all UI styling lives in ui/theme/*.kt -->
-    <style name="Theme.Inspiration" parent="android:Theme.Material.Light.NoActionBar" />
+    <!-- Window theme only; all UI styling lives in :core:designsystem (InspirationTheme).
+         Dark parent + black window background so there is no white flash before Compose draws. -->
+    <style name="Theme.Inspiration" parent="android:Theme.Material.NoActionBar">
+        <item name="android:windowBackground">@android:color/black</item>
+    </style>
 </resources>
