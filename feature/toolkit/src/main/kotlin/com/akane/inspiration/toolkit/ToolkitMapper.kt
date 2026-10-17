@@ -30,15 +30,6 @@ internal object ToolkitMapper {
         updatedSystemApp = state.updatedSystemApp,
     )
 
-    /**
-     * An app op that reads back as the default is not an override any more (the user switched it back by
-     * hand); the others are. Buckets and doze are always overrides while the toolkit's value is in effect.
-     */
-    fun isStillOverride(override: Override): Boolean = when (override.kind) {
-        OverrideKind.APP_OP -> override.currentRaw != "allow" && override.currentRaw != AppOpMode.DEFAULT.argv
-        else -> true
-    }
-
     fun overrideItem(override: Override, label: String?): OverrideItem = OverrideItem(
         actionId = override.actionId,
         kind = override.kind,

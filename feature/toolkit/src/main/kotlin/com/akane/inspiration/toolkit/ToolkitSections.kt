@@ -19,11 +19,13 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.semantics
+import com.akane.inspiration.designsystem.component.CardTitle
 import com.akane.inspiration.designsystem.component.InspirationCard
 import com.akane.inspiration.designsystem.component.SemanticDot
 import com.akane.inspiration.designsystem.component.format.rememberTelemetryFormat
 import com.akane.inspiration.designsystem.theme.numericTypography
 import com.akane.inspiration.designsystem.theme.spacing
+import com.akane.inspiration.designsystem.theme.statusColors
 import com.akane.inspiration.designsystem.theme.telemetryColors
 import com.akane.inspiration.ipc.toolkit.DozeProfile
 import com.akane.inspiration.telemetry.store.ToolkitActionStatus
@@ -44,7 +46,7 @@ internal fun DozeCard(
     InspirationCard(modifier = modifier.fillMaxWidth()) {
         Column(verticalArrangement = Arrangement.spacedBy(spacing.md)) {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(spacing.sm)) {
-                SectionHeading(stringResource(R.string.toolkit_doze_title), modifier = Modifier.weight(1f, fill = false))
+                CardTitle(stringResource(R.string.toolkit_doze_title), modifier = Modifier.weight(1f, fill = false))
                 ExperimentalBadge()
             }
             InfoText(stringResource(R.string.toolkit_doze_intro))
@@ -64,7 +66,7 @@ internal fun DozeCard(
 
 @Composable
 private fun ExperimentalBadge() {
-    Surface(shape = MaterialTheme.shapes.small, color = MaterialTheme.telemetryColors.awakeContainer) {
+    Surface(shape = MaterialTheme.shapes.small, color = MaterialTheme.statusColors.warningContainer) {
         Text(
             text = stringResource(R.string.toolkit_doze_experimental),
             style = MaterialTheme.typography.labelMedium,
@@ -120,7 +122,7 @@ private fun ProfileRow(profile: DozeProfile, active: Boolean, enabled: Boolean, 
         }
         if (active) {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(spacing.xs)) {
-                SemanticDot(color = MaterialTheme.telemetryColors.deepSleep)
+                SemanticDot(color = MaterialTheme.statusColors.ok)
                 Text(
                     text = stringResource(R.string.toolkit_doze_active),
                     style = MaterialTheme.typography.labelLarge,
@@ -175,7 +177,7 @@ internal fun DexoptCard(
     val status = section.status
     InspirationCard(modifier = modifier.fillMaxWidth()) {
         Column(verticalArrangement = Arrangement.spacedBy(spacing.md)) {
-            SectionHeading(stringResource(R.string.toolkit_dexopt_title))
+            CardTitle(stringResource(R.string.toolkit_dexopt_title))
             InfoText(stringResource(R.string.toolkit_dexopt_body))
             if (status == null) {
                 LoadingLine(stringResource(R.string.toolkit_dexopt_loading))
@@ -205,21 +207,22 @@ internal fun DexoptCard(
 
 @Composable
 private fun DexoptStatusLine(status: BgDexoptStatus, timeZone: TimeZone) {
-    val telemetry = MaterialTheme.telemetryColors
+    val statusColors = MaterialTheme.statusColors
     val color = when (status) {
-        is BgDexoptStatus.Running -> telemetry.charging
-        is BgDexoptStatus.Finished -> if (status.exitCode == 0) telemetry.deepSleep else telemetry.critical
-        is BgDexoptStatus.Cancelled -> telemetry.awake
-        BgDexoptStatus.Unknown -> telemetry.awake
-        BgDexoptStatus.Idle -> MaterialTheme.colorScheme.outline
+        is BgDexoptStatus.Running -> statusColors.ok
+        is BgDexoptStatus.Finished -> if (status.exitCode == 0) statusColors.ok else MaterialTheme.telemetryColors.critical
+        is BgDexoptStatus.Cancelled -> statusColors.warning
+        BgDexoptStatus.Unknown -> statusColors.warning
+        BgDexoptStatus.Idle -> statusColors.neutral
     }
+    val format = rememberTelemetryFormat()
     Row(
         modifier = Modifier.fillMaxWidth().semantics { liveRegion = LiveRegionMode.Polite },
         verticalAlignment = Alignment.Top,
     ) {
-        SemanticDot(color = color, modifier = Modifier.padding(top = MaterialTheme.spacing.sm))
+        LineDot(color = color)
         Text(
-            text = dexoptStatusText(status, timeFormatter(timeZone)),
+            text = dexoptStatusText(status, format, timeZone.toZoneId()),
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurface,
             modifier = Modifier.padding(start = MaterialTheme.spacing.sm),
@@ -237,17 +240,25 @@ internal fun OverridesCard(
     modifier: Modifier = Modifier,
 ) {
     val spacing = MaterialTheme.spacing
-    val formatter = timeFormatter(timeZone)
+    val format = rememberTelemetryFormat()
+    val zone = timeZone.toZoneId()
     InspirationCard(modifier = modifier.fillMaxWidth()) {
         Column(verticalArrangement = Arrangement.spacedBy(spacing.md)) {
-            SectionHeading(stringResource(R.string.toolkit_overrides_title))
+            CardTitle(stringResource(R.string.toolkit_overrides_title))
             if (state.overrides.isEmpty()) {
                 InfoText(stringResource(R.string.toolkit_overrides_empty))
             } else {
                 Column(modifier = Modifier.filterTouchesWhenObscured(), verticalArrangement = Arrangement.spacedBy(spacing.sm)) {
                     state.overrides.forEach { item ->
-                        OverrideRow(item = item, since = formatter.at(item.sinceMs), enabled = !state.busy, onIntent = onIntent)
+                        OverrideRow(item = item, since = format.dateTime(item.sinceMs, zone), enabled = !state.busy, onIntent = onIntent)
                     }
+                }
+                OutlinedButton(
+                    onClick = { onIntent(ToolkitIntent.Act(ToolkitRequest.ResetAll)) },
+                    enabled = !state.busy,
+                    modifier = Modifier.filterTouchesWhenObscured(),
+                ) {
+                    Text(stringResource(R.string.toolkit_reset_all))
                 }
             }
             state.overridesNotice?.let { NoticeLine(it) }
@@ -289,10 +300,11 @@ private fun OverrideRow(item: OverrideItem, since: String, enabled: Boolean, onI
 @Composable
 internal fun ResetReportCard(report: ResetReport, onIntent: (ToolkitIntent) -> Unit, modifier: Modifier = Modifier) {
     val spacing = MaterialTheme.spacing
-    val telemetry = MaterialTheme.telemetryColors
+    val okColor = MaterialTheme.statusColors.ok
+    val failedColor = MaterialTheme.telemetryColors.critical
     InspirationCard(modifier = modifier.fillMaxWidth()) {
         Column(verticalArrangement = Arrangement.spacedBy(spacing.md)) {
-            SectionHeading(stringResource(R.string.toolkit_reset_report_title))
+            CardTitle(stringResource(R.string.toolkit_reset_report_title))
             Text(
                 text = stringResource(R.string.toolkit_reset_report_summary, report.restored, report.lines.size),
                 style = MaterialTheme.typography.titleSmall,
@@ -302,10 +314,7 @@ internal fun ResetReportCard(report: ResetReport, onIntent: (ToolkitIntent) -> U
             report.lines.forEach { line ->
                 val ok = line.result == ResetResult.Restored
                 Row(verticalAlignment = Alignment.Top) {
-                    SemanticDot(
-                        color = if (ok) telemetry.deepSleep else telemetry.critical,
-                        modifier = Modifier.padding(top = spacing.sm),
-                    )
+                    LineDot(color = if (ok) okColor else failedColor)
                     Column(modifier = Modifier.padding(start = spacing.sm)) {
                         Text(
                             text = overrideText(line.item),
@@ -337,14 +346,15 @@ internal fun ResetReportCard(report: ResetReport, onIntent: (ToolkitIntent) -> U
 @Composable
 internal fun HistoryCard(history: ImmutableList<HistoryItem>, timeZone: TimeZone, modifier: Modifier = Modifier) {
     val spacing = MaterialTheme.spacing
-    val formatter = timeFormatter(timeZone)
+    val format = rememberTelemetryFormat()
+    val zone = timeZone.toZoneId()
     InspirationCard(modifier = modifier.fillMaxWidth()) {
         Column(verticalArrangement = Arrangement.spacedBy(spacing.md)) {
-            SectionHeading(stringResource(R.string.toolkit_history_title))
+            CardTitle(stringResource(R.string.toolkit_history_title))
             if (history.isEmpty()) {
                 InfoText(stringResource(R.string.toolkit_history_empty))
             } else {
-                history.forEach { item -> HistoryRow(item = item, time = formatter.at(item.startedAtMs)) }
+                history.forEach { item -> HistoryRow(item = item, time = format.dateTime(item.startedAtMs, zone)) }
             }
         }
     }
@@ -354,7 +364,7 @@ internal fun HistoryCard(history: ImmutableList<HistoryItem>, timeZone: TimeZone
 private fun HistoryRow(item: HistoryItem, time: String) {
     val spacing = MaterialTheme.spacing
     Row(verticalAlignment = Alignment.Top) {
-        SemanticDot(color = item.status.dotColor(), modifier = Modifier.padding(top = spacing.sm))
+        LineDot(color = item.status.dotColor())
         Column(modifier = Modifier.padding(start = spacing.sm)) {
             Text(
                 text = historyText(item),
@@ -371,10 +381,9 @@ private fun HistoryRow(item: HistoryItem, time: String) {
 
 @Composable
 private fun ToolkitActionStatus.dotColor(): Color {
-    val telemetry = MaterialTheme.telemetryColors
     return when (this) {
-        ToolkitActionStatus.DONE, ToolkitActionStatus.RESTORED -> telemetry.deepSleep
-        ToolkitActionStatus.REFUSED, ToolkitActionStatus.FAILED -> telemetry.critical
-        ToolkitActionStatus.PENDING, ToolkitActionStatus.CANCELLED -> telemetry.awake
+        ToolkitActionStatus.DONE, ToolkitActionStatus.RESTORED -> MaterialTheme.statusColors.ok
+        ToolkitActionStatus.REFUSED, ToolkitActionStatus.FAILED -> MaterialTheme.telemetryColors.critical
+        ToolkitActionStatus.PENDING, ToolkitActionStatus.CANCELLED -> MaterialTheme.statusColors.warning
     }
 }

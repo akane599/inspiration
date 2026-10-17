@@ -55,6 +55,9 @@ class ToolkitViewModel(private val deps: ToolkitDependencies) : ViewModel() {
     private var allApps: List<AppItem> = emptyList()
     private var pending: ToolkitRequest? = null
 
+    /** True between Visible and Hidden. Anything that finishes while hidden is kept off the screen (confirmations, effects). */
+    private var visible = false
+
     fun onIntent(intent: ToolkitIntent) {
         when (intent) {
             ToolkitIntent.Visible -> onVisible()
@@ -77,6 +80,9 @@ class ToolkitViewModel(private val deps: ToolkitDependencies) : ViewModel() {
     // ---- visibility and access -------------------------------------------------------------
 
     private fun onVisible() {
+        visible = true
+        // An effect from a previous visit is stale: nothing replays when the screen comes back.
+        while (_effects.tryReceive().isSuccess) Unit
         visibleJob?.cancel()
         visibleJob = viewModelScope.launch {
             // The log is local, so it is shown whatever Shizuku says.
@@ -86,8 +92,10 @@ class ToolkitViewModel(private val deps: ToolkitDependencies) : ViewModel() {
     }
 
     private fun onHidden() {
+        visible = false
         visibleJob?.cancel()
-        // A confirmation must not outlive the screen it was asked on. A write already running finishes.
+        // A confirmation must not outlive the screen it was asked on, and one still being planned is dropped
+        // when it arrives ([ask]). A write already running finishes.
         pending = null
         _state.update { it.copy(confirmation = null) }
     }
@@ -204,7 +212,7 @@ class ToolkitViewModel(private val deps: ToolkitDependencies) : ViewModel() {
     }
 
     private suspend fun showOverrides(all: List<Override>) {
-        val items = all.filter(ToolkitMapper::isStillOverride).map { override -> overrideItem(override) }
+        val items = all.map { override -> overrideItem(override) }
         _state.update { it.copy(overrides = items.toImmutableList()) }
     }
 
@@ -308,6 +316,7 @@ class ToolkitViewModel(private val deps: ToolkitDependencies) : ViewModel() {
     }
 
     private fun ask(confirmation: Confirmation, request: ToolkitRequest) {
+        if (!visible) return
         pending = request
         _state.update { it.copy(confirmation = confirmation) }
     }
@@ -392,22 +401,20 @@ class ToolkitViewModel(private val deps: ToolkitDependencies) : ViewModel() {
     }
 
     /**
-     * Restores every shown override, one by one, and keeps each outcome. This is `ToolkitActions.resetAll()` done
-     * over the list the user sees: `resetAll()` also restores an app op the user switched back to its default by
-     * hand (its newest row still reads as an override), which would restrict that app again.
+     * `ToolkitActions.resetAll()` restores each active override to the original of its chain and reports each
+     * item; the items are the ones `activeOverrides` shows. A failed item does not stop the others.
      */
     private suspend fun resetAll() {
-        val lines = _state.value.overrides.map { item ->
-            val outcome = deps.toolkit.restore(item.actionId, confirmed = true)
+        val lines = deps.toolkit.resetAll().map { item ->
             ResetLine(
-                item = item,
-                result = if (outcome is ToolkitOutcome.Done) ResetResult.Restored else ResetResult.NotRestored(ToolkitMapper.problem(outcome)),
+                item = overrideItem(item.override),
+                result = if (item.outcome is ToolkitOutcome.Done) ResetResult.Restored else ResetResult.NotRestored(ToolkitMapper.problem(item.outcome)),
             )
         }
         val report = ResetReport(lines.toImmutableList())
         refresh(ToolkitRequest.ResetAll)
         _state.update { it.copy(resetReport = report, overridesNotice = null, busy = false) }
-        _effects.trySend(ToolkitEffect.ResetFinished(restored = report.restored, total = report.lines.size))
+        if (visible) _effects.trySend(ToolkitEffect.ResetFinished(restored = report.restored, total = report.lines.size))
     }
 
     // ---- bg-dexopt -------------------------------------------------------------------------

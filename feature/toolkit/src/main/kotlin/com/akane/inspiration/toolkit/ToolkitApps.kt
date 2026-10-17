@@ -1,5 +1,6 @@
 package com.akane.inspiration.toolkit
 
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -24,6 +25,8 @@ import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.FilterChip
+import androidx.compose.material3.FilterChipDefaults
+import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedTextField
@@ -36,18 +39,24 @@ import androidx.compose.runtime.produceState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.StrokeJoin
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
+import com.akane.inspiration.designsystem.component.CardTitle
 import com.akane.inspiration.designsystem.component.EmptyState
 import com.akane.inspiration.designsystem.component.EmptyStateAction
 import com.akane.inspiration.designsystem.component.SemanticDot
 import com.akane.inspiration.designsystem.theme.spacing
-import com.akane.inspiration.designsystem.theme.telemetryColors
+import com.akane.inspiration.designsystem.theme.statusColors
 import com.akane.inspiration.ipc.toolkit.AppOp
 import com.akane.inspiration.ipc.toolkit.StandbyBucket
 import com.akane.inspiration.telemetry.toolkit.ToolkitWarning
@@ -82,7 +91,7 @@ internal fun LazyGridScope.appsSection(apps: AppsSection, onIntent: (ToolkitInte
 private fun AppsHeader(query: String, onIntent: (ToolkitIntent) -> Unit) {
     val spacing = MaterialTheme.spacing
     Column(verticalArrangement = Arrangement.spacedBy(spacing.sm)) {
-        SectionHeading(stringResource(R.string.toolkit_apps_title))
+        CardTitle(stringResource(R.string.toolkit_apps_title))
         InfoText(stringResource(R.string.toolkit_apps_body))
         OutlinedTextField(
             value = query,
@@ -140,7 +149,7 @@ private fun AppRow(app: AppItem, loadIcon: AppIconLoader, onOpen: () -> Unit) {
         }
         if (app.restricted) {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(spacing.xs)) {
-                SemanticDot(color = MaterialTheme.telemetryColors.awake)
+                SemanticDot(color = MaterialTheme.statusColors.warning)
                 Text(
                     text = stringResource(R.string.toolkit_app_restricted),
                     style = MaterialTheme.typography.labelMedium,
@@ -234,7 +243,7 @@ private fun Controls(controls: AppControls, enabled: Boolean, onIntent: (Toolkit
         controls.ops.forEach { op -> OpSwitchRow(control = op, enabled = enabled, onIntent = onIntent) }
 
         Column(verticalArrangement = Arrangement.spacedBy(spacing.sm)) {
-            SectionHeading(stringResource(R.string.toolkit_bucket_title))
+            CardTitle(stringResource(R.string.toolkit_bucket_title))
             InfoText(stringResource(R.string.toolkit_bucket_body), small = true)
             FlowRow(horizontalArrangement = Arrangement.spacedBy(spacing.sm)) {
                 StandbyBucket.entries.forEach { bucket ->
@@ -243,6 +252,7 @@ private fun Controls(controls: AppControls, enabled: Boolean, onIntent: (Toolkit
                         onClick = { if (controls.bucket != bucket) onIntent(ToolkitIntent.Act(ToolkitRequest.SetBucket(bucket))) },
                         label = { Text(stringResource(bucketLabelRes(bucket))) },
                         enabled = enabled,
+                        leadingIcon = if (controls.bucket == bucket) ({ CheckMark(modifier = Modifier.size(FilterChipDefaults.IconSize)) }) else null,
                     )
                 }
             }
@@ -309,12 +319,35 @@ private fun OpSwitchRow(control: OpControl, enabled: Boolean, onIntent: (Toolkit
 @Composable
 private fun WarningLine(text: String, modifier: Modifier = Modifier) {
     Row(modifier = modifier.fillMaxWidth(), verticalAlignment = Alignment.Top) {
-        SemanticDot(color = MaterialTheme.telemetryColors.awake, modifier = Modifier.padding(top = MaterialTheme.spacing.xs))
+        LineDot(color = MaterialTheme.statusColors.warning, style = MaterialTheme.typography.bodySmall)
         Text(
             text = text,
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             modifier = Modifier.padding(start = MaterialTheme.spacing.sm),
+        )
+    }
+}
+
+// The check as a polyline in a unit square: short stroke down-right, long stroke up-right.
+private val CheckPoints = listOf(0.12f to 0.55f, 0.40f to 0.80f, 0.88f to 0.22f)
+private const val CHECK_STROKE_FRACTION = 0.11f
+
+/** The selected-chip check, drawn in the current content colour (the project has no icon set). */
+@Composable
+private fun CheckMark(modifier: Modifier = Modifier) {
+    val color = LocalContentColor.current
+    Canvas(modifier = modifier) {
+        val path = Path().apply {
+            CheckPoints.forEachIndexed { i, (x, y) ->
+                val point = Offset(x * size.width, y * size.height)
+                if (i == 0) moveTo(point.x, point.y) else lineTo(point.x, point.y)
+            }
+        }
+        drawPath(
+            path = path,
+            color = color,
+            style = Stroke(width = size.minDimension * CHECK_STROKE_FRACTION, cap = StrokeCap.Round, join = StrokeJoin.Round),
         )
     }
 }

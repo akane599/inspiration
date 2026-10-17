@@ -12,6 +12,7 @@ import com.akane.inspiration.telemetry.toolkit.BgDexoptStatus
 import com.akane.inspiration.telemetry.toolkit.ToolkitRefusal
 import com.akane.inspiration.telemetry.toolkit.ToolkitUnavailable
 import com.akane.inspiration.telemetry.toolkit.ToolkitWarning
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -24,6 +25,7 @@ import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.test.setMain
+import kotlinx.coroutines.withTimeoutOrNull
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -177,6 +179,25 @@ class ToolkitViewModelTest {
         vm.onIntent(ToolkitIntent.Hidden)
 
         assertNull(state.confirmation)
+        confirm()
+        assertTrue(device.writes.isEmpty())
+    }
+
+    @Test
+    fun `a confirmation that arrives after Hidden is dropped, not shown when the screen comes back`() {
+        start()
+        open(CHATTY)
+        val gate = CompletableDeferred<Unit>()
+        device.gate = gate
+        act(ToolkitRequest.ForceStop) // the plan is read from the device and is still in flight
+        assertTrue(state.busy)
+
+        vm.onIntent(ToolkitIntent.Hidden)
+        gate.complete(Unit) // the plan comes back needing confirmation, after the screen is gone
+        vm.onIntent(ToolkitIntent.Visible)
+
+        assertNull(state.confirmation)
+        assertFalse(state.busy)
         confirm()
         assertTrue(device.writes.isEmpty())
     }
@@ -543,6 +564,68 @@ class ToolkitViewModelTest {
 
         assertNull(state.confirmation)
         assertNull(state.resetReport)
+    }
+
+    @Test
+    fun `reset all puts a bucket back to its original, not to the value the newest change replaced`() {
+        start()
+        open(MAPS)
+        act(ToolkitRequest.SetBucket(StandbyBucket.RARE))
+        act(ToolkitRequest.SetBucket(StandbyBucket.RESTRICTED))
+        confirm()
+        vm.onIntent(ToolkitIntent.CloseApp)
+        assertEquals(StandbyBucket.RESTRICTED.rawValue, device.app(MAPS).bucket)
+        assertEquals(1, state.overrides.size)
+
+        act(ToolkitRequest.ResetAll)
+        confirm()
+
+        assertEquals(StandbyBucket.ACTIVE.rawValue, device.app(MAPS).bucket)
+        assertEquals(ResetResult.Restored, state.resetReport?.lines?.single()?.result)
+        assertTrue(state.overrides.isEmpty())
+    }
+
+    @Test
+    fun `a bucket moved and moved back leaves no override to restore`() {
+        start()
+        open(MAPS)
+        act(ToolkitRequest.SetBucket(StandbyBucket.RARE))
+        act(ToolkitRequest.SetBucket(StandbyBucket.ACTIVE))
+        vm.onIntent(ToolkitIntent.CloseApp)
+
+        assertTrue(state.overrides.isEmpty())
+        act(ToolkitRequest.ResetAll)
+        assertNull(state.confirmation)
+    }
+
+    @Test
+    fun `a reset that finishes while the screen is hidden raises no effect and none replays on return`() = runTest(scheduler) {
+        start()
+        restrict(CHATTY)
+        act(ToolkitRequest.ResetAll)
+        val gate = CompletableDeferred<Unit>()
+        device.gate = gate
+        confirm()
+
+        vm.onIntent(ToolkitIntent.Hidden)
+        gate.complete(Unit)
+        vm.onIntent(ToolkitIntent.Visible)
+
+        assertEquals(1, state.resetReport?.restored)
+        assertNull(withTimeoutOrNull(1_000) { vm.effects.first() })
+    }
+
+    @Test
+    fun `an effect nobody collected before Hidden is not replayed on the next visit`() = runTest(scheduler) {
+        start()
+        restrict(CHATTY)
+        act(ToolkitRequest.ResetAll)
+        confirm() // the effect is queued; no collector is running
+
+        vm.onIntent(ToolkitIntent.Hidden)
+        vm.onIntent(ToolkitIntent.Visible)
+
+        assertNull(withTimeoutOrNull(1_000) { vm.effects.first() })
     }
 
     // ---- bg-dexopt ------------------------------------------------------------------------------

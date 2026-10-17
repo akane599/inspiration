@@ -18,9 +18,8 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
-import com.akane.inspiration.designsystem.component.SemanticDot
 import com.akane.inspiration.designsystem.theme.spacing
-import com.akane.inspiration.designsystem.theme.telemetryColors
+import com.akane.inspiration.designsystem.theme.statusColors
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -64,14 +63,12 @@ fun ConfirmationPanel(
             if (confirmation.request == ToolkitRequest.ResetAll) InfoText(stringResource(R.string.toolkit_confirm_reset_body))
             confirmation.warnings.forEach { warning ->
                 Row(verticalAlignment = Alignment.Top) {
-                    SemanticDot(
-                        color = MaterialTheme.telemetryColors.awake,
-                        modifier = Modifier.padding(top = spacing.xs, end = spacing.sm),
-                    )
+                    LineDot(color = MaterialTheme.statusColors.warning)
                     Text(
                         text = stringResource(warningRes(warning)),
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(start = spacing.sm),
                     )
                 }
             }
