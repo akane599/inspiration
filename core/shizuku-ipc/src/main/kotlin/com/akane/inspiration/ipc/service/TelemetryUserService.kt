@@ -24,7 +24,47 @@ import com.akane.inspiration.ipc.model.KernelBatterySnapshot
 import com.akane.inspiration.ipc.model.PowerMonitorSnapshot
 import com.akane.inspiration.ipc.model.Reasons
 import java.io.File
+import java.io.FileDescriptor
 import java.io.IOException
+
+internal interface DumpPipe {
+    val readEnd: ParcelFileDescriptor?
+    val writeDescriptor: FileDescriptor
+
+    fun closeRead()
+    fun closeWrite()
+}
+
+private class ParcelFileDescriptorDumpPipe private constructor(
+    private val read: ParcelFileDescriptor,
+    private val write: ParcelFileDescriptor,
+) : DumpPipe {
+    override val readEnd: ParcelFileDescriptor = read
+    override val writeDescriptor: FileDescriptor = write.fileDescriptor
+
+    override fun closeRead() {
+        read.closeQuietly()
+    }
+
+    override fun closeWrite() {
+        write.closeQuietly()
+    }
+
+    private fun ParcelFileDescriptor.closeQuietly() {
+        try {
+            close()
+        } catch (_: IOException) {
+            // The peer may have closed the pipe after receiving a failed dump.
+        }
+    }
+
+    companion object {
+        fun create(): DumpPipe {
+            val pipe = ParcelFileDescriptor.createPipe()
+            return ParcelFileDescriptorDumpPipe(pipe[0], pipe[1])
+        }
+    }
+}
 
 /**
  * Shell-UID Shizuku service. All binder entry points reject callers other than this app before
@@ -36,6 +76,8 @@ class TelemetryUserService private constructor(
     private val callingUid: () -> Int,
     private val elapsedRealtimeMs: () -> Long,
     private val serviceBinder: (String) -> IBinder?,
+    private val pipeFactory: () -> DumpPipe,
+    private val startThread: (Runnable) -> Unit,
     @Suppress("unused") constructionMarker: Unit,
 ) : ITelemetryUserService.Stub() {
     /** Shizuku's fallback construction path has no Context, so it deliberately fails closed. */
@@ -45,6 +87,8 @@ class TelemetryUserService private constructor(
         callingUid = Binder::getCallingUid,
         elapsedRealtimeMs = SystemClock::elapsedRealtime,
         serviceBinder = ServiceManager::getService,
+        pipeFactory = ParcelFileDescriptorDumpPipe::create,
+        startThread = { runnable -> Thread(runnable).start() },
         constructionMarker = Unit,
     )
 
@@ -56,6 +100,8 @@ class TelemetryUserService private constructor(
         callingUid = Binder::getCallingUid,
         elapsedRealtimeMs = SystemClock::elapsedRealtime,
         serviceBinder = ServiceManager::getService,
+        pipeFactory = ParcelFileDescriptorDumpPipe::create,
+        startThread = { runnable -> Thread(runnable).start() },
         constructionMarker = Unit,
     )
 
@@ -65,7 +111,18 @@ class TelemetryUserService private constructor(
         callingUid: () -> Int,
         elapsedRealtimeMs: () -> Long = { 0L },
         serviceBinder: (String) -> IBinder? = { null },
-    ) : this(appUid, fileRoot, callingUid, elapsedRealtimeMs, serviceBinder, Unit)
+        pipeFactory: () -> DumpPipe = ParcelFileDescriptorDumpPipe::create,
+        startThread: (Runnable) -> Unit = { runnable -> Thread(runnable).start() },
+    ) : this(
+        appUid,
+        fileRoot,
+        callingUid,
+        elapsedRealtimeMs,
+        serviceBinder,
+        pipeFactory,
+        startThread,
+        Unit,
+    )
 
     override fun destroy() {
         if (!isCallerAllowed()) return
@@ -134,18 +191,28 @@ class TelemetryUserService private constructor(
         val dumpRequest = dumpRequest(target) ?: return DumpResult.unavailable(Reasons.TARGET)
         val binder = serviceBinder(dumpRequest.serviceName) ?: return DumpResult.unavailable(Reasons.REMOTE)
         val pipe = try {
-            ParcelFileDescriptor.createPipe()
+            pipeFactory()
         } catch (_: IOException) {
             return DumpResult.unavailable(Reasons.IO)
         }
-        Thread {
-            try {
-                binder.dump(pipe[1].fileDescriptor, dumpRequest.args)
-            } finally {
-                pipe[1].closeQuietly()
-            }
-        }.start()
-        return DumpResult(available = true, reason = null, fd = pipe[0])
+        try {
+            startThread(
+                Runnable {
+                    try {
+                        binder.dump(pipe.writeDescriptor, dumpRequest.args)
+                    } catch (_: Exception) {
+                        // The caller observes an early EOF when the framework dump fails.
+                    } finally {
+                        pipe.closeWrite()
+                    }
+                },
+            )
+        } catch (_: Throwable) {
+            pipe.closeRead()
+            pipe.closeWrite()
+            return DumpResult.unavailable(Reasons.IO)
+        }
+        return DumpResult(available = true, reason = null, fd = pipe.readEnd)
     }
 
     private fun isCallerAllowed(): Boolean = try {
@@ -201,14 +268,6 @@ class TelemetryUserService private constructor(
             temperatureDeciC != null ||
             status != null ||
             capacityPercent != null
-
-    private fun ParcelFileDescriptor.closeQuietly() {
-        try {
-            close()
-        } catch (_: IOException) {
-            // The peer may have closed the pipe after receiving a failed dump.
-        }
-    }
 
     private data class DumpRequest(val serviceName: String, val args: Array<String>)
 

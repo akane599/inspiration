@@ -1,9 +1,14 @@
 package com.akane.inspiration.ipc.service
 
+import android.os.IBinder
+import android.os.IInterface
+import android.os.Parcel
+import android.os.RemoteException
 import com.akane.inspiration.ipc.model.ClusterFreqTime
 import com.akane.inspiration.ipc.model.DumpTarget
 import com.akane.inspiration.ipc.model.Reasons
 import java.io.File
+import java.io.FileDescriptor
 import java.nio.file.Files
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -114,13 +119,92 @@ class TelemetryUserServiceTest {
         assertNull(dump.fd)
     }
 
-    private fun service(root: File, callingUid: () -> Int = { APP_UID }): TelemetryUserService =
+    @Test
+    fun `thread start failure closes both pipe ends and reports IO`() = withFixture { root ->
+        val pipe = FakeDumpPipe()
+
+        val result = service(
+            root = root,
+            serviceBinder = { ThrowingDumpBinder },
+            pipeFactory = { pipe },
+            startThread = { throw OutOfMemoryError("pthread_create failed") },
+        ).openDump(DumpTarget.BATTERYSTATS_PROTO)
+
+        assertFalse(result.available)
+        assertEquals(Reasons.IO, result.reason)
+        assertNull(result.fd)
+        assertTrue(pipe.readClosed)
+        assertTrue(pipe.writeClosed)
+    }
+
+    @Test
+    fun `dump exception is contained and closes the write pipe end`() = withFixture { root ->
+        val pipe = FakeDumpPipe()
+
+        val result = service(
+            root = root,
+            serviceBinder = { ThrowingDumpBinder },
+            pipeFactory = { pipe },
+            startThread = Runnable::run,
+        ).openDump(DumpTarget.BATTERYSTATS_PROTO)
+
+        assertTrue(result.available)
+        assertTrue(pipe.writeClosed)
+    }
+
+    private fun service(
+        root: File,
+        callingUid: () -> Int = { APP_UID },
+        serviceBinder: (String) -> IBinder? = { null },
+        pipeFactory: (() -> DumpPipe)? = null,
+        startThread: ((Runnable) -> Unit)? = null,
+    ): TelemetryUserService =
         TelemetryUserService(
             appUid = APP_UID,
             fileRoot = root,
             callingUid = callingUid,
             elapsedRealtimeMs = { 42L },
+            serviceBinder = serviceBinder,
+            pipeFactory = pipeFactory ?: { FakeDumpPipe() },
+            startThread = startThread ?: Runnable::run,
         )
+
+    private class FakeDumpPipe : DumpPipe {
+        override val readEnd = null
+        override val writeDescriptor = FileDescriptor()
+        var readClosed = false
+        var writeClosed = false
+
+        override fun closeRead() {
+            readClosed = true
+        }
+
+        override fun closeWrite() {
+            writeClosed = true
+        }
+    }
+
+    private object ThrowingDumpBinder : IBinder {
+        override fun dump(fd: FileDescriptor, args: Array<out String>?) {
+            throw RemoteException()
+        }
+
+        override fun dumpAsync(fd: FileDescriptor, args: Array<out String>?) = Unit
+
+        override fun getInterfaceDescriptor(): String = ""
+
+        override fun isBinderAlive(): Boolean = true
+
+        override fun linkToDeath(recipient: IBinder.DeathRecipient, flags: Int) = Unit
+
+        override fun pingBinder(): Boolean = true
+
+        override fun queryLocalInterface(descriptor: String): IInterface? = null
+
+        override fun transact(code: Int, data: Parcel, reply: Parcel?, flags: Int): Boolean = false
+
+        override fun unlinkToDeath(recipient: IBinder.DeathRecipient, flags: Int): Boolean = true
+    }
 
     private fun battery(root: File, name: String, configure: FixtureDirectory.() -> Unit) {
         FixtureDirectory(File(root, "sys/class/power_supply/$name")).apply {
