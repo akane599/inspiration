@@ -47,7 +47,7 @@ class DiagnosticDictionaryTest {
     @Test
     fun everyEntryOfTheRealDictionaryLoads() {
         val entries = DictionaryLoader.parse(realJson)
-        assertTrue("entries=${entries.size}", entries.size >= 60)
+        assertEquals(72, entries.size)
         assertEquals(entries.size, entries.map { it.id }.toSet().size)
         entries.forEach {
             assertTrue(it.id, it.title.en.isNotBlank() && it.title.tr.isNotBlank())
@@ -169,6 +169,51 @@ class DiagnosticDictionaryTest {
         assertEquals("sync_loop", real.idOf(EntryKind.PARTIAL, "SyncLoopWakeLock"))
         assertEquals("pms_display", real.idOf(EntryKind.PARTIAL, "PowerManagerService.Display"))
         assertEquals("pms_broadcasts", real.idOf(EntryKind.PARTIAL, "PowerManagerService.Broadcasts"))
+    }
+
+    @Test
+    fun prefixedAlarmSubjectsResolveTheTagBeforeTheFallbackPrefix() {
+        assertEquals("job_deadline", real.idOf(EntryKind.ALARM, "*walarm*:*job.deadline*"))
+        assertEquals("job_delay", real.idOf(EntryKind.ALARM, "*alarm*:*job.delay*"))
+        assertEquals("job_deadline", real.idOf(EntryKind.PARTIAL, "*walarm*:*job.deadline*"))
+        assertEquals("gcm_conn_alarm", real.idOf(EntryKind.ALARM, "*walarm*:GCM_CONN_ALARM"))
+        assertEquals("gcm_hb_alarm", real.idOf(EntryKind.ALARM, "*alarm*:GCM_HB_ALARM"))
+        assertEquals(
+            "nlp_locator_alarm",
+            real.idOf(EntryKind.ALARM, "*walarm*:com.google.android.gms.nlp.ALARM_WAKEUP_LOCATOR"),
+        )
+        assertEquals("re_push", real.idOf(EntryKind.PARTIAL, "*walarm*:com.google.android.intent.action.GCM_RECONNECT"))
+    }
+
+    @Test
+    fun prefixedAlarmSubjectsWithoutASpecificEntryFallBackToThePrefixEntry() {
+        assertEquals("walarm_prefix", real.idOf(EntryKind.ALARM, "*walarm*:WriteBufferAlarm"))
+        assertEquals("walarm_prefix", real.idOf(EntryKind.PARTIAL, "*walarm*:WriteBufferAlarm"))
+        assertEquals("alarm_prefix", real.idOf(EntryKind.ALARM, "*alarm*:TIME_TICK"))
+        assertEquals("alarm_prefix", real.idOf(EntryKind.PARTIAL, "*alarm*:TIME_TICK"))
+        // The bare marker and other kinds are untouched by the prefix handling.
+        assertEquals("alarm_manager", real.idOf(EntryKind.PARTIAL, "*alarm*"))
+        assertNull(real.idOf(EntryKind.KERNEL, "*alarm*:TIME_TICK"))
+    }
+
+    @Test
+    fun prefixIsStrippedOnlyForAlarmAndPartialKinds() {
+        val dict = dictionaryOf(
+            entryJson("tag", "exact", "tick", kinds = "\"alarm\",\"partial\",\"kernel\""),
+            entryJson("fallback", "prefix", "*alarm*:", kinds = "\"alarm\",\"partial\",\"kernel\""),
+        )
+        assertEquals("tag", dict.idOf(EntryKind.ALARM, "*alarm*:tick"))
+        assertEquals("tag", dict.idOf(EntryKind.PARTIAL, "*alarm*:tick"))
+        assertEquals("fallback", dict.idOf(EntryKind.KERNEL, "*alarm*:tick"))
+    }
+
+    @Test
+    fun realWordingFixesFromReview() {
+        val qcom = real.explain(EntryKind.KERNEL, "qcom_rx_wakelock", Locale.ENGLISH)
+        assertEquals("wifi", qcom?.category)
+        assertEquals("pms_display", real.idOf(EntryKind.KERNEL, "PowerManagerService.Display"))
+        assertEquals("pms_broadcasts", real.idOf(EntryKind.KERNEL, "PowerManagerService.Broadcasts"))
+        assertNull(real.idOf(EntryKind.PARTIAL, "AudioInput"))
     }
 
     @Test

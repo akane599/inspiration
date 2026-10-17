@@ -6,7 +6,9 @@ import java.util.Locale
  * Deterministic name matcher. Precedence: exact > longest prefix/suffix > longest contains >
  * regex (file order). Remaining ties go to the entry that comes first in [entries].
  * Kernel and wakeup-reason names (and the entry values they are compared with) are lowercased;
- * other kinds are case-sensitive.
+ * other kinds are case-sensitive. For ALARM and PARTIAL names that start with "*walarm*:" or
+ * "*alarm*:", the remainder is looked up first with the same precedence; the full name is only
+ * looked up (and so reaches the prefix entries) when nothing specific matches the remainder.
  */
 class DiagnosticDictionary(entries: List<DictionaryEntry>) {
     private class Compiled(val entry: DictionaryEntry, val regex: Regex?) {
@@ -24,6 +26,17 @@ class DiagnosticDictionary(entries: List<DictionaryEntry>) {
 
     fun explain(kind: EntryKind, name: String, locale: Locale): Explanation? {
         val subject = if (kind.caseInsensitive) name.lowercase(Locale.ROOT) else name
+        val stripped = if (kind == EntryKind.ALARM || kind == EntryKind.PARTIAL) stripAlarmPrefix(subject) else null
+        // Alarm subjects arrive as "*walarm*:<tag>" / "*alarm*:<tag>": a specific entry for the tag
+        // wins; the prefix entries (walarm_prefix, alarm_prefix) are the fallback for the full name.
+        val best = stripped?.let { lookup(kind, it) } ?: lookup(kind, subject)
+        return best?.entry?.toExplanation(locale)
+    }
+
+    private fun stripAlarmPrefix(subject: String): String? =
+        ALARM_PREFIXES.firstOrNull { subject.startsWith(it) }?.let { subject.substring(it.length) }
+
+    private fun lookup(kind: EntryKind, subject: String): Compiled? {
         var best: Compiled? = null
         var bestTier = Int.MAX_VALUE
         var bestLength = -1
@@ -37,7 +50,7 @@ class DiagnosticDictionary(entries: List<DictionaryEntry>) {
                 bestLength = length
             }
         }
-        return best?.entry?.toExplanation(locale)
+        return best
     }
 
     private fun tierOf(candidate: Compiled, subject: String, kind: EntryKind): Int? {
@@ -72,5 +85,10 @@ class DiagnosticDictionary(entries: List<DictionaryEntry>) {
             body = if (turkish) body.tr else body.en,
             action = action,
         )
+    }
+
+    private companion object {
+        /** AlarmManagerService stats tag prefixes: wakeup alarms, then non-wakeup alarms. */
+        val ALARM_PREFIXES = listOf("*walarm*:", "*alarm*:")
     }
 }
