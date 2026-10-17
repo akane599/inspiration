@@ -7,31 +7,30 @@ import com.akane.inspiration.diagnostics.analysis.AnalysisState
 import com.akane.inspiration.diagnostics.analysis.Timeline
 import com.akane.inspiration.diagnostics.dictionary.DiagnosticDictionary
 import com.akane.inspiration.health.HealthDependencies
+import com.akane.inspiration.ipc.ITelemetryUserService
+import com.akane.inspiration.ipc.ShizukuManager
 import com.akane.inspiration.ipc.ShizukuState
-import com.akane.inspiration.ipc.model.BgDexoptStatus
 import com.akane.inspiration.ipc.model.HistoryEvent
-import com.akane.inspiration.ipc.model.ToolkitResult
-import com.akane.inspiration.ipc.toolkit.AppOp
-import com.akane.inspiration.ipc.toolkit.AppOpMode
-import com.akane.inspiration.ipc.toolkit.DozeProfile
-import com.akane.inspiration.ipc.toolkit.StandbyBucket
 import com.akane.inspiration.sleeplab.SleepLabDependencies
 import com.akane.inspiration.telemetry.app.AppEntry
 import com.akane.inspiration.telemetry.app.AppLabels
 import com.akane.inspiration.telemetry.app.KernelCapacitySnapshot
 import com.akane.inspiration.telemetry.app.RefreshResult
+import com.akane.inspiration.telemetry.capacity.ChargeSegment
+import com.akane.inspiration.telemetry.capacity.SegmentVerdict
 import com.akane.inspiration.telemetry.common.Clocks
+import com.akane.inspiration.telemetry.snapshot.BatterySnapshot
+import com.akane.inspiration.telemetry.snapshot.CaptureTrigger
 import com.akane.inspiration.telemetry.snapshot.LiveReading
+import com.akane.inspiration.telemetry.snapshot.SnapshotKind
 import com.akane.inspiration.telemetry.store.ChargeSessionRecord
 import com.akane.inspiration.telemetry.store.HealthSample
 import com.akane.inspiration.telemetry.store.Marker
+import com.akane.inspiration.telemetry.store.SnapshotStore
 import com.akane.inspiration.telemetry.store.TelemetrySample
 import com.akane.inspiration.telemetry.store.ToolkitActionRecord
-import com.akane.inspiration.telemetry.toolkit.GatewayReply
-import com.akane.inspiration.telemetry.toolkit.GatewayUnavailable
 import com.akane.inspiration.telemetry.toolkit.ToolkitActions
-import com.akane.inspiration.telemetry.toolkit.ToolkitAuditStore
-import com.akane.inspiration.telemetry.toolkit.ToolkitBackend
+import com.akane.inspiration.telemetry.toolkit.ToolkitGateway
 import com.akane.inspiration.toolkit.ToolkitDependencies
 import com.akane.inspiration.xray.XRayDependencies
 import kotlinx.coroutines.flow.Flow
@@ -40,8 +39,8 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.emptyFlow
 
 /**
- * Fakes for previews and screenshots: no Shizuku, no database, no clock. Every read is empty and every
- * toolkit write is unavailable, so a preview can never reach a privileged call.
+ * Fakes for previews and screenshots: no Shizuku, no database, no clock. Every read is empty and the
+ * toolkit sits on a Shizuku manager that never binds, so a preview can never reach a privileged call.
  */
 internal object PreviewDependencies :
     CockpitDependencies,
@@ -62,7 +61,7 @@ internal object PreviewDependencies :
         override suspend fun label(packageName: String) = packageName
         override suspend fun icon(packageName: String): Bitmap? = null
     }
-    override val toolkit = ToolkitActions(UnavailableBackend, EmptyAudit, holdBinding = { AutoCloseable {} })
+    override val toolkit = ToolkitActions(ToolkitGateway(NeverBoundShizuku), EmptyStore, holdBinding = { AutoCloseable {} })
 
     override suspend fun refresh(): RefreshResult = RefreshResult.Debounced(0L)
     override fun requestShizukuPermission() = Unit
@@ -80,25 +79,44 @@ internal object PreviewDependencies :
     override suspend fun installedApps(): List<AppEntry> = emptyList()
 }
 
-private object UnavailableBackend : ToolkitBackend {
-    private val unavailable = GatewayReply.Unavailable(GatewayUnavailable.NO_SERVICE)
+/** A Shizuku manager that is not running: no service ever binds, so every gateway call is unavailable. */
+private object NeverBoundShizuku : ShizukuManager {
+    override val state: StateFlow<ShizukuState> = MutableStateFlow(ShizukuState.NotRunning)
+    override val telemetryService: StateFlow<ITelemetryUserService?> = MutableStateFlow(null)
 
-    override suspend fun setAppOp(pkg: String, op: AppOp, mode: AppOpMode): GatewayReply<ToolkitResult> = unavailable
-    override suspend fun getAppOps(pkg: String): GatewayReply<ToolkitResult> = unavailable
-    override suspend fun setStandbyBucket(pkg: String, bucket: StandbyBucket): GatewayReply<ToolkitResult> = unavailable
-    override suspend fun getStandbyBucket(pkg: String): GatewayReply<ToolkitResult> = unavailable
-    override suspend fun applyDozeProfile(profile: DozeProfile, expectedBeforeRaw: String?): GatewayReply<ToolkitResult> = unavailable
-    override suspend fun getDozeState(): GatewayReply<ToolkitResult> = unavailable
-    override suspend fun restoreDozeRaw(rawOrNull: String?, expectedCurrentRaw: String?): GatewayReply<ToolkitResult> = unavailable
-    override suspend fun forceStop(pkg: String): GatewayReply<ToolkitResult> = unavailable
-    override suspend fun startBgDexopt(): GatewayReply<ToolkitResult> = unavailable
-    override suspend fun bgDexoptStatus(): GatewayReply<BgDexoptStatus> = unavailable
-    override suspend fun cancelBgDexopt(): GatewayReply<ToolkitResult> = unavailable
+    override fun requestPermission() = Unit
+    override fun start() = Unit
+    override suspend fun <T> withTelemetryService(timeoutMs: Long, block: suspend (ITelemetryUserService) -> T): T? = null
+    override fun holdBinding(): AutoCloseable = AutoCloseable {}
+    override fun stop() = Unit
 }
 
-private object EmptyAudit : ToolkitAuditStore {
-    override suspend fun insert(record: ToolkitActionRecord): Long = 0L
-    override suspend fun update(record: ToolkitActionRecord) = Unit
-    override suspend fun recent(limit: Int): List<ToolkitActionRecord> = emptyList()
-    override suspend fun pending(): List<ToolkitActionRecord> = emptyList()
+/** An empty in-memory store; the toolkit audit log and everything else read as empty and writes are dropped. */
+private object EmptyStore : SnapshotStore {
+    override suspend fun insert(snapshot: BatterySnapshot): Long = 0L
+    override suspend fun byId(id: Long): BatterySnapshot? = null
+    override suspend fun latest(kind: SnapshotKind?): BatterySnapshot? = null
+    override suspend fun firstAtOrAfter(wallMs: Long, kind: SnapshotKind?, statsStartMs: Long?, bootCount: Int?): BatterySnapshot? = null
+    override suspend fun lastAtOrBefore(wallMs: Long, kind: SnapshotKind?): BatterySnapshot? = null
+    override suspend fun latestByTrigger(trigger: CaptureTrigger): BatterySnapshot? = null
+    override suspend fun insertHistory(events: List<HistoryEvent>, statsStartMs: Long) = Unit
+    override suspend fun historyBetween(fromWallMs: Long, toWallMs: Long): List<HistoryEvent> = emptyList()
+    override suspend fun historyCursor(): Pair<Long, Long>? = null
+    override suspend fun setHistoryCursor(statsStartMs: Long, lastHistoryTimeMs: Long) = Unit
+    override suspend fun addMarker(snapshotId: Long, label: String, wallMs: Long): Long = 0L
+    override suspend fun marker(id: Long): Pair<Long, BatterySnapshot>? = null
+    override suspend fun markers(): List<Marker> = emptyList()
+    override suspend fun insertSamples(samples: List<LiveReading>) = Unit
+    override suspend fun samplesBetween(from: Long, to: Long): List<TelemetrySample> = emptyList()
+    override suspend fun upsertChargeSession(statsStartMs: Long, segment: ChargeSegment, verdict: SegmentVerdict) = Unit
+    override suspend fun chargeSessions(): List<ChargeSessionRecord> = emptyList()
+    override suspend fun acceptedEstimatesChronological(limit: Int): List<Double> = emptyList()
+    override suspend fun healthSamples(): List<HealthSample> = emptyList()
+    override suspend fun insertHealthSample(sample: HealthSample) = Unit
+    override suspend fun insertToolkitAction(record: ToolkitActionRecord): Long = 0L
+    override suspend fun updateToolkitAction(record: ToolkitActionRecord) = Unit
+    override suspend fun toolkitActions(limit: Int): List<ToolkitActionRecord> = emptyList()
+    override suspend fun pendingToolkitActions(): List<ToolkitActionRecord> = emptyList()
+    override suspend fun recordMiss(wallMs: Long, trigger: CaptureTrigger, reason: String) = Unit
+    override suspend fun prune(nowWallMs: Long) = Unit
 }
