@@ -233,7 +233,8 @@ class ToolkitActions internal constructor(
 
     /**
      * Undoes audit row [actionId]: the stored values are decoded through the same enums and validation
-     * as any action. If the current value is no longer the recorded `after`, confirmation is needed
+     * as any action. An override row goes back to the original of its chain (as [resetAll] does), and is
+     * refused with ALREADY_RESTORED when its own `after` already is that original. If the current value is no longer the recorded `after`, confirmation is needed
      * (see [planRestore]). The new row carries `restoresId`; the original becomes RESTORED.
      */
     suspend fun restore(actionId: Long, confirmed: Boolean = false): ToolkitOutcome<ToolkitActionRecord> =
@@ -248,8 +249,8 @@ class ToolkitActions internal constructor(
      * Restores every active override (exactly what [activeOverrides] shows) and reports each item. Each one
      * goes back to the value before the FIRST change of its chain (the user's original state), not to the
      * intermediate value the newest row recorded: a target switched on and then back by hand must not end
-     * up restricted again. A target already at its original value is reported as Refused(ALREADY_RESTORED)
-     * and nothing is written for it. The user asked for this explicitly, so the per-item restore is
+     * up restricted again. A target already at its original value is not an active override, so it is not
+     * listed and nothing is written for it. The user asked for this explicitly, so the per-item restore is
      * confirmed; a failure does not stop the remaining items. One lock covers the whole reset, so the
      * chains read here cannot change under it.
      */
@@ -260,9 +261,7 @@ class ToolkitActions internal constructor(
 
     private suspend fun resetOne(override: Override, rows: List<ToolkitActionRecord>): ToolkitOutcome<ToolkitActionRecord> {
         val row = rows.first { it.id == override.actionId }
-        val original = chainOriginal(row, rows)
-        if (sameState(row.kind, override.currentRaw, original)) return ToolkitOutcome.Refused(ToolkitRefusal.ALREADY_RESTORED)
-        val action = restoreAction(row, original) ?: return ToolkitOutcome.Refused(ToolkitRefusal.NOT_RESTORABLE)
+        val action = restoreAction(row, chainOriginal(row, rows)) ?: return ToolkitOutcome.Refused(ToolkitRefusal.NOT_RESTORABLE)
         return run(action, confirmed = true, restoring = row)
     }
 
@@ -683,12 +682,19 @@ class ToolkitActions internal constructor(
     }
 
     private suspend fun decodeRestore(actionId: Long): Decoded {
-        val record = audit.recent(MAX_ROWS).firstOrNull { it.id == actionId } ?: return Decoded.No(ToolkitRefusal.UNKNOWN_ACTION)
+        val all = audit.recent(MAX_ROWS)
+        val record = all.firstOrNull { it.id == actionId } ?: return Decoded.No(ToolkitRefusal.UNKNOWN_ACTION)
         if (record.status == ToolkitActionStatus.RESTORED) return Decoded.No(ToolkitRefusal.ALREADY_RESTORED)
         if (record.status != ToolkitActionStatus.DONE || record.restoresId != null) {
             return Decoded.No(ToolkitRefusal.NOT_RESTORABLE)
         }
-        val action = restoreAction(record, record.beforeRaw)
+        // An override row goes back to its chain's original, like resetAll; a chain whose own `after` already
+        // is that original has nothing left to undo (writing the intermediate `before` would re-restrict).
+        val original = if (record.kind in OVERRIDE_KINDS) chainOriginal(record, overrideRows(all)) else record.beforeRaw
+        if (record.kind in OVERRIDE_KINDS && sameState(record.kind, record.afterRaw, original)) {
+            return Decoded.No(ToolkitRefusal.ALREADY_RESTORED)
+        }
+        val action = restoreAction(record, original)
         return if (action == null) Decoded.No(ToolkitRefusal.NOT_RESTORABLE) else Decoded.Ok(action, record)
     }
 
@@ -719,7 +725,7 @@ class ToolkitActions internal constructor(
         val key = targetKey(row)
         var original = row.beforeRaw
         for (older in rows.dropWhile { it.id != row.id }.drop(1).filter { targetKey(it) == key }) {
-            if (older.restoresId != null || norm(older.afterRaw) != norm(original)) break
+            if (older.restoresId != null || !sameState(older.kind, older.afterRaw, original)) break
             original = older.beforeRaw
         }
         return original
@@ -735,7 +741,9 @@ class ToolkitActions internal constructor(
     // ---- active overrides ------------------------------------------------------------------
 
     /** Successful override-kind rows, newest first. */
-    private suspend fun overrideRows(): List<ToolkitActionRecord> = audit.recent(MAX_ROWS)
+    private suspend fun overrideRows(): List<ToolkitActionRecord> = overrideRows(audit.recent(MAX_ROWS))
+
+    private fun overrideRows(all: List<ToolkitActionRecord>): List<ToolkitActionRecord> = all
         .filter { it.status == ToolkitActionStatus.DONE && it.kind in OVERRIDE_KINDS }
         .sortedWith(compareByDescending<ToolkitActionRecord> { it.startedAt }.thenByDescending { it.id })
 
@@ -756,14 +764,21 @@ class ToolkitActions internal constructor(
                     KIND_APPOP -> (ops as? ToolkitOutcome.Done)?.value?.modes?.get(AppOp.entries.firstOrNull { it.argv == row.op })
                     else -> (bucket as? ToolkitOutcome.Done)?.value?.raw?.toString()
                 }
-                if (current != null && isActive(row, current)) result += overrideOf(row, current)
+                if (current != null) activeOverride(row, current, rows)?.let { result += it }
             }
         }
         candidates.firstOrNull { it.kind == KIND_DOZE }?.let { row ->
             val doze = readDoze()
-            if (doze is ToolkitOutcome.Done && isActive(row, doze.value.raw)) result += overrideOf(row, doze.value.raw)
+            if (doze is ToolkitOutcome.Done) activeOverride(row, doze.value.raw, rows)?.let { result += it }
         }
         return result.sortedByDescending { it.sinceMs }
+    }
+
+    /** The override [row] stands for, or null when it is not in effect or its chain has come back to the original. */
+    private fun activeOverride(row: ToolkitActionRecord, current: String?, rows: List<ToolkitActionRecord>): Override? {
+        if (!isActive(row, current)) return null
+        val original = chainOriginal(row, rows)
+        return if (sameState(row.kind, current, original)) null else overrideOf(row, current, original)
     }
 
     private fun targetKey(row: ToolkitActionRecord): String =
@@ -776,7 +791,7 @@ class ToolkitActions internal constructor(
         return row.kind != KIND_DOZE || after != null
     }
 
-    private fun overrideOf(row: ToolkitActionRecord, current: String?): Override = Override(
+    private fun overrideOf(row: ToolkitActionRecord, current: String?, original: String?): Override = Override(
         actionId = row.id,
         kind = when (row.kind) {
             KIND_APPOP -> OverrideKind.APP_OP
@@ -786,15 +801,15 @@ class ToolkitActions internal constructor(
         pkg = row.pkg,
         appOp = if (row.kind == KIND_APPOP) AppOp.entries.firstOrNull { it.argv == row.op } else null,
         currentRaw = current,
-        previousRaw = row.beforeRaw,
+        previousRaw = original,
         sinceMs = row.endedAt ?: row.startedAt,
-        restorable = isRestorable(row),
+        restorable = isRestorable(row, original),
     )
 
-    /** Whether [decodeRestore] could turn this row's recorded previous value back into an action. */
-    private fun isRestorable(row: ToolkitActionRecord): Boolean = when (row.kind) {
-        KIND_APPOP -> row.beforeRaw?.let { modeOf(it) } != null
-        KIND_BUCKET -> StandbyBucket.entries.any { it.rawValue.toString() == row.beforeRaw }
+    /** Whether [restoreAction] could turn the chain original [original] back into an action. */
+    private fun isRestorable(row: ToolkitActionRecord, original: String?): Boolean = when (row.kind) {
+        KIND_APPOP -> original?.let { modeOf(it) } != null
+        KIND_BUCKET -> StandbyBucket.entries.any { it.rawValue.toString() == original }
         else -> true
     }
 
