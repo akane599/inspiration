@@ -5,6 +5,10 @@
         <item quantity="one">Son %1$s saatte pilin %%%2$d kadarını kullandın.</item>
         <item quantity="other">Son %1$s saatte pilin %%%2$d kadarını kullandın.</item>
     </plurals>
+    <plurals name="story_summary_minutes">
+        <item quantity="one">Son %1$d dakikada pilin %%%2$d kadarını kullandın.</item>
+        <item quantity="other">Son %1$d dakikada pilin %%%2$d kadarını kullandın.</item>
+    </plurals>
     <string name="story_screen_on_rate">Ekran açıkken saatte %%%1$s tükettin (%2$s).</string>
     <string name="story_screen_off_rate">Ekran kapalıyken saatte %%%1$s tükettin (%2$s).</string>
     <string name="story_deep_sleep">Derin uyku oranı %%%1$s.</string>

@@ -71,7 +71,29 @@ class AndroidStoryWriterTest {
         assertEquals("In the last 1 hour you used 5% of your battery.", hours(1.0))
         assertEquals("In the last 1 hour you used 5% of your battery.", hours(1.04))
         assertEquals("In the last 1.5 hours you used 5% of your battery.", hours(1.5))
-        assertEquals("In the last 0.5 hours you used 5% of your battery.", hours(0.5))
+        assertEquals("In the last 1.5 hours you used 5% of your battery.", hours(1.54))
+    }
+
+    @Test
+    fun intervalsUnderOneHourReadInMinutes() {
+        fun summary(hours: Double, locale: Locale) =
+            writer.render(BatteryStory(listOf(StorySentence.Summary(hours, 5))), locale)
+        val thirtySeconds = 30.0 / 3600.0
+        assertEquals("In the last 1 minute you used 5% of your battery.", summary(thirtySeconds, Locale.ENGLISH))
+        assertEquals("Son 1 dakikada pilin %5 kadarını kullandın.", summary(thirtySeconds, tr))
+        assertEquals("In the last 45 minutes you used 5% of your battery.", summary(0.75, Locale.ENGLISH))
+        assertEquals("Son 45 dakikada pilin %5 kadarını kullandın.", summary(0.75, tr))
+    }
+
+    @Test
+    fun aboutOneHourBoundaryKeepsTheHoursForm() {
+        fun summary(hours: Double, locale: Locale) =
+            writer.render(BatteryStory(listOf(StorySentence.Summary(hours, 5))), locale)
+        // 0.96 h displays as 1.0 h, so it must not become "58 minutes".
+        assertEquals("In the last 1 hour you used 5% of your battery.", summary(0.96, Locale.ENGLISH))
+        assertEquals("Son 1 saatte pilin %5 kadarını kullandın.", summary(0.96, tr))
+        // 0.94 h displays as 0.9 h, below the boundary, so it reads in minutes.
+        assertEquals("In the last 56 minutes you used 5% of your battery.", summary(0.94, Locale.ENGLISH))
     }
 
     @Test

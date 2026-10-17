@@ -48,6 +48,11 @@ class AndroidStoryWriter(private val context: Context) {
     private fun summary(resources: Resources, hoursFormat: NumberFormat, sentence: StorySentence.Summary): String {
         // The plural quantity follows the displayed value, so 1.04 h reads "1 hour" but 1.5 h "1.5 hours".
         val displayedTenths = (sentence.hours * 10).roundToLong()
+        if (displayedTenths < 10L) {
+            // "In the last 0 hours" is meaningless: below one displayed hour, report minutes.
+            val minutes = maxOf(1L, (sentence.hours * MINUTES_PER_HOUR).roundToLong()).toInt()
+            return resources.getQuantityString(R.plurals.story_summary_minutes, minutes, minutes, sentence.levelUsedPct)
+        }
         val quantity = if (displayedTenths == 10L) 1 else 2
         return resources.getQuantityString(
             R.plurals.story_summary,
@@ -87,5 +92,6 @@ class AndroidStoryWriter(private val context: Context) {
 
     private companion object {
         const val PERCENT = 100.0
+        const val MINUTES_PER_HOUR = 60.0
     }
 }
