@@ -27,6 +27,13 @@ private val Cursor = nightMs(195)
 @PreviewTest @Preview(name = "narrow-360-large-font", showBackground = true, widthDp = 360, heightDp = 290, fontScale = 1.5f)
 @Composable fun HypnogramNarrowLargeFont() = InspirationTheme(darkTheme = true) { HypnogramSheet(syntheticNight()) }
 
+// fontScale 2.0 at 360 dp: the lane labels stay capped and the totals keep their gutter (F7).
+@PreviewTest @Preview(name = "narrow-360-font-2", showBackground = true, widthDp = 360, heightDp = 330, fontScale = 2f)
+@Composable fun HypnogramNarrowFont2() = InspirationTheme(darkTheme = true) { HypnogramSheet(syntheticNight()) }
+
+@PreviewTest @Preview(name = "narrow-360-font-2-turkish", showBackground = true, widthDp = 360, heightDp = 330, fontScale = 2f, locale = "tr")
+@Composable fun HypnogramNarrowFont2Turkish() = InspirationTheme(darkTheme = true) { HypnogramSheet(syntheticNight()) }
+
 @PreviewTest @Preview(name = "wide", showBackground = true, widthDp = 840, heightDp = 240)
 @Composable fun HypnogramWide() = InspirationTheme(darkTheme = true) { HypnogramSheet(syntheticNight()) }
 
@@ -40,7 +47,12 @@ private val Cursor = nightMs(195)
     HypnogramSheet(syntheticNight(), selection = Selection)
 }
 
-@PreviewTest @Preview(name = "cursor", showBackground = true, widthDp = 412, heightDp = 240)
+@PreviewTest @Preview(name = "selection-narrow-large-font", showBackground = true, widthDp = 360, heightDp = 290, fontScale = 1.5f)
+@Composable fun HypnogramSelectionNarrowLargeFont() = InspirationTheme(darkTheme = true) {
+    HypnogramSheet(syntheticNight(), selection = Selection)
+}
+
+@PreviewTest @Preview(name = "cursor",showBackground = true, widthDp = 412, heightDp = 240)
 @Composable fun HypnogramCursor() = InspirationTheme(darkTheme = true) {
     HypnogramSheet(syntheticNight(), cursorMs = Cursor)
 }

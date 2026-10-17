@@ -1,0 +1,66 @@
+package com.akane.inspiration.sleeplab
+
+import androidx.compose.runtime.Composable
+import androidx.compose.ui.tooling.preview.Preview
+import com.android.tools.screenshot.PreviewTest
+
+// Rendered on the JVM: ./gradlew :feature:sleeplab:updateDebugScreenshotTest (write refs) / validateDebugScreenshotTest (diff)
+// Heights are explicit: the renderer caps unspecified heights, and the screen scrolls, so each preview is tall
+// enough to show the whole column.
+
+@PreviewTest @Preview(name = "light", showBackground = true, widthDp = 412, heightDp = 1800)
+@Composable fun SleepLabLight() = SleepLabPreviewHost(darkTheme = false, state = SleepLabPreviewData.apps)
+
+@PreviewTest @Preview(name = "dark", showBackground = true, widthDp = 412, heightDp = 1800)
+@Composable fun SleepLabDark() = SleepLabPreviewHost(darkTheme = true, state = SleepLabPreviewData.apps)
+
+@PreviewTest @Preview(name = "large-font", showBackground = true, widthDp = 412, heightDp = 2600, fontScale = 1.5f)
+@Composable fun SleepLabLargeFont() = SleepLabPreviewHost(darkTheme = true, state = SleepLabPreviewData.apps)
+
+@PreviewTest @Preview(name = "narrow-360", showBackground = true, widthDp = 360, heightDp = 1900)
+@Composable fun SleepLabNarrow() = SleepLabPreviewHost(darkTheme = true, state = SleepLabPreviewData.apps)
+
+@PreviewTest @Preview(name = "narrow-360-large-font", showBackground = true, widthDp = 360, heightDp = 2900, fontScale = 1.5f)
+@Composable fun SleepLabNarrowLargeFont() = SleepLabPreviewHost(darkTheme = true, state = SleepLabPreviewData.apps)
+
+@PreviewTest @Preview(name = "wide-840", showBackground = true, widthDp = 840, heightDp = 1300)
+@Composable fun SleepLabWide() = SleepLabPreviewHost(darkTheme = true, state = SleepLabPreviewData.apps)
+
+@PreviewTest @Preview(name = "kernel", showBackground = true, widthDp = 412, heightDp = 1800)
+@Composable fun SleepLabKernelTab() = SleepLabPreviewHost(darkTheme = true, state = SleepLabPreviewData.kernelTab)
+
+@PreviewTest @Preview(name = "alarms", showBackground = true, widthDp = 412, heightDp = 1800)
+@Composable fun SleepLabAlarmsTab() = SleepLabPreviewHost(darkTheme = true, state = SleepLabPreviewData.alarmsTab)
+
+@PreviewTest @Preview(name = "alarms-light", showBackground = true, widthDp = 412, heightDp = 1800)
+@Composable fun SleepLabAlarmsTabLight() = SleepLabPreviewHost(darkTheme = false, state = SleepLabPreviewData.alarmsTab)
+
+@PreviewTest @Preview(name = "needs-full-snapshots", showBackground = true, widthDp = 412, heightDp = 1700)
+@Composable fun SleepLabNeedsFull() = SleepLabPreviewHost(darkTheme = true, state = SleepLabPreviewData.needsFull)
+
+@PreviewTest @Preview(name = "counter-reset", showBackground = true, widthDp = 412, heightDp = 1700)
+@Composable fun SleepLabCounterReset() = SleepLabPreviewHost(darkTheme = true, state = SleepLabPreviewData.counterReset)
+
+@PreviewTest @Preview(name = "hypnogram-empty", showBackground = true, widthDp = 412, heightDp = 1800)
+@Composable fun SleepLabHypnogramEmpty() = SleepLabPreviewHost(darkTheme = true, state = SleepLabPreviewData.hypnogramEmpty)
+
+@PreviewTest @Preview(name = "hypnogram-failed", showBackground = true, widthDp = 412, heightDp = 1800)
+@Composable fun SleepLabHypnogramFailed() = SleepLabPreviewHost(darkTheme = true, state = SleepLabPreviewData.hypnogramFailed)
+
+@PreviewTest @Preview(name = "time-slice", showBackground = true, widthDp = 412, heightDp = 1900)
+@Composable fun SleepLabTimeSlice() = SleepLabPreviewHost(darkTheme = true, state = SleepLabPreviewData.slice)
+
+@PreviewTest @Preview(name = "empty", showBackground = true, widthDp = 412, heightDp = 800)
+@Composable fun SleepLabEmpty() = SleepLabPreviewHost(darkTheme = true, state = SleepLabPreviewData.empty)
+
+@PreviewTest @Preview(name = "error", showBackground = true, widthDp = 412, heightDp = 800)
+@Composable fun SleepLabError() = SleepLabPreviewHost(darkTheme = true, state = SleepLabPreviewData.error)
+
+@PreviewTest @Preview(name = "loading", showBackground = true, widthDp = 412, heightDp = 800)
+@Composable fun SleepLabLoading() = SleepLabPreviewHost(darkTheme = true, state = SleepLabPreviewData.loading)
+
+@PreviewTest @Preview(name = "turkish", showBackground = true, widthDp = 412, heightDp = 1900, locale = "tr")
+@Composable fun SleepLabTurkish() = SleepLabPreviewHost(darkTheme = true, state = SleepLabPreviewData.apps)
+
+@PreviewTest @Preview(name = "turkish-alarms-narrow-large-font", showBackground = true, widthDp = 360, heightDp = 2900, fontScale = 1.5f, locale = "tr")
+@Composable fun SleepLabTurkishAlarmsNarrowLargeFont() = SleepLabPreviewHost(darkTheme = true, state = SleepLabPreviewData.alarmsTab)

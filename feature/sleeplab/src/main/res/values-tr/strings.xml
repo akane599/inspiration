@@ -1,0 +1,94 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="sleeplab_title">Uyku Lab</string>
+
+    <!-- Loading, empty and error states of the whole screen -->
+    <string name="sleeplab_loading">Uyku verilerin okunuyor…</string>
+    <string name="sleeplab_empty_title">Henüz analiz edilecek bir şey yok</string>
+    <string name="sleeplab_empty_body">Bu dönem için henüz bir anlık görüntü çifti yok. Telefonu kullanmaya devam et, sonra yenile.</string>
+    <string name="sleeplab_empty_refresh">Yenile</string>
+    <string name="sleeplab_error_title">Bu dönem analiz edilemedi</string>
+    <string name="sleeplab_error_body">Pil geçmişin okunurken bir şeyler ters gitti. Yeniden dene ya da başka bir dönem seç.</string>
+    <string name="sleeplab_error_retry">Yeniden dene</string>
+    <string name="sleeplab_refresh_failed">Yenilenemedi. Shizuku çalışıyor mu?</string>
+
+    <!-- Time slice banner -->
+    <!-- %1$s: how far the nearest snapshot is from the requested range -->
+    <string name="sleeplab_slice_gap">Anlık görüntüler istenen aralıktan %1$s uzakta, bu yüzden değerler yaklaşıktır.</string>
+
+    <!-- Hypnogram card -->
+    <string name="sleeplab_hypnogram_title">Ekran kapalıyken uyku</string>
+    <string name="sleeplab_hypnogram_subtitle">Ekran kapalıyken doze evreleri ve uyanmalar</string>
+    <string name="sleeplab_hypnogram_loading">Geçmiş okunuyor…</string>
+    <string name="sleeplab_hypnogram_failed_title">Geçmiş okunamadı</string>
+    <string name="sleeplab_hypnogram_failed_body">Bu dönemin pil geçmişi yüklenemedi.</string>
+    <string name="sleeplab_hypnogram_empty_title">Ekran kapalıyken doze verisi yok</string>
+    <string name="sleeplab_hypnogram_empty_body">Bu dönemde kayıtlı doze içeren ekran kapalı süre yok ya da henüz toplanmadı.</string>
+    <!-- %1$s: the number of wake-ups -->
+    <plurals name="sleeplab_wakeups">
+        <item quantity="one">%1$s uyanma</item>
+        <item quantity="other">%1$s uyanma</item>
+    </plurals>
+    <string name="sleeplab_hypnogram_note">Çizgili alanlar ekranın açık olduğu ya da hiçbir şeyin kaydedilmediği anlamına gelir. Uyanma, ekranın açılmasını veya doze\'dan çıkışı işaretler; nedenini söylemez.</string>
+
+    <!-- Diagnostics card and its tabs -->
+    <string name="sleeplab_diagnostics_title">Cihazı uyanık tutanlar</string>
+    <string name="sleeplab_tab_apps">Uygulama</string>
+    <string name="sleeplab_tab_kernel">Çekirdek</string>
+    <string name="sleeplab_tab_alarms">Alarm</string>
+    <string name="sleeplab_caption_apps">Uygulamaların tuttuğu kısmi wakelock\'lar, en uzundan başlayarak.</string>
+    <string name="sleeplab_caption_kernel">Pil istatistiklerinden çekirdek wakelock\'ları, en uzundan başlayarak. /sys/class/wakeup okunmaz.</string>
+    <string name="sleeplab_caption_alarms">Cihazı alarmlarla uyandıran uygulamalar, en çok uyandıran başta.</string>
+
+    <string name="sleeplab_list_empty">Bu dönem için kayıt yok.</string>
+    <string name="sleeplab_needs_full_title">Tam anlık görüntüler gerekli</string>
+    <string name="sleeplab_needs_full_body">Uygulama listeleri için dönemin iki ucunda da tam bir anlık görüntü gerekir. Yenile ya da daha uzun bir dönem seç.</string>
+    <string name="sleeplab_apps_unavailable_title">Sayaçlar sıfırlandı</string>
+    <string name="sleeplab_apps_unavailable_body">Bu dönemde pil istatistikleri yeniden başladı, bu yüzden uygulama sayaçları karşılaştırılamıyor. Sıfırlamadan sonraki bir dönem seç.</string>
+    <string name="sleeplab_kernel_unavailable_title">Sayaçlar sıfırlandı</string>
+    <string name="sleeplab_kernel_unavailable_body">Bu dönemde cihaz yeniden başladı, bu yüzden çekirdek sayaçları karşılaştırılamıyor. Yeniden başlatmadan sonraki bir dönem seç.</string>
+
+    <!-- %1$d: the app\'s UID, shown when its package is unknown -->
+    <string name="sleeplab_owner_uid">UID %1$d</string>
+    <!-- %1$s: the number of times -->
+    <plurals name="sleeplab_times">
+        <item quantity="one">%1$s kez</item>
+        <item quantity="other">%1$s kez</item>
+    </plurals>
+    <!-- %1$s: an alarm tag, %2$s: how many times it fired -->
+    <string name="sleeplab_tag_line">%1$s · %2$s</string>
+    <plurals name="sleeplab_more_tags">
+        <item quantity="one">+%1$s etiket daha</item>
+        <item quantity="other">+%1$s etiket daha</item>
+    </plurals>
+    <plurals name="sleeplab_rows_hidden">
+        <item quantity="one">%1$s tane daha gösterilmiyor</item>
+        <item quantity="other">%1$s tane daha gösterilmiyor</item>
+    </plurals>
+    <string name="sleeplab_unit_second">sn</string>
+
+    <!-- CPU card -->
+    <string name="sleeplab_cpu_title">CPU frekansı</string>
+    <string name="sleeplab_cpu_subtitle">Her küme için frekans başına geçen süre</string>
+    <string name="sleeplab_deep_sleep_title">Derin uyku</string>
+    <!-- %1$s: how long the CPU was suspended, e.g. "5 sa 20 dk" -->
+    <string name="sleeplab_deep_sleep_detail">CPU askıda: %1$s</string>
+    <string name="sleeplab_deep_sleep_note">Derin uyku, CPU\'nun tamamen askıya alınmasıdır. Derin doze ile aynı şey değildir.</string>
+    <string name="sleeplab_unit_percent">%</string>
+    <string name="sleeplab_cluster_little">Little küme</string>
+    <string name="sleeplab_cluster_big">Big küme</string>
+    <string name="sleeplab_cluster_mid">Mid küme</string>
+    <string name="sleeplab_cluster_prime">Prime küme</string>
+    <string name="sleeplab_cluster_generic">Küme</string>
+    <!-- %1$s: the cluster name, %2$d: the kernel cpufreq policy number -->
+    <string name="sleeplab_cluster_title">%1$s · policy %2$d</string>
+    <string name="sleeplab_unit_mhz">MHz</string>
+    <string name="sleeplab_unit_ghz">GHz</string>
+    <!-- %1$s: a percentage figure, %2$s: a duration -->
+    <string name="sleeplab_freq_share">%%%1$s · %2$s</string>
+    <string name="sleeplab_freq_other">Diğer frekanslar</string>
+    <string name="sleeplab_cpu_unavailable_title">Frekans verisi yok</string>
+    <string name="sleeplab_cpu_unavailable_body">Bu dönemde cihaz yeniden başladı, bu yüzden frekans sayaçları karşılaştırılamıyor.</string>
+    <string name="sleeplab_cpu_nodata_title">Frekans verisi yok</string>
+    <string name="sleeplab_cpu_nodata_body">Çekirdek bu dönem için frekans başına süre bildirmedi.</string>
+</resources>
