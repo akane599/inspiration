@@ -1,6 +1,8 @@
 <resources>
     <string name="app_name">Inspiration</string>
-    <string name="home_title">Inspiration</string>
-    <string name="home_empty">Nothing here yet.</string>
-    <string name="home_add">Add item</string>
+    <string name="nav_cockpit">Cockpit</string>
+    <string name="nav_xray">X-Ray</string>
+    <string name="nav_sleep_lab">Sleep Lab</string>
+    <string name="nav_health">Health</string>
+    <string name="nav_toolkit">Toolkit</string>
 </resources>

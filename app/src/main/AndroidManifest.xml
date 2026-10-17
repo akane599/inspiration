@@ -1,6 +1,17 @@
 <?xml version="1.0" encoding="utf-8"?>
-<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+
+    <!--
+        Battery analytics attributes drain to every installed app, and the Toolkit lists any app the user
+        may want to restrict, so the app must resolve labels and icons for arbitrary packages (X-Ray,
+        Sleep Lab, Toolkit). A <queries> list cannot name them in advance. This build ships as a GitHub
+        APK, not a Play listing; Play's QUERY_ALL_PACKAGES policy would need a declaration if that changes.
+    -->
+    <uses-permission
+        android:name="android.permission.QUERY_ALL_PACKAGES"
+        tools:ignore="QueryAllPackagesPermission" />
 
     <queries>
         <package android:name="moe.shizuku.privileged.api" />
