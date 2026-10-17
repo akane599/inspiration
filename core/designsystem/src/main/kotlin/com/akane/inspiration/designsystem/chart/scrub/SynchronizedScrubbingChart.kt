@@ -24,6 +24,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawWithCache
 import androidx.compose.ui.geometry.Rect
+import androidx.compose.ui.graphics.layer.CompositingStrategy
+import androidx.compose.ui.graphics.layer.drawLayer
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
@@ -266,7 +268,13 @@ private fun ScrubPlot(
             .then(if (isEmpty) Modifier else Modifier.scrubGestures(data.window, interaction, gestureInputs))
             .drawWithCache {
                 val renderer = buildScrubRenderer(config)
-                onDrawBehind { renderer.draw(this, interaction, drawInputs) }
+                // The data layer is recorded once per cache build into its own offscreen layer, so a drag frame
+                // re-records and re-rasterizes only the cursor/selection overlay, not every path and label.
+                val dataLayer = obtainGraphicsLayer().apply {
+                    compositingStrategy = CompositingStrategy.Offscreen
+                    record { renderer.drawStatic(this) }
+                }
+                onDrawBehind { drawLayer(dataLayer); renderer.drawOverlay(this, interaction, drawInputs) }
             },
     ) {
         if (isEmpty) {
