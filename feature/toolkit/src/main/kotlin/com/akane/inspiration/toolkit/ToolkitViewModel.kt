@@ -1,0 +1,458 @@
+package com.akane.inspiration.toolkit
+
+import androidx.lifecycle.ViewModel
+import androidx.lifecycle.ViewModelProvider
+import androidx.lifecycle.viewModelScope
+import androidx.lifecycle.viewmodel.initializer
+import androidx.lifecycle.viewmodel.viewModelFactory
+import com.akane.inspiration.ipc.ShizukuState
+import com.akane.inspiration.ipc.toolkit.AppOpMode
+import com.akane.inspiration.telemetry.app.AppEntry
+import com.akane.inspiration.telemetry.store.ToolkitActionRecord
+import com.akane.inspiration.telemetry.toolkit.BgDexoptStatus
+import com.akane.inspiration.telemetry.toolkit.DozeState
+import com.akane.inspiration.telemetry.toolkit.Override
+import com.akane.inspiration.telemetry.toolkit.ToolkitAction
+import com.akane.inspiration.telemetry.toolkit.ToolkitOutcome
+import com.akane.inspiration.telemetry.toolkit.ToolkitPlan
+import com.akane.inspiration.telemetry.toolkit.ToolkitRefusal
+import com.akane.inspiration.telemetry.toolkit.ToolkitWarning
+import kotlinx.collections.immutable.persistentListOf
+import kotlinx.collections.immutable.toImmutableList
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.receiveAsFlow
+import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.launch
+
+private const val HISTORY_LIMIT = 20
+
+/**
+ * MVI ViewModel of the Toolkit screen (H5). Everything privileged goes through `deps.toolkit` (plan, confirm,
+ * execute, read back); the screen shows what the system reports after each write, never what was asked for.
+ *
+ * Work follows visibility ([ToolkitIntent.Visible] to [ToolkitIntent.Hidden], H13): the history, the active
+ * overrides and the bg-dexopt status are collected only meanwhile. The binding of a running dexopt job is held
+ * by `ToolkitActions` itself, so this class never calls `holdBinding()`. The package an action targets is the
+ * one of the app opened from the in-app list, and a restore only takes an id of a shown override (H12).
+ */
+class ToolkitViewModel(private val deps: ToolkitDependencies) : ViewModel() {
+    private val _state = MutableStateFlow(ToolkitState())
+    val state: StateFlow<ToolkitState> = _state.asStateFlow()
+
+    private val _effects = Channel<ToolkitEffect>(Channel.BUFFERED)
+    val effects: Flow<ToolkitEffect> = _effects.receiveAsFlow()
+
+    private var visibleJob: Job? = null
+    private var detailJob: Job? = null
+    private var allApps: List<AppItem> = emptyList()
+    private var pending: ToolkitRequest? = null
+
+    fun onIntent(intent: ToolkitIntent) {
+        when (intent) {
+            ToolkitIntent.Visible -> onVisible()
+            ToolkitIntent.Hidden -> onHidden()
+            ToolkitIntent.Reload -> reload()
+            ToolkitIntent.Grant -> grant()
+            is ToolkitIntent.SetQuery -> setQuery(intent.query)
+            is ToolkitIntent.OpenApp -> openApp(intent.packageName)
+            ToolkitIntent.CloseApp -> closeApp()
+            ToolkitIntent.ReloadApp -> loadDetail()
+            is ToolkitIntent.Act -> act(intent.request)
+            ToolkitIntent.ConfirmPending -> confirmPending()
+            ToolkitIntent.DismissConfirmation -> dismissConfirmation()
+            ToolkitIntent.DismissResetReport -> _state.update { it.copy(resetReport = null) }
+            ToolkitIntent.StartDexopt -> startDexopt()
+            ToolkitIntent.CancelDexopt -> cancelDexopt()
+        }
+    }
+
+    // ---- visibility and access -------------------------------------------------------------
+
+    private fun onVisible() {
+        visibleJob?.cancel()
+        visibleJob = viewModelScope.launch {
+            // The log is local, so it is shown whatever Shizuku says.
+            launch { deps.toolkit.history(HISTORY_LIMIT).collect { showHistory(it) } }
+            deps.shizukuState.collectLatest { follow(it) }
+        }
+    }
+
+    private fun onHidden() {
+        visibleJob?.cancel()
+        // A confirmation must not outlive the screen it was asked on. A write already running finishes.
+        pending = null
+        _state.update { it.copy(confirmation = null) }
+    }
+
+    private suspend fun follow(shizuku: ShizukuState) {
+        val reason = shizuku.blockedReason()
+        if (reason != null) {
+            block(reason)
+            return
+        }
+        coroutineScope {
+            launch { deps.toolkit.activeOverrides().collect { showOverrides(it) } }
+            launch { deps.toolkit.bgDexoptStatus().collect { status -> setDexopt { it.copy(status = status) } } }
+            load()
+        }
+    }
+
+    private fun block(reason: BlockedReason) {
+        pending = null
+        detailJob?.cancel()
+        allApps = emptyList()
+        _state.update {
+            it.copy(
+                status = ToolkitPhase.BLOCKED,
+                blocked = reason,
+                doze = DozeSection(),
+                apps = AppsSection(),
+                overrides = persistentListOf(),
+                overridesNotice = null,
+                dexopt = DexoptSection(),
+                detail = null,
+                confirmation = null,
+            )
+        }
+    }
+
+    private fun grant() {
+        if (_state.value.blocked?.canGrant == true) deps.requestShizukuPermission()
+    }
+
+    private fun reload() {
+        val status = _state.value.status
+        if (status != ToolkitPhase.FAILED && status != ToolkitPhase.READY) return
+        viewModelScope.launch { load() }
+    }
+
+    // ---- reading ---------------------------------------------------------------------------
+
+    private suspend fun load() {
+        _state.update { if (it.status == ToolkitPhase.READY) it.copy(blocked = null) else it.copy(status = ToolkitPhase.LOADING, blocked = null) }
+        val doze = deps.toolkit.dozeState()
+        if (doze is ToolkitOutcome.Unavailable) {
+            _state.update { it.copy(status = ToolkitPhase.FAILED, doze = DozeSection(DozeLoad.Unavailable(ToolkitMapper.problem(doze)))) }
+            return
+        }
+        showDoze(doze)
+        _state.update { it.copy(status = ToolkitPhase.READY) }
+        loadApps()
+        if (_state.value.detail != null) loadDetail()
+    }
+
+    private fun showDoze(outcome: ToolkitOutcome<DozeState>) {
+        val load = when (outcome) {
+            is ToolkitOutcome.Done -> DozeLoad.Loaded(ToolkitMapper.doze(outcome.value))
+            else -> DozeLoad.Unavailable(ToolkitMapper.problem(outcome))
+        }
+        _state.update { it.copy(doze = it.doze.copy(load = load)) }
+    }
+
+    private suspend fun loadApps() {
+        val entries = try {
+            deps.installedApps()
+        } catch (e: CancellationException) {
+            throw e
+        } catch (_: Exception) {
+            null
+        }
+        if (entries == null) {
+            _state.update { it.copy(apps = it.apps.copy(phase = AppsPhase.FAILED)) }
+            return
+        }
+        allApps = entries.map { appItem(it) }
+            .sortedWith(compareByDescending<AppItem> { it.restricted }.thenBy(String.CASE_INSENSITIVE_ORDER) { it.label }.thenBy { it.packageName })
+        _state.update { it.copy(apps = it.apps.copy(phase = AppsPhase.READY)) }
+        applyQuery()
+    }
+
+    private suspend fun appItem(entry: AppEntry): AppItem = AppItem(
+        packageName = entry.packageName,
+        label = entry.label.ifBlank { deps.appLabels.label(entry.packageName) },
+        restricted = entry.restricted,
+    )
+
+    private fun setQuery(query: String) {
+        _state.update { it.copy(apps = it.apps.copy(query = query)) }
+        applyQuery()
+    }
+
+    private fun applyQuery() {
+        _state.update { current ->
+            val needle = current.apps.query.trim()
+            val shown = if (needle.isEmpty()) {
+                allApps
+            } else {
+                allApps.filter { it.label.contains(needle, ignoreCase = true) || it.packageName.contains(needle, ignoreCase = true) }
+            }
+            current.copy(apps = current.apps.copy(items = shown.toImmutableList(), total = allApps.size))
+        }
+    }
+
+    private suspend fun showHistory(rows: List<ToolkitActionRecord>) {
+        val items = rows.map { row -> ToolkitMapper.history(row, row.pkg?.let { deps.appLabels.label(it) }) }
+        _state.update { it.copy(history = items.toImmutableList()) }
+    }
+
+    private suspend fun showOverrides(all: List<Override>) {
+        val items = all.filter(ToolkitMapper::isStillOverride).map { override -> overrideItem(override) }
+        _state.update { it.copy(overrides = items.toImmutableList()) }
+    }
+
+    private suspend fun overrideItem(override: Override): OverrideItem =
+        ToolkitMapper.overrideItem(override, override.pkg?.let { deps.appLabels.label(it) })
+
+    // ---- app detail ------------------------------------------------------------------------
+
+    private fun openApp(packageName: String) {
+        if (_state.value.status != ToolkitPhase.READY) return
+        val app = allApps.firstOrNull { it.packageName == packageName } ?: return
+        pending = null
+        _state.update { it.copy(detail = AppDetail(app = app, controls = ControlsState.Loading), confirmation = null) }
+        loadDetail()
+    }
+
+    private fun closeApp() {
+        detailJob?.cancel()
+        pending = null
+        _state.update { it.copy(detail = null, confirmation = null) }
+    }
+
+    /** Reads the open app's settings back from the system (never from what was last asked). */
+    private fun loadDetail() {
+        val app = _state.value.detail?.app ?: return
+        detailJob?.cancel()
+        _state.update { current -> current.copy(detail = current.detail?.copy(controls = ControlsState.Loading)) }
+        detailJob = viewModelScope.launch { showControls(app.packageName) }
+    }
+
+    private suspend fun showControls(pkg: String) {
+        val controls = when (val outcome = deps.toolkit.appState(pkg)) {
+            is ToolkitOutcome.Done -> ControlsState.Loaded(ToolkitMapper.controls(outcome.value))
+            else -> ControlsState.Unavailable(ToolkitMapper.problem(outcome))
+        }
+        _state.update { current ->
+            val detail = current.detail
+            if (detail != null && detail.app.packageName == pkg) current.copy(detail = detail.copy(controls = controls)) else current
+        }
+    }
+
+    // ---- doze, app and override actions ----------------------------------------------------
+
+    private fun act(request: ToolkitRequest) {
+        val current = _state.value
+        if (current.status != ToolkitPhase.READY || current.busy || current.confirmation != null) return
+        if (!accepts(request, current)) return
+        if (request == ToolkitRequest.ResetAll) {
+            // Reset all has no single plan: the user always confirms it, with the number of changes it restores.
+            ask(Confirmation(request = request, target = null, warnings = persistentListOf(), count = current.overrides.size), request)
+            return
+        }
+        _state.update { it.copy(busy = true) }
+        showNotice(request, null)
+        viewModelScope.launch {
+            when (val plan = planOf(request)) {
+                ToolkitPlan.Ready -> execute(request, confirmed = false)
+                is ToolkitPlan.NeedsConfirmation -> {
+                    ask(confirmationOf(request, listOf(plan.warning) + plan.others), request)
+                    _state.update { it.copy(busy = false) }
+                }
+                is ToolkitPlan.Refused -> finish(request, ToolkitNotice.Rejected(Problem.Refused(plan.reason)))
+            }
+        }
+    }
+
+    /** Only requests the visible screen could have produced are acted on. */
+    private fun accepts(request: ToolkitRequest, state: ToolkitState): Boolean = when (request) {
+        is ToolkitRequest.ApplyDoze -> state.doze.load is DozeLoad.Loaded
+        is ToolkitRequest.SetAppOp, is ToolkitRequest.SetBucket, ToolkitRequest.ForceStop ->
+            state.detail?.controls is ControlsState.Loaded
+        is ToolkitRequest.Restore -> state.overrides.any { it.actionId == request.actionId && it.restorable }
+        ToolkitRequest.ResetAll -> state.overrides.isNotEmpty()
+    }
+
+    private fun actionOf(request: ToolkitRequest): ToolkitAction? {
+        val pkg = _state.value.detail?.app?.packageName
+        return when (request) {
+            is ToolkitRequest.ApplyDoze -> ToolkitAction.ApplyDoze(request.profile)
+            is ToolkitRequest.SetAppOp ->
+                pkg?.let { ToolkitAction.SetAppOp(it, request.op, if (request.ignored) AppOpMode.IGNORE else AppOpMode.DEFAULT) }
+            is ToolkitRequest.SetBucket -> pkg?.let { ToolkitAction.SetBucket(it, request.bucket) }
+            ToolkitRequest.ForceStop -> pkg?.let { ToolkitAction.ForceStop(it) }
+            is ToolkitRequest.Restore, ToolkitRequest.ResetAll -> null
+        }
+    }
+
+    private suspend fun planOf(request: ToolkitRequest): ToolkitPlan = when (request) {
+        is ToolkitRequest.Restore -> deps.toolkit.planRestore(request.actionId)
+        ToolkitRequest.ResetAll -> ToolkitPlan.Ready
+        else -> actionOf(request)?.let { deps.toolkit.plan(it) } ?: ToolkitPlan.Refused(ToolkitRefusal.INVALID_ARGUMENT)
+    }
+
+    private fun confirmationOf(request: ToolkitRequest, warnings: List<ToolkitWarning>, stale: Boolean = false) =
+        Confirmation(request = request, target = targetOf(request), warnings = warnings.distinct().toImmutableList(), stale = stale)
+
+    private fun targetOf(request: ToolkitRequest): String? = when (request) {
+        is ToolkitRequest.SetAppOp, is ToolkitRequest.SetBucket, ToolkitRequest.ForceStop -> _state.value.detail?.app?.label
+        is ToolkitRequest.Restore -> _state.value.overrides.firstOrNull { it.actionId == request.actionId }?.label
+        is ToolkitRequest.ApplyDoze, ToolkitRequest.ResetAll -> null
+    }
+
+    private fun ask(confirmation: Confirmation, request: ToolkitRequest) {
+        pending = request
+        _state.update { it.copy(confirmation = confirmation) }
+    }
+
+    private fun confirmPending() {
+        val request = pending ?: return
+        if (_state.value.busy) return
+        pending = null
+        _state.update { it.copy(confirmation = null, busy = true) }
+        viewModelScope.launch { execute(request, confirmed = true) }
+    }
+
+    private fun dismissConfirmation() {
+        pending = null
+        _state.update { it.copy(confirmation = null) }
+    }
+
+    private suspend fun execute(request: ToolkitRequest, confirmed: Boolean) {
+        if (request == ToolkitRequest.ResetAll) {
+            resetAll()
+            return
+        }
+        val outcome: ToolkitOutcome<*> = when (request) {
+            is ToolkitRequest.Restore -> deps.toolkit.restore(request.actionId, confirmed)
+            else -> {
+                val action = actionOf(request) ?: return finish(request, ToolkitNotice.Rejected(Problem.Refused(ToolkitRefusal.INVALID_ARGUMENT)))
+                deps.toolkit.execute(action, confirmed)
+            }
+        }
+        if (outcome is ToolkitOutcome.Refused && outcome.reason == ToolkitRefusal.STALE) {
+            askAgain(request)
+            return
+        }
+        finish(request, if (outcome is ToolkitOutcome.Done<*>) ToolkitNotice.Applied(changeOf(request)) else ToolkitNotice.Rejected(ToolkitMapper.problem(outcome)))
+    }
+
+    /** The setting moved between plan and write: read it again and let the user decide with the value that is there now. */
+    private suspend fun askAgain(request: ToolkitRequest) {
+        refresh(request)
+        when (val plan = planOf(request)) {
+            ToolkitPlan.Ready -> ask(confirmationOf(request, emptyList(), stale = true), request)
+            is ToolkitPlan.NeedsConfirmation -> ask(confirmationOf(request, listOf(plan.warning) + plan.others, stale = true), request)
+            is ToolkitPlan.Refused -> {
+                showNotice(request, ToolkitNotice.Rejected(Problem.Refused(plan.reason)))
+            }
+        }
+        _state.update { it.copy(busy = false) }
+    }
+
+    private fun changeOf(request: ToolkitRequest): Change = when (request) {
+        is ToolkitRequest.ApplyDoze -> Change.DozeApplied(request.profile)
+        is ToolkitRequest.SetAppOp -> Change.AppOpSet(request.op, request.ignored)
+        is ToolkitRequest.SetBucket -> Change.BucketSet(request.bucket)
+        ToolkitRequest.ForceStop -> Change.ForceStopped
+        is ToolkitRequest.Restore, ToolkitRequest.ResetAll -> Change.Restored
+    }
+
+    /** Whatever happened, the screen then shows what the system reports now. */
+    private suspend fun finish(request: ToolkitRequest, notice: ToolkitNotice) {
+        refresh(request)
+        showNotice(request, notice)
+        _state.update { it.copy(busy = false) }
+    }
+
+    private suspend fun refresh(request: ToolkitRequest) {
+        val touchesDoze = request is ToolkitRequest.ApplyDoze || request is ToolkitRequest.Restore || request == ToolkitRequest.ResetAll
+        if (touchesDoze) showDoze(deps.toolkit.dozeState())
+        val open = _state.value.detail?.app?.packageName
+        if (open != null && request !is ToolkitRequest.ApplyDoze) showControls(open)
+    }
+
+    private fun showNotice(request: ToolkitRequest, notice: ToolkitNotice?) {
+        _state.update { current ->
+            when (request) {
+                is ToolkitRequest.ApplyDoze -> current.copy(doze = current.doze.copy(notice = notice))
+                is ToolkitRequest.SetAppOp, is ToolkitRequest.SetBucket, ToolkitRequest.ForceStop ->
+                    current.copy(detail = current.detail?.copy(notice = notice))
+                is ToolkitRequest.Restore -> current.copy(overridesNotice = notice)
+                ToolkitRequest.ResetAll -> current
+            }
+        }
+    }
+
+    /**
+     * Restores every shown override, one by one, and keeps each outcome. This is `ToolkitActions.resetAll()` done
+     * over the list the user sees: `resetAll()` also restores an app op the user switched back to its default by
+     * hand (its newest row still reads as an override), which would restrict that app again.
+     */
+    private suspend fun resetAll() {
+        val lines = _state.value.overrides.map { item ->
+            val outcome = deps.toolkit.restore(item.actionId, confirmed = true)
+            ResetLine(
+                item = item,
+                result = if (outcome is ToolkitOutcome.Done) ResetResult.Restored else ResetResult.NotRestored(ToolkitMapper.problem(outcome)),
+            )
+        }
+        val report = ResetReport(lines.toImmutableList())
+        refresh(ToolkitRequest.ResetAll)
+        _state.update { it.copy(resetReport = report, overridesNotice = null, busy = false) }
+        _effects.trySend(ToolkitEffect.ResetFinished(restored = report.restored, total = report.lines.size))
+    }
+
+    // ---- bg-dexopt -------------------------------------------------------------------------
+
+    private fun startDexopt() {
+        val dexopt = _state.value.dexopt
+        if (_state.value.status != ToolkitPhase.READY || dexopt.busy) return
+        if (dexopt.status is BgDexoptStatus.Running || dexopt.status == BgDexoptStatus.Unknown) return
+        setDexopt { it.copy(busy = true, notice = null) }
+        viewModelScope.launch {
+            val outcome = deps.toolkit.startBgDexopt()
+            setDexopt {
+                it.copy(
+                    busy = false,
+                    notice = if (outcome is ToolkitOutcome.Done) ToolkitNotice.Applied(Change.DexoptStarted) else ToolkitNotice.Rejected(ToolkitMapper.problem(outcome)),
+                )
+            }
+        }
+    }
+
+    /** Cancel is system-side and idempotent, so it is offered for an UNKNOWN job as well as a RUNNING one. */
+    private fun cancelDexopt() {
+        val dexopt = _state.value.dexopt
+        if (_state.value.status != ToolkitPhase.READY || dexopt.busy) return
+        if (dexopt.status !is BgDexoptStatus.Running && dexopt.status != BgDexoptStatus.Unknown) return
+        setDexopt { it.copy(busy = true, notice = null) }
+        viewModelScope.launch {
+            val outcome = deps.toolkit.cancelBgDexopt()
+            setDexopt {
+                it.copy(
+                    busy = false,
+                    notice = if (outcome is ToolkitOutcome.Done) ToolkitNotice.Applied(Change.DexoptCancelled) else ToolkitNotice.Rejected(ToolkitMapper.problem(outcome)),
+                )
+            }
+        }
+    }
+
+    private fun setDexopt(transform: (DexoptSection) -> DexoptSection) {
+        _state.update { it.copy(dexopt = transform(it.dexopt)) }
+    }
+
+    companion object {
+        /** The factory the route hands to `viewModel(...)`; the ViewModel only ever sees [ToolkitDependencies]. */
+        fun factory(deps: ToolkitDependencies): ViewModelProvider.Factory = viewModelFactory {
+            initializer { ToolkitViewModel(deps) }
+        }
+    }
+}
