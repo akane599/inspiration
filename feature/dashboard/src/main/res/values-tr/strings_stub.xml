@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="dashboard_stub_title">Kokpit</string>
+    <string name="dashboard_stub_body">Kokpit ekranı yakında burada olacak.</string>
+</resources>

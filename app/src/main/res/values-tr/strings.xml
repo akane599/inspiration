@@ -1,0 +1,8 @@
+<resources>
+    <string name="app_name">Inspiration</string>
+    <string name="nav_cockpit">Kokpit</string>
+    <string name="nav_xray">Röntgen</string>
+    <string name="nav_sleep_lab">Uyku Lab</string>
+    <string name="nav_health">Sağlık</string>
+    <string name="nav_toolkit">Araçlar</string>
+</resources>

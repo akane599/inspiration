@@ -1,40 +1,94 @@
 package com.akane.inspiration
 
 import android.content.Context
+import android.content.Intent
+import com.akane.inspiration.capture.CapturePolicy
+import com.akane.inspiration.dashboard.CockpitDependencies
 import com.akane.inspiration.database.InspirationDatabase
+import com.akane.inspiration.database.store.RoomSnapshotStore
+import com.akane.inspiration.di.AppEntries
+import com.akane.inspiration.di.CachedAppLabels
+import com.akane.inspiration.di.PackageManagerAppLabelSource
+import com.akane.inspiration.di.RefreshCoordinator
+import com.akane.inspiration.di.TimelineEvents
 import com.akane.inspiration.diagnostics.R as DiagnosticsR
+import com.akane.inspiration.diagnostics.analysis.AnalysisSelection
+import com.akane.inspiration.diagnostics.analysis.AnalysisSession
+import com.akane.inspiration.diagnostics.analysis.AnalysisState
+import com.akane.inspiration.diagnostics.analysis.IntervalAnalyzer
+import com.akane.inspiration.diagnostics.analysis.Timeline
+import com.akane.inspiration.diagnostics.analysis.TimelineBuilder
 import com.akane.inspiration.diagnostics.dictionary.DiagnosticDictionary
 import com.akane.inspiration.diagnostics.dictionary.DictionaryLoader
 import com.akane.inspiration.diagnostics.rules.DiagnosticRuleEngine
 import com.akane.inspiration.diagnostics.sensor.AndroidSensorCatalog
-import com.akane.inspiration.database.store.RoomSnapshotStore
+import com.akane.inspiration.health.HealthDependencies
 import com.akane.inspiration.ipc.ShizukuManager
 import com.akane.inspiration.ipc.ShizukuManagerImpl
+import com.akane.inspiration.ipc.ShizukuState
+import com.akane.inspiration.ipc.model.HistoryEvent
+import com.akane.inspiration.sleeplab.SleepLabDependencies
+import com.akane.inspiration.telemetry.app.AppEntry
+import com.akane.inspiration.telemetry.app.AppLabels
+import com.akane.inspiration.telemetry.app.KernelCapacitySnapshot
+import com.akane.inspiration.telemetry.app.RefreshResult
+import com.akane.inspiration.telemetry.calibration.PowerCalibrator
+import com.akane.inspiration.telemetry.capture.CaptureResult
 import com.akane.inspiration.telemetry.capture.SnapshotCapturer
 import com.akane.inspiration.telemetry.common.Clocks
+import com.akane.inspiration.telemetry.live.LiveTelemetry
+import com.akane.inspiration.telemetry.snapshot.CaptureTrigger
+import com.akane.inspiration.telemetry.snapshot.LiveReading
 import com.akane.inspiration.telemetry.source.AndroidClocks
 import com.akane.inspiration.telemetry.source.AndroidTelemetrySource
+import com.akane.inspiration.telemetry.store.ChargeSessionRecord
+import com.akane.inspiration.telemetry.store.HealthSample
+import com.akane.inspiration.telemetry.store.Marker
 import com.akane.inspiration.telemetry.store.SnapshotStore
+import com.akane.inspiration.telemetry.store.TelemetrySample
+import com.akane.inspiration.telemetry.toolkit.ToolkitActions
+import com.akane.inspiration.telemetry.toolkit.ToolkitGateway
+import com.akane.inspiration.toolkit.ToolkitDependencies
+import com.akane.inspiration.xray.XRayDependencies
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.filterNotNull
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import java.util.Locale
 
-class AppContainer(context: Context) {
+/**
+ * Manual DI root. It also implements the five pinned per-feature dependency interfaces (H4), so a screen
+ * only ever sees its own interface: no container, no raw `ToolkitGateway`, no Intent. Nothing in here polls;
+ * live readings flow only while a screen collects [liveReadings] (H13).
+ */
+class AppContainer(context: Context) :
+    CockpitDependencies,
+    XRayDependencies,
+    SleepLabDependencies,
+    HealthDependencies,
+    ToolkitDependencies {
     private val appContext = context.applicationContext
 
     val applicationScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
-    val clocks: Clocks = AndroidClocks(appContext)
+    override val clocks: Clocks = AndroidClocks(appContext)
     val shizukuManager: ShizukuManager = ShizukuManagerImpl(
         context = appContext,
         scope = applicationScope,
     )
     val database: InspirationDatabase = InspirationDatabase.create(appContext)
     val store: SnapshotStore = RoomSnapshotStore(database)
+    private val telemetrySource = AndroidTelemetrySource(appContext, shizukuManager, clocks)
     val capturer = SnapshotCapturer(
-        source = AndroidTelemetrySource(appContext, shizukuManager, clocks),
+        source = telemetrySource,
         store = store,
         clocks = clocks,
     )
+    private val liveTelemetry = LiveTelemetry(telemetrySource, PowerCalibrator(), clocks, store)
 
     /** Parses the bundled dictionary on first access (disk read): call from IO, never the main thread. */
     val dictionary: DiagnosticDictionary by lazy {
@@ -43,4 +97,144 @@ class AppContainer(context: Context) {
         DiagnosticDictionary(DictionaryLoader.parse(json))
     }
     val ruleEngine: DiagnosticRuleEngine by lazy { DiagnosticRuleEngine(AndroidSensorCatalog(appContext)) }
+
+    // ---- refresh (H7) ----------------------------------------------------------------------
+
+    private val refreshCoordinator = RefreshCoordinator(
+        nowWallMs = clocks::wallMs,
+        debounceMs = CapturePolicy.APP_OPEN_DEBOUNCE_MS,
+        capture = ::captureFull,
+    )
+
+    /** Wall time of the last successful refresh; it feeds [analysisSession] as its refresh tick. */
+    val lastRefreshWallMs: StateFlow<Long?> = refreshCoordinator.lastRefreshWallMs
+
+    /** FULL capture plus history ingest, mutex-guarded and debounced to 60 s. Nothing calls it on a timer. */
+    override suspend fun refresh(): RefreshResult = refreshCoordinator.refresh()
+
+    private suspend fun captureFull(): RefreshResult =
+        when (val result = capturer.captureFull(CaptureTrigger.APP_OPEN, FULL_CAPTURE_DEADLINE_MS, ingestHistory = true)) {
+            is CaptureResult.Saved -> {
+                store.prune(clocks.wallMs())
+                RefreshResult.Refreshed(clocks.wallMs())
+            }
+            is CaptureResult.Missed -> RefreshResult.Failed(result.reason)
+        }
+
+    // ---- analysis (H3) ---------------------------------------------------------------------
+
+    override val selection = AnalysisSelection()
+
+    /** The one process-wide session, recomputed on a selection change or a refresh and shared by every screen. */
+    val analysisSession = AnalysisSession(
+        analyzer = IntervalAnalyzer(store, ruleEngine),
+        selection = selection,
+        refreshTicks = lastRefreshWallMs.filterNotNull(),
+        scope = applicationScope,
+        nowWallMs = clocks::wallMs,
+    )
+    override val analysis: StateFlow<AnalysisState> = analysisSession.state
+
+    override fun dictionary(): DiagnosticDictionary = dictionary
+
+    /**
+     * The window's events plus the last of each state track before [from], so a window that opens mid screen-on,
+     * mid charge or mid Doze still shows that state (see [TimelineEvents]).
+     */
+    override suspend fun timeline(from: Long, to: Long): Timeline {
+        val events = TimelineEvents.withSeeds(
+            before = store.historyBetween(0, from - 1),
+            inWindow = store.historyBetween(from, to),
+        )
+        return TimelineBuilder.build(events, from, to)
+    }
+
+    override suspend fun historyBetween(from: Long, to: Long): List<HistoryEvent> = store.historyBetween(from, to)
+
+    // ---- Shizuku ---------------------------------------------------------------------------
+
+    override val shizukuState: StateFlow<ShizukuState> = shizukuManager.state
+
+    /** The only way the app shows the Shizuku permission dialog; the toolkit's blocked state calls it. */
+    override fun requestShizukuPermission() = shizukuManager.requestPermission()
+
+    override fun holdBinding(): AutoCloseable = shizukuManager.holdBinding()
+
+    // ---- live readings, markers, health ----------------------------------------------------
+
+    /** Cold: the kernel is read only while a screen collects this (H13). */
+    override fun liveReadings(periodMs: Long): Flow<LiveReading> = liveTelemetry.readings(periodMs)
+
+    override suspend fun markers(): List<Marker> = store.markers()
+
+    override suspend fun createMarker(label: String): Long? {
+        val saved = capturer.captureFull(CaptureTrigger.MARKER, FULL_CAPTURE_DEADLINE_MS, ingestHistory = true)
+        if (saved !is CaptureResult.Saved) return null
+        return store.addMarker(saved.id, label, clocks.wallMs())
+    }
+
+    override suspend fun kernelBattery(): KernelCapacitySnapshot? = KernelCapacitySnapshot.from(
+        shizukuManager.withTelemetryService(KERNEL_READ_TIMEOUT_MS) { service ->
+            runCatching { service.readKernelBattery() }.getOrNull()
+        },
+    )
+
+    override suspend fun healthSamples(): List<HealthSample> = store.healthSamples()
+
+    override suspend fun chargeSessions(): List<ChargeSessionRecord> = store.chargeSessions()
+
+    override suspend fun samplesBetween(from: Long, to: Long): List<TelemetrySample> = store.samplesBetween(from, to)
+
+    // ---- toolkit (H12) ---------------------------------------------------------------------
+
+    /** The only toolkit API features see; the raw gateway stays inside this container. */
+    override val toolkit = ToolkitActions(
+        gateway = ToolkitGateway(shizukuManager),
+        store = store,
+        holdBinding = shizukuManager::holdBinding,
+        nowMs = clocks::wallMs,
+    )
+
+    // ---- app labels and the picker (H15) ---------------------------------------------------
+
+    override val appLabels: AppLabels = CachedAppLabels(PackageManagerAppLabelSource(appContext.packageManager))
+
+    // The ResolveInfoFlags overload is API 33+; the Int overload is identical for flags 0 and works on API 31+.
+    @Suppress("DEPRECATION")
+    override suspend fun installedApps(): List<AppEntry> = withContext(Dispatchers.IO) {
+        val launcher = Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER)
+        val launchable = appContext.packageManager
+            .queryIntentActivities(launcher, 0)
+            .map { it.activityInfo.packageName }
+            .toSet()
+        val restricted = toolkit.activeOverrides().first().mapNotNull { it.pkg }.toSet()
+        AppEntries.build(
+            launchable = launchable,
+            restricted = restricted,
+            excluded = setOf(appContext.packageName, SHIZUKU_PACKAGE),
+            locale = Locale.getDefault(),
+            label = appLabels::label,
+        )
+    }
+
+    // ---- start-up --------------------------------------------------------------------------
+
+    /**
+     * Off-main-thread start-up work. The dictionary is parsed now so `dictionary()` is cheap later. Toolkit
+     * rows left PENDING by a crash are reconciled once, as soon as Shizuku is Ready (a read-back needs the
+     * service); with Shizuku never ready nothing runs and the rows simply stay PENDING.
+     */
+    fun start() {
+        applicationScope.launch { dictionary }
+        applicationScope.launch {
+            shizukuManager.state.first { it is ShizukuState.Ready }
+            toolkit.reconcile()
+        }
+    }
+
+    private companion object {
+        const val FULL_CAPTURE_DEADLINE_MS = 10_000L
+        const val KERNEL_READ_TIMEOUT_MS = 2_000L
+        const val SHIZUKU_PACKAGE = "moe.shizuku.privileged.api"
+    }
 }
