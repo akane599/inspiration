@@ -245,12 +245,25 @@ class ToolkitActions internal constructor(
         }
 
     /**
-     * Restores every active override and reports each item. The user asked for this explicitly, so the
-     * per-item restore is confirmed; a failure does not stop the remaining items.
+     * Restores every active override (exactly what [activeOverrides] shows) and reports each item. Each one
+     * goes back to the value before the FIRST change of its chain (the user's original state), not to the
+     * intermediate value the newest row recorded: a target switched on and then back by hand must not end
+     * up restricted again. A target already at its original value is reported as Refused(ALREADY_RESTORED)
+     * and nothing is written for it. The user asked for this explicitly, so the per-item restore is
+     * confirmed; a failure does not stop the remaining items. One lock covers the whole reset, so the
+     * chains read here cannot change under it.
      */
-    suspend fun resetAll(): List<ResetItem> {
-        val overrides = mutex.withLock { computeOverrides() }
-        return overrides.map { override -> ResetItem(override, restore(override.actionId, confirmed = true)) }
+    suspend fun resetAll(): List<ResetItem> = mutex.withLock {
+        val rows = overrideRows()
+        computeOverrides(rows).map { override -> ResetItem(override, resetOne(override, rows)) }
+    }
+
+    private suspend fun resetOne(override: Override, rows: List<ToolkitActionRecord>): ToolkitOutcome<ToolkitActionRecord> {
+        val row = rows.first { it.id == override.actionId }
+        val original = chainOriginal(row, rows)
+        if (sameState(row.kind, override.currentRaw, original)) return ToolkitOutcome.Refused(ToolkitRefusal.ALREADY_RESTORED)
+        val action = restoreAction(row, original) ?: return ToolkitOutcome.Refused(ToolkitRefusal.NOT_RESTORABLE)
+        return run(action, confirmed = true, restoring = row)
     }
 
     // ---- reconcile -------------------------------------------------------------------------
@@ -675,29 +688,60 @@ class ToolkitActions internal constructor(
         if (record.status != ToolkitActionStatus.DONE || record.restoresId != null) {
             return Decoded.No(ToolkitRefusal.NOT_RESTORABLE)
         }
+        val action = restoreAction(record, record.beforeRaw)
+        return if (action == null) Decoded.No(ToolkitRefusal.NOT_RESTORABLE) else Decoded.Ok(action, record)
+    }
+
+    /** The write that puts [record]'s target back to [beforeRaw], or null when that value cannot be replayed. */
+    private fun restoreAction(record: ToolkitActionRecord, beforeRaw: String?): ToolkitAction? {
         val pkg = record.pkg
-        val action: ToolkitAction? = when (record.kind) {
+        return when (record.kind) {
             KIND_APPOP -> {
                 val op = AppOp.entries.firstOrNull { it.argv == record.op }
-                val mode = record.beforeRaw?.let { modeOf(it) }
+                val mode = beforeRaw?.let { modeOf(it) }
                 if (pkg != null && op != null && mode != null) ToolkitAction.SetAppOp(pkg, op, mode) else null
             }
             KIND_BUCKET -> {
-                val bucket = StandbyBucket.entries.firstOrNull { it.rawValue.toString() == record.beforeRaw }
+                val bucket = StandbyBucket.entries.firstOrNull { it.rawValue.toString() == beforeRaw }
                 if (pkg != null && bucket != null) ToolkitAction.SetBucket(pkg, bucket) else null
             }
-            KIND_DOZE -> ToolkitAction.RestoreDoze(record.beforeRaw, record.afterRaw)
+            KIND_DOZE -> ToolkitAction.RestoreDoze(beforeRaw, record.afterRaw)
             else -> null
         }
-        return if (action == null) Decoded.No(ToolkitRefusal.NOT_RESTORABLE) else Decoded.Ok(action, record)
+    }
+
+    /**
+     * The value that existed before the first change of [row]'s chain: older rows of the same target join the
+     * chain while each one's `after` is what the next one found (`before`). A restore row or a gap (something
+     * else changed the target in between) ends it. [rows] is [overrideRows], newest first.
+     */
+    private fun chainOriginal(row: ToolkitActionRecord, rows: List<ToolkitActionRecord>): String? {
+        val key = targetKey(row)
+        var original = row.beforeRaw
+        for (older in rows.dropWhile { it.id != row.id }.drop(1).filter { targetKey(it) == key }) {
+            if (older.restoresId != null || norm(older.afterRaw) != norm(original)) break
+            original = older.beforeRaw
+        }
+        return original
+    }
+
+    /** App op modes compare by meaning ("allow" is the DEFAULT mode); everything else by value. */
+    private fun sameState(kind: String, current: String?, original: String?): Boolean {
+        if (kind != KIND_APPOP) return norm(current) == norm(original)
+        val mode = current?.let { modeOf(it) }
+        return mode != null && mode == original?.let { modeOf(it) }
     }
 
     // ---- active overrides ------------------------------------------------------------------
 
-    private suspend fun computeOverrides(): List<Override> {
-        val rows = audit.recent(MAX_ROWS)
-            .filter { it.status == ToolkitActionStatus.DONE && it.kind in OVERRIDE_KINDS }
-            .sortedWith(compareByDescending<ToolkitActionRecord> { it.startedAt }.thenByDescending { it.id })
+    /** Successful override-kind rows, newest first. */
+    private suspend fun overrideRows(): List<ToolkitActionRecord> = audit.recent(MAX_ROWS)
+        .filter { it.status == ToolkitActionStatus.DONE && it.kind in OVERRIDE_KINDS }
+        .sortedWith(compareByDescending<ToolkitActionRecord> { it.startedAt }.thenByDescending { it.id })
+
+    private suspend fun computeOverrides(): List<Override> = computeOverrides(overrideRows())
+
+    private suspend fun computeOverrides(rows: List<ToolkitActionRecord>): List<Override> {
         // The newest successful write per target decides; a newer restore row means nothing is overridden.
         val newest = LinkedHashMap<String, ToolkitActionRecord>()
         for (row in rows) newest.putIfAbsent(targetKey(row), row)
