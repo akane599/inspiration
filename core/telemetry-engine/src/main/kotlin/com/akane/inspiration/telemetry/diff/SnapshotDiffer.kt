@@ -1,10 +1,13 @@
 package com.akane.inspiration.telemetry.diff
 
 import com.akane.inspiration.telemetry.dump.KernelWakelock
+import com.akane.inspiration.telemetry.dump.SystemTimers
 import com.akane.inspiration.telemetry.dump.UidAlarm
 import com.akane.inspiration.telemetry.dump.UidSensor
 import com.akane.inspiration.telemetry.dump.UidWakelock
 import com.akane.inspiration.telemetry.snapshot.BatterySnapshot
+import com.akane.inspiration.telemetry.snapshot.CpuFreqDelta
+import com.akane.inspiration.telemetry.snapshot.CpuFreqTime
 import com.akane.inspiration.telemetry.snapshot.DiffValidity
 import com.akane.inspiration.telemetry.snapshot.SleepStats
 import com.akane.inspiration.telemetry.snapshot.SnapshotDiff
@@ -89,7 +92,39 @@ object SnapshotDiffer {
             signalStrengthMs = signalStrength,
             signalScanningMs = signalScanning,
             mobileRadioActiveMs = mobileRadioActive,
+            dischargeMah = dischargeDelta(ref, now) { it.dischargeTotalMah },
+            dischargeScreenOffMah = dischargeDelta(ref, now) { it.dischargeScreenOffMah },
+            cpuFreqDelta = if (kernelCounterSessionValid) diffCpuFreq(ref.cpuFreq, now.cpuFreq, problems) else emptyList(),
         )
+    }
+
+    /** Null unless both sides carry system timers from the same battery-stats session (equal, known statsStartMs). */
+    private fun dischargeDelta(ref: BatterySnapshot, now: BatterySnapshot, field: (SystemTimers) -> Double): Double? {
+        val refStart = ref.clock.statsStartMs ?: return null
+        if (refStart != now.clock.statsStartMs) return null
+        val previous = ref.system ?: return null
+        val current = now.system ?: return null
+        return field(current) - field(previous)
+    }
+
+    private fun diffCpuFreq(
+        ref: List<CpuFreqTime>,
+        now: List<CpuFreqTime>,
+        problems: MutableList<String>,
+    ): List<CpuFreqDelta> {
+        val refTimes = ref.groupBy { it.policy to it.freqKhz }.mapValues { (_, values) -> values.sumOf(CpuFreqTime::timeMs) }
+        val nowTimes = now.groupBy { it.policy to it.freqKhz }.mapValues { (_, values) -> values.sumOf(CpuFreqTime::timeMs) }
+        return (refTimes.keys + nowTimes.keys)
+            .sortedWith(compareBy({ it.first }, { it.second }))
+            .mapNotNull { key ->
+                val time = (nowTimes[key] ?: 0L) - (refTimes[key] ?: 0L)
+                if (time < 0) {
+                    problems += "negative_cpu_freq:${key.first}:${key.second}"
+                    null
+                } else {
+                    CpuFreqDelta(key.first, key.second, time)
+                }
+            }
     }
 
     private fun sameBatteryStatsSession(ref: BatterySnapshot, now: BatterySnapshot): Boolean {

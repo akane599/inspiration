@@ -143,6 +143,19 @@ data class SnapshotDiff(
     val signalStrengthMs: List<Long>,
     val signalScanningMs: Long?,
     val mobileRadioActiveMs: Long?,
+    // Deltas of snapshot_system's discharge fields; null when either side lacks them or the two sides
+    // carry different statsStartMs (a battery-stats reset makes the counters incomparable).
+    // Screen-on mAh is dischargeMah - dischargeScreenOffMah.
+    val dischargeMah: Double? = null,
+    val dischargeScreenOffMah: Double? = null,
+    // Per (policy, freq) time-in-state delta; empty unless validity.kernelCounters.
+    val cpuFreqDelta: List<CpuFreqDelta> = emptyList(),
+)
+
+data class CpuFreqDelta(
+    val policy: Int,
+    val freqKhz: Long,
+    val timeMs: Long,
 )
 
 data class LiveReading(

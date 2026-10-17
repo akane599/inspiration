@@ -12,6 +12,7 @@ android {
 
 dependencies {
     api(project(":core:telemetry-engine"))
+    api(libs.kotlinx.coroutines.core)
 
     testImplementation(libs.junit)
     testImplementation(libs.robolectric)
