@@ -116,7 +116,7 @@ class BgDexoptControllerTest {
         assertEquals(ToolkitCode.NOT_PLUGGED, result.code)
         assertTrue(threads.isEmpty())
         assertTrue(calls.isEmpty())
-        assertEquals(BgDexoptState.IDLE, controller.status().state)
+        assertEquals(BgDexoptState.UNKNOWN, controller.status().state)
     }
 
     @Test
@@ -181,7 +181,43 @@ class BgDexoptControllerTest {
     }
 
     @Test
-    fun `a fresh controller reports idle`() {
-        assertEquals(BgDexoptState.IDLE, controller().status().state)
+    fun `a fresh controller reports unknown and never claims idle blindly`() {
+        assertEquals(BgDexoptState.UNKNOWN, controller().status().state)
+        assertTrue(calls.isEmpty())
+    }
+
+    @Test
+    fun `a completed cancel proves nothing is running and an unknown state becomes idle`() {
+        val controller = controller()
+
+        controller.noteCancelCompleted()
+
+        assertEquals(BgDexoptState.IDLE, controller.status().state)
+    }
+
+    @Test
+    fun `a completed cancel does not change a running or finished state`() {
+        val controller = controller()
+        jobExitsAtMs = clock.nowMs + 5 * 60_000
+        controller.tryStart()
+
+        controller.noteCancelCompleted()
+        assertEquals(BgDexoptState.RUNNING, controller.status().state)
+
+        threads.single().run()
+        controller.noteCancelCompleted()
+        assertEquals(BgDexoptState.FINISHED, controller.status().state)
+    }
+
+    @Test
+    fun `cancelIfRunning cancels only a running job`() {
+        val controller = controller()
+        controller.cancelIfRunning()
+        assertTrue("unknown state: nothing to cancel", calls.isEmpty())
+
+        controller.tryStart()
+        controller.cancelIfRunning()
+
+        assertEquals(listOf(BG_DEXOPT_CANCEL_ARGV), calls)
     }
 }

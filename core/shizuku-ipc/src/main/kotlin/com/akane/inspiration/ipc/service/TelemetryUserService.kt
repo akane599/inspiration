@@ -95,6 +95,7 @@ class TelemetryUserService private constructor(
     private val pipeFactory: () -> DumpPipe,
     private val startThread: (Runnable) -> Unit,
     private val toolkit: ToolkitExecutor,
+    private val exitProcess: () -> Unit,
     @Suppress("unused") constructionMarker: Unit,
 ) : ITelemetryUserService.Stub() {
     /** Shizuku's fallback construction path has no Context, so it deliberately fails closed. */
@@ -107,6 +108,7 @@ class TelemetryUserService private constructor(
         pipeFactory = ParcelFileDescriptorDumpPipe::create,
         startThread = { runnable -> Thread(runnable).start() },
         toolkit = failClosedToolkit(),
+        exitProcess = { System.exit(0) },
         constructionMarker = Unit,
     )
 
@@ -121,6 +123,7 @@ class TelemetryUserService private constructor(
         pipeFactory = ParcelFileDescriptorDumpPipe::create,
         startThread = { runnable -> Thread(runnable).start() },
         toolkit = createToolkit(context),
+        exitProcess = { System.exit(0) },
         constructionMarker = Unit,
     )
 
@@ -133,6 +136,7 @@ class TelemetryUserService private constructor(
         pipeFactory: () -> DumpPipe = ParcelFileDescriptorDumpPipe::create,
         startThread: (Runnable) -> Unit = { runnable -> Thread(runnable).start() },
         toolkit: ToolkitExecutor = failClosedToolkit(),
+        exitProcess: () -> Unit = { System.exit(0) },
     ) : this(
         appUid,
         fileRoot,
@@ -142,6 +146,7 @@ class TelemetryUserService private constructor(
         pipeFactory,
         startThread,
         toolkit,
+        exitProcess,
         Unit,
     )
 
@@ -149,7 +154,12 @@ class TelemetryUserService private constructor(
         // Shizuku's server (same shell UID as this process) calls destroy() when the app unbinds with
         // remove=true; without accepting it the process leaks and answers later calls with stale state.
         if (!isCallerAllowed() && !isCalledByOwnUid()) return
-        System.exit(0)
+        // The bg-dexopt unplug/cap guard dies with this process; cancel a running job (bounded) first.
+        try {
+            toolkit.cancelOnShutdown()
+        } finally {
+            exitProcess()
+        }
     }
 
     private fun isCalledByOwnUid(): Boolean = try {

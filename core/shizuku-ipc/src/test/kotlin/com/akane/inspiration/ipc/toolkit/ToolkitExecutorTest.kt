@@ -278,7 +278,7 @@ class ToolkitExecutorTest {
 
             assertEquals(profile.name, ToolkitResult.done(before = null, after = profile.constants), result)
             assertEquals(
-                listOf(listOf(CMD, "settings", "put", "global", "device_idle_constants", profile.constants)),
+                listOf(listOf(CMD, "settings", "put", "--user", "0", "global", "device_idle_constants", profile.constants)),
                 device.writes,
             )
         }
@@ -291,7 +291,7 @@ class ToolkitExecutorTest {
         val result = dozeExecutor(device).applyDozeProfile(DozeProfile.STANDARD.code, DozeProfile.BALANCED.constants)
 
         assertEquals(ToolkitResult.done(before = DozeProfile.BALANCED.constants, after = null), result)
-        assertEquals(listOf(listOf(CMD, "settings", "delete", "global", "device_idle_constants")), device.writes)
+        assertEquals(listOf(listOf(CMD, "settings", "delete", "--user", "0", "global", "device_idle_constants")), device.writes)
     }
 
     @Test
@@ -317,7 +317,7 @@ class ToolkitExecutorTest {
         assertEquals(ToolkitCode.NOT_EFFECTIVE, result.code)
         assertEquals(prior, device.raw)
         assertEquals(prior, result.afterRaw)
-        assertEquals(listOf(CMD, "settings", "put", "global", "device_idle_constants", prior), device.writes.last())
+        assertEquals(listOf(CMD, "settings", "put", "--user", "0", "global", "device_idle_constants", prior), device.writes.last())
     }
 
     @Test
@@ -328,7 +328,7 @@ class ToolkitExecutorTest {
 
         assertEquals(ToolkitCode.NOT_EFFECTIVE, result.code)
         assertNull(device.raw)
-        assertEquals(listOf(CMD, "settings", "delete", "global", "device_idle_constants"), device.writes.last())
+        assertEquals(listOf(CMD, "settings", "delete", "--user", "0", "global", "device_idle_constants"), device.writes.last())
     }
 
     @Test
@@ -359,7 +359,7 @@ class ToolkitExecutorTest {
 
         assertEquals(ToolkitStatus.DONE, result.status)
         assertNull(device.raw)
-        assertEquals(listOf(CMD, "settings", "delete", "global", "device_idle_constants"), device.writes.single())
+        assertEquals(listOf(CMD, "settings", "delete", "--user", "0", "global", "device_idle_constants"), device.writes.single())
     }
 
     @Test
@@ -382,8 +382,47 @@ class ToolkitExecutorTest {
         for (value in rejected) {
             assertEquals(value, ToolkitCode.ARG_VALUE, executor.restoreDozeRaw(value, "a=1").code)
         }
-        assertEquals(ToolkitStatus.DONE, executor.restoreDozeRaw("x".repeat(1024), "a=1").status)
-        assertTrue(device.writes.size == 1)
+        assertTrue(device.writes.isEmpty())
+    }
+
+    @Test
+    fun `restoreDozeRaw refuses keys outside the controlled profile keys and non numeric values`() {
+        val device = FakeDozeDevice(raw = "a=1")
+        val executor = dozeExecutor(device)
+        val rejected = listOf(
+            "foo=1",
+            "inactive_to=1000,foo=1",
+            "inactive_to=abc",
+            "inactive_to=-1",
+            "inactive_to=",
+            "inactive_to=1.5",
+            "inactive_to=1234567890",
+            "inactive_to",
+            "x".repeat(1024),
+            "inactive_to=1,,sensing_to=0",
+        )
+
+        for (value in rejected) {
+            assertEquals(value, ToolkitCode.ARG_VALUE, executor.restoreDozeRaw(value, "a=1").code)
+        }
+        assertTrue("no command at all for a refused value", runner.calls.isEmpty())
+    }
+
+    @Test
+    fun `restoreDozeRaw accepts a controlled key string and a value the executor itself read`() {
+        val device = FakeDozeDevice(raw = "oem_key=5")
+        val executor = dozeExecutor(device)
+
+        // Not yet read by this executor and not a controlled key: refused.
+        assertEquals(ToolkitCode.ARG_VALUE, executor.restoreDozeRaw("oem_key=5", "oem_key=5").code)
+
+        // Applying a profile reads the prior raw value, which makes it replayable.
+        executor.applyDozeProfile(DozeProfile.BALANCED.code, "oem_key=5")
+        val restored = executor.restoreDozeRaw("oem_key=5", DozeProfile.BALANCED.constants)
+
+        assertEquals(ToolkitStatus.DONE, restored.status)
+        assertEquals("oem_key=5", device.raw)
+        assertEquals(ToolkitStatus.DONE, executor.restoreDozeRaw("sensing_to=0,inactive_to=60000", "oem_key=5").status)
     }
 
     @Test
@@ -404,6 +443,26 @@ class ToolkitExecutorTest {
     }
 
     // --- bg-dexopt argv ---------------------------------------------------------------------
+
+    @Test
+    fun `a slow plugged probe in startBgDexopt does not block a cancel on the write lock`() {
+        lateinit var executor: ToolkitExecutor
+        var cancelResult: ToolkitResult? = null
+        val probe = PluggedProbe {
+            // While the probe is "running", another binder thread cancels; it must not wait for us.
+            val other = Thread { cancelResult = executor.cancelBgDexopt() }
+            other.start()
+            other.join(2_000L)
+            true
+        }
+        runner.handler = { ok() }
+        executor = ToolkitExecutor(runner, inspector, BgDexoptController(runner, probe, { 0L }, { }), OWN) { }
+
+        val start = executor.startBgDexopt()
+
+        assertEquals(ToolkitStatus.DONE, start.status)
+        assertEquals("cancel finished while the probe was still running", ToolkitStatus.DONE, cancelResult?.status)
+    }
 
     @Test
     fun `cancelBgDexopt issues exactly bg-dexopt-job --cancel`() {

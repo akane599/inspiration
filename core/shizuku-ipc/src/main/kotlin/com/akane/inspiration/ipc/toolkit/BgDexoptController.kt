@@ -14,6 +14,14 @@ internal val BG_DEXOPT_CANCEL_ARGV = listOf(CMD, "package", "bg-dexopt-job", "--
  * One user-initiated bg-dexopt job at a time. While it runs, a worker re-checks the plugged state
  * every [recheckMs] (bounded, user-initiated; not resident polling), cancels on unplug, and cancels
  * at [capMs]. [clockMs] drives both the cap and the reported timestamps.
+ *
+ * The unplug/cap guard lives only in this process, so two things keep it honest across service
+ * restarts. [cancelIfRunning] is the destroy hook: a job still RUNNING is cancelled (bounded) before
+ * the process exits. And a freshly created controller starts UNKNOWN, not IDLE: an earlier service
+ * instance may have died without cancelling, and there is no status query for the system job. It
+ * stays UNKNOWN until a start (this controller then owns the guard) or a completed `--cancel`
+ * ([noteCancelCompleted]) proves nothing is running. The cancel is deliberately not issued blindly at
+ * creation, because it would also cancel the system's own scheduled dexopt job on every launch.
  */
 internal class BgDexoptController(
     private val runner: CommandRunner,
@@ -24,7 +32,7 @@ internal class BgDexoptController(
     private val capMs: Long = CAP_MS,
 ) {
     private val lock = Any()
-    private var state = BgDexoptState.IDLE
+    private var state = BgDexoptState.UNKNOWN
     private var startedAtMs = 0L
     private var endedAtMs = 0L
     private var exitCode = 0
@@ -64,6 +72,18 @@ internal class BgDexoptController(
         synchronized(lock) {
             if (state == BgDexoptState.RUNNING) userCancelRequested = true
         }
+    }
+
+    /** A `--cancel` exited successfully: with no job tracked here, nothing is left running. */
+    fun noteCancelCompleted() {
+        synchronized(lock) {
+            if (state == BgDexoptState.UNKNOWN) state = BgDexoptState.IDLE
+        }
+    }
+
+    /** Destroy hook: cancel a job this controller is still supervising, within [SHUTDOWN_CANCEL_TIMEOUT_MS]. */
+    fun cancelIfRunning() {
+        if (isRunning()) runner.run(BG_DEXOPT_CANCEL_ARGV, SHUTDOWN_CANCEL_TIMEOUT_MS)
     }
 
     private fun isRunning(): Boolean = synchronized(lock) { state == BgDexoptState.RUNNING }
@@ -135,6 +155,7 @@ internal class BgDexoptController(
     }
 
     companion object {
+        const val SHUTDOWN_CANCEL_TIMEOUT_MS = 3_000L
         const val WAIT_SLICE_MS = 1_000L
         const val RECHECK_MS = 30_000L
         const val CAP_MS = 60L * 60_000L

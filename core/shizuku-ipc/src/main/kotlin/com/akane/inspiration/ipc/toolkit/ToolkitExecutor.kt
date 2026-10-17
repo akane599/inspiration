@@ -21,7 +21,9 @@ private const val FLAG_UPDATED_SYSTEM_APP = 0x80
  * the binder thread). Every entry point then takes one write mutex and validates in this order:
  * package regex, user-0 install check, hard-deny rules; any failure to decide refuses.
  *
- * Every argv is fixed with an absolute executable and pins `--user 0` where the command accepts it.
+ * Every argv is fixed with an absolute executable and pins `--user 0`. `cmd settings` accepts the
+ * option for the global namespace too (SettingsService parses `--user` before the namespace; the
+ * provider then ignores the user for global keys), so the `device_idle_constants` argv carry it.
  */
 internal class ToolkitExecutor(
     private val runner: CommandRunner,
@@ -31,6 +33,9 @@ internal class ToolkitExecutor(
     private val sleepMs: (Long) -> Unit = { Thread.sleep(it) },
 ) {
     private val writeLock = Any()
+
+    /** Doze raw values read so far (guarded by [writeLock]); the only non-profile values restore accepts. */
+    private val seenDozeRaws = LinkedHashSet<String>()
 
     fun setAppOp(pkg: String?, opCode: Int, modeCode: Int): ToolkitResult = synchronized(writeLock) {
         val op = AppOp.fromCode(opCode) ?: return ToolkitResult.refused(ToolkitCode.ARG_VALUE)
@@ -106,6 +111,7 @@ internal class ToolkitExecutor(
         if (current.value != null && !DozeRaw.isSafe(current.value)) {
             return ToolkitResult.refused(ToolkitCode.ARG_VALUE, before = current.value)
         }
+        remember(current.value)
         val write = writeDozeRaw(profile.constants)
         val after = readDozeRaw()
         val effective = write.ok && after != null && after.value == profile.constants &&
@@ -118,6 +124,7 @@ internal class ToolkitExecutor(
 
     fun getDozeState(): ToolkitResult = synchronized(writeLock) {
         val raw = readDozeRaw() ?: return ToolkitResult.failed(ToolkitCode.PARSE)
+        remember(raw.value)
         val matched = DozeProfile.entries.firstOrNull { it.constants == raw.value }
         val settings = runner.run(listOf(DUMPSYS, "deviceidle")).takeIf { it.ok }
             ?.let { ToolkitParsers.dozeSettings(it.text) }
@@ -129,7 +136,10 @@ internal class ToolkitExecutor(
 
     fun restoreDozeRaw(rawOrNull: String?, expectedCurrentRaw: String?): ToolkitResult = synchronized(writeLock) {
         val target = rawOrNull?.takeIf { it.isNotEmpty() }
-        if (target != null && !DozeRaw.isSafe(target)) return ToolkitResult.refused(ToolkitCode.ARG_VALUE)
+        // Only a controlled-key numeric string or a value this executor itself read may be replayed.
+        if (target != null && !(DozeRaw.isControlledProfileValue(target) || target in seenDozeRaws)) {
+            return ToolkitResult.refused(ToolkitCode.ARG_VALUE)
+        }
         val current = readDozeRaw() ?: return ToolkitResult.refused(ToolkitCode.PARSE)
         if (current.value != expectedCurrentRaw?.takeIf { it.isNotEmpty() }) {
             return ToolkitResult.refused(ToolkitCode.STALE, before = current.value)
@@ -142,14 +152,28 @@ internal class ToolkitExecutor(
         ToolkitResult.done(before = current.value, after = after.value)
     }
 
-    fun startBgDexopt(): ToolkitResult = synchronized(writeLock) { dexopt.tryStart() }
+    /**
+     * Deliberately outside [writeLock]: the plugged probe can take seconds, and holding the global
+     * lock for it would block a cancel. The controller's own compare-and-set serializes starts.
+     */
+    fun startBgDexopt(): ToolkitResult = dexopt.tryStart()
 
     fun bgDexoptStatus(): BgDexoptStatus = dexopt.status()
 
     fun cancelBgDexopt(): ToolkitResult = synchronized(writeLock) {
         dexopt.noteUserCancel()
         val out = runner.run(BG_DEXOPT_CANCEL_ARGV)
+        if (out.ok) dexopt.noteCancelCompleted()
         if (out.ok) ToolkitResult.done() else ToolkitResult.failed(execCode(out))
+    }
+
+    /** Called by the service's destroy() before the process exits; never throws. */
+    fun cancelOnShutdown() {
+        try {
+            dexopt.cancelIfRunning()
+        } catch (_: RuntimeException) {
+            // Exiting regardless; there is nobody to report to.
+        }
     }
 
     private sealed interface Gate {
@@ -199,17 +223,25 @@ internal class ToolkitExecutor(
     private class DozeRead(val value: String?)
 
     private fun readDozeRaw(): DozeRead? {
-        val out = runner.run(listOf(CMD, "settings", "get", "global", IDLE_KEY))
+        val out = runner.run(listOf(CMD, "settings", "get", "--user", USER, "global", IDLE_KEY))
         return if (out.ok) DozeRead(ToolkitParsers.settingValue(out.text)) else null
     }
 
     private fun writeDozeRaw(value: String?): CommandOutput = runner.run(
         if (value == null) {
-            listOf(CMD, "settings", "delete", "global", IDLE_KEY)
+            listOf(CMD, "settings", "delete", "--user", USER, "global", IDLE_KEY)
         } else {
-            listOf(CMD, "settings", "put", "global", IDLE_KEY, value)
+            listOf(CMD, "settings", "put", "--user", USER, "global", IDLE_KEY, value)
         },
     )
+
+    /** Remembers a value this executor read (and found safe) so a later restore may replay it. */
+    private fun remember(raw: String?) {
+        if (raw == null || !DozeRaw.isSafe(raw)) return
+        seenDozeRaws.remove(raw)
+        seenDozeRaws.add(raw)
+        if (seenDozeRaws.size > MAX_SEEN_DOZE_RAWS) seenDozeRaws.remove(seenDozeRaws.first())
+    }
 
     private fun dozeEffective(profile: DozeProfile): Boolean {
         repeat(EFFECTIVE_ATTEMPTS) { attempt ->
@@ -225,6 +257,7 @@ internal class ToolkitExecutor(
 
     private companion object {
         const val IDLE_KEY = "device_idle_constants"
+        const val MAX_SEEN_DOZE_RAWS = 8
         const val EFFECTIVE_ATTEMPTS = 3
         const val EFFECTIVE_RETRY_MS = 300L
     }

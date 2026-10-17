@@ -2,6 +2,7 @@ package com.akane.inspiration.ipc.toolkit
 
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class ToolkitParsersTest {
@@ -60,6 +61,18 @@ class ToolkitParsersTest {
             "      uid=10120\n      policies:\n    mPasswordOwner=-1\n  \n  Constants:\n    X: 1\n"
 
         assertEquals(setOf("com.corp.mdm"), ToolkitParsers.deviceAdmins(dump, truncated = false))
+    }
+
+    @Test
+    fun `device admins are found after a preamble larger than 4 KB`() {
+        val preamble = "Current Device Policy Manager state:\n  Immutable state:\n" +
+            "    mSomeLongPreambleLine=true\n".repeat(1_000)
+        val dump = preamble + "  Enabled Device Admins (User 0, provisioningState: 0):\n" +
+            "    com.corp.mdm/.AdminReceiver:\n      uid=10120\n  \n  Constants:\n"
+        assertTrue(dump.length > 4 * RETENTION_CAP_BYTES)
+
+        assertEquals(setOf("com.corp.mdm"), ToolkitParsers.deviceAdmins(dump, truncated = false))
+        assertNull("cut inside the preamble still fails closed", ToolkitParsers.deviceAdmins(preamble, truncated = true))
     }
 
     @Test
