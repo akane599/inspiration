@@ -484,10 +484,19 @@ class HealthMappersTest {
         val padded = axisRange(0f, 100f, minSpan = 2f)
         assertEquals(-5f, padded.min, 1e-4f)
         assertEquals(105f, padded.max, 1e-4f)
-        assertEquals(50f, padded.mid, 1e-4f)
 
         val flat = axisRange(30f, 32f, minSpan = 6f)
         assertEquals(27.7f, flat.min, 1e-4f)
         assertEquals(34.3f, flat.max, 1e-4f)
+    }
+
+    @Test
+    fun `gridlines sit on round numbers inside the axis, at most three`() {
+        assertEquals(listOf(5f, 10f, 15f), niceTicks(AxisRange(1.2f, 15.7f)))
+        assertEquals(listOf(0f, 50f, 100f), niceTicks(AxisRange(-5f, 105f)))
+        assertEquals(listOf(0.5f, 1f, 1.5f), niceTicks(AxisRange(0.3f, 1.7f)))
+        assertEquals(listOf(0f, 5f), niceTicks(AxisRange(-0.2f, 8.4f)))
+        // No round step puts two ticks in this window, so it keeps the one round value rather than ugly ends.
+        assertEquals(listOf(30f), niceTicks(AxisRange(27.7f, 34.3f)))
     }
 }

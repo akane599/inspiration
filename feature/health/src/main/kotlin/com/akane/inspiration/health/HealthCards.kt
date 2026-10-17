@@ -9,7 +9,6 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -17,15 +16,15 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalInspectionMode
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextAlign
+import com.akane.inspiration.designsystem.component.CardTitle
 import com.akane.inspiration.designsystem.component.EmptyState
 import com.akane.inspiration.designsystem.component.InspirationCard
+import com.akane.inspiration.designsystem.component.MetricBar
 import com.akane.inspiration.designsystem.component.MetricValue
 import com.akane.inspiration.designsystem.component.SemanticDot
 import com.akane.inspiration.designsystem.component.format.NO_VALUE
@@ -33,22 +32,12 @@ import com.akane.inspiration.designsystem.component.format.TelemetryFormat
 import com.akane.inspiration.designsystem.component.format.rememberTelemetryFormat
 import com.akane.inspiration.designsystem.theme.numericTypography
 import com.akane.inspiration.designsystem.theme.spacing
+import com.akane.inspiration.designsystem.theme.statusColors
 import com.akane.inspiration.designsystem.theme.telemetryColors
 import kotlinx.collections.immutable.persistentListOf
 import kotlinx.collections.immutable.toImmutableList
 import java.time.ZoneId
-import java.util.Locale
 import kotlin.math.roundToInt
-
-@Composable
-private fun CardTitle(textRes: Int, modifier: Modifier = Modifier) {
-    Text(
-        text = stringResource(textRes),
-        style = MaterialTheme.typography.labelLarge,
-        color = MaterialTheme.colorScheme.onSurfaceVariant,
-        modifier = modifier.semantics { heading() },
-    )
-}
 
 @Composable
 private fun Caption(text: String, modifier: Modifier = Modifier) {
@@ -69,7 +58,7 @@ private fun percentText(format: TelemetryFormat, value: Number?, decimals: Int =
 @Composable
 internal fun LoadingCard(modifier: Modifier = Modifier) {
     InspirationCard(modifier = modifier.fillMaxWidth()) {
-        CardTitle(R.string.health_card_title)
+        CardTitle(stringResource(R.string.health_card_title))
         Row(
             modifier = Modifier.padding(top = MaterialTheme.spacing.sm),
             verticalAlignment = Alignment.CenterVertically,
@@ -118,7 +107,7 @@ private fun metricColor(metric: CurveMetric): Color = when (metric) {
 internal fun CurveCard(curve: CurveUi, charging: Boolean, modifier: Modifier = Modifier) {
     InspirationCard(modifier = modifier.fillMaxWidth()) {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            CardTitle(R.string.health_curve_title, Modifier.weight(1f))
+            CardTitle(stringResource(R.string.health_curve_title), Modifier.weight(1f))
             if (curve is CurveUi.Ready && curve.source == CurveSource.Live && charging) LiveBadge()
         }
         when (curve) {
@@ -135,7 +124,7 @@ internal fun CurveCard(curve: CurveUi, charging: Boolean, modifier: Modifier = M
 @Composable
 private fun LiveBadge() {
     Row(verticalAlignment = Alignment.CenterVertically) {
-        SemanticDot(color = MaterialTheme.telemetryColors.charging)
+        SemanticDot(color = MaterialTheme.statusColors.ok)
         Text(
             text = stringResource(R.string.health_curve_live),
             style = MaterialTheme.typography.labelLarge,
@@ -151,13 +140,14 @@ private fun CurveBody(curve: CurveUi.Ready) {
     val spacing = MaterialTheme.spacing
     val levels = remember { persistentListOf(0f, 50f, 100f) }
     val levelRange = remember { AxisRange(0f, 100f) }
+    val fontScale = LocalDensity.current.fontScale.coerceAtLeast(1f)
     val levelLabels = levels.map { AxisLabel(it, percentText(format, it)) }.toImmutableList()
 
     curve.series.forEachIndexed { index, series ->
         val last = index == curve.series.lastIndex
         val range = remember(series) { axisRange(series.min, series.max, minAxisSpan(series.metric)) }
         val yLabels = remember(series, range, format) {
-            listOf(range.min, range.mid, range.max)
+            niceTicks(range)
                 .map { AxisLabel(it, format.number(it.toDouble(), axisDecimals(series.metric))) }
                 .toImmutableList()
         }
@@ -197,7 +187,7 @@ private fun CurveBody(curve: CurveUi.Ready) {
             xLabels = if (last) levelLabels else persistentListOf(),
             yLabels = yLabels,
             lineColor = metricColor(series.metric),
-            height = if (last) HealthMetrics.CurveRowHeightWithAxis else HealthMetrics.CurveRowHeight,
+            height = (if (last) HealthMetrics.CurveRowHeightWithAxis else HealthMetrics.CurveRowHeight) * fontScale,
             description = description,
             modifier = Modifier.padding(top = spacing.xs),
         )
@@ -279,7 +269,7 @@ internal fun HealthCard(card: HealthCardUi, modifier: Modifier = Modifier) {
     val mah = stringResource(R.string.health_unit_mah)
 
     InspirationCard(modifier = modifier.fillMaxWidth()) {
-        CardTitle(R.string.health_card_title)
+        CardTitle(stringResource(R.string.health_card_title))
         if (stacked) {
             Column(
                 modifier = Modifier.padding(top = spacing.md),
@@ -340,13 +330,7 @@ private fun Stat(
             )
         }
         if (progress != null) {
-            LinearProgressIndicator(
-                progress = { progress.coerceIn(0f, 1f) },
-                modifier = Modifier.fillMaxWidth().padding(top = MaterialTheme.spacing.sm),
-                color = MaterialTheme.colorScheme.primary,
-                trackColor = MaterialTheme.colorScheme.surfaceVariant,
-                drawStopIndicator = {},
-            )
+            MetricBar(progress = progress, modifier = Modifier.padding(top = MaterialTheme.spacing.sm))
         }
     }
 }
@@ -366,7 +350,7 @@ private fun CapacityStat(
         unit = if (capacity.mah != null) mahUnit else "",
         note = when {
             capacity.mah == null -> missingText(capacity.missing)
-            pct != null -> stringResource(R.string.health_of_design, percentText(format, pct))
+            pct != null -> stringResource(R.string.health_of_design, percentText(format, pct, decimals = 1))
             else -> null
         },
         progress = pct?.let { (it / 100.0).toFloat() },
@@ -394,7 +378,7 @@ private const val StackFontScale = 1.3f
 @Composable
 internal fun WearCard(wear: WearUi, zone: ZoneId, modifier: Modifier = Modifier) {
     InspirationCard(modifier = modifier.fillMaxWidth()) {
-        CardTitle(R.string.health_wear_title)
+        CardTitle(stringResource(R.string.health_wear_title))
         Caption(text = stringResource(R.string.health_wear_subtitle), modifier = Modifier.padding(top = MaterialTheme.spacing.xs))
         when (wear) {
             is WearUi.NotEnough -> EmptyState(
@@ -410,17 +394,16 @@ internal fun WearCard(wear: WearUi, zone: ZoneId, modifier: Modifier = Modifier)
 @Composable
 private fun WearBody(wear: WearUi.Ready, zone: ZoneId) {
     val format = rememberTelemetryFormat()
-    val locale: Locale = LocalConfiguration.current.locales[0] ?: Locale.getDefault()
     val spanMs = wear.endMs - wear.startMs
     val xRange = remember(wear) { AxisRange(0f, spanMs.toFloat()) }
     val yRange = remember(wear) { axisRange(wear.minPct, wear.maxPct, WEAR_MIN_SPAN_PCT) }
-    val xLabels = remember(wear, locale, zone) {
+    val xLabels = remember(wear, format, zone) {
         persistentListOf(
-            AxisLabel(0f, formatStamp(wear.startMs, spanMs, locale, zone)),
-            AxisLabel(spanMs.toFloat(), formatStamp(wear.endMs, spanMs, locale, zone)),
+            AxisLabel(0f, formatStamp(wear.startMs, spanMs, format, zone)),
+            AxisLabel(spanMs.toFloat(), formatStamp(wear.endMs, spanMs, format, zone)),
         )
     }
-    val yLabels = listOf(yRange.min, yRange.mid, yRange.max)
+    val yLabels = niceTicks(yRange)
         .map { AxisLabel(it, percentText(format, it)) }
         .toImmutableList()
     val summary = stringResource(
@@ -442,7 +425,7 @@ private fun WearBody(wear: WearUi.Ready, zone: ZoneId) {
         xLabels = xLabels,
         yLabels = yLabels,
         lineColor = MaterialTheme.colorScheme.primary,
-        height = HealthMetrics.WearChartHeight,
+        height = HealthMetrics.WearChartHeight * LocalDensity.current.fontScale.coerceAtLeast(1f),
         description = stringResource(
             R.string.health_wear_desc,
             percentText(format, wear.firstPct, decimals = 1),
@@ -460,7 +443,7 @@ private const val WEAR_MIN_SPAN_PCT = 4f
 @Composable
 internal fun AnalysisCard(analysis: WearAnalysisUi?, modifier: Modifier = Modifier) {
     InspirationCard(modifier = modifier.fillMaxWidth()) {
-        CardTitle(R.string.health_analysis_title)
+        CardTitle(stringResource(R.string.health_analysis_title))
         if (analysis == null) {
             EmptyState(
                 title = stringResource(R.string.health_analysis_none_title),
@@ -540,7 +523,7 @@ private fun Finding(hot: Boolean, text: String) {
         horizontalArrangement = Arrangement.spacedBy(MaterialTheme.spacing.sm),
     ) {
         SemanticDot(
-            color = if (hot) MaterialTheme.telemetryColors.critical else MaterialTheme.colorScheme.outline,
+            color = if (hot) MaterialTheme.statusColors.warning else MaterialTheme.statusColors.neutral,
             modifier = Modifier.padding(top = MaterialTheme.spacing.xs),
         )
         Text(

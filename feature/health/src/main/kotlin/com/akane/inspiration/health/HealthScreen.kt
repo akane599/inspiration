@@ -18,6 +18,7 @@ import androidx.compose.ui.res.stringResource
 import com.akane.inspiration.designsystem.component.EmptyState
 import com.akane.inspiration.designsystem.component.EmptyStateAction
 import com.akane.inspiration.designsystem.component.InspirationCard
+import com.akane.inspiration.designsystem.component.ScreenHeader
 import com.akane.inspiration.designsystem.theme.spacing
 import java.time.ZoneId
 
@@ -46,6 +47,7 @@ internal fun HealthScreen(
                 modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(spacing.md),
                 verticalArrangement = Arrangement.spacedBy(spacing.md),
             ) {
+                ScreenHeader(title = stringResource(R.string.health_screen_title))
                 when (state.phase) {
                     HealthPhase.Loading -> LoadingCard()
                     HealthPhase.Empty -> MessageCard(

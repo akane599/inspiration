@@ -8,6 +8,10 @@ import com.akane.inspiration.telemetry.store.ChargeSessionRecord
 import com.akane.inspiration.telemetry.store.HealthSample
 import com.akane.inspiration.telemetry.store.TelemetrySample
 import kotlinx.collections.immutable.toImmutableList
+import kotlin.math.ceil
+import kotlin.math.floor
+import kotlin.math.log10
+import kotlin.math.pow
 
 /** How far back the screen looks for the last charge (history and persisted samples). */
 internal const val DATA_WINDOW_MS = 24L * 3_600_000
@@ -383,9 +387,7 @@ internal fun wearUi(samples: List<HealthSample>): WearUi {
 }
 
 /** A value range padded so a line never touches the frame, at least [minSpan] tall so noise is not magnified. */
-internal data class AxisRange(val min: Float, val max: Float) {
-    val mid: Float get() = (min + max) / 2f
-}
+internal data class AxisRange(val min: Float, val max: Float)
 
 internal fun axisRange(min: Float, max: Float, minSpan: Float): AxisRange {
     val span = maxOf(max - min, minSpan)
@@ -395,3 +397,29 @@ internal fun axisRange(min: Float, max: Float, minSpan: Float): AxisRange {
 }
 
 private const val AXIS_PADDING = 0.1f
+
+/**
+ * Round-numbered gridline values inside [range]: the smallest 1, 2 or 5 times a power of ten step that leaves at
+ * most [maxCount] ticks, so an axis reads 5 / 10 / 15 instead of 15.7 / 8.4 / 1.2. Two ticks or more are preferred;
+ * when no round step gives that, one is better than an ugly pair, and a degenerate range keeps its own ends.
+ */
+internal fun niceTicks(range: AxisRange, maxCount: Int = MAX_TICKS): List<Float> {
+    val span = (range.max - range.min).toDouble()
+    if (span <= 0.0) return listOf(range.min)
+    val exponent = floor(log10(span)).toInt()
+    val ticksByStep = ((exponent - 2)..(exponent + 1)).flatMap { power ->
+        NICE_MULTIPLES.map { multiple ->
+            val step = multiple * 10.0.pow(power)
+            val first = ceil(range.min / step - TICK_EPSILON).toLong()
+            val last = floor(range.max / step + TICK_EPSILON).toLong()
+            (first..last).map { (it * step).toFloat() }
+        }
+    }
+    return ticksByStep.firstOrNull { it.size in 2..maxCount }
+        ?: ticksByStep.firstOrNull { it.size == 1 }
+        ?: listOf(range.min, range.max)
+}
+
+private const val MAX_TICKS = 3
+private const val TICK_EPSILON = 1e-9
+private val NICE_MULTIPLES = doubleArrayOf(1.0, 2.0, 5.0)
