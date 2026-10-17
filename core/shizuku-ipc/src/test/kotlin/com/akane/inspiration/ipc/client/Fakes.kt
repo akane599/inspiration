@@ -27,6 +27,14 @@ internal class RecordingQueryBuilder : BatteryUsageQueryBuilder {
     override fun includePowerModels() {
         calls += "includePowerModels"
     }
+
+    override fun includeBatteryHistory() {
+        calls += "includeBatteryHistory"
+    }
+
+    override fun setPreferredHistoryDurationMs(durationMs: Long) {
+        calls += "setPreferredHistoryDurationMs($durationMs)"
+    }
 }
 
 internal class FakeUidConsumer(
@@ -51,11 +59,60 @@ internal class FakeBatteryUsage(
     override val statsEndMs: Long = 2_000L,
     override val consumedPowerMah: Double = 42.5,
     override val uidConsumers: List<UidConsumerAdapter> = emptyList(),
-) : BatteryUsageAdapter
+    override val statsDurationMs: Long? = null,
+    override val deviceConsumer: DeviceConsumerAdapter? = null,
+    private val closeFailure: Throwable? = null,
+) : BatteryUsageAdapter {
+    var closed = 0
+
+    override fun close() {
+        closed++
+        closeFailure?.let { throw it }
+    }
+}
+
+internal class MapperFailingBatteryUsage : BatteryUsageAdapter {
+    var closed = 0
+
+    override val statsStartMs: Long get() = throw IllegalStateException("mapper failed")
+    override val statsEndMs: Long = 2_000L
+    override val consumedPowerMah: Double = 42.5
+    override val uidConsumers: List<UidConsumerAdapter> = emptyList()
+
+    override fun close() {
+        closed++
+    }
+}
+
+/** History over [records]; [failure] is thrown from the walk after [failAfter] records. */
+internal class FakeBatteryHistory(
+    override val statsStartMs: Long = 1_000L,
+    private val records: List<HistoryRecord> = emptyList(),
+    private val failure: Throwable? = null,
+    private val failAfter: Int = 0,
+) : BatteryHistoryAdapter {
+    var closed = 0
+    var consumed = 0
+
+    override fun records(): Iterator<HistoryRecord> = iterator {
+        records.forEachIndexed { index, record ->
+            if (failure != null && index == failAfter) throw failure
+            consumed++
+            yield(record)
+        }
+        if (failure != null && failAfter >= records.size) throw failure
+    }
+
+    override fun close() {
+        closed++
+    }
+}
 
 internal class FakeBatteryStatsCalls(
     private val usage: BatteryUsageAdapter? = FakeBatteryUsage(),
     private val failure: Throwable? = null,
+    private val history: BatteryHistoryAdapter? = FakeBatteryHistory(),
+    private val batteryTimeRemaining: () -> Long = { 3_600_000L },
 ) : BatteryStatsCalls {
     val builder = RecordingQueryBuilder()
 
@@ -65,7 +122,13 @@ internal class FakeBatteryStatsCalls(
         return usage
     }
 
-    override fun computeBatteryTimeRemaining(): Long = 3_600_000L
+    override fun getBatteryHistory(configure: (BatteryUsageQueryBuilder) -> Unit): BatteryHistoryAdapter? {
+        configure(builder)
+        failure?.let { throw it }
+        return history
+    }
+
+    override fun computeBatteryTimeRemaining(): Long = batteryTimeRemaining()
 
     override fun computeChargeTimeRemaining(): Long = -1L
 }

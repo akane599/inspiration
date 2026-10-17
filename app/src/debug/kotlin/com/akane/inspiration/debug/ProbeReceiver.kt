@@ -139,7 +139,25 @@ class ProbeReceiver : BroadcastReceiver() {
                             }
                         },
                     )
-                    .put("byProcessStatePresent", usage.uids.any { it.byProcessState != null }),
+                    .put("byProcessStatePresent", usage.uids.any { it.byProcessState != null })
+                    .put("statsDurationMs", usage.statsDurationMs)
+                    .put("deviceComponentCount", usage.deviceComponents.size)
+                    .put("truncatedUids", usage.truncatedUids),
+            ),
+        )
+
+        val history = service.readBatteryHistory(usage.statsStartMs, 0L, MAX_HISTORY_EVENTS)
+        log(
+            JSONObject().put(
+                "history",
+                JSONObject()
+                    .put("available", history.available)
+                    .putNullable("reason", history.reason)
+                    .put("count", history.events.size)
+                    .put("truncated", history.truncated)
+                    .put("sessionChanged", history.sessionChanged)
+                    .putNullable("firstKind", history.events.firstOrNull()?.kind)
+                    .putNullable("lastKind", history.events.lastOrNull()?.kind),
             ),
         )
 
@@ -305,6 +323,7 @@ class ProbeReceiver : BroadcastReceiver() {
         const val BATTERY_STATS_SERVICE = "batterystats"
         const val POWER_SERVICE = "power"
         const val MAX_DUMP_BYTES = 4 * 1024 * 1024
+        const val MAX_HISTORY_EVENTS = 4096
         const val PROBE_TIMEOUT_MS = 10_000L
         const val TAG = "InspirationProbe"
         const val UNKNOWN_STATUS = -1

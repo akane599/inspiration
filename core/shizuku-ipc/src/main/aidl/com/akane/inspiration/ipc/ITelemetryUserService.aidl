@@ -1,5 +1,6 @@
 package com.akane.inspiration.ipc;
 
+import com.akane.inspiration.ipc.model.BatteryHistorySnapshot;
 import com.akane.inspiration.ipc.model.BatteryUsageSnapshot;
 import com.akane.inspiration.ipc.model.CpuTimeSnapshot;
 import com.akane.inspiration.ipc.model.DeviceIdleSnapshot;
@@ -16,4 +17,5 @@ interface ITelemetryUserService {
     DeviceIdleSnapshot readDeviceIdle() = 5;
     DumpResult openDump(int target) = 6;
     // 7 reserved (was generic command runner; never reuse). Phase 5 typed actions start at 20.
+    BatteryHistorySnapshot readBatteryHistory(long statsStartMs, long afterHistoryTimeMs, int maxEvents) = 8;
 }

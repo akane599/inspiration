@@ -111,7 +111,31 @@ class TelemetryUserServiceTest {
     }
 
     @Test
-    fun `unknown dump target is rejected for an authorized caller`() = withFixture { root ->
+    fun `wrong caller is rejected before battery history touches any binder`() = withFixture { root ->
+        val requested = mutableListOf<String>()
+        val service = service(root, callingUid = { APP_UID + 1 }, serviceBinder = { name -> requested += name; null })
+
+        val history = service.readBatteryHistory(1_000L, 0L, 4096)
+
+        assertFalse(history.available)
+        assertEquals(Reasons.CALLER, history.reason)
+        assertEquals(emptyList<String>(), requested)
+    }
+
+    @Test
+    fun `authorized battery history reaches the batterystats binder`() = withFixture { root ->
+        val requested = mutableListOf<String>()
+        val service = service(root, serviceBinder = { name -> requested += name; null })
+
+        val history = service.readBatteryHistory(1_000L, 0L, 4096)
+
+        assertEquals(listOf("batterystats"), requested)
+        assertFalse(history.available)
+        assertEquals(Reasons.REMOTE, history.reason)
+    }
+
+    @Test
+    fun `unknown dump target is rejected for an authorized caller`()= withFixture { root ->
         val dump = service(root).openDump(99)
 
         assertFalse(dump.available)

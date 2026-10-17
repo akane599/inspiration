@@ -1,0 +1,275 @@
+package com.akane.inspiration.ipc.client
+
+import com.akane.inspiration.ipc.model.BatteryHistorySnapshot
+import com.akane.inspiration.ipc.model.HistoryKind
+import com.akane.inspiration.ipc.model.Reasons
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
+import org.junit.Test
+
+class BatteryHistoryTest {
+    private fun record(
+        time: Long,
+        cmd: Int = HistoryBits.CMD_UPDATE,
+        currentTime: Long = 0L,
+        screenOn: Boolean = false,
+        plugged: Boolean = false,
+        deepIdle: Boolean = false,
+        level: Int = 50,
+        chargeUah: Int = 3_000_000,
+        plugType: Int = 0,
+    ) = HistoryRecord(
+        time = time,
+        currentTime = currentTime,
+        cmd = cmd,
+        states = (if (screenOn) HistoryBits.STATE_SCREEN_ON_FLAG else 0) or
+            (if (plugged) HistoryBits.STATE_BATTERY_PLUGGED_FLAG else 0),
+        states2 = if (deepIdle) HistoryBits.DEVICE_IDLE_MODE_DEEP shl HistoryBits.STATE2_DEVICE_IDLE_SHIFT else 0,
+        batteryLevel = level,
+        plugType = plugType,
+        chargeUah = chargeUah,
+        temperatureDeciC = 250 + level,
+        voltageMv = 3_800 + level,
+    )
+
+    private fun read(
+        history: FakeBatteryHistory,
+        statsStartMs: Long = history.statsStartMs,
+        after: Long = 0L,
+        maxEvents: Int = 4096,
+        sdkInt: Int = 35,
+    ): BatteryHistorySnapshot =
+        BatteryStatsClient({ fakeBinder }, sdkInt, { 0 }) { FakeBatteryStatsCalls(history = history) }
+            .readHistory(statsStartMs, after, maxEvents)
+
+    private fun BatteryHistorySnapshot.kinds() = events.map { it.kind }
+
+    /** Level steps 1 ms apart: one LEVEL event per record after the baseline at t=1. */
+    private fun levelSteps(count: Int) =
+        listOf(record(time = 1, level = 100)) + (1..count).map { record(time = 1L + it, level = 100 - it % 100) }
+
+    @Test
+    fun `wall time is rebuilt from CURRENT_TIME and RESET anchors`() {
+        val history = FakeBatteryHistory(
+            records = listOf(
+                record(time = 10, level = 60),
+                record(time = 20, level = 59),
+                record(time = 100, cmd = HistoryBits.CMD_RESET, currentTime = 1_000_000L, level = 59),
+                record(time = 200, screenOn = true, level = 59),
+                record(time = 300, cmd = HistoryBits.CMD_CURRENT_TIME, currentTime = 5_000_000L, screenOn = true, level = 59),
+                record(time = 500, screenOn = false, level = 59),
+            ),
+        )
+
+        val snapshot = read(history)
+
+        assertEquals(
+            listOf(HistoryKind.LEVEL, HistoryKind.RESET, HistoryKind.SCREEN_ON, HistoryKind.SCREEN_OFF),
+            snapshot.kinds(),
+        )
+        // Before any anchor the wall time is unknown.
+        assertEquals(-1L, snapshot.events[0].wallMs)
+        assertEquals(1_000_000L, snapshot.events[1].wallMs)
+        assertEquals(1_000_100L, snapshot.events[2].wallMs)
+        // A later CURRENT_TIME re-anchors (wall clock jumped).
+        assertEquals(5_000_200L, snapshot.events[3].wallMs)
+        assertEquals(500L, snapshot.events[3].historyTimeMs)
+    }
+
+    @Test
+    fun `LEVEL is emitted only when batteryLevel changes and carries the battery readings`() {
+        val history = FakeBatteryHistory(
+            records = listOf(
+                record(time = 1, level = 50),
+                record(time = 2, level = 50),
+                record(time = 3, level = 49, chargeUah = 2_900_000),
+                record(time = 4, level = 49),
+                record(time = 5, level = 49, plugged = true, plugType = 2),
+                record(time = 6, level = 48, plugged = true, plugType = 2, chargeUah = 0),
+            ),
+        )
+
+        val snapshot = read(history)
+
+        assertEquals(listOf(HistoryKind.LEVEL, HistoryKind.PLUGGED, HistoryKind.LEVEL), snapshot.kinds())
+        val first = snapshot.events[0]
+        assertEquals(3L, first.historyTimeMs)
+        assertEquals(49, first.levelPct)
+        assertEquals(2_900_000L, first.chargeUah)
+        assertEquals(299, first.temperatureDeciC)
+        assertEquals(3_849, first.voltageMv)
+        assertEquals(2, snapshot.events[1].plugType)
+        // A non-positive charge reading is reported as unknown.
+        assertEquals(-1L, snapshot.events[2].chargeUah)
+    }
+
+    @Test
+    fun `session commands and deep idle transitions map to their kinds`() {
+        val history = FakeBatteryHistory(
+            records = listOf(
+                record(time = 1, cmd = HistoryBits.CMD_RESET, currentTime = 10_000L),
+                record(time = 2, deepIdle = true),
+                record(time = 3, deepIdle = false),
+                record(time = 4, cmd = HistoryBits.CMD_SHUTDOWN),
+                // START is a fresh baseline: a different screen state is not a transition.
+                record(time = 5, cmd = HistoryBits.CMD_START, screenOn = true),
+                record(time = 6, screenOn = true),
+                record(time = 7, cmd = HistoryBits.CMD_OVERFLOW),
+                // After an overflow the next item is a baseline, not a transition.
+                record(time = 8, screenOn = false, level = 10),
+            ),
+        )
+
+        assertEquals(
+            listOf(
+                HistoryKind.RESET,
+                HistoryKind.DEEP_IDLE_ON,
+                HistoryKind.DEEP_IDLE_OFF,
+                HistoryKind.SHUTDOWN,
+                HistoryKind.START,
+            ),
+            read(history).kinds(),
+        )
+    }
+
+    @Test
+    fun `keep-oldest cap returns the first events, sets truncated and stops the walk`() {
+        val history = FakeBatteryHistory(records = levelSteps(10))
+
+        val snapshot = read(history, maxEvents = 3)
+
+        assertTrue(snapshot.truncated)
+        assertEquals(listOf(2L, 3L, 4L), snapshot.events.map { it.historyTimeMs })
+        assertTrue(history.consumed < 11)
+    }
+
+    @Test
+    fun `exactly maxEvents events are not truncated`() {
+        val snapshot = read(FakeBatteryHistory(records = levelSteps(10)), maxEvents = 10)
+
+        assertFalse(snapshot.truncated)
+        assertEquals(10, snapshot.events.size)
+    }
+
+    @Test
+    fun `maxEvents is capped at 4096`() {
+        val snapshot = read(FakeBatteryHistory(records = levelSteps(5_000)), maxEvents = 10_000)
+
+        assertTrue(snapshot.truncated)
+        assertEquals(4096, snapshot.events.size)
+        assertEquals(2L, snapshot.events.first().historyTimeMs)
+    }
+
+    @Test
+    fun `a page never ends inside one history timestamp`() {
+        val history = FakeBatteryHistory(
+            records = listOf(
+                record(time = 1, level = 50),
+                record(time = 2, level = 49),
+                record(time = 3, level = 48),
+                // Same millisecond as the next item: both must land on the same page.
+                record(time = 4, level = 47),
+                record(time = 4, level = 47, screenOn = true),
+            ),
+        )
+
+        val first = read(history, maxEvents = 3)
+
+        assertTrue(first.truncated)
+        assertEquals(listOf(2L, 3L), first.events.map { it.historyTimeMs })
+        val next = read(history, after = first.events.last().historyTimeMs, maxEvents = 3)
+        assertFalse(next.truncated)
+        assertEquals(listOf(HistoryKind.LEVEL, HistoryKind.SCREEN_ON), next.kinds())
+    }
+
+    @Test
+    fun `cursor skips old events but keeps state from before it`() {
+        val history = FakeBatteryHistory(
+            statsStartMs = 7_000L,
+            records = listOf(
+                record(time = 1, level = 50),
+                record(time = 2, level = 49),
+                record(time = 3, level = 48),
+                // The baseline at t=3 (48) makes this a change even though it is past the cursor.
+                record(time = 4, level = 47),
+            ),
+        )
+
+        val snapshot = read(history, statsStartMs = 7_000L, after = 3L)
+
+        assertFalse(snapshot.sessionChanged)
+        assertEquals(7_000L, snapshot.statsStartMs)
+        assertEquals(listOf(4L), snapshot.events.map { it.historyTimeMs })
+        assertEquals(47, snapshot.events.single().levelPct)
+    }
+
+    @Test
+    fun `a different session restarts the cursor at 0 and reports sessionChanged`() {
+        val history = FakeBatteryHistory(
+            statsStartMs = 9_000L,
+            records = listOf(record(time = 1, level = 50), record(time = 2, level = 49), record(time = 3, level = 48)),
+        )
+
+        val snapshot = read(history, statsStartMs = 7_000L, after = 2L)
+
+        assertTrue(snapshot.sessionChanged)
+        assertEquals(9_000L, snapshot.statsStartMs)
+        assertEquals(listOf(2L, 3L), snapshot.events.map { it.historyTimeMs })
+    }
+
+    @Test
+    fun `LinkageError during the walk maps to no_such_method and still closes`() {
+        val history = FakeBatteryHistory(
+            records = levelSteps(3),
+            failure = NoSuchFieldError("batteryChargeUah"),
+            failAfter = 2,
+        )
+
+        val snapshot = read(history)
+
+        assertUnavailable(Reasons.NO_SUCH_METHOD, snapshot.available, snapshot.reason)
+        assertEquals(1, history.closed)
+    }
+
+    @Test
+    fun `LinkageError from the query maps to no_such_method`() {
+        val calls = FakeBatteryStatsCalls(failure = NoSuchMethodError("includeBatteryHistory"))
+
+        val snapshot = BatteryStatsClient({ fakeBinder }, 35, { 0 }) { calls }.readHistory(0L, 0L, 10)
+
+        assertUnavailable(Reasons.NO_SUCH_METHOD, snapshot.available, snapshot.reason)
+    }
+
+    @Test
+    fun `successful read closes the history exactly once`() {
+        val history = FakeBatteryHistory(records = levelSteps(2))
+
+        val snapshot = read(history)
+
+        assertTrue(snapshot.available)
+        assertEquals(1, history.closed)
+    }
+
+    @Test
+    fun `missing stats maps to remote`() {
+        val snapshot = BatteryStatsClient({ fakeBinder }, 35, { 0 }) { FakeBatteryStatsCalls(history = null) }
+            .readHistory(0L, 0L, 10)
+
+        assertUnavailable(Reasons.REMOTE, snapshot.available, snapshot.reason)
+    }
+
+    @Test
+    fun `history query asks for the longest preferred duration only on api 36+`() {
+        fun queryFor(sdkInt: Int): List<String> {
+            val calls = FakeBatteryStatsCalls()
+            BatteryStatsClient({ fakeBinder }, sdkInt, { 0 }) { calls }.readHistory(0L, 0L, 10)
+            return calls.builder.calls
+        }
+
+        assertEquals(listOf("includeBatteryHistory"), queryFor(35))
+        val expected = listOf("includeBatteryHistory", "setPreferredHistoryDurationMs($PREFERRED_HISTORY_DURATION_MS)")
+        assertEquals(expected, queryFor(36))
+        assertEquals(expected, queryFor(37))
+    }
+}
