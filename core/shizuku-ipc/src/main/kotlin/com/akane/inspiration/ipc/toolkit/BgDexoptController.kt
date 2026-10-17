@@ -86,17 +86,28 @@ internal class BgDexoptController(
 
     private fun supervise(process: CommandProcess) {
         val deadline = synchronized(lock) { startedAtMs } + capMs
+        var lastCheckMs = clockMs()
         var cancelReason = BgDexoptReason.NONE
         while (cancelReason == BgDexoptReason.NONE) {
-            val slice = minOf(recheckMs, maxOf(deadline - clockMs(), 1L))
-            if (process.awaitExit(slice)) {
+            // Short waits so a user cancel is noticed promptly; the plugged re-check stays at recheckMs.
+            if (process.awaitExit(minOf(WAIT_SLICE_MS, maxOf(deadline - clockMs(), 1L)))) {
                 finishFromExit(process)
                 return
             }
-            cancelReason = when {
-                clockMs() >= deadline -> BgDexoptReason.TIMEOUT
-                !plugged.isPlugged() -> BgDexoptReason.UNPLUGGED
-                else -> BgDexoptReason.NONE
+            val now = clockMs()
+            when {
+                synchronized(lock) { userCancelRequested } -> {
+                    // `--cancel` was already issued; give the job a bounded time to wind down.
+                    val exited = process.awaitExit(DEFAULT_COMMAND_TIMEOUT_MS)
+                    val exit = if (exited) process.output(timedOut = false).exitCode else 0
+                    finish(BgDexoptState.CANCELLED, exit = exit, why = BgDexoptReason.USER)
+                    return
+                }
+                now >= deadline -> cancelReason = BgDexoptReason.TIMEOUT
+                now - lastCheckMs >= recheckMs -> {
+                    lastCheckMs = now
+                    if (!plugged.isPlugged()) cancelReason = BgDexoptReason.UNPLUGGED
+                }
             }
         }
         runner.run(BG_DEXOPT_CANCEL_ARGV)
@@ -124,6 +135,7 @@ internal class BgDexoptController(
     }
 
     companion object {
+        const val WAIT_SLICE_MS = 1_000L
         const val RECHECK_MS = 30_000L
         const val CAP_MS = 60L * 60_000L
     }

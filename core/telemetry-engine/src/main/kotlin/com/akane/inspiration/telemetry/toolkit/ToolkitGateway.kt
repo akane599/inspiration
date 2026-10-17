@@ -70,15 +70,18 @@ class ToolkitGateway(
 
     suspend fun forceStop(pkg: String): GatewayReply<ToolkitResult> = call { it.forceStop(pkg) }
 
+    // The hold is taken inside the binder session, before the manager drops its per-call use of
+    // the service: with no holder at that moment the idle unbind (remove=true) would destroy the
+    // service, and the process supervising the job with it.
     suspend fun startBgDexopt(): GatewayReply<ToolkitResult> =
-        call { it.startBgDexopt() }.also { reply ->
-            if (reply is GatewayReply.Reply && reply.value.isDone) holdBindingWhileRunning()
+        call { service ->
+            service.startBgDexopt()?.also { result -> if (result.isDone) holdBindingWhileRunning() }
         }
 
     suspend fun bgDexoptStatus(): GatewayReply<BgDexoptStatus> =
-        call { it.getBgDexoptStatus() }.also { reply ->
-            if (reply is GatewayReply.Reply) {
-                if (reply.value.state == BgDexoptState.RUNNING) holdBindingWhileRunning() else releaseHold()
+        call { service ->
+            service.getBgDexoptStatus()?.also { status ->
+                if (status.state == BgDexoptState.RUNNING) holdBindingWhileRunning() else releaseHold()
             }
         }
 

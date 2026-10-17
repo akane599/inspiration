@@ -53,8 +53,11 @@ class ToolkitGatewayTest {
 
         override fun start() = Unit
 
+        /** Binding holders alive at the moment each call's service use ended (0 would unbind and destroy it). */
+        val holdersWhenCallEnded = mutableListOf<Int>()
+
         override suspend fun <T> withTelemetryService(timeoutMs: Long, block: suspend (ITelemetryUserService) -> T): T? =
-            if (available) block(service) else null
+            if (available) block(service).also { holdersWhenCallEnded += openHolds } else null
 
         override fun holdBinding(): AutoCloseable {
             holds += 1
@@ -146,11 +149,17 @@ class ToolkitGatewayTest {
     fun `the binding is held while dexopt is running and released when it stops`() = runTest {
         gateway.startBgDexopt()
         assertEquals(1, shizuku.openHolds)
+        assertEquals(
+            "the hold exists before the start call's service use ends, so the idle unbind cannot kill the service",
+            listOf(1),
+            shizuku.holdersWhenCallEnded,
+        )
 
         gateway.bgDexoptStatus()
         gateway.bgDexoptStatus()
         assertEquals("one hold however often status is read", 1, shizuku.holds)
         assertEquals(1, shizuku.openHolds)
+        assertEquals(listOf(1, 1, 1), shizuku.holdersWhenCallEnded)
 
         dexoptState = BgDexoptState.FINISHED
         gateway.bgDexoptStatus()

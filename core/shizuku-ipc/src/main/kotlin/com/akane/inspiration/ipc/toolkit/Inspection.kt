@@ -113,11 +113,15 @@ internal class AndroidPackageInspector(
 }
 
 /**
- * Plugged-in state from the sticky ACTION_BATTERY_CHANGED, falling back to sysfs
- * `power_supply/<non-battery>/online` when no sticky intent is available.
+ * Plugged-in state, first answer wins: the sticky ACTION_BATTERY_CHANGED, then BatteryService's own
+ * view via `cmd battery get`, then sysfs `power_supply/<non-battery>/online`. The middle step exists
+ * because a shell-UID service Context cannot reliably register for the sticky intent, and sysfs
+ * alone ignores BatteryService state overrides (`dumpsys battery unplug`), which the emulator
+ * proof needs. Anything unknown is "not plugged" (fail closed).
  */
 internal class AndroidPluggedProbe(
     private val context: Context,
+    private val runner: CommandRunner,
     private val fileRoot: File = File("/"),
 ) : PluggedProbe {
     override fun isPlugged(): Boolean {
@@ -129,7 +133,19 @@ internal class AndroidPluggedProbe(
         if (sticky != null) {
             return sticky.getIntExtra(BatteryManager.EXTRA_PLUGGED, 0) != 0
         }
-        return sysfsPlugged()
+        return batteryServicePlugged() ?: sysfsPlugged()
+    }
+
+    private fun batteryServicePlugged(): Boolean? {
+        var answered = false
+        for (source in listOf("ac", "usb", "wireless", "dock")) {
+            val out = runner.run(listOf(CMD, "battery", "get", source))
+            when (if (out.ok) out.text.trim() else null) {
+                "true" -> return true
+                "false" -> answered = true
+            }
+        }
+        return if (answered) false else null
     }
 
     private fun sysfsPlugged(): Boolean {

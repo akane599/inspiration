@@ -5,6 +5,7 @@ import android.content.pm.PackageManager
 import android.os.Binder
 import android.os.IBinder
 import android.os.ParcelFileDescriptor
+import android.os.Process
 import android.os.ServiceManager
 import android.os.SystemClock
 import androidx.annotation.Keep
@@ -145,8 +146,16 @@ class TelemetryUserService private constructor(
     )
 
     override fun destroy() {
-        if (!isCallerAllowed()) return
+        // Shizuku's server (same shell UID as this process) calls destroy() when the app unbinds with
+        // remove=true; without accepting it the process leaks and answers later calls with stale state.
+        if (!isCallerAllowed() && !isCalledByOwnUid()) return
         System.exit(0)
+    }
+
+    private fun isCalledByOwnUid(): Boolean = try {
+        callingUid() == Process.myUid()
+    } catch (_: RuntimeException) {
+        false
     }
 
     override fun readKernelBattery(): KernelBatterySnapshot {
@@ -374,7 +383,7 @@ class TelemetryUserService private constructor(
             val runner = ProcessCommandRunner()
             val dexopt = BgDexoptController(
                 runner = runner,
-                plugged = AndroidPluggedProbe(context),
+                plugged = AndroidPluggedProbe(context, runner),
                 clockMs = System::currentTimeMillis,
                 startThread = { job -> Thread(job, "bg-dexopt").apply { isDaemon = true }.start() },
             )
