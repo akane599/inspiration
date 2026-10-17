@@ -1,0 +1,4 @@
+<resources>
+    <!-- Window theme only; all UI styling lives in ui/theme/*.kt -->
+    <style name="Theme.Inspiration" parent="android:Theme.Material.Light.NoActionBar" />
+</resources>
