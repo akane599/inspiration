@@ -4,6 +4,7 @@ import com.akane.inspiration.telemetry.proto.AlarmManagerServiceDumpProto
 import com.akane.inspiration.telemetry.proto.BatteryStatsServiceDumpProto
 import com.akane.inspiration.telemetry.proto.PowerManagerServiceDumpProto
 import com.akane.inspiration.telemetry.proto.SystemProto
+import com.akane.inspiration.telemetry.proto.UidProto
 
 object DumpParser {
     fun parseBatteryStats(bytes: ByteArray): DumpParse<DumpSnapshot> = try {
@@ -98,6 +99,9 @@ object DumpParser {
                 dischargeScreenOffMah = discharge.totalMahScreenOff.toDouble(),
                 chargeTimeRemainingMs = system.knownChargeTimeRemainingMs(),
                 dischargeTimeRemainingMs = system.knownDischargeTimeRemainingMs(),
+                signalStrengthMs = system.phoneSignalStrengthList.toSignalBins(),
+                signalScanningMs = if (system.hasSignalScanning()) system.signalScanning.durationMs else null,
+                mobileRadioActiveMs = if (misc.hasMobileRadioActiveDurationMs()) misc.mobileRadioActiveDurationMs else null,
             ),
             kernelWakelocks = system.kernelWakelockList.toMergedKernelWakelocks(),
             wakeupReasons = system.wakeupReasonList.toMergedWakeupReasons(),
@@ -124,6 +128,7 @@ object DumpParser {
                                 state.byFrequencyList.sumOf { it.totalDurationMs }
                             }
                         },
+                    sensors = uid.sensorsList.toMergedSensors(),
                 )
             },
             cpuFrequenciesKhz = system.cpuFrequencyList,
@@ -139,6 +144,26 @@ object DumpParser {
     private fun SystemProto.knownDischargeTimeRemainingMs(): Long? =
         dischargeTimeRemainingMs.takeIf {
             timeRemainingCase == SystemProto.TimeRemainingCase.DISCHARGE_TIME_REMAINING_MS && it >= 0
+        }
+
+    // Bins are the telephony SignalStrength names 0..4 (none/unknown .. great). Empty when the dump has
+    // no recognised bin; a bin missing alongside present ones counts as 0 ms. Unknown names are ignored.
+    private fun List<SystemProto.PhoneSignalStrength>.toSignalBins(): List<Long> {
+        val known = filter { it.name in 0 until SIGNAL_BIN_COUNT }
+        if (known.isEmpty()) return emptyList()
+        val totals = LongArray(SIGNAL_BIN_COUNT)
+        known.forEach { totals[it.name] += it.total.durationMs }
+        return totals.toList()
+    }
+
+    private fun List<UidProto.Sensor>.toMergedSensors(): List<UidSensor> =
+        groupBy { it.id }.map { (handle, rows) ->
+            UidSensor(
+                handle = handle,
+                totalMs = rows.sumOf { it.apportioned.durationMs },
+                bgMs = rows.sumOf { it.background.durationMs },
+                count = rows.sumOf { it.apportioned.count },
+            )
         }
 
     private fun List<SystemProto.KernelWakelock>.toMergedKernelWakelocks(): List<KernelWakelock> =
@@ -176,4 +201,5 @@ object DumpParser {
     private const val MIN_BATTERYSTATS_REPORT_VERSION = 35
     private const val MAX_KNOWN_BATTERYSTATS_REPORT_VERSION = 36
     private const val UNNAMED_WAKELOCK = "<unnamed>"
+    private const val SIGNAL_BIN_COUNT = 5
 }

@@ -2,6 +2,7 @@ package com.akane.inspiration.telemetry.diff
 
 import com.akane.inspiration.telemetry.dump.KernelWakelock
 import com.akane.inspiration.telemetry.dump.UidAlarm
+import com.akane.inspiration.telemetry.dump.UidSensor
 import com.akane.inspiration.telemetry.dump.UidWakelock
 import com.akane.inspiration.telemetry.snapshot.BatterySnapshot
 import com.akane.inspiration.telemetry.snapshot.DiffValidity
@@ -42,6 +43,26 @@ object SnapshotDiffer {
             emptyList()
         }
 
+        val refSystem = ref.system.takeIf { batteryStatsSessionValid }
+        val nowSystem = now.system.takeIf { batteryStatsSessionValid }
+        val signalStrength = diffSignalBins(
+            refSystem?.signalStrengthMs.orEmpty(),
+            nowSystem?.signalStrengthMs.orEmpty(),
+            problems,
+        )
+        val signalScanning = diffTimer(
+            refSystem?.signalScanningMs,
+            nowSystem?.signalScanningMs,
+            "negative_signal_scanning",
+            problems,
+        )
+        val mobileRadioActive = diffTimer(
+            refSystem?.mobileRadioActiveMs,
+            nowSystem?.mobileRadioActiveMs,
+            "negative_mobile_radio_active",
+            problems,
+        )
+
         return SnapshotDiff(
             ref = ref.clock,
             now = now.clock,
@@ -65,6 +86,9 @@ object SnapshotDiffer {
             dischargedMah = ref.battery.dischargedMah?.let { previous ->
                 now.battery.dischargedMah?.minus(previous)
             },
+            signalStrengthMs = signalStrength,
+            signalScanningMs = signalScanning,
+            mobileRadioActiveMs = mobileRadioActive,
         )
     }
 
@@ -113,6 +137,7 @@ object SnapshotDiffer {
                     fgServiceMs = 0,
                     partialWakelocks = previous?.partialWakelocks?.map { it.copy(durationMs = 0, bgDurationMs = 0, count = 0) }.orEmpty(),
                     wakeupAlarms = previous?.wakeupAlarms?.map { it.copy(count = 0) }.orEmpty(),
+                    sensors = previous?.sensors?.map { it.copy(totalMs = 0, bgMs = 0, count = 0) }.orEmpty(),
                 )
             } else {
                 val packageChanged = uid >= FIRST_APPLICATION_UID && previous != null && previous.packageName != current.packageName
@@ -134,6 +159,7 @@ object SnapshotDiffer {
                     fgServiceMs = current.fgServiceMs - (baseline?.fgServiceMs ?: 0),
                     partialWakelocks = diffUidWakelocks(baseline?.partialWakelocks.orEmpty(), current.partialWakelocks, uid, problems),
                     wakeupAlarms = diffUidAlarms(baseline?.wakeupAlarms.orEmpty(), current.wakeupAlarms, uid, problems),
+                    sensors = diffUidSensors(baseline?.sensors.orEmpty(), current.sensors, uid, problems),
                 )
                 val valid = !hasNegative(delta)
                 if (!valid) problems += "negative_uid:$uid"
@@ -209,6 +235,53 @@ object SnapshotDiffer {
         }
     }
 
+    private fun diffUidSensors(
+        ref: List<UidSensor>,
+        now: List<UidSensor>,
+        uid: Int,
+        problems: MutableList<String>,
+    ): List<UidSensor> = (ref.map(UidSensor::handle) + now.map(UidSensor::handle)).distinct().sorted().map { handle ->
+        val previous = ref.filter { it.handle == handle }
+        val current = now.filter { it.handle == handle }
+        UidSensor(
+            handle = handle,
+            totalMs = current.sumOf(UidSensor::totalMs) - previous.sumOf(UidSensor::totalMs),
+            bgMs = current.sumOf(UidSensor::bgMs) - previous.sumOf(UidSensor::bgMs),
+            count = current.sumOf(UidSensor::count) - previous.sumOf(UidSensor::count),
+        ).also { delta ->
+            if (delta.totalMs < 0 || delta.bgMs < 0 || delta.count < 0) {
+                problems += "negative_uid_sensor:$uid:$handle"
+            }
+        }
+    }
+
+    private fun diffSignalBins(
+        ref: List<Long>,
+        now: List<Long>,
+        problems: MutableList<String>,
+    ): List<Long> {
+        if (ref.isEmpty() || now.isEmpty() || ref.size != now.size) return emptyList()
+        val bins = now.zip(ref) { current, previous -> current - previous }
+        val negative = bins.indices.filter { bins[it] < 0 }
+        negative.forEach { problems += "negative_signal_strength:$it" }
+        return if (negative.isEmpty()) bins else emptyList()
+    }
+
+    private fun diffTimer(
+        ref: Long?,
+        now: Long?,
+        problem: String,
+        problems: MutableList<String>,
+    ): Long? {
+        if (ref == null || now == null) return null
+        val value = now - ref
+        if (value < 0) {
+            problems += problem
+            return null
+        }
+        return value
+    }
+
     private fun sleepStats(
         ref: BatterySnapshot,
         now: BatterySnapshot,
@@ -256,7 +329,8 @@ object SnapshotDiffer {
             delta.fgActivityMs < 0 ||
             delta.fgServiceMs < 0 ||
             delta.partialWakelocks.any { it.durationMs < 0 || it.bgDurationMs < 0 || it.count < 0 } ||
-            delta.wakeupAlarms.any { it.count < 0 }
+            delta.wakeupAlarms.any { it.count < 0 } ||
+            delta.sensors.any { it.totalMs < 0 || it.bgMs < 0 || it.count < 0 }
 
     private fun delta(now: Double?, ref: Double?): Double? = now?.minus(ref ?: 0.0)
 

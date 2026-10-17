@@ -99,6 +99,7 @@ class SnapshotCapturer(
                     fgServiceMs = dumpUid?.fgServiceMs ?: 0L,
                     partialWakelocks = mergeWakelocks(dumpUid?.partialWakelocks.orEmpty()),
                     wakeupAlarms = alarms[uid].orEmpty(),
+                    sensors = dumpUid?.sensors.orEmpty(),
                 )
             }
         val deviceComponents = usage?.deviceComponents?.takeIf { it.isNotEmpty() }

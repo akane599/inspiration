@@ -6,6 +6,7 @@ import com.akane.inspiration.telemetry.capacity.ChargeSegment
 import com.akane.inspiration.telemetry.capacity.SegmentVerdict
 import com.akane.inspiration.telemetry.dump.KernelWakelock
 import com.akane.inspiration.telemetry.dump.UidAlarm
+import com.akane.inspiration.telemetry.dump.UidSensor
 import com.akane.inspiration.telemetry.snapshot.BatterySnapshot
 import com.akane.inspiration.telemetry.snapshot.BatteryState
 import com.akane.inspiration.telemetry.snapshot.CaptureTrigger
@@ -92,6 +93,100 @@ class SnapshotDifferTest {
         assertEquals(0.1, diff.uids.last().totalMah, 0.000_001)
         assertTrue(diff.validity.problems.contains("negative_uid_component:10001:SENSORS"))
         assertTrue(diff.validity.problems.contains("negative_device_component:SENSORS"))
+    }
+
+    @Test
+    fun `system timer deltas cover signal bins scanning and radio active`() {
+        val diff = SnapshotDiffer.diff(
+            withTimers(snapshot(elapsed = 1_000), listOf(10, 20, 30, 40, 50), scanning = 5, radio = 100),
+            withTimers(snapshot(elapsed = 2_000, duration = 2_000), listOf(11, 25, 30, 90, 60), scanning = 9, radio = 450),
+        )
+
+        assertEquals(listOf(1L, 5L, 0L, 50L, 10L), diff.signalStrengthMs)
+        assertEquals(4L, diff.signalScanningMs)
+        assertEquals(350L, diff.mobileRadioActiveMs)
+    }
+
+    @Test
+    fun `negative system timer deltas become null with a problem and keep the diff valid`() {
+        val diff = SnapshotDiffer.diff(
+            withTimers(snapshot(elapsed = 1_000), listOf(10, 20, 30, 40, 50), scanning = 5, radio = 100),
+            withTimers(snapshot(elapsed = 2_000, duration = 2_000), listOf(10, 19, 30, 40, 50), scanning = 4, radio = 99),
+        )
+
+        assertTrue(diff.validity.batteryStats)
+        assertTrue(diff.signalStrengthMs.isEmpty())
+        assertNull(diff.signalScanningMs)
+        assertNull(diff.mobileRadioActiveMs)
+        assertTrue(diff.validity.problems.contains("negative_signal_strength:1"))
+        assertTrue(diff.validity.problems.contains("negative_signal_scanning"))
+        assertTrue(diff.validity.problems.contains("negative_mobile_radio_active"))
+    }
+
+    @Test
+    fun `system timers missing on either side give empty or null deltas`() {
+        val bare = snapshot(elapsed = 1_000, systemStart = 100_000)
+        val withData = withTimers(snapshot(elapsed = 2_000, duration = 2_000), listOf(1, 2, 3, 4, 5), scanning = 3, radio = 4)
+        val diff = SnapshotDiffer.diff(bare, withData)
+
+        assertTrue(diff.signalStrengthMs.isEmpty())
+        assertNull(diff.signalScanningMs)
+        assertNull(diff.mobileRadioActiveMs)
+        assertTrue(diff.validity.problems.none { it.startsWith("negative_signal") || it.startsWith("negative_mobile") })
+        assertNull(SnapshotDiffer.diff(snapshot(elapsed = 1_000), snapshot(elapsed = 2_000, duration = 2_000)).mobileRadioActiveMs)
+    }
+
+    @Test
+    fun `uid sensors diff by handle and treat an added sensor as starting at zero`() {
+        val gps = UidSensor(-10_000, totalMs = 1_000, bgMs = 400, count = 2)
+        val hal = UidSensor(7, totalMs = 50, bgMs = 0, count = 1)
+        val diff = SnapshotDiffer.diff(
+            snapshot(elapsed = 1_000, uids = listOf(uid(totalMah = 1.0).copy(sensors = listOf(gps)))),
+            snapshot(
+                elapsed = 2_000,
+                duration = 2_000,
+                uids = listOf(
+                    uid(totalMah = 1.0).copy(
+                        sensors = listOf(gps.copy(totalMs = 1_600, bgMs = 900, count = 3), hal),
+                    ),
+                ),
+            ),
+        )
+
+        val delta = diff.uids.single()
+        assertTrue(delta.valid)
+        assertEquals(
+            listOf(UidSensor(-10_000, 600, 500, 1), UidSensor(7, 50, 0, 1)),
+            delta.sensors,
+        )
+    }
+
+    @Test
+    fun `negative uid sensor delta invalidates only that uid delta`() {
+        val diff = SnapshotDiffer.diff(
+            snapshot(
+                elapsed = 1_000,
+                uids = listOf(
+                    uid(totalMah = 1.0).copy(sensors = listOf(UidSensor(7, 100, 10, 2))),
+                    uid(uid = 10_002, totalMah = 1.0),
+                ),
+            ),
+            snapshot(
+                elapsed = 2_000,
+                duration = 2_000,
+                uids = listOf(
+                    uid(totalMah = 1.0).copy(sensors = listOf(UidSensor(7, 90, 10, 2))),
+                    uid(uid = 10_002, totalMah = 1.0),
+                ),
+            ),
+        )
+
+        assertTrue(diff.validity.batteryStats)
+        assertFalse(diff.uids.first().valid)
+        assertTrue(diff.uids.last().valid)
+        assertEquals(-10L, diff.uids.first().sensors.single().totalMs)
+        assertTrue(diff.validity.problems.contains("negative_uid_sensor:10001:7"))
+        assertTrue(diff.validity.problems.contains("negative_uid:10001"))
     }
 
     @Test
@@ -235,6 +330,19 @@ class SnapshotDifferTest {
         dischargeScreenOffMah = 0.0,
         chargeTimeRemainingMs = null,
         dischargeTimeRemainingMs = null,
+    )
+
+    private fun withTimers(
+        snapshot: BatterySnapshot,
+        bins: List<Long>,
+        scanning: Long?,
+        radio: Long?,
+    ) = snapshot.copy(
+        system = systemTimers(100_000).copy(
+            signalStrengthMs = bins,
+            signalScanningMs = scanning,
+            mobileRadioActiveMs = radio,
+        ),
     )
 
     private fun history(wallMs: Long, kind: Int) = HistoryEvent(0, wallMs, kind, 0, -1, 0, 0, 0)
