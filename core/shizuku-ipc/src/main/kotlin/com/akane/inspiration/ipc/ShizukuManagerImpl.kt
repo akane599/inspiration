@@ -11,11 +11,14 @@ import android.util.Log
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 import rikka.shizuku.Shizuku
@@ -23,7 +26,7 @@ import rikka.shizuku.Shizuku
 class ShizukuManagerImpl private constructor(
     private val context: Context,
     private val facade: ShizukuFacade,
-    @Suppress("unused") private val scope: CoroutineScope,
+    private val scope: CoroutineScope,
     private val applicationInfoProvider: ShizukuApplicationInfoProvider,
     private val ioDispatcher: CoroutineDispatcher,
     @Suppress("unused") ignored: Unit,
@@ -58,17 +61,37 @@ class ShizukuManagerImpl private constructor(
     private var applicationInfo: ShizukuApplicationInfo? = null
     private var serviceArgs: Shizuku.UserServiceArgs? = null
 
+    /**
+     * Set by an unbind(remove=true) until the destroyed process's death reaches [userServiceConnection].
+     * Shizuku keeps one connection stub per service class and remove=true does not clear it, so a bind
+     * issued before that death would share the stub: the old death would then disconnect the new binding
+     * and swallow its connect (SQ-114). Binds are deferred until the death (or [UNBIND_SETTLE_TIMEOUT_MS]).
+     */
+    private var awaitingUnboundDeath = false
+    private var settleTimeout: Job? = null
+    private var idleUnbind: Job? = null
+
     private val userServiceConnection =
         object : ServiceConnection {
             override fun onServiceConnected(
                 name: ComponentName,
                 service: IBinder,
             ) {
-                mutableTelemetryService.value = ITelemetryUserService.Stub.asInterface(service)
+                synchronized(bindingLock) {
+                    // A late connect from a binding already unbound must not resurrect a dying service.
+                    if (serviceBound && !awaitingUnboundDeath) {
+                        mutableTelemetryService.value = ITelemetryUserService.Stub.asInterface(service)
+                    }
+                }
             }
 
             override fun onServiceDisconnected(name: ComponentName) {
                 synchronized(bindingLock) {
+                    if (awaitingUnboundDeath) {
+                        // The unbound process died and Shizuku dropped its stub: a fresh bind is safe now.
+                        finishUnbindSettleLocked()
+                        return
+                    }
                     serviceBound = false
                     serviceGeneration += 1
                     serviceArgs = null
@@ -88,6 +111,11 @@ class ShizukuManagerImpl private constructor(
                 serviceBound = false
                 serviceGeneration += 1
                 serviceArgs = null
+                awaitingUnboundDeath = false
+                settleTimeout?.cancel()
+                settleTimeout = null
+                idleUnbind?.cancel()
+                idleUnbind = null
                 mutableTelemetryService.value = null
                 mutableState.value = ShizukuState.NotRunning
             }
@@ -185,10 +213,38 @@ class ShizukuManagerImpl private constructor(
     private fun releaseServiceUse() {
         synchronized(bindingLock) {
             activeServiceUsers -= 1
-            if (activeServiceUsers == 0 && bindingHolders == 0) {
-                unbindTelemetryServiceLocked()
-            }
+            scheduleIdleUnbindLocked()
         }
+    }
+
+    /**
+     * When the last user or holder goes, the service lingers [IDLE_UNBIND_DELAY_MS] before unbind(remove=true),
+     * so screen handovers and the back-to-back calls of one sheet reuse it instead of killing and restarting a
+     * process each time. Any new user/holder cancels it; stop() and an unavailable state unbind at once. Kept
+     * short so the service still goes away right after the app leaves the foreground (H13).
+     */
+    private fun scheduleIdleUnbindLocked() {
+        if (activeServiceUsers != 0 || bindingHolders != 0 || !serviceBound) {
+            return
+        }
+        idleUnbind?.cancel()
+        idleUnbind =
+            scope.launch {
+                delay(IDLE_UNBIND_DELAY_MS)
+                synchronized(bindingLock) {
+                    idleUnbind = null
+                    if (activeServiceUsers == 0 && bindingHolders == 0) {
+                        unbindTelemetryServiceLocked()
+                    }
+                }
+            }
+    }
+
+    private fun finishUnbindSettleLocked() {
+        awaitingUnboundDeath = false
+        settleTimeout?.cancel()
+        settleTimeout = null
+        bindIfRequiredLocked()
     }
 
     private fun updateState() {
@@ -238,7 +294,12 @@ class ShizukuManagerImpl private constructor(
 
     private fun bindIfRequiredLocked() {
         val info = applicationInfo ?: return
-        if (serviceBound || (activeServiceUsers == 0 && bindingHolders == 0)) {
+        if (activeServiceUsers == 0 && bindingHolders == 0) {
+            return
+        }
+        idleUnbind?.cancel()
+        idleUnbind = null
+        if (serviceBound || awaitingUnboundDeath) {
             return
         }
         val args =
@@ -252,12 +313,26 @@ class ShizukuManagerImpl private constructor(
     }
 
     private fun unbindTelemetryServiceLocked() {
+        idleUnbind?.cancel()
+        idleUnbind = null
         val args = serviceArgs ?: return
         if (serviceBound) {
             facade.unbindUserService(args, userServiceConnection, true)
+            awaitingUnboundDeath = true
+            settleTimeout?.cancel()
+            settleTimeout =
+                scope.launch {
+                    delay(UNBIND_SETTLE_TIMEOUT_MS)
+                    synchronized(bindingLock) {
+                        settleTimeout = null
+                        if (awaitingUnboundDeath) finishUnbindSettleLocked()
+                    }
+                }
         }
         serviceBound = false
         serviceArgs = null
+        serviceGeneration += 1
+        mutableTelemetryService.value = null
     }
 
     private inner class BindingHolder : AutoCloseable {
@@ -270,9 +345,7 @@ class ShizukuManagerImpl private constructor(
                 }
                 closed = true
                 bindingHolders -= 1
-                if (bindingHolders == 0 && activeServiceUsers == 0) {
-                    unbindTelemetryServiceLocked()
-                }
+                scheduleIdleUnbindLocked()
             }
         }
     }
@@ -288,6 +361,12 @@ class ShizukuManagerImpl private constructor(
     private companion object {
         const val PERMISSION_REQUEST_CODE = 1
         const val TAG = "ShizukuManager"
+
+        /** Idle linger before unbind(remove=true); short on purpose (H13). */
+        const val IDLE_UNBIND_DELAY_MS = 3_000L
+
+        /** Fallback when an unbound service's death never arrives (e.g. it never started). */
+        const val UNBIND_SETTLE_TIMEOUT_MS = 2_000L
         const val TELEMETRY_USER_SERVICE_CLASS =
             "com.akane.inspiration.ipc.service.TelemetryUserService"
     }

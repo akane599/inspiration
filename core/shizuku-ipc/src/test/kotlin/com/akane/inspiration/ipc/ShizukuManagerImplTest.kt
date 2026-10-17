@@ -12,6 +12,8 @@ import kotlinx.coroutines.async
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.TestScope
+import kotlinx.coroutines.test.advanceTimeBy
+import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
@@ -97,6 +99,7 @@ class ShizukuManagerImplTest {
         fixture.facade.deliverServiceConnected()
 
         assertEquals("complete", result.await())
+        advanceTimeBy(LINGER_MS + 1)
         assertEquals(1, fixture.facade.unbindCalls)
         assertTrue(fixture.facade.lastUnbindRemove)
     }
@@ -115,6 +118,7 @@ class ShizukuManagerImplTest {
 
         holder.close()
         holder.close()
+        advanceTimeBy(LINGER_MS + 1)
         assertEquals(1, fixture.facade.unbindCalls)
         assertTrue(fixture.facade.lastUnbindRemove)
     }
@@ -125,6 +129,7 @@ class ShizukuManagerImplTest {
         fixture.manager.start()
 
         assertNull(fixture.manager.withTelemetryService(1L) { Unit })
+        advanceTimeBy(LINGER_MS + 1)
         assertEquals(1, fixture.facade.bindCalls)
         assertEquals(1, fixture.facade.unbindCalls)
     }
@@ -160,6 +165,7 @@ class ShizukuManagerImplTest {
 
         assertEquals("first", first.await())
         assertEquals("second", second.await())
+        advanceTimeBy(LINGER_MS + 1)
         assertEquals(1, fixture.facade.unbindCalls)
     }
 
@@ -212,6 +218,135 @@ class ShizukuManagerImplTest {
         assertTrue(fixture.facade.lastUnbindRemove)
     }
 
+    // SQ-114: holder-to-holder handover (Cockpit/Health -> Toolkit) and back-to-back single calls (Toolkit app
+    // sheet). Shizuku reuses one connection set per service class, and unbind(remove=true) leaves it in place,
+    // so the old process's death reaches the new binding's connection and drops the new process's connect.
+
+    @Test
+    fun handoverAfterUnbindSurvivesTheOldServicesLateDeath() = runTest {
+        val fixture = Fixture(this)
+        fixture.manager.start()
+        val first = fixture.manager.holdBinding()
+        fixture.facade.deliverServiceConnected()
+        first.close()
+        advanceTimeBy(LINGER_MS + 1)
+        assertEquals(1, fixture.facade.unbindCalls)
+
+        val second = fixture.manager.holdBinding()
+        fixture.facade.deliverServiceDied() // the unbound (old) process exits after the new acquire
+        runCurrent()
+        fixture.facade.deliverServiceConnected() // the new process
+
+        assertNotNull("the new binding must receive its service", fixture.manager.telemetryService.value)
+        assertEquals(2, fixture.facade.bindCalls)
+        assertEquals("ok", fixture.manager.withTelemetryService(1_000L) { "ok" })
+        assertEquals("no duplicate bindUserService for the same args", 2, fixture.facade.bindCalls)
+
+        second.close()
+        advanceUntilIdle()
+        assertEquals("the rebound service is unbound when its last holder goes (H13)", 2, fixture.facade.unbindCalls)
+    }
+
+    @Test
+    fun noSecondBindIsIssuedWhileTheUnboundServiceIsStillDying() = runTest {
+        val fixture = Fixture(this)
+        fixture.manager.start()
+        fixture.manager.holdBinding().apply { fixture.facade.deliverServiceConnected() }.close()
+        advanceTimeBy(LINGER_MS + 1)
+
+        val holder = fixture.manager.holdBinding()
+        val result = async { fixture.manager.withTelemetryService(5_000L) { "answered" } }
+        runCurrent()
+        assertEquals("the bind waits for the old process's death", 1, fixture.facade.bindCalls)
+
+        fixture.facade.deliverServiceDied()
+        runCurrent()
+        assertEquals(2, fixture.facade.bindCalls)
+        fixture.facade.deliverServiceConnected()
+
+        assertEquals("answered", result.await())
+        assertEquals(2, fixture.facade.bindCalls)
+        holder.close()
+    }
+
+    @Test
+    fun aDeferredBindStillHappensWhenTheOldDeathNeverArrives() = runTest {
+        val fixture = Fixture(this)
+        fixture.manager.start()
+        fixture.manager.holdBinding().apply { fixture.facade.deliverServiceConnected() }.close()
+        advanceTimeBy(LINGER_MS + 1)
+
+        val holder = fixture.manager.holdBinding()
+        runCurrent()
+        assertEquals(1, fixture.facade.bindCalls)
+        advanceTimeBy(SETTLE_TIMEOUT_MS + 1)
+
+        assertEquals(2, fixture.facade.bindCalls)
+        holder.close()
+    }
+
+    @Test
+    fun unbindClearsTheDeadBinderForCallers() = runTest {
+        val fixture = Fixture(this)
+        fixture.manager.start()
+        val holder = fixture.manager.holdBinding()
+        fixture.facade.deliverServiceConnected()
+        assertNotNull(fixture.manager.telemetryService.value)
+
+        holder.close()
+        advanceTimeBy(LINGER_MS + 1)
+
+        assertEquals(1, fixture.facade.unbindCalls)
+        assertNull("callers must not grab the binder of a service being destroyed", fixture.manager.telemetryService.value)
+    }
+
+    @Test
+    fun aLateConnectFromTheUnboundServiceIsIgnored() = runTest {
+        val fixture = Fixture(this)
+        fixture.manager.start()
+        fixture.manager.holdBinding().close() // unbound before the service ever connected
+        advanceTimeBy(LINGER_MS + 1)
+        assertEquals(1, fixture.facade.unbindCalls)
+
+        fixture.facade.deliverServiceConnected()
+
+        assertNull(fixture.manager.telemetryService.value)
+    }
+
+    @Test
+    fun reacquiringWithinTheLingerKeepsTheServiceWithoutKillingIt() = runTest {
+        val fixture = Fixture(this)
+        fixture.manager.start()
+        val first = fixture.manager.holdBinding()
+        fixture.facade.deliverServiceConnected()
+
+        first.close()
+        advanceTimeBy(LINGER_MS / 2)
+        val second = fixture.manager.holdBinding()
+        advanceTimeBy(LINGER_MS * 2)
+
+        assertEquals(0, fixture.facade.unbindCalls)
+        assertEquals(1, fixture.facade.bindCalls)
+        assertNotNull(fixture.manager.telemetryService.value)
+        second.close()
+    }
+
+    @Test
+    fun theIdleLingerIsShortAndBounded() = runTest {
+        val fixture = Fixture(this)
+        fixture.manager.start()
+        val result = async { fixture.manager.withTelemetryService(1_000L) { Unit } }
+        runCurrent()
+        fixture.facade.deliverServiceConnected()
+        result.await()
+
+        advanceTimeBy(LINGER_MS - 1)
+        assertEquals("the service lingers briefly for the next caller", 0, fixture.facade.unbindCalls)
+        advanceTimeBy(2)
+        assertEquals(1, fixture.facade.unbindCalls)
+        assertTrue(fixture.facade.lastUnbindRemove)
+    }
+
     @Test
     fun withTelemetryServiceRunsBlockOffTheCallersMainThread() {
         val mainThread = Executors.newSingleThreadExecutor { Thread(it, "main-sim") }
@@ -240,6 +375,12 @@ class ShizukuManagerImplTest {
         } finally {
             mainThread.shutdownNow()
         }
+    }
+
+    private companion object {
+        /** Mirrors the manager's idle linger and unbind-settle timeout (literals, so the test reads standalone). */
+        const val LINGER_MS = 3_000L
+        const val SETTLE_TIMEOUT_MS = 2_000L
     }
 
     private class Fixture(
@@ -280,7 +421,13 @@ class ShizukuManagerImplTest {
         private var binderReceivedListener: Shizuku.OnBinderReceivedListener? = null
         private var binderDeadListener: Shizuku.OnBinderDeadListener? = null
         private var permissionListener: Shizuku.OnRequestPermissionResultListener? = null
-        private var serviceConnection: ServiceConnection? = null
+
+        /**
+         * Mirrors rikka.shizuku.ShizukuServiceConnection (api 13.1.5): one connection set per user-service
+         * class, reused across binds. unbindUserService(remove=true) does NOT clear it; the old process's
+         * died() notifies every connection in it, then clears the set (a later connected() reaches nobody).
+         */
+        private val connections = linkedSetOf<ServiceConnection>()
 
         override fun pingBinder(): Boolean = binderAlive
 
@@ -336,7 +483,7 @@ class ShizukuManagerImplTest {
 
         override fun bindUserService(args: Shizuku.UserServiceArgs, connection: ServiceConnection) {
             bindCalls += 1
-            serviceConnection = connection
+            connections += connection
         }
 
         override fun unbindUserService(
@@ -357,7 +504,14 @@ class ShizukuManagerImplTest {
         }
 
         fun deliverServiceConnected() {
-            serviceConnection?.onServiceConnected(ComponentName("test", "service"), Binder())
+            connections.toList().forEach { it.onServiceConnected(ComponentName("test", "service"), Binder()) }
+        }
+
+        /** The bound process exited (e.g. after unbind remove=true): Shizuku's died() path. */
+        fun deliverServiceDied() {
+            val notified = connections.toList()
+            connections.clear()
+            notified.forEach { it.onServiceDisconnected(ComponentName("test", "service")) }
         }
     }
 }

@@ -23,7 +23,10 @@ enum class GatewayUnavailable {
     /** Shizuku is not ready, the service did not bind in time, or the binder call failed. */
     NO_SERVICE,
 
-    /** The bound service predates API 2 (or rejected this caller), so it must not be written to. */
+    /**
+     * The bound service predates API 2, rejected this caller, or threw instead of answering, so it must not be
+     * written to.
+     */
     STALE_SERVICE,
 }
 
@@ -116,7 +119,10 @@ class ToolkitGateway(
                         ?: GatewayReply.Unavailable(GatewayUnavailable.STALE_SERVICE)
                 }
             } catch (_: RuntimeException) {
-                GatewayReply.Unavailable(GatewayUnavailable.NO_SERVICE)
+                // The service was reached but threw (e.g. a SecurityException from its caller check, or an
+                // exception it propagated): it answered, so this is not "can't be reached". A dead binder is a
+                // RemoteException, which the manager already turns into null (NO_SERVICE below).
+                GatewayReply.Unavailable(GatewayUnavailable.STALE_SERVICE)
             }
         }
         return reply ?: GatewayReply.Unavailable(GatewayUnavailable.NO_SERVICE)
