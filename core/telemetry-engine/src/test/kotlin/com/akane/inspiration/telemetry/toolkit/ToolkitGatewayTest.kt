@@ -30,6 +30,7 @@ class ToolkitGatewayTest {
     private var apiVersion = ToolkitApi.VERSION
     private var returnNull = false
     private var dexoptState = BgDexoptState.RUNNING
+    private var serviceThrows: RuntimeException? = null
 
     /** A service stand-in built with a dynamic proxy: the Binder stub cannot load in plain JVM tests. */
     private val service: ITelemetryUserService = Proxy.newProxyInstance(
@@ -37,6 +38,7 @@ class ToolkitGatewayTest {
         arrayOf(ITelemetryUserService::class.java),
     ) { _, method, args ->
         if (method.name == "getApiVersion") return@newProxyInstance apiVersion
+        serviceThrows?.let { throw it }
         sent += method.name + (args?.joinToString(prefix = "(", postfix = ")") { arg -> "$arg" } ?: "()")
         when {
             method.name == "getBgDexoptStatus" -> BgDexoptStatus(dexoptState, 1L, 0L, 0, BgDexoptReason.NONE)
@@ -133,6 +135,15 @@ class ToolkitGatewayTest {
         returnNull = true
 
         assertEquals(GatewayReply.Unavailable(GatewayUnavailable.STALE_SERVICE), gateway.getAppOps("com.example.app"))
+    }
+
+    @Test
+    fun `a service that throws is not reported as unreachable`() = runTest {
+        serviceThrows = SecurityException("caller rejected")
+
+        assertEquals(GatewayReply.Unavailable(GatewayUnavailable.STALE_SERVICE), gateway.getAppOps("com.example.app"))
+        serviceThrows = IllegalStateException("service-side failure")
+        assertEquals(GatewayReply.Unavailable(GatewayUnavailable.STALE_SERVICE), gateway.getStandbyBucket("com.example.app"))
     }
 
     @Test
