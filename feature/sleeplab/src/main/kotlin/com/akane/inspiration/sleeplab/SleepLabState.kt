@@ -110,13 +110,11 @@ sealed interface HypnogramUi {
     data class Ready(val data: HypnogramData) : HypnogramUi
 }
 
-/** The time-slice banner: what the brush asked for, what the data covers, and a gap worth warning about. */
+/** The time-slice banner: what the brush asked for and what the data covers; the banner words the gaps itself. */
 @Immutable
 data class SliceUi(
     val requested: TimeRange,
     val covered: TimeRange?,
-    /** Distance between the requested and covered ranges when it is over five minutes, else null. */
-    val gapMs: Long?,
 )
 
 @Immutable

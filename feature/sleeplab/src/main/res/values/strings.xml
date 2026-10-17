@@ -8,13 +8,9 @@
     <string name="sleeplab_empty_body">There is no pair of snapshots for this period yet. Keep using your phone, then refresh.</string>
     <string name="sleeplab_empty_refresh">Refresh</string>
     <string name="sleeplab_error_title">Couldn\'t analyse this period</string>
-    <string name="sleeplab_error_body">Something went wrong while reading your battery history. Try again, or pick another period.</string>
+    <string name="sleeplab_error_body">Something went wrong while reading your battery history. Try again in a moment.</string>
     <string name="sleeplab_error_retry">Try again</string>
     <string name="sleeplab_refresh_failed">Couldn\'t refresh. Is Shizuku running?</string>
-
-    <!-- Time slice banner -->
-    <!-- %1$s: how far the nearest snapshot is from the requested range -->
-    <string name="sleeplab_slice_gap">Snapshots are %1$s away from the requested range, so the figures are approximate.</string>
 
     <!-- Hypnogram card -->
     <string name="sleeplab_hypnogram_title">Screen-off sleep</string>
@@ -29,6 +25,7 @@
         <item quantity="one">%1$s wake-up</item>
         <item quantity="other">%1$s wake-ups</item>
     </plurals>
+    <string name="sleeplab_hypnogram_note_wakeups">A wake-up marks a screen-on or a doze exit; it doesn\'t say what caused it.</string>
     <string name="sleeplab_hypnogram_note">Hatched areas mean the screen was on or nothing was recorded. A wake-up marks a screen-on or a doze exit; it doesn\'t say what caused it.</string>
 
     <!-- Diagnostics card and its tabs -->
@@ -37,12 +34,12 @@
     <string name="sleeplab_tab_kernel">Kernel</string>
     <string name="sleeplab_tab_alarms">Alarms</string>
     <string name="sleeplab_caption_apps">Partial wakelocks held by apps, longest first.</string>
-    <string name="sleeplab_caption_kernel">Kernel wakelocks from battery stats, longest first. /sys/class/wakeup is not read.</string>
+    <string name="sleeplab_caption_kernel">Kernel wakelocks from battery stats, longest first. /&#8288;sys/&#8288;class/&#8288;wakeup is not read.</string>
     <string name="sleeplab_caption_alarms">Apps that woke the device with alarms, most wake-ups first.</string>
 
     <string name="sleeplab_list_empty">Nothing recorded for this period.</string>
     <string name="sleeplab_needs_full_title">Needs full snapshots</string>
-    <string name="sleeplab_needs_full_body">Per-app lists need a full snapshot at both ends of the period. Refresh, or pick a longer period.</string>
+    <string name="sleeplab_needs_full_body">Per-app lists need a full snapshot at both ends of the period. Pull down to refresh, then check back as more snapshots are collected.</string>
     <string name="sleeplab_apps_unavailable_title">Counters were reset</string>
     <string name="sleeplab_apps_unavailable_body">Battery stats restarted during this period, so per-app counters can\'t be compared. Pick a period after the reset.</string>
     <string name="sleeplab_kernel_unavailable_title">Counters were reset</string>
@@ -55,8 +52,6 @@
         <item quantity="one">%1$s time</item>
         <item quantity="other">%1$s times</item>
     </plurals>
-    <!-- %1$s: an alarm tag, %2$s: how many times it fired -->
-    <string name="sleeplab_tag_line">%1$s · %2$s</string>
     <plurals name="sleeplab_more_tags">
         <item quantity="one">+%1$s more tag</item>
         <item quantity="other">+%1$s more tags</item>

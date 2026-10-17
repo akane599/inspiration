@@ -1,12 +1,8 @@
 package com.akane.inspiration.sleeplab
 
 import androidx.compose.ui.unit.dp
+import com.akane.inspiration.designsystem.component.format.NBSP
 import com.akane.inspiration.designsystem.component.format.TelemetryFormat
-import java.time.Instant
-import java.time.ZoneId
-import java.time.format.DateTimeFormatter
-import java.time.format.FormatStyle
-import java.util.Locale
 
 /** Layout constants of Sleep Lab that are not spacing tokens. */
 internal object SleepLabMetrics {
@@ -26,7 +22,7 @@ private const val PERCENT = 100.0
  */
 internal fun formatSpan(format: TelemetryFormat, durationMs: Long, secondUnit: String): String =
     if (durationMs < MS_PER_MINUTE) {
-        "${format.number((durationMs.coerceAtLeast(0L) / MS_PER_SECOND).toDouble())} $secondUnit"
+        "${format.number((durationMs.coerceAtLeast(0L) / MS_PER_SECOND).toDouble())}$NBSP$secondUnit"
     } else {
         format.duration(durationMs)
     }
@@ -34,32 +30,13 @@ internal fun formatSpan(format: TelemetryFormat, durationMs: Long, secondUnit: S
 /** "1804 MHz", or "2.84 GHz" from one gigahertz up. */
 internal fun formatFrequency(format: TelemetryFormat, freqKhz: Long, mhzUnit: String, ghzUnit: String): String =
     if (freqKhz >= KHZ_PER_GHZ) {
-        "${format.number(freqKhz.toDouble() / KHZ_PER_GHZ, decimals = 2)} $ghzUnit"
+        "${format.number(freqKhz.toDouble() / KHZ_PER_GHZ, decimals = 2)}$NBSP$ghzUnit"
     } else {
-        "${format.number(freqKhz / KHZ_PER_MHZ)} $mhzUnit"
+        "${format.number(freqKhz / KHZ_PER_MHZ)}$NBSP$mhzUnit"
     }
 
 /** A 0..1 [share] as a whole-number percentage figure, without the unit. */
 internal fun formatShare(format: TelemetryFormat, share: Float): String = format.number(share * PERCENT)
-
-/** "10/16/26, 2:10 PM" in the locale's short date-time style. */
-internal fun formatDateTime(ms: Long, locale: Locale, zone: ZoneId): String =
-    DateTimeFormatter.ofLocalizedDateTime(FormatStyle.SHORT).withLocale(locale).withZone(zone).format(Instant.ofEpochMilli(ms))
-
-/**
- * A range for the slice banner: the start with its date, the end as a bare time when it is the same day, so
- * "10/16/26, 2:10 PM – 4:20 PM". A range over midnight repeats the date on the end.
- */
-internal fun formatRange(fromMs: Long, toMs: Long, locale: Locale, zone: ZoneId): String {
-    val start = Instant.ofEpochMilli(fromMs).atZone(zone)
-    val end = Instant.ofEpochMilli(toMs).atZone(zone)
-    val endText = if (start.toLocalDate() == end.toLocalDate()) {
-        DateTimeFormatter.ofLocalizedTime(FormatStyle.SHORT).withLocale(locale).format(end)
-    } else {
-        formatDateTime(toMs, locale, zone)
-    }
-    return "${formatDateTime(fromMs, locale, zone)} – $endText"
-}
 
 /** A count for a plural string: a count past Int range cannot be a plural quantity, so it saturates. */
 internal fun Long.asQuantity(): Int = coerceIn(0L, Int.MAX_VALUE.toLong()).toInt()

@@ -219,7 +219,7 @@ class SleepLabViewModelTest {
         val slice = vm.state.value.slice
         assertNotNull(slice)
         assertEquals(from, slice!!.requested.startMs)
-        assertEquals(9 * MIN_MS, slice.gapMs)
+        assertEquals("the banner gets the covered range and words the gap itself", from + 9 * MIN_MS, slice.covered!!.startMs)
 
         vm.onIntent(SleepLabIntent.ClearSlice)
         runCurrent()

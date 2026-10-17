@@ -13,9 +13,6 @@ import com.akane.inspiration.telemetry.dump.UidAlarm
 import com.akane.inspiration.telemetry.snapshot.SnapshotDiff
 import kotlinx.collections.immutable.toImmutableList
 
-/** A gap between the requested and the covered range is only worth a warning above this (H14). */
-internal const val SLICE_GAP_THRESHOLD_MS = 5 * 60_000L
-
 /** Frequencies listed per cluster; the rest is summed into "other". */
 internal const val MAX_FREQ_ROWS = 5
 
@@ -53,6 +50,29 @@ internal fun hypnogramData(timeline: Timeline): HypnogramData {
     return HypnogramData.of(window, segments, pulses)
 }
 
+/** The chart draws a gap as hatching from about two pixels up; on a phone-width plot that is this share of the window. */
+private const val MIN_VISIBLE_GAP_DIVISOR = 200L
+
+/**
+ * Whether the hypnogram will draw any hatched "no data" band: time inside its window that no stage segment covers,
+ * at least [MIN_VISIBLE_GAP_DIVISOR]th of the window long (shorter gaps are not drawn). The caption that explains
+ * hatching is only worth showing when this is true.
+ */
+internal fun hasHatchedGaps(data: HypnogramData): Boolean {
+    val window = data.window
+    if (window.durationMs <= 0L) return false
+    val minGap = maxOf(window.durationMs / MIN_VISIBLE_GAP_DIVISOR, 1L)
+    var cursor = window.startMs
+    for (segment in data.segments) {
+        val start = maxOf(segment.startMs, window.startMs)
+        val end = minOf(segment.endMs, window.endMs)
+        if (end <= start) continue
+        if (start - cursor >= minGap) return true
+        cursor = maxOf(cursor, end)
+    }
+    return window.endMs - cursor >= minGap
+}
+
 /** The stretches of [timeline]'s window with no SCREEN_ON segment, in order. */
 private fun screenOffSpans(timeline: Timeline): List<TimeRange> {
     val spans = ArrayList<TimeRange>()
@@ -77,8 +97,8 @@ private fun SegmentKind.stage(): HypnogramStage? = when (this) {
 // --- Time slice ---
 
 /**
- * The banner data for a committed brush, or null outside time-slice mode. Covered range and gap come from the
- * analysis only when it answers this exact slice; while a new slice is still loading they stay unknown.
+ * The banner data for a committed brush, or null outside time-slice mode. The covered range comes from the
+ * analysis only when it answers this exact slice; while a new slice is still loading it stays unknown.
  */
 internal fun sliceUi(kind: ReferenceKind, analysis: AnalysisState): SliceUi? {
     if (kind !is ReferenceKind.TimeSlice) return null
@@ -87,7 +107,6 @@ internal fun sliceUi(kind: ReferenceKind, analysis: AnalysisState): SliceUi? {
     return SliceUi(
         requested = TimeRange.of(kind.fromWallMs, kind.toWallMs),
         covered = resolved?.let { TimeRange.of(it.coveredFromWallMs, it.coveredToWallMs) },
-        gapMs = resolved?.gapMs?.takeIf { it > SLICE_GAP_THRESHOLD_MS },
     )
 }
 
@@ -179,7 +198,7 @@ internal fun visiblePackages(analysis: IntervalAnalysis): List<String> {
     return (apps + alarms).distinct()
 }
 
-private fun <T> ListUi<T>.rowsOrEmpty(): List<T> = if (this is ListUi.Rows<T>) rows else emptyList()
+internal fun <T> ListUi<T>.rowsOrEmpty(): List<T> = if (this is ListUi.Rows<T>) rows else emptyList()
 
 // --- CPU residency ---
 
@@ -217,8 +236,14 @@ private fun clusterRoles(count: Int): List<ClusterRole> = when (count) {
 
 // --- Whole analysis ---
 
-/** The CPU-suspend share of the interval; both fields stay null when the interval cannot measure it. */
+/**
+ * The CPU-suspend share of the interval; both fields stay null when the interval cannot measure it. The share is
+ * the screen-off time the device spent suspended (realtime minus uptime), so it is only a measurement of one boot:
+ * when the device restarted inside the interval (the kernel counters cannot be compared) the clocks restart with
+ * it and the figure would mix two sessions, so it is withheld like the frequency residency beside it.
+ */
 internal fun deepSleepUi(diff: SnapshotDiff): DeepSleepUi {
+    if (!diff.validity.kernelCounters) return DeepSleepUi(null, null)
     val sleep = diff.sleep
     val ratio = sleep?.deepSleepRatio
     return DeepSleepUi(ratio, sleep?.deepSleepMs?.takeIf { ratio != null })
