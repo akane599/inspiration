@@ -41,6 +41,13 @@ class SnapshotCapturer(
         return CaptureResult.Saved(id, SnapshotKind.FULL)
     }
 
+    suspend fun ingestHistory(deadlineMs: Long): Boolean {
+        val cursor = store.historyCursor() ?: (0L to 0L)
+        val read = withTimeoutOrNull(deadlineMs) { source.full(CaptureTrigger.CHARGE_JOB, cursor) } ?: return false
+        persistHistory(read.history)
+        return read.history.any { it.available }
+    }
+
     suspend fun captureLight(trigger: CaptureTrigger): CaptureResult {
         val read = source.light()
         val id = store.insert(read.toSnapshot(trigger))

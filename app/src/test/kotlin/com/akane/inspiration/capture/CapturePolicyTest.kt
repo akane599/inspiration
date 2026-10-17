@@ -39,15 +39,6 @@ class CapturePolicyTest {
     }
 
     @Test
-    fun `charge job runs once per observed plug session`() {
-        assertTrue(CapturePolicy.chargeJobShouldRun(lastPluggedWallMs = null, lastChargeJobWallMs = null))
-        assertFalse(CapturePolicy.chargeJobShouldRun(lastPluggedWallMs = null, lastChargeJobWallMs = 10L))
-        assertTrue(CapturePolicy.chargeJobShouldRun(lastPluggedWallMs = 100L, lastChargeJobWallMs = null))
-        assertTrue(CapturePolicy.chargeJobShouldRun(lastPluggedWallMs = 100L, lastChargeJobWallMs = 99L))
-        assertFalse(CapturePolicy.chargeJobShouldRun(lastPluggedWallMs = 100L, lastChargeJobWallMs = 100L))
-    }
-
-    @Test
     fun `app open debounce accepts first and sixty second opens`() {
         assertTrue(CapturePolicy.appOpenDebounced(null, 1_000L))
         assertFalse(CapturePolicy.appOpenDebounced(1_000L, 60_999L))
@@ -107,18 +98,3 @@ class CapturePolicyTest {
         )
     }
 }
-
-private fun ChargingCaptureScheduler.minimumLatencyMs(reArmFromJob: Boolean): Long? =
-    if (reArmFromJob) ChargingCaptureScheduler.MINIMUM_LATENCY_MS else ChargingCaptureScheduler.MINIMUM_LATENCY_MS
-
-private fun CapturePolicy.chargeJobShouldRun(
-    lastPluggedHistoryWallMs: Long?,
-    lastPowerConnectedWallMs: Long?,
-    lastChargeJobWallMs: Long?,
-    lastChargeJobBootCount: Int?,
-    currentBootCount: Int,
-    historyAvailable: Boolean,
-): Boolean = chargeJobShouldRun(
-    lastPluggedWallMs = if (historyAvailable) lastPluggedHistoryWallMs else lastPowerConnectedWallMs,
-    lastChargeJobWallMs = lastChargeJobWallMs,
-)

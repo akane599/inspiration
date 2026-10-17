@@ -180,7 +180,3 @@ class SnapshotCapturerTest {
 
     private fun historyEvent(time: Long) = HistoryEvent(time, time, HistoryKind.LEVEL, 70, 1_000_000, 250, 4000, 0)
 }
-
-private suspend fun SnapshotCapturer.ingestHistory(deadlineMs: Long) {
-    captureFull(CaptureTrigger.CHARGE_JOB, deadlineMs, ingestHistory = true)
-}

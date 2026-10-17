@@ -32,12 +32,16 @@ object CapturePolicy {
     }
 
     fun chargeJobShouldRun(
-        lastPluggedWallMs: Long?,
+        lastPluggedHistoryWallMs: Long?,
+        lastPowerConnectedWallMs: Long?,
         lastChargeJobWallMs: Long?,
-    ): Boolean = when {
-        lastPluggedWallMs == null -> lastChargeJobWallMs == null
-        lastChargeJobWallMs == null -> true
-        else -> lastChargeJobWallMs < lastPluggedWallMs
+        lastChargeJobBootCount: Int?,
+        currentBootCount: Int,
+        historyAvailable: Boolean,
+    ): Boolean {
+        if (lastChargeJobWallMs == null || lastChargeJobBootCount != currentBootCount) return true
+        val sessionStartWallMs = if (historyAvailable) lastPluggedHistoryWallMs else lastPowerConnectedWallMs
+        return sessionStartWallMs != null && lastChargeJobWallMs < sessionStartWallMs
     }
 
     fun appOpenDebounced(
