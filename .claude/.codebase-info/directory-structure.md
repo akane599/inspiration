@@ -13,10 +13,11 @@ app/
     capture/{BootCaptureReceiver,CapturePolicy,ChargingCaptureJobService,
       ChargingCaptureRunner,ChargingCaptureScheduler,RuntimeCaptureReceiver}.kt
     ui/home/{HomeScreen,HomeViewModel}.kt
-    ui/theme/{Color,Shape,Spacing,Theme,Type}.kt
   src/main/res/xml/{backup_rules,data_extraction_rules}.xml
   src/debug/AndroidManifest.xml
-  src/debug/kotlin/com/akane/inspiration/debug/ProbeReceiver.kt
+  src/debug/kotlin/com/akane/inspiration/debug/{ProbeReceiver,DesignGalleryActivity}.kt
+  src/debug/kotlin/com/akane/inspiration/debug/gallery/{GalleryData,RecomposeCounter}.kt
+  src/testDebug/kotlin/com/akane/inspiration/debug/gallery/GalleryDataTest.kt
   src/test/kotlin/com/akane/inspiration/{ui/home/HomeViewModelTest.kt,capture/*Test.kt}
   src/screenshotTest/kotlin/.../HomeScreenScreenshots.kt
   src/screenshotTestDebug/reference/.../*.png
@@ -88,6 +89,23 @@ core/
       story/{BatteryStory,BatteryStoryBuilder,AndroidStoryWriter}.kt
     src/test/kotlin/com/akane/inspiration/diagnostics/**   # per-rule, dictionary, story, sensor tests + fixtures
 
+  designsystem/
+    build.gradle.kts, FONTS.md, licenses/OFL-Inter.txt
+    src/main/kotlin/com/akane/inspiration/designsystem/
+      theme/{Color,Shape,Spacing,TelemetryColors,Theme,Type}.kt
+      component/{InspirationCard,LegendRow,MetricValue,SemanticDot}.kt
+      chart/model/{ChartLabels,ChartModels}.kt
+      chart/math/{Scales,ScrubGestureReducer,SeriesMath,TimeTicks}.kt
+      chart/draw/{SelectionDim,TimeAxis}.kt
+      chart/scrub/{ScrubChartMath,ScrubChartRenderer,ScrubChartState,ScrubGestures,
+        ScrubReadout,SynchronizedScrubbingChart}.kt
+      chart/hypnogram/{HypnogramMath,SleepHypnogram}.kt
+    src/main/res/font/inter_{regular,medium,semibold}.ttf
+    src/main/res/{values,values-tr}/strings_chart.xml
+    src/test/kotlin/.../designsystem/**       # math, model, contrast tests
+    src/screenshotTest/kotlin/.../designsystem/{theme,component,chart/scrub,chart/hypnogram}/
+    src/screenshotTestDebug/reference/.../    # per-area PNG references
+
 feature/
   dashboard/                       # module configuration only
   xray/                            # module configuration only
@@ -99,7 +117,8 @@ settings.gradle.kts                # includes all core and feature modules
 gradle/libs.versions.toml          # toolchain and dependency catalog
 docs/plans/phase-1.md              # audited Phase 1 design
 docs/plans/phase-2.md              # audited Phase 2 design and contracts
-docs/plans/phase-3.md              # audited Phase 3 design (authoritative; F1–F9)
+docs/plans/phase-3.md              # audited Phase 3 design (F1–F9)
+docs/plans/phase-4.md              # audited Phase 4 design (authoritative; G1–G13)
 .claude/skills/device-probe/       # SKILL.md + scripts/device-probe.sh (emulator probe runner)
 PROGRESS.md                        # durable decisions and device evidence
 NOTICE                              # AOSP protobuf attribution

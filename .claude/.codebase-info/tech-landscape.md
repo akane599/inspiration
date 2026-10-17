@@ -16,7 +16,7 @@ Source of truth: [`gradle/libs.versions.toml`](../../gradle/libs.versions.toml),
 | kotlinx-collections-immutable | 0.5.2 |
 | kotlinx-coroutines | 1.11.0 |
 | JUnit | 4.13.2 |
-| Compose screenshot validation | 0.0.1-alpha16 |
+| Compose screenshot validation | 0.0.1-alpha16 (applied in `:app` and, with `android.experimental.enableScreenshotTest`, in the library module `:core:designsystem`) |
 
 ## Runtime and build libraries
 
@@ -36,6 +36,8 @@ Source of truth: [`gradle/libs.versions.toml`](../../gradle/libs.versions.toml),
 
 ## Testing and fixtures
 
-Unit tests use JUnit and `kotlinx-coroutines-test` where needed. Telemetry parser tests consume committed API 35/36/37 protobuf fixtures under [`core/telemetry-engine/src/test/resources/proto`](../../core/telemetry-engine/src/test/resources/proto). IPC tests live under `core/shizuku-ipc/src/test`; telemetry tests live under `core/telemetry-engine/src/test`; Room tests live under `core/database/src/test`. The app has Compose screenshot validation and committed references under `app/src/screenshotTestDebug/reference`.
+Unit tests use JUnit and `kotlinx-coroutines-test` where needed. Telemetry parser tests consume committed API 35/36/37 protobuf fixtures under [`core/telemetry-engine/src/test/resources/proto`](../../core/telemetry-engine/src/test/resources/proto). IPC tests live under `core/shizuku-ipc/src/test`; telemetry tests live under `core/telemetry-engine/src/test`; Room tests live under `core/database/src/test`. The app has Compose screenshot validation and committed references under `app/src/screenshotTestDebug/reference`; `:core:designsystem` has its own screenshot tests (`src/screenshotTest`) and references under `core/designsystem/src/screenshotTestDebug/reference`, package-scoped per area. Every preview sets an explicit `heightDp` because layoutlib caps renders at 2400 px.
+
+`:core:designsystem` adds no catalog dependency (BOM, material3, collections-immutable as `api`). Typography uses Inter 4.1 static TTFs (Regular/Medium/SemiBold) as font resources, not a dependency; a variable font was rejected for layoutlib risk. License: SIL OFL 1.1 in `core/designsystem/licenses/OFL-Inter.txt`; provenance in `core/designsystem/FONTS.md`.
 
 `:core:diagnostics` adds no catalog dependency: it uses `api(project(":core:telemetry-engine"))` and declares junit, robolectric, androidx-test-core and coroutines-test for tests, with `unitTests.isIncludeAndroidResources = true`. Its dictionary is bundled JSON parsed with `org.json`; there is no network or remote update.

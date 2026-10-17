@@ -1,7 +1,7 @@
 # Patterns
 *Last Updated: 2026-10-17*
 
-These patterns are established across the Phase 1 IPC boundary, the Phase 2 snapshot pipeline, and the Phase 3 insight layer.
+These patterns are established across the Phase 1 IPC boundary, the Phase 2 snapshot pipeline, the Phase 3 insight layer, and the Phase 4 design-system charts.
 
 ## Explicit availability
 
@@ -34,6 +34,10 @@ Explanations come from a bundled JSON dictionary with fixed precedence (exact > 
 ## Interval metrics from history
 
 `IntervalMetricsCalculator` derives screen on/off time and level drops from `history_event` over the diff's covered bounds, because broadcasts coalesce for frozen apps. Levels are seeded from any event kind, drops apply only on LEVEL events, charging time is excluded, and RESET/START boundaries are recorded as discontinuities rather than attributed. Rates are null below 15 minutes of state time.
+
+## Chart draw-phase state and static/overlay split
+
+Charts in `:core:designsystem` keep per-frame interaction state (cursor, brush, selection) in draw-phase state (`mutableLongStateOf`/`mutableFloatStateOf`) read only inside draw/layout lambdas, so dragging never recomposes. The readout row is an isolated child reading through a lambda. Static content (series paths, axis, hypnogram bars) is recorded once per cache build into an Offscreen `GraphicsLayer`; only the cursor/selection overlay is drawn on top each frame (SQ-60: this removed per-frame path re-rasterization, frame p50 32 -> 16 ms on the API 36 emulator). There is no allocation in the per-frame draw path. New chart components must keep the static/overlay split; gesture logic lives in the pure `ScrubGestureReducer`. Models use sanitizing factories instead of constructor `require`. Chart strings live only in `strings_chart.xml` (en/tr).
 
 ## Fakes over mocks
 

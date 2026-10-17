@@ -3,7 +3,7 @@
 
 ## Read first
 
-1. Read [`docs/plans/phase-3.md`](../../docs/plans/phase-3.md) for the insight layer (rules, dictionary, story, schema additions); read [`docs/plans/phase-2.md`](../../docs/plans/phase-2.md) for the selected capture, validity, Room, and module boundaries; consult [`docs/plans/phase-1.md`](../../docs/plans/phase-1.md) for the privileged IPC contract.
+1. Read [`docs/plans/phase-4.md`](../../docs/plans/phase-4.md) for the design system and charts (tokens, chart contract, static/overlay split); read [`docs/plans/phase-3.md`](../../docs/plans/phase-3.md) for the insight layer (rules, dictionary, story, schema additions); read [`docs/plans/phase-2.md`](../../docs/plans/phase-2.md) for the selected capture, validity, Room, and module boundaries; consult [`docs/plans/phase-1.md`](../../docs/plans/phase-1.md) for the privileged IPC contract.
 2. Read [`architecture.md`](architecture.md), [`modules.md`](modules.md), [`communication.md`](communication.md), and [`database.md`](database.md) before changing capture, IPC, or persistence wiring.
 3. Use [`PROGRESS.md`](../../PROGRESS.md) for durable decisions and API 35/36/37 device evidence. Work items and blockers live on the Sidequest board, as described by [`CLAUDE.md`](../../CLAUDE.md).
 
@@ -17,10 +17,11 @@ From the repository root:
 ./gradlew :core:telemetry-engine:testDebugUnitTest --console=plain -q
 ./gradlew :core:database:testDebugUnitTest --console=plain -q
 ./gradlew :core:diagnostics:testDebugUnitTest --console=plain -q
+./gradlew :core:designsystem:testDebugUnitTest --console=plain -q
 ./gradlew :app:lintDebug --console=plain -q
 ```
 
-The documented helper form is `bash .claude/kit/gradle-check.sh :app:assembleDebug :app:testDebugUnitTest`. Screenshot references are validated with `:app:validateDebugScreenshotTest`; update references only for an intentional UI ticket with `:app:updateDebugScreenshotTest`.
+The documented helper form is `bash .claude/kit/gradle-check.sh :app:assembleDebug :app:testDebugUnitTest`. Screenshot references are validated with `:app:validateDebugScreenshotTest`; update references only for an intentional UI ticket with `:app:updateDebugScreenshotTest`. The design-system module has its own references: `:core:designsystem:validateDebugScreenshotTest` and, for an intentional change, `:core:designsystem:updateDebugScreenshotTest` (every preview needs an explicit `heightDp`).
 
 Diagnostics tests run under Robolectric (org.json and resources are needed by the dictionary loader and story writer). Room tests use Robolectric and cover WAL, cascades, history deduplication, snapshot round trips, and 30-day maintenance behavior. Protobuf tests use committed API 35/36/37 fixtures under [`core/telemetry-engine/src/test/resources/proto`](../../core/telemetry-engine/src/test/resources/proto).
 
@@ -36,6 +37,18 @@ adb shell am start -n com.akane.inspiration/.MainActivity
 ```
 
 The app manifest registers `rikka.shizuku.ShizukuProvider` and queries the Shizuku manager package. Install and start Shizuku on the emulator before testing full capture; without it the manager remains `NotInstalled` or `NotRunning`, while light capture still uses local battery state.
+
+## Design gallery (debug)
+
+`DesignGalleryActivity` is a debug-only, exported activity showing the scrubbing chart and hypnogram with synthetic data:
+
+```sh
+./gradlew :app:installDebug -q
+adb shell am start -n com.akane.inspiration/.debug.DesignGalleryActivity
+adb logcat -d -s InspirationGallery:*
+```
+
+The `InspirationGallery` tag reports recomposition counts; for frame stats while dragging, run `adb shell setprop debug.hwui.profile true`, relaunch, drag, then `adb shell dumpsys gfxinfo com.akane.inspiration` (percentiles plus Draw/Prepare/Process/Execute columns; `framestats` returned no rows on the API 36 emulator). The emulator renders in software, so compare relative numbers only.
 
 ## Debug Shizuku and capture probes
 

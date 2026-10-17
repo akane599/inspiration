@@ -25,7 +25,7 @@ ChargingCaptureJobService ──full snapshot + history + prune
 
 ## Layers and responsibilities
 
-- **Application shell — `:app`**: manifest, launcher activity, application/container wiring, capture policy, runtime and boot receivers, persisted charging `JobService`, backup exclusions, placeholder Home UI, and debug probes.
+- **Application shell — `:app`**: manifest, launcher activity, application/container wiring, capture policy, runtime and boot receivers, persisted charging `JobService`, backup exclusions, placeholder Home UI themed by `:core:designsystem` (leaf UI module: tokens, components, scrubbing chart, hypnogram), and debug probes plus `DesignGalleryActivity`.
 - **Feature layer — `:feature:dashboard`, `:feature:xray`, `:feature:sleeplab`, `:feature:health`, `:feature:toolkit`**: Compose library boundaries with shared telemetry/diagnostics dependencies. They still contain no implemented screens.
 - **Telemetry layer — `:core:telemetry-engine`**: snapshot models, clock/source abstractions, trimmed protobuf parsing, full/light capture and merge, snapshot diff and reference resolution, capacity estimation, live telemetry, calibration input, and `SnapshotStore`.
 - **Persistence layer — `:core:database`**: Room 2.8.5 schema v1, entities/DAOs, explicit WAL configuration, domain mappers, history cursor/deduplication, markers, charge sessions, capture misses, and 30-day pruning/downsampling.
