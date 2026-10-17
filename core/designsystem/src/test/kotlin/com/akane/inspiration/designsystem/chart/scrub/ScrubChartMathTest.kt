@@ -112,7 +112,8 @@ class ScrubChartMathTest {
         val t = 1_792_186_200_000L
         assertEquals("21:30", formatClock(t, ZoneId.of("UTC"), withDate = false, locale = Locale.ENGLISH))
         assertEquals("00:30", formatClock(t, ZoneId.of("Europe/Istanbul"), withDate = false, locale = Locale.ENGLISH))
-        assertEquals("16 Oct 21:30", formatClock(t, ZoneId.of("UTC"), withDate = true, locale = Locale.ENGLISH))
+        // No-break spaces between the date parts and the time, so the readout title never wraps inside a date-time.
+        assertEquals("16 Oct 21:30", formatClock(t, ZoneId.of("UTC"), withDate = true, locale = Locale.ENGLISH))
     }
 
     @Test
@@ -122,6 +123,6 @@ class ScrubChartMathTest {
         val oneDay = TimeRange.of(t, t + 24 * 3_600_000L)
         val week = TimeRange.of(t, t + 7 * 24 * 3_600_000L)
         assertEquals("21:30", formatTickLabel(t, zone, oneDay, Locale.ENGLISH))
-        assertEquals("16 Oct", formatTickLabel(t, zone, week, Locale.ENGLISH))
+        assertEquals("16\u00a0Oct", formatTickLabel(t, zone, week, Locale.ENGLISH))
     }
 }

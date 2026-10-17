@@ -41,9 +41,9 @@
     <string name="sleeplab_needs_full_title">Tam anlık görüntüler gerekli</string>
     <string name="sleeplab_needs_full_body">Uygulama listeleri için dönemin iki ucunda da tam bir anlık görüntü gerekir. Aşağı çekerek yenile, sonra daha fazla anlık görüntü toplandıkça tekrar bak.</string>
     <string name="sleeplab_apps_unavailable_title">Sayaçlar sıfırlandı</string>
-    <string name="sleeplab_apps_unavailable_body">Bu dönemde pil istatistikleri yeniden başladı, bu yüzden uygulama sayaçları karşılaştırılamıyor. Sıfırlamadan sonraki bir dönem seç.</string>
+    <string name="sleeplab_apps_unavailable_body">Bu dönemde pil istatistikleri yeniden başladı, bu yüzden uygulama sayaçları karşılaştırılamıyor. Sıfırlamadan sonra daha fazla anlık görüntü toplandıkça tekrar bak.</string>
     <string name="sleeplab_kernel_unavailable_title">Sayaçlar sıfırlandı</string>
-    <string name="sleeplab_kernel_unavailable_body">Bu dönemde cihaz yeniden başladı, bu yüzden çekirdek sayaçları karşılaştırılamıyor. Yeniden başlatmadan sonraki bir dönem seç.</string>
+    <string name="sleeplab_kernel_unavailable_body">Bu dönemde cihaz yeniden başladı, bu yüzden çekirdek sayaçları karşılaştırılamıyor. Yeniden başlatmadan sonra daha fazla anlık görüntü toplandıkça tekrar bak.</string>
 
     <!-- %1$d: the app\'s UID, shown when its package is unknown -->
     <string name="sleeplab_owner_uid">UID %1$d</string>

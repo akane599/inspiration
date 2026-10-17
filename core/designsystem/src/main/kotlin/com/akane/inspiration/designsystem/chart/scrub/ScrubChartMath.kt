@@ -2,9 +2,9 @@ package com.akane.inspiration.designsystem.chart.scrub
 
 import com.akane.inspiration.designsystem.chart.model.TimePoint
 import com.akane.inspiration.designsystem.chart.model.TimeRange
-import java.time.Instant
+import com.akane.inspiration.designsystem.component.format.TelemetryFormat
+import com.akane.inspiration.designsystem.component.format.TelemetryUnits
 import java.time.ZoneId
-import java.time.format.DateTimeFormatter
 import java.util.Locale
 import kotlin.math.ceil
 import kotlin.math.floor
@@ -88,18 +88,16 @@ internal fun TimeRange.spansDays(): Boolean = durationMs >= DAY_MS
 /** Axis tick labels switch from clock time to the date once the window covers several days. */
 internal fun TimeRange.usesDateTicks(): Boolean = durationMs > 2 * DAY_MS
 
-private const val CLOCK_PATTERN = "HH:mm"
-private const val DATE_CLOCK_PATTERN = "d MMM HH:mm"
-private const val DATE_PATTERN = "d MMM"
+/** Only the date and time styles are used here, which take no units. */
+private fun clockFormat(locale: Locale): TelemetryFormat = TelemetryFormat(locale, TelemetryUnits.English)
 
-internal fun formatClock(tMs: Long, zone: ZoneId, withDate: Boolean, locale: Locale): String {
-    val pattern = if (withDate) DATE_CLOCK_PATTERN else CLOCK_PATTERN
-    return DateTimeFormatter.ofPattern(pattern, locale).withZone(zone).format(Instant.ofEpochMilli(tMs))
-}
+/** "21:30", or "16 Oct 21:30" with [withDate]; the date-time is joined with no-break spaces (`TelemetryFormat`). */
+internal fun formatClock(tMs: Long, zone: ZoneId, withDate: Boolean, locale: Locale): String =
+    clockFormat(locale).let { if (withDate) it.dateTime(tMs, zone) else it.time(tMs, zone) }
 
 internal fun formatTickLabel(tMs: Long, zone: ZoneId, window: TimeRange, locale: Locale): String =
     if (window.usesDateTicks()) {
-        DateTimeFormatter.ofPattern(DATE_PATTERN, locale).withZone(zone).format(Instant.ofEpochMilli(tMs))
+        clockFormat(locale).date(tMs, zone)
     } else {
         formatClock(tMs, zone, withDate = false, locale = locale)
     }

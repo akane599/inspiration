@@ -269,6 +269,16 @@ fun ToggleSheet() {
     SheetFrame(
         title = "Toggle",
         left = {
+            // The exact Sleep Lab tab labels (sleeplab_tab_apps/kernel/alarms in Turkish), one per selected state:
+            // at 360 dp and 1.5x none of them may break inside a word, and all segments keep the same width.
+            for (selectedTab in 0..2) {
+                SegmentedToggle(
+                    options = persistentListOf("Uygulama", "Çekirdek", "Alarm"),
+                    selected = selectedTab,
+                    onSelect = {},
+                    modifier = Modifier.fillMaxWidth(),
+                )
+            }
             SegmentedToggle(
                 options = persistentListOf("Son 6 saat", "Son 24 saat", "Son 7 gün"),
                 selected = 1,

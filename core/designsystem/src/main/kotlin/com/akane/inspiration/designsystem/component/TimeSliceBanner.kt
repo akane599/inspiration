@@ -3,19 +3,22 @@ package com.akane.inspiration.designsystem.component
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.ExperimentalLayoutApi
-import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.rememberTextMeasurer
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.akane.inspiration.designsystem.R
 import com.akane.inspiration.designsystem.chart.model.TimeRange
@@ -111,7 +114,6 @@ fun TimeSliceBanner(
     )
 }
 
-@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun TimeSliceBannerContent(
     requested: String,
@@ -136,8 +138,11 @@ private fun TimeSliceBannerContent(
                 modifier = Modifier.weight(1f).semantics(mergeDescendants = true) {},
                 verticalArrangement = Arrangement.spacedBy(spacing.xs),
             ) {
-                RangeLine(stringResource(R.string.slice_requested), requested)
-                RangeLine(stringResource(R.string.slice_covered), covered)
+                val requestedLabel = stringResource(R.string.slice_requested)
+                val coveredLabel = stringResource(R.string.slice_covered)
+                val labelWidth = widestLabel(requestedLabel, coveredLabel)
+                RangeLine(requestedLabel, labelWidth, requested)
+                RangeLine(coveredLabel, labelWidth, covered)
                 gapTexts.forEach { gapText ->
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         SemanticDot(color = MaterialTheme.statusColors.warning)
@@ -157,20 +162,36 @@ private fun TimeSliceBannerContent(
     }
 }
 
-@OptIn(ExperimentalLayoutApi::class)
+/**
+ * One "label  value" line. The label sits in a column of fixed [labelWidth] (the wider of the banner's labels), so
+ * the values of every line start at the same x, and the two texts share a baseline. A long value wraps inside its
+ * own column rather than under the label.
+ */
 @Composable
-private fun RangeLine(label: String, value: String) {
-    FlowRow(horizontalArrangement = Arrangement.spacedBy(MaterialTheme.spacing.sm)) {
+private fun RangeLine(label: String, labelWidth: Dp, value: String) {
+    Row(horizontalArrangement = Arrangement.spacedBy(MaterialTheme.spacing.sm)) {
         Text(
             text = label,
             style = MaterialTheme.typography.labelMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.alignByBaseline(),
+            modifier = Modifier.width(labelWidth).alignByBaseline(),
         )
         Text(
             text = value,
             style = MaterialTheme.typography.labelLarge,
             color = MaterialTheme.colorScheme.onSurface,
+            modifier = Modifier.weight(1f).alignByBaseline(),
         )
+    }
+}
+
+/** The width of the widest of [labels] in the range-line label style, so the lines can share one label column. */
+@Composable
+private fun widestLabel(vararg labels: String): Dp {
+    val measurer = rememberTextMeasurer()
+    val density = LocalDensity.current
+    val style = MaterialTheme.typography.labelMedium
+    return remember(labels.toList(), style, density, measurer) {
+        with(density) { labels.maxOf { measurer.measure(it, style, softWrap = false, maxLines = 1).size.width }.toDp() }
     }
 }

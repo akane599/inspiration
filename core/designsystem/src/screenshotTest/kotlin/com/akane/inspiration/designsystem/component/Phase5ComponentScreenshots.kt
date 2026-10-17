@@ -59,12 +59,12 @@ import com.android.tools.screenshot.PreviewTest
 @PreviewTest @Preview(name = "turkish", showBackground = true, widthDp = 412, heightDp = 700, locale = "tr")
 @Composable fun ChromeTurkish() = InspirationTheme(darkTheme = true) { ChromeSheet() }
 
-@PreviewTest @Preview(name = "dark", showBackground = true, widthDp = 412, heightDp = 360)
+@PreviewTest @Preview(name = "dark", showBackground = true, widthDp = 412, heightDp = 560)
 @Composable fun ToggleDark() = InspirationTheme(darkTheme = true) { ToggleSheet() }
 
-@PreviewTest @Preview(name = "light", showBackground = true, widthDp = 412, heightDp = 360)
+@PreviewTest @Preview(name = "light", showBackground = true, widthDp = 412, heightDp = 560)
 @Composable fun ToggleLight() = InspirationTheme(darkTheme = false) { ToggleSheet() }
 
 // The case S6 fixes: Turkish labels at the narrowest width and the largest font scale.
-@PreviewTest @Preview(name = "turkish-360-large-font", showBackground = true, widthDp = 360, heightDp = 560, fontScale = 1.5f, locale = "tr")
+@PreviewTest @Preview(name = "turkish-360-large-font", showBackground = true, widthDp = 360, heightDp = 860, fontScale = 1.5f, locale = "tr")
 @Composable fun ToggleTurkishNarrowLargeFont() = InspirationTheme(darkTheme = true) { ToggleSheet() }

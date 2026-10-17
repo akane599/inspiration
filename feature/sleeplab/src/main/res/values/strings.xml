@@ -41,9 +41,9 @@
     <string name="sleeplab_needs_full_title">Needs full snapshots</string>
     <string name="sleeplab_needs_full_body">Per-app lists need a full snapshot at both ends of the period. Pull down to refresh, then check back as more snapshots are collected.</string>
     <string name="sleeplab_apps_unavailable_title">Counters were reset</string>
-    <string name="sleeplab_apps_unavailable_body">Battery stats restarted during this period, so per-app counters can\'t be compared. Pick a period after the reset.</string>
+    <string name="sleeplab_apps_unavailable_body">Battery stats restarted during this period, so per-app counters can\'t be compared. Check back as more snapshots are collected after the reset.</string>
     <string name="sleeplab_kernel_unavailable_title">Counters were reset</string>
-    <string name="sleeplab_kernel_unavailable_body">The device restarted during this period, so kernel counters can\'t be compared. Pick a period after the restart.</string>
+    <string name="sleeplab_kernel_unavailable_body">The device restarted during this period, so kernel counters can\'t be compared. Check back as more snapshots are collected after the restart.</string>
 
     <!-- %1$d: the app\'s UID, shown when its package is unknown -->
     <string name="sleeplab_owner_uid">UID %1$d</string>

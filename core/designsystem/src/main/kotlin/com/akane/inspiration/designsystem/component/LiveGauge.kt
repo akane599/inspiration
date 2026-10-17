@@ -39,7 +39,8 @@ private const val TEMPERATURE_TEMPLATE = "88.8"
 
 /**
  * The live battery reading: current as the headline, then power, voltage and temperature, then an optional
- * [remaining] line ("3 h 20 min left", already worded by the caller). Numbers go through `TelemetryFormat`, and
+ * [remaining] line ("3 h 20 min left", already worded by the caller; omitted, with no space left for it, when
+ * null or empty). Numbers go through `TelemetryFormat`, and
  * a value sits in a slot at least as wide as its typical reading, so the gauge does not jump as digits change.
  * Pass [currentMa] negative while discharging.
  *
@@ -97,19 +98,19 @@ fun LiveGauge(
             LabeledSlot(R.string.gauge_label_voltage, format.millivolts(voltageMv), VOLTAGE_TEMPLATE)
             LabeledSlot(R.string.gauge_label_temperature, format.celsius(temperatureC, decimals = 1), TEMPERATURE_TEMPLATE)
         }
-        // Always one line tall, so the card keeps its height whether or not an estimate exists.
-        Text(
-            text = remaining?.takeIf { it.isNotEmpty() } ?: NO_BREAK_SPACE,
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-            modifier = Modifier.padding(top = spacing.md),
-        )
+        // No estimate, no line: an empty reserved line would leave extra space under the values.
+        remaining?.takeIf { it.isNotEmpty() }?.let {
+            Text(
+                text = it,
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.padding(top = spacing.md),
+            )
+        }
     }
 }
-
-private const val NO_BREAK_SPACE = " "
 
 @Composable
 private fun LabeledSlot(labelRes: Int, reading: FormattedValue, template: String) {
