@@ -16,8 +16,23 @@ android {
         versionName = "0.1.0"
     }
 
+    // Release signing comes from user-level Gradle properties (~/.gradle/gradle.properties);
+    // without them the release APK is built unsigned.
+    val releaseStoreFile = providers.gradleProperty("INSPIRATION_RELEASE_STORE_FILE").orNull
+    signingConfigs {
+        if (releaseStoreFile != null) {
+            create("release") {
+                storeFile = file(releaseStoreFile)
+                storePassword = providers.gradleProperty("INSPIRATION_RELEASE_STORE_PASSWORD").get()
+                keyAlias = providers.gradleProperty("INSPIRATION_RELEASE_KEY_ALIAS").get()
+                keyPassword = providers.gradleProperty("INSPIRATION_RELEASE_KEY_PASSWORD").get()
+            }
+        }
+    }
+
     buildTypes {
         release {
+            signingConfigs.findByName("release")?.let { signingConfig = it }
             isMinifyEnabled = true
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
         }
