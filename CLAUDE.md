@@ -8,9 +8,9 @@ Android, developed on Ubuntu from the CLI.
 - Origin: new · Integration branch: main
 - Language: kotlin · UI: Compose · screenshot tests: compose-preview
 - JDK target 17 · Gradle 9.8.0 · AGP 9.4.1 · Kotlin 2.4.20 · compileSdk 37 · targetSdk 36 · minSdk 31
-- Modules: :app (spec targets :core:* + :feature:* — Phase 1) · Architecture: single-module MVVM scaffold → clean arch + MVI per spec · DI/DB/Net: none / none (Room planned) / none
+- Modules: :app · :core:{hidden-api-stub (compileOnly stubs), shizuku-ipc, telemetry-engine, diagnostics, database} · :feature:{dashboard, xray, sleeplab, health, toolkit} — conventions in `build-logic/` · Architecture: clean arch + MVI per spec; privileged reads in a shell-UID Shizuku UserService (`docs/plans/phase-1.md`) · DI/DB/Net: manual AppContainer / none (Room in Phase 2) / none
 - App id: com.akane.inspiration · Launcher: .MainActivity
-- Baseline: build ok · 1 unit test, 0 pre-existing failures (PROGRESS.md)
+- Baseline: build ok · 60 unit tests, 0 pre-existing failures (PROGRESS.md)
 <!-- STACK:END -->
 
 ## How work flows here
@@ -28,5 +28,6 @@ Android, developed on Ubuntu from the CLI.
 ## Commands
 - Build: `./gradlew :app:assembleDebug --console=plain -q` · Unit: `:app:testDebugUnitTest` · Lint: `:app:lintDebug`
 - Screenshots: `:app:updateDebugScreenshotTest` (write refs) · `:app:validateDebugScreenshotTest` (diff)
+- IPC probe (debug): `adb shell am broadcast -a com.akane.inspiration.debug.PROBE -n com.akane.inspiration/.debug.ProbeReceiver` → `adb logcat -d -s 'InspirationProbe:*'` (Shizuku must be running + permitted; `…debug.PROBE_REQUEST_PERMISSION` shows the dialog)
 - Device: `./gradlew :app:installDebug -q && adb shell am start -n com.akane.inspiration/.MainActivity` · logs: `adb logcat -d --pid=$(adb shell pidof -s com.akane.inspiration) | tail -80`
 - Emulator: `emulator -avd batstats-api36 -no-window -no-audio &` then `adb wait-for-device shell 'while [[ -z $(getprop sys.boot_completed) ]]; do sleep 1; done'`
