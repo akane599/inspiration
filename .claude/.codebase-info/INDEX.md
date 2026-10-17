@@ -1,15 +1,19 @@
 # Codebase Map — Inspiration
-*Last Updated: 2026-10-17* · **Greenfield seed**: only the android-kit scaffold exists; most docs describe intended design from `TEMPLATE.md`.
+*Last Updated: 2026-10-17*
 
-Shizuku-powered battery analytics/diagnostics app (Android, Kotlin, Compose). Spec (Turkish): `TEMPLATE.md`. Today: single `:app` module with a placeholder Home screen. Planned: `:core:*` + `:feature:*` clean-arch/MVI modules, built in 5 phases.
+Shizuku-powered battery analytics and diagnostics for Android power users. Phase 1 now has the real module graph, privileged telemetry path, and a debug probe; feature screens and most Phase 2 domain work remain skeletons.
 
 | Doc | What |
 |---|---|
-| [architecture.md](architecture.md) | Goals, zero-observer-effect rule, intended layers and data flow |
-| [tech-landscape.md](tech-landscape.md) | Actual versions now + planned libraries |
-| [directory-structure.md](directory-structure.md) | Current tree and planned module layout |
-| [onboarding.md](onboarding.md) | Build/test/screenshot commands, where to start |
+| [architecture.md](architecture.md) | Runtime layers, responsibilities, and privileged data flow |
+| [modules.md](modules.md) | Gradle module graph and implementation status |
+| [entry-points.md](entry-points.md) | Application, activity, provider, service, and debug entry points |
+| [communication.md](communication.md) | AIDL methods, transaction codes, parcelables, dump targets, and failure reasons |
+| [patterns.md](patterns.md) | Result/availability, version-gating, and test-double conventions |
+| [tech-landscape.md](tech-landscape.md) | Toolchain and dependency catalog |
+| [directory-structure.md](directory-structure.md) | Source tree, excluding generated output |
+| [onboarding.md](onboarding.md) | Build, test, emulator, and Shizuku probe workflow |
 
-## How to use / maintain this map
-- Read INDEX first; open a detailed doc only when the task touches it.
-- After code changes, run `update-codebase-map` when structure, modules, entry points or stack changed. Mark "planned" items as real once they land; drop this seed banner once Phase 1 modules exist.
+## Map maintenance
+
+Read this index first. Refresh the map after module, entry-point, or stack changes. The authoritative Phase 1 design is [`docs/plans/phase-1.md`](../../docs/plans/phase-1.md); durable decisions and emulator evidence are in [`PROGRESS.md`](../../PROGRESS.md).
