@@ -1,10 +1,13 @@
 package com.akane.inspiration.di
 
+import com.akane.inspiration.ipc.ShizukuState
 import com.akane.inspiration.telemetry.app.RefreshResult
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.async
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
@@ -148,5 +151,61 @@ class RefreshCoordinatorTest {
 
         assertTrue("the capture ran to its end", finished)
         assertEquals(now, coordinator.lastRefreshWallMs.value)
+    }
+
+    @Test
+    fun `a transition into Ready clears the failure backoff so the next refresh captures`() = runTest(UnconfinedTestDispatcher()) {
+        var serviceUp = false
+        val coordinator = coordinator {
+            if (serviceUp) RefreshResult.Refreshed(now) else RefreshResult.Failed("service_unavailable")
+        }
+        val state = MutableStateFlow<ShizukuState>(ShizukuState.PermissionDenied)
+        // The same wiring as AppContainer.start().
+        val wiring = launch { reconcileOnEachReady(state) { coordinator.clearFailureBackoff() } }
+
+        assertEquals(RefreshResult.Failed("service_unavailable"), coordinator.refresh())
+        now += 1_000L
+        assertEquals(RefreshResult.Failed("service_unavailable"), coordinator.refresh())
+        assertEquals("inside the backoff the failure is replayed without a capture", 1, captures)
+
+        serviceUp = true
+        state.value = ShizukuState.Ready(2000, 13)
+        now += 1_000L
+        assertEquals("one second after the failure, far inside 12 s, the refresh captured", RefreshResult.Refreshed(now), coordinator.refresh())
+        assertEquals(2, captures)
+        wiring.cancel()
+    }
+
+    @Test
+    fun `clearing the backoff leaves the 60 second success debounce alone`() = runTest {
+        val coordinator = coordinator()
+        val at = now
+        coordinator.refresh()
+
+        coordinator.clearFailureBackoff()
+        now += 1_000L
+        assertEquals(RefreshResult.Debounced(at), coordinator.refresh())
+        assertEquals(1, captures)
+    }
+
+    @Test
+    fun `a failure of a capture that began before the clear is not remembered`() = runTest {
+        val gate = CompletableDeferred<Unit>()
+        var serviceUp = false
+        val coordinator = coordinator {
+            gate.await()
+            if (serviceUp) RefreshResult.Refreshed(now) else RefreshResult.Failed("stale")
+        }
+
+        val inFlight = async { coordinator.refresh() }
+        runCurrent()
+        coordinator.clearFailureBackoff() // Shizuku became Ready while the old capture was still running
+        gate.complete(Unit)
+        assertEquals(RefreshResult.Failed("stale"), inFlight.await())
+
+        serviceUp = true
+        now += 1_000L
+        assertEquals(RefreshResult.Refreshed(now), coordinator.refresh())
+        assertEquals("the stale failure did not start a backoff", 2, captures)
     }
 }

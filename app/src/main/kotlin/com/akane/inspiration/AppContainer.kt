@@ -228,10 +228,16 @@ class AppContainer(context: Context) :
      * Off-main-thread start-up work (the dictionary already loads from construction). Toolkit rows left
      * PENDING by a crash are reconciled on every transition to Shizuku Ready (a read-back needs the
      * service, so a run against an unreachable service is retried at the next Ready); with Shizuku never
-     * ready nothing runs and the rows simply stay PENDING.
+     * ready nothing runs and the rows simply stay PENDING. Every transition to Ready also clears the refresh
+     * failure backoff first, so a refresh right after a Shizuku grant captures instead of replaying the old Failed.
      */
     fun start() {
-        applicationScope.launch { reconcileOnEachReady(shizukuManager.state, toolkit::reconcile) }
+        applicationScope.launch {
+            reconcileOnEachReady(shizukuManager.state) {
+                refreshCoordinator.clearFailureBackoff()
+                toolkit.reconcile()
+            }
+        }
     }
 
     private companion object {
