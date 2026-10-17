@@ -494,6 +494,23 @@ class ToolkitActionsTest {
     // ---- dexopt ----------------------------------------------------------------------------
 
     @Test
+    fun aFreshServiceThatReportsUnknownIsIdleWhenWeNeverStartedAJob() = runTest {
+        backend.dexoptStatuses.clear()
+        backend.dexoptStatuses.add(serviceStatus(BgDexoptState.UNKNOWN))
+        assertEquals(BgDexoptStatus.Idle, actions.bgDexoptStatus().first())
+        assertEquals(0, holds.open)
+    }
+
+    @Test
+    fun anUnknownServiceStatusStaysUnknownWhileAStartedJobCannotBeConfirmed() = runTest {
+        val started = (actions.startBgDexopt() as ToolkitOutcome.Done).value
+        backend.dexoptStatuses.clear()
+        backend.dexoptStatuses.add(serviceStatus(BgDexoptState.UNKNOWN))
+        assertEquals(BgDexoptStatus.Unknown, actions.bgDexoptStatus().first())
+        assertEquals(ToolkitActionStatus.PENDING, audit.byId(started.id).status)
+    }
+
+    @Test
     fun startKeepsThePendingRowAndHoldsTheBindingUntilAStatusSaysFinished() = runTest {
         val started = (actions.startBgDexopt() as ToolkitOutcome.Done).value
         assertEquals(ToolkitActionStatus.PENDING, started.status)
