@@ -1,0 +1,624 @@
+package com.akane.inspiration.toolkit
+
+import com.akane.inspiration.ipc.ShizukuState
+import com.akane.inspiration.ipc.model.BgDexoptState
+import com.akane.inspiration.ipc.toolkit.AppOp
+import com.akane.inspiration.ipc.toolkit.DozeProfile
+import com.akane.inspiration.ipc.toolkit.StandbyBucket
+import com.akane.inspiration.telemetry.app.AppEntry
+import com.akane.inspiration.telemetry.store.ToolkitActionStatus
+import com.akane.inspiration.telemetry.toolkit.BgDexoptCancelReason
+import com.akane.inspiration.telemetry.toolkit.BgDexoptStatus
+import com.akane.inspiration.telemetry.toolkit.ToolkitRefusal
+import com.akane.inspiration.telemetry.toolkit.ToolkitUnavailable
+import com.akane.inspiration.telemetry.toolkit.ToolkitWarning
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.test.StandardTestDispatcher
+import kotlinx.coroutines.test.TestCoroutineScheduler
+import kotlinx.coroutines.test.UnconfinedTestDispatcher
+import kotlinx.coroutines.test.resetMain
+import kotlinx.coroutines.test.runTest
+import kotlinx.coroutines.test.setMain
+import org.junit.After
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
+import org.junit.Before
+import org.junit.Test
+import com.akane.inspiration.ipc.model.BgDexoptStatus as ServiceDexopt
+
+/**
+ * The ViewModel against a real [com.akane.inspiration.telemetry.toolkit.ToolkitActions] that talks to a fake
+ * device, so plan, confirmation, execute, read-back and the audit log are the production ones; only the
+ * service is faked. Main is an unconfined test dispatcher on [scheduler], so work runs to its next suspension
+ * point inside each call and time only moves when a test moves it.
+ */
+@OptIn(ExperimentalCoroutinesApi::class)
+class ToolkitViewModelTest {
+    private val scheduler = TestCoroutineScheduler()
+    private val toolkitScope = CoroutineScope(SupervisorJob() + StandardTestDispatcher(scheduler))
+    private lateinit var deps: FakeToolkitDeps
+    private lateinit var vm: ToolkitViewModel
+
+    private val state get() = vm.state.value
+    private val device get() = deps.device
+    private val detail get() = state.detail!!
+    private val controls get() = (detail.controls as ControlsState.Loaded).controls
+    private val dozeInfo get() = (state.doze.load as DozeLoad.Loaded).info
+
+    @Before
+    fun setUp() {
+        Dispatchers.setMain(UnconfinedTestDispatcher(scheduler))
+    }
+
+    @After
+    fun tearDown() {
+        toolkitScope.cancel()
+        Dispatchers.resetMain()
+    }
+
+    private fun start(
+        shizuku: ShizukuState = ShizukuState.Ready(2000, 13),
+        prepare: FakeToolkitDeps.() -> Unit = {},
+    ) {
+        deps = FakeToolkitDeps(shizuku = shizuku, scope = toolkitScope).apply(prepare)
+        vm = ToolkitViewModel(deps)
+        vm.onIntent(ToolkitIntent.Visible)
+    }
+
+    private fun act(request: ToolkitRequest) = vm.onIntent(ToolkitIntent.Act(request))
+
+    private fun open(pkg: String) = vm.onIntent(ToolkitIntent.OpenApp(pkg))
+
+    private fun confirm() = vm.onIntent(ToolkitIntent.ConfirmPending)
+
+    /** Restricts [pkg]'s background activity through the screen: open, ask, confirm, close. */
+    private fun restrict(pkg: String) {
+        open(pkg)
+        act(ToolkitRequest.SetAppOp(AppOp.RUN_ANY_IN_BACKGROUND, ignored = true))
+        confirm()
+        vm.onIntent(ToolkitIntent.CloseApp)
+    }
+
+    // ---- blocked and loading ----------------------------------------------------------------
+
+    @Test
+    fun `without permission the screen is blocked, offers Grant and reads nothing until Ready`() {
+        start(shizuku = ShizukuState.PermissionRequired)
+
+        assertEquals(ToolkitPhase.BLOCKED, state.status)
+        assertEquals(BlockedReason.PERMISSION_REQUIRED, state.blocked)
+        assertTrue(device.calls.isEmpty())
+        assertEquals(DozeLoad.Loading, state.doze.load)
+
+        vm.onIntent(ToolkitIntent.Grant)
+        assertEquals(1, deps.grantRequests)
+
+        deps.shizukuState.value = ShizukuState.Ready(2000, 13)
+        assertEquals(ToolkitPhase.READY, state.status)
+        assertNull(state.blocked)
+        assertTrue(state.doze.load is DozeLoad.Loaded)
+        assertEquals(4, state.apps.total)
+    }
+
+    @Test
+    fun `Grant only asks while the permission is still undecided`() {
+        start(shizuku = ShizukuState.NotRunning)
+
+        vm.onIntent(ToolkitIntent.Grant)
+
+        assertEquals(BlockedReason.NOT_RUNNING, state.blocked)
+        assertEquals(0, deps.grantRequests)
+    }
+
+    @Test
+    fun `Shizuku going away blocks the screen and closes an open app and its confirmation`() {
+        start()
+        open(CHATTY)
+        act(ToolkitRequest.ForceStop)
+        assertNotNull(state.confirmation)
+
+        deps.shizukuState.value = ShizukuState.NotRunning
+
+        assertEquals(ToolkitPhase.BLOCKED, state.status)
+        assertNull(state.detail)
+        assertNull(state.confirmation)
+        confirm()
+        assertTrue(device.writes.isEmpty())
+    }
+
+    @Test
+    fun `an unreachable service shows the error state and Reload recovers`() {
+        start { device.serviceUp = false }
+
+        assertEquals(ToolkitPhase.FAILED, state.status)
+        assertEquals(DozeLoad.Unavailable(Problem.Unavailable(ToolkitUnavailable.NO_SERVICE)), state.doze.load)
+
+        device.serviceUp = true
+        vm.onIntent(ToolkitIntent.Reload)
+
+        assertEquals(ToolkitPhase.READY, state.status)
+        assertTrue(state.doze.load is DozeLoad.Loaded)
+        assertEquals(4, state.apps.total)
+    }
+
+    @Test
+    fun `a package manager failure fails only the app list`() {
+        start { appsFailure = true }
+
+        assertEquals(ToolkitPhase.READY, state.status)
+        assertEquals(AppsPhase.FAILED, state.apps.phase)
+        assertTrue(state.doze.load is DozeLoad.Loaded)
+    }
+
+    @Test
+    fun `no apps is an empty list, not an error`() {
+        start { apps = emptyList() }
+
+        assertEquals(AppsPhase.READY, state.apps.phase)
+        assertTrue(state.apps.items.isEmpty())
+        assertEquals(0, state.apps.total)
+    }
+
+    @Test
+    fun `hidden clears a confirmation that was waiting`() {
+        start()
+        open(CHATTY)
+        act(ToolkitRequest.ForceStop)
+        assertNotNull(state.confirmation)
+
+        vm.onIntent(ToolkitIntent.Hidden)
+
+        assertNull(state.confirmation)
+        confirm()
+        assertTrue(device.writes.isEmpty())
+    }
+
+    // ---- doze -------------------------------------------------------------------------------
+
+    @Test
+    fun `balanced is planned, applied and shown from the read-back`() {
+        start()
+        assertEquals(DozeProfile.STANDARD, dozeInfo.profile)
+
+        act(ToolkitRequest.ApplyDoze(DozeProfile.BALANCED))
+
+        assertEquals(DozeProfile.BALANCED.constants, device.dozeRaw)
+        assertEquals(DozeProfile.BALANCED, dozeInfo.profile)
+        assertEquals(600_000L, dozeInfo.effective.first { it.key == "inactive_to" }.ms)
+        assertEquals(ToolkitNotice.Applied(Change.DozeApplied(DozeProfile.BALANCED)), state.doze.notice)
+        assertFalse(state.busy)
+    }
+
+    @Test
+    fun `standard over a custom value asks first and writes nothing until confirmed`() {
+        start { device.dozeRaw = "idle_to=1" }
+        assertNull(dozeInfo.profile)
+
+        act(ToolkitRequest.ApplyDoze(DozeProfile.STANDARD))
+
+        assertEquals(listOf(ToolkitWarning.DOZE_OVER_CUSTOM), state.confirmation?.warnings)
+        assertTrue(device.writes.isEmpty())
+
+        vm.onIntent(ToolkitIntent.DismissConfirmation)
+        assertNull(state.confirmation)
+        assertTrue(device.writes.isEmpty())
+
+        act(ToolkitRequest.ApplyDoze(DozeProfile.STANDARD))
+        confirm()
+
+        assertEquals(listOf("applyDozeProfile"), device.writes)
+        assertNull(device.dozeRaw)
+        assertEquals(DozeProfile.STANDARD, dozeInfo.profile)
+        assertTrue(state.doze.notice is ToolkitNotice.Applied)
+    }
+
+    @Test
+    fun `a stale refusal re-reads the setting and asks again with the new value`() {
+        start { device.dozeStaleOnce = true }
+
+        act(ToolkitRequest.ApplyDoze(DozeProfile.BALANCED))
+
+        val confirmation = state.confirmation
+        assertNotNull(confirmation)
+        assertTrue(confirmation!!.stale)
+        assertEquals("idle_to=1", dozeInfo.raw)
+        assertNull(state.doze.notice)
+        assertFalse(state.busy)
+        assertEquals(1, device.writes.size)
+
+        confirm()
+
+        assertEquals(2, device.writes.size)
+        assertEquals(DozeProfile.BALANCED, dozeInfo.profile)
+        assertTrue(state.doze.notice is ToolkitNotice.Applied)
+    }
+
+    @Test
+    fun `a profile the system does not take is rolled back and explained`() {
+        start { device.dozeNotEffective = true }
+
+        act(ToolkitRequest.ApplyDoze(DozeProfile.AGGRESSIVE_NIGHT))
+
+        assertEquals(ToolkitNotice.Rejected(Problem.Unavailable(ToolkitUnavailable.NOT_EFFECTIVE)), state.doze.notice)
+        assertEquals(DozeProfile.STANDARD, dozeInfo.profile)
+        assertNull(device.dozeRaw)
+    }
+
+    @Test
+    fun `an applied profile is an override and restoring it puts the old value back`() {
+        start()
+        act(ToolkitRequest.ApplyDoze(DozeProfile.AGGRESSIVE_NIGHT))
+
+        val override = state.overrides.single()
+        assertEquals(OverrideWhat.Doze(DozeProfile.AGGRESSIVE_NIGHT), override.what)
+        assertNull(override.label)
+
+        act(ToolkitRequest.Restore(override.actionId))
+
+        assertNull(device.dozeRaw)
+        assertEquals(DozeProfile.STANDARD, dozeInfo.profile)
+        assertTrue(state.overrides.isEmpty())
+        assertEquals(ToolkitNotice.Applied(Change.Restored), state.overridesNotice)
+    }
+
+    // ---- app picker ---------------------------------------------------------------------------
+
+    @Test
+    fun `the picker lists restricted apps first and searches label and package`() {
+        start()
+
+        assertEquals(listOf(MAIL, CALC, CHATTY, MAPS), state.apps.items.map { it.packageName })
+        assertTrue(state.apps.items.first().restricted)
+
+        vm.onIntent(ToolkitIntent.SetQuery("MAI"))
+        assertEquals(listOf(MAIL), state.apps.items.map { it.packageName })
+        assertEquals(4, state.apps.total)
+
+        vm.onIntent(ToolkitIntent.SetQuery("example.ch"))
+        assertEquals(listOf(CHATTY), state.apps.items.map { it.packageName })
+
+        vm.onIntent(ToolkitIntent.SetQuery("nothing like it"))
+        assertTrue(state.apps.items.isEmpty())
+
+        vm.onIntent(ToolkitIntent.SetQuery(""))
+        assertEquals(4, state.apps.items.size)
+    }
+
+    @Test
+    fun `an entry without a label gets one from the label source`() {
+        start { apps = listOf(AppEntry("com.example.nolabel", "", launchable = true, restricted = false)) }
+
+        assertEquals("Label of com.example.nolabel", state.apps.items.single().label)
+    }
+
+    @Test
+    fun `only an app of the list can be opened`() {
+        start()
+
+        open("com.example.not.in.the.list")
+        assertNull(state.detail)
+
+        act(ToolkitRequest.SetAppOp(AppOp.RUN_ANY_IN_BACKGROUND, ignored = true))
+        assertTrue(device.writes.isEmpty())
+
+        open(CHATTY)
+        assertEquals(CHATTY, detail.app.packageName)
+    }
+
+    @Test
+    fun `opening an app reads every switch and the bucket back from the system`() {
+        start {
+            device.app(CHATTY).ops[AppOp.WAKE_LOCK] = "ignore"
+            device.app(CHATTY).bucket = StandbyBucket.RARE.rawValue
+        }
+
+        open(CHATTY)
+
+        assertEquals(listOf(false, false, true), controls.ops.map { it.ignored })
+        assertTrue(controls.ops.all { it.editable })
+        assertEquals(StandbyBucket.RARE, controls.bucket)
+    }
+
+    @Test
+    fun `a switch moves only after the system confirms the change`() {
+        start()
+        open(CHATTY)
+
+        act(ToolkitRequest.SetAppOp(AppOp.RUN_ANY_IN_BACKGROUND, ignored = true))
+
+        assertEquals(listOf(ToolkitWarning.RUN_ANY_IN_BACKGROUND_IGNORE), state.confirmation?.warnings)
+        assertFalse(controls.ops.first { it.op == AppOp.RUN_ANY_IN_BACKGROUND }.ignored)
+        assertTrue(device.writes.isEmpty())
+
+        confirm()
+
+        assertTrue(controls.ops.first { it.op == AppOp.RUN_ANY_IN_BACKGROUND }.ignored)
+        assertEquals("ignore", device.app(CHATTY).ops[AppOp.RUN_ANY_IN_BACKGROUND])
+        assertEquals(ToolkitNotice.Applied(Change.AppOpSet(AppOp.RUN_ANY_IN_BACKGROUND, true)), detail.notice)
+    }
+
+    @Test
+    fun `a refused write leaves the switch where the system has it`() {
+        start { device.refuseWritesFor += CHATTY }
+        open(CHATTY)
+
+        act(ToolkitRequest.SetAppOp(AppOp.RUN_IN_BACKGROUND, ignored = true))
+
+        assertFalse(controls.ops.first { it.op == AppOp.RUN_IN_BACKGROUND }.ignored)
+        assertEquals(ToolkitNotice.Rejected(Problem.Refused(ToolkitRefusal.PROTECTED_APP)), detail.notice)
+        assertFalse(state.busy)
+    }
+
+    @Test
+    fun `a protected app shows why its controls are unavailable`() {
+        start { device.protectedPackages += MAPS }
+
+        open(MAPS)
+
+        assertEquals(ControlsState.Unavailable(Problem.Refused(ToolkitRefusal.PROTECTED_APP)), detail.controls)
+    }
+
+    @Test
+    fun `ignoring wakelocks needs a warned confirmation and nothing is written before it`() {
+        start()
+        open(CHATTY)
+
+        act(ToolkitRequest.SetAppOp(AppOp.WAKE_LOCK, ignored = true))
+
+        assertTrue(ToolkitWarning.WAKE_LOCK_IGNORE in state.confirmation!!.warnings)
+        assertEquals("Chatty", state.confirmation?.target)
+        assertTrue(device.writes.isEmpty())
+
+        vm.onIntent(ToolkitIntent.DismissConfirmation)
+        assertTrue(device.writes.isEmpty())
+        assertFalse(controls.ops.first { it.op == AppOp.WAKE_LOCK }.ignored)
+
+        act(ToolkitRequest.SetAppOp(AppOp.WAKE_LOCK, ignored = true))
+        confirm()
+
+        assertTrue(controls.ops.first { it.op == AppOp.WAKE_LOCK }.ignored)
+        assertEquals(listOf("setAppOp"), device.writes)
+    }
+
+    @Test
+    fun `the restricted bucket is confirmed and the others are not`() {
+        start()
+        open(CHATTY)
+
+        act(ToolkitRequest.SetBucket(StandbyBucket.RARE))
+        assertNull(state.confirmation)
+        assertEquals(StandbyBucket.RARE, controls.bucket)
+
+        act(ToolkitRequest.SetBucket(StandbyBucket.RESTRICTED))
+        assertEquals(listOf(ToolkitWarning.RESTRICTED_BUCKET), state.confirmation?.warnings)
+        assertEquals(StandbyBucket.RARE, controls.bucket)
+
+        confirm()
+        assertEquals(StandbyBucket.RESTRICTED, controls.bucket)
+    }
+
+    @Test
+    fun `force stop is confirmed before it runs`() {
+        start()
+        open(CHATTY)
+
+        act(ToolkitRequest.ForceStop)
+
+        assertEquals(listOf(ToolkitWarning.FORCE_STOP), state.confirmation?.warnings)
+        assertTrue(device.writes.isEmpty())
+
+        confirm()
+
+        assertEquals(listOf("forceStop"), device.writes)
+        assertEquals(ToolkitNotice.Applied(Change.ForceStopped), detail.notice)
+    }
+
+    // ---- overrides, restore, history ---------------------------------------------------------
+
+    @Test
+    fun `a restriction is listed as an override and restore puts the old value back`() {
+        start()
+        restrict(CHATTY)
+
+        val override = state.overrides.single()
+        assertEquals("Chatty", override.label)
+        assertEquals(OverrideWhat.AppOpIgnored(AppOp.RUN_ANY_IN_BACKGROUND), override.what)
+        assertTrue(override.restorable)
+
+        act(ToolkitRequest.Restore(override.actionId))
+
+        assertEquals("default", device.app(CHATTY).ops[AppOp.RUN_ANY_IN_BACKGROUND])
+        assertTrue(state.overrides.isEmpty())
+        assertEquals(ToolkitNotice.Applied(Change.Restored), state.overridesNotice)
+        assertEquals(ToolkitActionStatus.RESTORED, device.store.rows.first { it.id == override.actionId }.status)
+    }
+
+    @Test
+    fun `only a shown override can be restored`() {
+        start()
+        restrict(CHATTY)
+        val writes = device.writes.size
+
+        act(ToolkitRequest.Restore(9_999L))
+
+        assertEquals(writes, device.writes.size)
+        assertEquals(1, state.overrides.size)
+    }
+
+    @Test
+    fun `switching a restriction back by hand drops it from the overrides`() {
+        start()
+        restrict(CHATTY)
+        open(CHATTY)
+
+        act(ToolkitRequest.SetAppOp(AppOp.RUN_ANY_IN_BACKGROUND, ignored = false))
+
+        assertFalse(controls.ops.first { it.op == AppOp.RUN_ANY_IN_BACKGROUND }.ignored)
+        assertTrue(state.overrides.isEmpty())
+    }
+
+    @Test
+    fun `history lists the newest action first with its decoded meaning and app label`() {
+        start()
+        act(ToolkitRequest.ApplyDoze(DozeProfile.BALANCED))
+        restrict(CHATTY)
+
+        val rows = state.history
+        assertEquals(HistoryWhat.AppOpSet(AppOp.RUN_ANY_IN_BACKGROUND, ignored = true), rows[0].what)
+        assertEquals("Chatty", rows[0].target)
+        assertEquals(ToolkitActionStatus.DONE, rows[0].status)
+        assertEquals(HistoryWhat.DozeApplied(DozeProfile.BALANCED), rows[1].what)
+        assertNull(rows[1].target)
+    }
+
+    // ---- reset all ------------------------------------------------------------------------------
+
+    @Test
+    fun `reset all asks first and reports every item, including the one that failed`() = runTest(scheduler) {
+        start()
+        restrict(CHATTY)
+        open(MAPS)
+        act(ToolkitRequest.SetBucket(StandbyBucket.RARE))
+        vm.onIntent(ToolkitIntent.CloseApp)
+        assertEquals(2, state.overrides.size)
+        device.refuseWritesFor += MAPS
+        val writes = device.writes.size
+
+        act(ToolkitRequest.ResetAll)
+
+        assertEquals(2, state.confirmation?.count)
+        assertEquals(writes, device.writes.size)
+
+        confirm()
+
+        val report = state.resetReport
+        assertNotNull(report)
+        assertEquals(2, report!!.lines.size)
+        assertEquals(1, report.restored)
+        assertEquals(1, report.failed)
+        assertEquals(ResetResult.Restored, report.lines.first { it.item.label == "Chatty" }.result)
+        assertEquals(
+            ResetResult.NotRestored(Problem.Refused(ToolkitRefusal.PROTECTED_APP)),
+            report.lines.first { it.item.label == "Maps" }.result,
+        )
+        assertEquals(ToolkitEffect.ResetFinished(restored = 1, total = 2), vm.effects.first())
+        assertEquals(listOf("Maps"), state.overrides.map { it.label })
+        assertFalse(state.busy)
+
+        vm.onIntent(ToolkitIntent.DismissResetReport)
+        assertNull(state.resetReport)
+    }
+
+    @Test
+    fun `reset all does not restrict again an app the user switched back by hand`() {
+        start()
+        restrict(CHATTY)
+        open(CHATTY)
+        act(ToolkitRequest.SetAppOp(AppOp.RUN_ANY_IN_BACKGROUND, ignored = false))
+        vm.onIntent(ToolkitIntent.CloseApp)
+        act(ToolkitRequest.ApplyDoze(DozeProfile.BALANCED))
+
+        act(ToolkitRequest.ResetAll)
+        confirm()
+
+        assertEquals(1, state.resetReport?.lines?.size)
+        assertEquals(OverrideWhat.Doze(DozeProfile.BALANCED), state.resetReport?.lines?.single()?.item?.what)
+        assertEquals("default", device.app(CHATTY).ops[AppOp.RUN_ANY_IN_BACKGROUND])
+        assertNull(device.dozeRaw)
+    }
+
+    @Test
+    fun `reset all with nothing active does nothing`() {
+        start()
+
+        act(ToolkitRequest.ResetAll)
+
+        assertNull(state.confirmation)
+        assertNull(state.resetReport)
+    }
+
+    // ---- bg-dexopt ------------------------------------------------------------------------------
+
+    @Test
+    fun `dexopt start is refused while unplugged and says why`() {
+        start { device.plugged = false }
+        assertEquals(BgDexoptStatus.Idle, state.dexopt.status)
+
+        vm.onIntent(ToolkitIntent.StartDexopt)
+
+        assertEquals(ToolkitNotice.Rejected(Problem.Refused(ToolkitRefusal.NOT_PLUGGED)), state.dexopt.notice)
+        assertEquals(BgDexoptStatus.Idle, state.dexopt.status)
+        assertFalse(state.dexopt.busy)
+        assertEquals(0, device.holds)
+    }
+
+    @Test
+    fun `a started job shows as running and the screen takes no binding hold of its own`() {
+        start()
+
+        vm.onIntent(ToolkitIntent.StartDexopt)
+
+        assertEquals(ToolkitNotice.Applied(Change.DexoptStarted), state.dexopt.notice)
+        assertTrue(state.dexopt.status is BgDexoptStatus.Running)
+        assertEquals(0, deps.screenHolds)
+        assertEquals(1, device.holds)
+
+        vm.onIntent(ToolkitIntent.StartDexopt)
+        assertEquals(1, device.writes.count { it == "startBgDexopt" })
+    }
+
+    @Test
+    fun `an unknown job may still be running, offers cancel and cannot be started over`() {
+        start {
+            device.dexopt = ServiceDexopt(
+                BgDexoptState.UNKNOWN, 0, 0, 0, 0,
+            )
+        }
+        assertEquals(BgDexoptStatus.Unknown, state.dexopt.status)
+
+        vm.onIntent(ToolkitIntent.StartDexopt)
+        assertEquals(0, device.writes.count { it == "startBgDexopt" })
+
+        vm.onIntent(ToolkitIntent.CancelDexopt)
+
+        assertEquals(1, device.writes.count { it == "cancelBgDexopt" })
+        assertEquals(ToolkitNotice.Applied(Change.DexoptCancelled), state.dexopt.notice)
+        val status = state.dexopt.status
+        assertTrue(status is BgDexoptStatus.Cancelled && status.reason == BgDexoptCancelReason.USER)
+    }
+
+    @Test
+    fun `cancel is ignored while nothing runs`() {
+        start()
+
+        vm.onIntent(ToolkitIntent.CancelDexopt)
+
+        assertEquals(0, device.writes.count { it == "cancelBgDexopt" })
+    }
+
+    @Test
+    fun `the dexopt status is read only while the screen is visible`() {
+        start()
+        vm.onIntent(ToolkitIntent.StartDexopt)
+        val afterStart = device.count("getBgDexoptStatus")
+
+        scheduler.advanceTimeBy(10_000)
+        scheduler.runCurrent()
+        val whileVisible = device.count("getBgDexoptStatus")
+        assertTrue("running status is polled while visible", whileVisible > afterStart)
+
+        vm.onIntent(ToolkitIntent.Hidden)
+        scheduler.advanceTimeBy(30_000)
+        scheduler.runCurrent()
+
+        assertEquals(whileVisible, device.count("getBgDexoptStatus"))
+    }
+}

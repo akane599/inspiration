@@ -1,0 +1,206 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Header and the standing warning -->
+    <string name="toolkit_title">Araçlar</string>
+    <string name="toolkit_subtitle">Doze\'u ve arka plan işlerini ayarlayın. Yaptığınız her değişiklik aşağıda listelenir, böylece geri alabilirsiniz.</string>
+    <string name="toolkit_persist_title">Değişiklikler siz geri alana kadar kalır</string>
+    <string name="toolkit_persist_body">Burada yapılan değişiklikler yeniden başlatmalardan ve Inspiration kaldırıldıktan sonra bile sürer. Uygulamayı kaldırmadan önce bu ekrandan geri alın.</string>
+    <string name="toolkit_reset_all">Tümünü sıfırla</string>
+    <string name="toolkit_reset_finished">%2$d değişikliğin %1$d tanesi geri alındı.</string>
+    <string name="toolkit_seconds">%1$s sn</string>
+
+    <!-- Loading, error, blocked -->
+    <string name="toolkit_loading_title">Cihaz ayarları okunuyor</string>
+    <string name="toolkit_loading_body">Doze, bekleme grupları ve daha önce yapılan değişiklikler kontrol ediliyor.</string>
+    <string name="toolkit_error_title">Cihaz ayarları okunamadı</string>
+    <string name="toolkit_error_body">Shizuku hazır ama hizmeti yanıt vermedi. Birazdan yeniden deneyin.</string>
+    <string name="toolkit_error_action">Yeniden dene</string>
+    <string name="toolkit_blocked_title">Shizuku hazır değil</string>
+    <string name="toolkit_blocked_not_installed">Araçları kullanmak için Shizuku\'yu kurup başlatın. Shizuku olmadan burada hiçbir şey çalışmaz.</string>
+    <string name="toolkit_blocked_not_running">Shizuku\'yu başlatın, sonra bu ekrana dönün.</string>
+    <string name="toolkit_blocked_permission_required">Inspiration\'ın bu ayarları değiştirebilmesi için Shizuku\'da izninize ihtiyacı var.</string>
+    <string name="toolkit_blocked_permission_denied">Shizuku\'da erişim reddedildi. Shizuku uygulamasında Inspiration\'a izin verin, sonra bu ekrana dönün.</string>
+    <string name="toolkit_blocked_grant">Erişim ver</string>
+
+    <!-- Doze -->
+    <string name="toolkit_doze_title">Doze profilleri</string>
+    <string name="toolkit_doze_experimental">Deneysel</string>
+    <string name="toolkit_doze_intro">Profil, telefon boşta beklerken derin doze\'a ne kadar çabuk girileceğini değiştirir. Profiller deneyseldir: birini tutmadan önce pilinizi birkaç gün izleyin.</string>
+    <string name="toolkit_doze_loading">Doze ayarı okunuyor</string>
+    <string name="toolkit_doze_unavailable">Doze ayarı okunamadı.</string>
+    <string name="toolkit_doze_current">Mevcut ayar: %1$s</string>
+    <string name="toolkit_doze_current_custom">Mevcut ayar: özel değerler</string>
+    <string name="toolkit_doze_active">Etkin</string>
+    <string name="toolkit_doze_apply">Uygula</string>
+    <string name="toolkit_doze_standard">Standart</string>
+    <string name="toolkit_doze_standard_body">Android\'in varsayılan süreleri.</string>
+    <string name="toolkit_doze_balanced">Dengeli</string>
+    <string name="toolkit_doze_balanced_body">Telefon hareketsiz kalınca derin doze\'a daha erken girer. Boştayken bildirimler biraz geç gelebilir.</string>
+    <string name="toolkit_doze_aggressive">Agresif gece uykusu</string>
+    <string name="toolkit_doze_aggressive_body">Telefon hareket halindeyken bile derin doze\'a hızla girer. Alarmlar ve mesajlar çok gecikebilir.</string>
+    <string name="toolkit_doze_effective_title">Geçerli değerler</string>
+    <string name="toolkit_doze_key_inactive">Doze öncesi hareketsizlik</string>
+    <string name="toolkit_doze_key_light">Hafif doze gecikmesi</string>
+    <string name="toolkit_doze_key_idle">Derin doze gecikmesi</string>
+    <string name="toolkit_doze_key_sensing">Hareket algılama</string>
+    <string name="toolkit_doze_key_locating">Konum denetimi</string>
+    <string name="toolkit_doze_key_motion">Hareketten sonra hareketsizlik</string>
+    <string name="toolkit_notice_doze">Doze profili %1$s olarak ayarlandı.</string>
+
+    <!-- Background dexopt -->
+    <string name="toolkit_dexopt_title">Arka plan dexopt</string>
+    <string name="toolkit_dexopt_body">Uygulamaları daha hızlı açılmaları için yeniden derler. Yalnızca telefon şarjdayken çalışır ve uzun sürebilir.</string>
+    <string name="toolkit_dexopt_loading">Dexopt durumu okunuyor</string>
+    <string name="toolkit_dexopt_start">Dexopt başlat</string>
+    <string name="toolkit_dexopt_cancel">Dexopt\'u iptal et</string>
+    <string name="toolkit_dexopt_idle">Çalışmıyor.</string>
+    <string name="toolkit_dexopt_running">Şu an çalışıyor.</string>
+    <string name="toolkit_dexopt_running_since">%1$s tarihinden beri çalışıyor.</string>
+    <string name="toolkit_dexopt_finished">Tamamlandı.</string>
+    <string name="toolkit_dexopt_finished_code">Hatayla tamamlandı (kod %1$d).</string>
+    <string name="toolkit_dexopt_cancelled_user">Siz iptal ettiniz.</string>
+    <string name="toolkit_dexopt_cancelled_unplugged">Telefon şarjdan çıkarıldığı için iptal edildi.</string>
+    <string name="toolkit_dexopt_cancelled_timeout">Çok uzun sürdüğü için iptal edildi.</string>
+    <string name="toolkit_dexopt_cancelled_other">İptal edildi.</string>
+    <string name="toolkit_dexopt_unknown">Durum bilinmiyor. Hâlâ çalışıyor olabilir.</string>
+    <string name="toolkit_notice_dexopt_started">Dexopt başlatıldı.</string>
+    <string name="toolkit_notice_dexopt_cancelled">Dexopt iptal edildi.</string>
+
+    <!-- Overrides -->
+    <string name="toolkit_overrides_title">Inspiration\'ın yaptığı değişiklikler</string>
+    <string name="toolkit_overrides_empty">Etkin değişiklik yok. Her şey sistemin ayarladığı gibi.</string>
+    <string name="toolkit_override_since">%1$s tarihinden beri</string>
+    <string name="toolkit_override_restore">Geri al</string>
+    <string name="toolkit_override_not_restorable">Otomatik olarak geri alınamaz.</string>
+    <string name="toolkit_override_op_other">%1$s için izin değiştirildi</string>
+    <string name="toolkit_override_bucket">%1$s: bekleme grubu %2$s olarak ayarlandı</string>
+    <string name="toolkit_override_bucket_other">%1$s: bekleme grubu değiştirildi</string>
+    <string name="toolkit_override_doze">Doze profili: %1$s</string>
+    <string name="toolkit_override_doze_custom">Doze ayarı değiştirildi</string>
+    <string name="toolkit_notice_restored">Değişiklik geri alındı.</string>
+
+    <!-- Reset all -->
+    <string name="toolkit_reset_report_title">Sıfırlama sonucu</string>
+    <string name="toolkit_reset_report_summary">%2$d değişikliğin %1$d tanesi geri alındı</string>
+    <string name="toolkit_reset_not_restored">Geri alınamadı: %1$s</string>
+    <string name="toolkit_reset_report_failed_note">Geri alınamayan değişiklikler etkin ve listede kalır. Tek tek geri alabilirsiniz.</string>
+    <string name="toolkit_reset_report_dismiss">Kapat</string>
+
+    <!-- App picker -->
+    <string name="toolkit_apps_title">Uygulama arka plan denetimi</string>
+    <string name="toolkit_apps_body">Kullanmadığınız sırada ne yapabileceğini sınırlamak için bir uygulama seçin.</string>
+    <string name="toolkit_apps_search">Uygulama ara</string>
+    <string name="toolkit_apps_loading">Yüklü uygulamalar yükleniyor</string>
+    <string name="toolkit_apps_failed_title">Uygulamalar listelenemedi</string>
+    <string name="toolkit_apps_failed_body">Yüklü uygulamaların listesi yüklenmedi. Yeniden deneyin.</string>
+    <string name="toolkit_apps_empty_title">Gösterilecek uygulama yok</string>
+    <string name="toolkit_apps_empty_none">Listelenecek uygulama yok.</string>
+    <string name="toolkit_apps_empty_no_match">\"%1$s\" ile eşleşen uygulama yok. Yazımı kontrol edin veya paket adıyla arayın.</string>
+    <plurals name="toolkit_apps_count">
+        <item quantity="one">%1$d uygulama</item>
+        <item quantity="other">%1$d uygulama</item>
+    </plurals>
+    <string name="toolkit_app_restricted">Kısıtlı</string>
+
+    <!-- App detail -->
+    <string name="toolkit_busy">Değişiklik uygulanıyor…</string>
+    <string name="toolkit_controls_loading">Uygulamanın ayarları okunuyor</string>
+    <string name="toolkit_op_short_run_any">Arka plan etkinliği</string>
+    <string name="toolkit_op_short_run_in">Arka planda çalışma</string>
+    <string name="toolkit_op_short_wake_lock">Wakelock\'lar</string>
+    <string name="toolkit_op_run_any_title">Arka plan etkinliğini engelle</string>
+    <string name="toolkit_op_run_any_body">Uygulamanın arka planda çalışmasını durdurur. Siz açana kadar eşitleme yapmayabilir veya bildirim göndermeyebilir.</string>
+    <string name="toolkit_op_run_in_title">Arka planda çalışmayı engelle</string>
+    <string name="toolkit_op_run_in_body">Uygulamanın kendi arka plan hizmetlerini başlatmasını durdurur.</string>
+    <string name="toolkit_op_wake_lock_title">Wakelock\'ları engelle</string>
+    <string name="toolkit_op_wake_lock_body">Uygulamanın telefonu uyanık tutmasını durdurur.</string>
+    <string name="toolkit_op_wake_lock_warning">Alarmlar ve mesajlaşma bozulabilir.</string>
+    <string name="toolkit_op_custom">Bu iznin değeri Inspiration\'ın değiştiremeyeceği bir değer.</string>
+    <string name="toolkit_op_blocked_line">%2$s: %1$s engellendi</string>
+    <string name="toolkit_op_allowed_line">%2$s: %1$s yeniden izinli</string>
+    <string name="toolkit_bucket_title">Bekleme grubu</string>
+    <string name="toolkit_bucket_body">Sistemin uygulamaya ne sıklıkla iş ve alarm çalıştırma izni verdiğini belirler.</string>
+    <string name="toolkit_bucket_other">Mevcut grup (%1$d) sistem tarafından ayarlanmış.</string>
+    <string name="toolkit_bucket_active">Etkin</string>
+    <string name="toolkit_bucket_working_set">Çalışma kümesi</string>
+    <string name="toolkit_bucket_frequent">Sık</string>
+    <string name="toolkit_bucket_rare">Nadir</string>
+    <string name="toolkit_bucket_restricted">Kısıtlı</string>
+    <string name="toolkit_force_stop">Durmaya zorla</string>
+    <string name="toolkit_force_stop_body">Uygulamayı hemen durdurur, alarmlarını ve bekleyen işlerini temizler.</string>
+    <string name="toolkit_notice_op_blocked">%1$s engellendi.</string>
+    <string name="toolkit_notice_op_allowed">%1$s yeniden izinli.</string>
+    <string name="toolkit_notice_bucket">Bekleme grubu: %1$s.</string>
+    <string name="toolkit_notice_force_stopped">Uygulama durmaya zorlandı.</string>
+
+    <!-- History -->
+    <string name="toolkit_history_title">Son değişiklikler</string>
+    <string name="toolkit_history_empty">Henüz hiçbir şey değiştirilmedi.</string>
+    <string name="toolkit_history_meta">%1$s · %2$s</string>
+    <string name="toolkit_history_restore">Geri alındı: %1$s</string>
+    <string name="toolkit_history_op_other">%1$s için izin değiştirildi</string>
+    <string name="toolkit_history_bucket">%1$s: bekleme grubu %2$s olarak ayarlandı</string>
+    <string name="toolkit_history_doze">Doze profili %1$s olarak ayarlandı</string>
+    <string name="toolkit_history_doze_other">Doze ayarı değiştirildi</string>
+    <string name="toolkit_history_doze_restored">Doze ayarı geri alındı</string>
+    <string name="toolkit_history_force_stop">%1$s durmaya zorlandı</string>
+    <string name="toolkit_history_dexopt">Arka plan dexopt</string>
+    <string name="toolkit_history_other">Değişiklik</string>
+    <string name="toolkit_status_pending">Bekliyor</string>
+    <string name="toolkit_status_done">Tamam</string>
+    <string name="toolkit_status_refused">Reddedildi</string>
+    <string name="toolkit_status_failed">Başarısız</string>
+    <string name="toolkit_status_restored">Geri alındı</string>
+    <string name="toolkit_status_cancelled">İptal edildi</string>
+
+    <!-- Confirmation -->
+    <string name="toolkit_confirm_title_doze">%1$s doze profili uygulansın mı?</string>
+    <string name="toolkit_confirm_title_block">%2$s için %1$s engellensin mi?</string>
+    <string name="toolkit_confirm_title_allow">%2$s için %1$s yeniden izinli olsun mu?</string>
+    <string name="toolkit_confirm_title_bucket">%1$s, %2$s grubuna taşınsın mı?</string>
+    <string name="toolkit_confirm_title_force_stop">%1$s durmaya zorlansın mı?</string>
+    <string name="toolkit_confirm_title_restore">%1$s için önceki ayar geri yüklensin mi?</string>
+    <string name="toolkit_confirm_title_restore_doze">Önceki doze ayarı geri yüklensin mi?</string>
+    <plurals name="toolkit_confirm_title_reset_all">
+        <item quantity="one">%1$d değişiklik geri alınsın mı?</item>
+        <item quantity="other">%1$d değişikliğin tümü geri alınsın mı?</item>
+    </plurals>
+    <string name="toolkit_confirm_reset_body">Inspiration\'ın yaptığı her değişiklik eski haline getirilir. Geri alınamayan değişiklikler, nedenleriyle birlikte listede kalır.</string>
+    <string name="toolkit_confirm_stale">Siz karar verirken ayar değişti. Aşağıdaki, şu anki değeridir.</string>
+    <string name="toolkit_confirm_action_apply">Uygula</string>
+    <string name="toolkit_confirm_action_block">Engelle</string>
+    <string name="toolkit_confirm_action_allow">İzin ver</string>
+    <string name="toolkit_confirm_action_move">Taşı</string>
+    <string name="toolkit_confirm_action_force_stop">Durmaya zorla</string>
+    <string name="toolkit_confirm_action_restore">Geri yükle</string>
+    <string name="toolkit_confirm_action_reset_all">Tümünü sıfırla</string>
+    <string name="toolkit_confirm_cancel">Vazgeç</string>
+
+    <!-- Warnings, refusals, failures -->
+    <string name="toolkit_warning_force_stop">Durmaya zorlamak uygulamayı hemen sonlandırır, alarmlarını ve bekleyen işlerini siler.</string>
+    <string name="toolkit_warning_wake_lock_ignore">Wakelock\'ları yok saymak alarmları ve mesajlaşmayı bozabilir.</string>
+    <string name="toolkit_warning_restricted_bucket">Kısıtlı grup, uygulamanın işlerini, alarmlarını ve ağ erişimini ciddi biçimde sınırlar.</string>
+    <string name="toolkit_warning_run_any_in_background_ignore">Uygulama tüm arka plan işlerini durdurur; siz açana kadar eşitleme yapmayabilir veya bildirim göndermeyebilir.</string>
+    <string name="toolkit_warning_updated_system_app">Bu güncellenmiş bir sistem uygulaması. Değiştirmek sistemin bazı bölümlerini etkileyebilir.</string>
+    <string name="toolkit_warning_doze_over_custom">Standart doze, özel bir doze ayarının yerine geçer.</string>
+    <string name="toolkit_warning_restore_state_changed">Ayar, Inspiration bu değişikliği yaptığından beri değişti. Geri yükleme mevcut değerin üzerine yazar.</string>
+    <string name="toolkit_refused_invalid_argument">Bu istek geçerli değil.</string>
+    <string name="toolkit_refused_not_installed">Bu uygulama yüklü değil.</string>
+    <string name="toolkit_refused_protected_app">Bu korumalı bir uygulama. Inspiration sistem, kalıcı veya rol sahibi uygulamaları değiştirmez.</string>
+    <string name="toolkit_refused_caller">Shizuku bu isteği reddetti.</string>
+    <string name="toolkit_refused_stale">Ayar bu arada değişti. Kontrol edip yeniden deneyin.</string>
+    <string name="toolkit_refused_busy">Başka bir değişiklik sürüyor. Birazdan yeniden deneyin.</string>
+    <string name="toolkit_refused_not_plugged">Önce telefonu şarja takın.</string>
+    <string name="toolkit_refused_read_failed">Mevcut ayarlar okunamadı.</string>
+    <string name="toolkit_refused_not_confirmed">Devam etmek için işlemi onaylayın.</string>
+    <string name="toolkit_refused_service_unavailable">Shizuku hizmeti şu an kullanılamıyor.</string>
+    <string name="toolkit_refused_not_restorable">Bu değişiklik otomatik olarak geri alınamaz.</string>
+    <string name="toolkit_refused_already_restored">Bu değişiklik zaten geri alınmış.</string>
+    <string name="toolkit_refused_unknown_action">Inspiration bu işlemi tanımıyor.</string>
+    <string name="toolkit_refused_other">İstek reddedildi.</string>
+    <string name="toolkit_unavailable_no_service">Shizuku hizmetine ulaşılamıyor. Shizuku\'nun çalıştığını kontrol edin.</string>
+    <string name="toolkit_unavailable_stale_service">Shizuku hizmeti güncel değil. Shizuku\'yu yeniden başlatıp tekrar deneyin.</string>
+    <string name="toolkit_unavailable_not_effective">Değişiklik etkili olmadı ve geri alındı.</string>
+    <string name="toolkit_failed_code">Komut başarısız oldu (kod %1$d).</string>
+    <string name="toolkit_failed">Komut başarısız oldu.</string>
+</resources>

@@ -1,0 +1,206 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Header and the standing warning -->
+    <string name="toolkit_title">Toolkit</string>
+    <string name="toolkit_subtitle">Tune doze and background work. Every change is listed below so you can undo it.</string>
+    <string name="toolkit_persist_title">Changes stay until you undo them</string>
+    <string name="toolkit_persist_body">Changes made here persist across reboots and even after Inspiration is uninstalled. Restore them from this screen before you remove the app.</string>
+    <string name="toolkit_reset_all">Reset all</string>
+    <string name="toolkit_reset_finished">Restored %1$d of %2$d changes.</string>
+    <string name="toolkit_seconds">%1$s s</string>
+
+    <!-- Loading, error, blocked -->
+    <string name="toolkit_loading_title">Reading device settings</string>
+    <string name="toolkit_loading_body">Checking doze, standby buckets and the changes made earlier.</string>
+    <string name="toolkit_error_title">Couldn\'t read the device settings</string>
+    <string name="toolkit_error_body">Shizuku is ready, but its service didn\'t answer. Try again in a moment.</string>
+    <string name="toolkit_error_action">Try again</string>
+    <string name="toolkit_blocked_title">Shizuku isn\'t ready</string>
+    <string name="toolkit_blocked_not_installed">Install and start Shizuku to use the toolkit. Nothing here works without it.</string>
+    <string name="toolkit_blocked_not_running">Start Shizuku, then come back to this screen.</string>
+    <string name="toolkit_blocked_permission_required">Inspiration needs your permission in Shizuku before it can change these settings.</string>
+    <string name="toolkit_blocked_permission_denied">Access was denied in Shizuku. Allow Inspiration in the Shizuku app, then come back to this screen.</string>
+    <string name="toolkit_blocked_grant">Grant access</string>
+
+    <!-- Doze -->
+    <string name="toolkit_doze_title">Doze profiles</string>
+    <string name="toolkit_doze_experimental">Experimental</string>
+    <string name="toolkit_doze_intro">A profile changes how soon the phone enters deep doze when it sits idle. Profiles are experimental: watch your battery for a few days before you keep one.</string>
+    <string name="toolkit_doze_loading">Reading the doze setting</string>
+    <string name="toolkit_doze_unavailable">Couldn\'t read the doze setting.</string>
+    <string name="toolkit_doze_current">Current setting: %1$s</string>
+    <string name="toolkit_doze_current_custom">Current setting: custom values</string>
+    <string name="toolkit_doze_active">Active</string>
+    <string name="toolkit_doze_apply">Apply</string>
+    <string name="toolkit_doze_standard">Standard</string>
+    <string name="toolkit_doze_standard_body">The timings Android ships with.</string>
+    <string name="toolkit_doze_balanced">Balanced</string>
+    <string name="toolkit_doze_balanced_body">Enters deep doze sooner once the phone is still. Notifications can arrive a little later while it is idle.</string>
+    <string name="toolkit_doze_aggressive">Aggressive night</string>
+    <string name="toolkit_doze_aggressive_body">Enters deep doze quickly, even while the phone is moving. Alarms and messages can be delayed a lot.</string>
+    <string name="toolkit_doze_effective_title">Values in effect</string>
+    <string name="toolkit_doze_key_inactive">Still time before doze</string>
+    <string name="toolkit_doze_key_light">Light doze delay</string>
+    <string name="toolkit_doze_key_idle">Deep doze delay</string>
+    <string name="toolkit_doze_key_sensing">Motion sensing</string>
+    <string name="toolkit_doze_key_locating">Location check</string>
+    <string name="toolkit_doze_key_motion">Still time after motion</string>
+    <string name="toolkit_notice_doze">Doze profile set to %1$s.</string>
+
+    <!-- Background dexopt -->
+    <string name="toolkit_dexopt_title">Background dexopt</string>
+    <string name="toolkit_dexopt_body">Recompiles apps so they start faster. It only runs while the phone is plugged in and can take a long while.</string>
+    <string name="toolkit_dexopt_loading">Reading the dexopt status</string>
+    <string name="toolkit_dexopt_start">Start dexopt</string>
+    <string name="toolkit_dexopt_cancel">Cancel dexopt</string>
+    <string name="toolkit_dexopt_idle">Not running.</string>
+    <string name="toolkit_dexopt_running">Running now.</string>
+    <string name="toolkit_dexopt_running_since">Running since %1$s.</string>
+    <string name="toolkit_dexopt_finished">Finished.</string>
+    <string name="toolkit_dexopt_finished_code">Finished with an error (code %1$d).</string>
+    <string name="toolkit_dexopt_cancelled_user">Cancelled by you.</string>
+    <string name="toolkit_dexopt_cancelled_unplugged">Cancelled because the phone was unplugged.</string>
+    <string name="toolkit_dexopt_cancelled_timeout">Cancelled after taking too long.</string>
+    <string name="toolkit_dexopt_cancelled_other">Cancelled.</string>
+    <string name="toolkit_dexopt_unknown">Status unknown. It may still be running.</string>
+    <string name="toolkit_notice_dexopt_started">Dexopt started.</string>
+    <string name="toolkit_notice_dexopt_cancelled">Dexopt cancelled.</string>
+
+    <!-- Overrides -->
+    <string name="toolkit_overrides_title">Changes made by Inspiration</string>
+    <string name="toolkit_overrides_empty">No active changes. Everything is as the system set it.</string>
+    <string name="toolkit_override_since">Since %1$s</string>
+    <string name="toolkit_override_restore">Restore</string>
+    <string name="toolkit_override_not_restorable">Can\'t be restored automatically.</string>
+    <string name="toolkit_override_op_other">Permission changed for %1$s</string>
+    <string name="toolkit_override_bucket">%1$s: standby bucket set to %2$s</string>
+    <string name="toolkit_override_bucket_other">%1$s: standby bucket changed</string>
+    <string name="toolkit_override_doze">Doze profile: %1$s</string>
+    <string name="toolkit_override_doze_custom">Doze setting changed</string>
+    <string name="toolkit_notice_restored">Change restored.</string>
+
+    <!-- Reset all -->
+    <string name="toolkit_reset_report_title">Reset result</string>
+    <string name="toolkit_reset_report_summary">%1$d of %2$d changes restored</string>
+    <string name="toolkit_reset_not_restored">Not restored: %1$s</string>
+    <string name="toolkit_reset_report_failed_note">Changes that weren\'t restored stay active and listed. You can restore them one by one.</string>
+    <string name="toolkit_reset_report_dismiss">Dismiss</string>
+
+    <!-- App picker -->
+    <string name="toolkit_apps_title">App background control</string>
+    <string name="toolkit_apps_body">Pick an app to limit what it may do while you aren\'t using it.</string>
+    <string name="toolkit_apps_search">Search apps</string>
+    <string name="toolkit_apps_loading">Loading installed apps</string>
+    <string name="toolkit_apps_failed_title">Couldn\'t list the apps</string>
+    <string name="toolkit_apps_failed_body">The list of installed apps didn\'t load. Try again.</string>
+    <string name="toolkit_apps_empty_title">No apps to show</string>
+    <string name="toolkit_apps_empty_none">There are no apps to list.</string>
+    <string name="toolkit_apps_empty_no_match">No app matches \"%1$s\". Check the spelling or search by package name.</string>
+    <plurals name="toolkit_apps_count">
+        <item quantity="one">%1$d app</item>
+        <item quantity="other">%1$d apps</item>
+    </plurals>
+    <string name="toolkit_app_restricted">Restricted</string>
+
+    <!-- App detail -->
+    <string name="toolkit_busy">Applying the change…</string>
+    <string name="toolkit_controls_loading">Reading the app\'s settings</string>
+    <string name="toolkit_op_short_run_any">Background activity</string>
+    <string name="toolkit_op_short_run_in">Background running</string>
+    <string name="toolkit_op_short_wake_lock">Wakelocks</string>
+    <string name="toolkit_op_run_any_title">Block background activity</string>
+    <string name="toolkit_op_run_any_body">Stops the app from running in the background. It may not sync or notify you until you open it.</string>
+    <string name="toolkit_op_run_in_title">Block background running</string>
+    <string name="toolkit_op_run_in_body">Stops the app from starting background services of its own.</string>
+    <string name="toolkit_op_wake_lock_title">Block wakelocks</string>
+    <string name="toolkit_op_wake_lock_body">Stops the app from keeping the phone awake.</string>
+    <string name="toolkit_op_wake_lock_warning">Alarms and messaging may break.</string>
+    <string name="toolkit_op_custom">This permission has a value that Inspiration can\'t change.</string>
+    <string name="toolkit_op_blocked_line">%1$s blocked for %2$s</string>
+    <string name="toolkit_op_allowed_line">%1$s allowed for %2$s</string>
+    <string name="toolkit_bucket_title">Standby bucket</string>
+    <string name="toolkit_bucket_body">Controls how often the system lets the app run jobs and alarms.</string>
+    <string name="toolkit_bucket_other">The current bucket (%1$d) is set by the system.</string>
+    <string name="toolkit_bucket_active">Active</string>
+    <string name="toolkit_bucket_working_set">Working set</string>
+    <string name="toolkit_bucket_frequent">Frequent</string>
+    <string name="toolkit_bucket_rare">Rare</string>
+    <string name="toolkit_bucket_restricted">Restricted</string>
+    <string name="toolkit_force_stop">Force stop</string>
+    <string name="toolkit_force_stop_body">Stops the app now and clears its alarms and pending work.</string>
+    <string name="toolkit_notice_op_blocked">%1$s blocked.</string>
+    <string name="toolkit_notice_op_allowed">%1$s allowed.</string>
+    <string name="toolkit_notice_bucket">Standby bucket set to %1$s.</string>
+    <string name="toolkit_notice_force_stopped">The app was force-stopped.</string>
+
+    <!-- History -->
+    <string name="toolkit_history_title">Recent changes</string>
+    <string name="toolkit_history_empty">Nothing has been changed yet.</string>
+    <string name="toolkit_history_meta">%1$s · %2$s</string>
+    <string name="toolkit_history_restore">Restored: %1$s</string>
+    <string name="toolkit_history_op_other">Permission changed for %1$s</string>
+    <string name="toolkit_history_bucket">%1$s: standby bucket set to %2$s</string>
+    <string name="toolkit_history_doze">Doze profile set to %1$s</string>
+    <string name="toolkit_history_doze_other">Doze setting changed</string>
+    <string name="toolkit_history_doze_restored">Doze setting restored</string>
+    <string name="toolkit_history_force_stop">%1$s force-stopped</string>
+    <string name="toolkit_history_dexopt">Background dexopt</string>
+    <string name="toolkit_history_other">Change</string>
+    <string name="toolkit_status_pending">Pending</string>
+    <string name="toolkit_status_done">Done</string>
+    <string name="toolkit_status_refused">Refused</string>
+    <string name="toolkit_status_failed">Failed</string>
+    <string name="toolkit_status_restored">Restored</string>
+    <string name="toolkit_status_cancelled">Cancelled</string>
+
+    <!-- Confirmation -->
+    <string name="toolkit_confirm_title_doze">Apply the %1$s doze profile?</string>
+    <string name="toolkit_confirm_title_block">Block %1$s for %2$s?</string>
+    <string name="toolkit_confirm_title_allow">Allow %1$s again for %2$s?</string>
+    <string name="toolkit_confirm_title_bucket">Move %1$s to the %2$s bucket?</string>
+    <string name="toolkit_confirm_title_force_stop">Force stop %1$s?</string>
+    <string name="toolkit_confirm_title_restore">Restore the previous setting of %1$s?</string>
+    <string name="toolkit_confirm_title_restore_doze">Restore the previous doze setting?</string>
+    <plurals name="toolkit_confirm_title_reset_all">
+        <item quantity="one">Restore %1$d change?</item>
+        <item quantity="other">Restore all %1$d changes?</item>
+    </plurals>
+    <string name="toolkit_confirm_reset_body">Every change Inspiration made is put back. Whatever can\'t be restored stays listed with the reason.</string>
+    <string name="toolkit_confirm_stale">The setting changed while you were deciding. This is the value it has now.</string>
+    <string name="toolkit_confirm_action_apply">Apply</string>
+    <string name="toolkit_confirm_action_block">Block</string>
+    <string name="toolkit_confirm_action_allow">Allow</string>
+    <string name="toolkit_confirm_action_move">Move</string>
+    <string name="toolkit_confirm_action_force_stop">Force stop</string>
+    <string name="toolkit_confirm_action_restore">Restore</string>
+    <string name="toolkit_confirm_action_reset_all">Reset all</string>
+    <string name="toolkit_confirm_cancel">Cancel</string>
+
+    <!-- Warnings, refusals, failures -->
+    <string name="toolkit_warning_force_stop">Force-stopping ends the app right now and drops its alarms and pending work.</string>
+    <string name="toolkit_warning_wake_lock_ignore">Ignoring wakelocks can break alarms and messaging.</string>
+    <string name="toolkit_warning_restricted_bucket">The restricted bucket heavily limits the app\'s jobs, alarms and network.</string>
+    <string name="toolkit_warning_run_any_in_background_ignore">The app will stop all background work, so it may not sync or notify you until you open it.</string>
+    <string name="toolkit_warning_updated_system_app">This is an updated system app. Changing it can affect parts of the system.</string>
+    <string name="toolkit_warning_doze_over_custom">Standard doze would replace a custom doze setting.</string>
+    <string name="toolkit_warning_restore_state_changed">The setting has changed since Inspiration made this change. Restoring overwrites its current value.</string>
+    <string name="toolkit_refused_invalid_argument">That request isn\'t valid.</string>
+    <string name="toolkit_refused_not_installed">This app isn\'t installed.</string>
+    <string name="toolkit_refused_protected_app">This is a protected app. Inspiration doesn\'t change system, persistent or role-holder apps.</string>
+    <string name="toolkit_refused_caller">Shizuku refused this request.</string>
+    <string name="toolkit_refused_stale">The setting changed in the meantime. Check it and try again.</string>
+    <string name="toolkit_refused_busy">Another change is in progress. Try again in a moment.</string>
+    <string name="toolkit_refused_not_plugged">Plug the phone in first.</string>
+    <string name="toolkit_refused_read_failed">Couldn\'t read the current settings.</string>
+    <string name="toolkit_refused_not_confirmed">Confirm the action to continue.</string>
+    <string name="toolkit_refused_service_unavailable">The Shizuku service isn\'t available right now.</string>
+    <string name="toolkit_refused_not_restorable">This change can\'t be restored automatically.</string>
+    <string name="toolkit_refused_already_restored">This change was already restored.</string>
+    <string name="toolkit_refused_unknown_action">Inspiration doesn\'t recognize that action.</string>
+    <string name="toolkit_refused_other">The request was refused.</string>
+    <string name="toolkit_unavailable_no_service">The Shizuku service can\'t be reached. Check that Shizuku is running.</string>
+    <string name="toolkit_unavailable_stale_service">The Shizuku service is out of date. Restart Shizuku, then try again.</string>
+    <string name="toolkit_unavailable_not_effective">The change didn\'t take effect and was rolled back.</string>
+    <string name="toolkit_failed_code">The command failed (code %1$d).</string>
+    <string name="toolkit_failed">The command failed.</string>
+</resources>
