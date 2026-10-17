@@ -283,7 +283,11 @@ private fun ScrubPlot(
 @Composable
 private fun ScrubLegend() {
     val telemetry = MaterialTheme.telemetryColors
-    val items = LaneKind.entries.map { kind ->
+    val series = listOf(
+        LegendItem(telemetry.batteryLine, stringResource(R.string.chart_series_battery)),
+        LegendItem(telemetry.temperatureLine, stringResource(R.string.chart_series_temperature)),
+    )
+    val lanes = LaneKind.entries.map { kind ->
         val color = when (kind) {
             LaneKind.SCREEN_ON -> telemetry.screenOn
             LaneKind.DEEP_SLEEP -> telemetry.deepSleep
@@ -291,8 +295,8 @@ private fun ScrubLegend() {
             LaneKind.CHARGING -> telemetry.charging
         }
         LegendItem(color, stringResource(kind.labelRes))
-    }.toImmutableList()
-    LegendRow(items = items)
+    }
+    LegendRow(items = (series + lanes).toImmutableList())
 }
 
 /** Fade the committed selection's scrim in with `tween(150)`, or snap when animations are off. */

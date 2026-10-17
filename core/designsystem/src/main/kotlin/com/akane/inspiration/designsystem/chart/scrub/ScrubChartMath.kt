@@ -92,8 +92,8 @@ internal fun splitDuration(durationMs: Long): DurationParts {
     return DurationParts(totalMinutes / 60, totalMinutes % 60)
 }
 
-/** True when the window spans more than a day, so readouts need the date as well as the time. */
-internal fun TimeRange.spansDays(): Boolean = durationMs > DAY_MS
+/** True when the window spans a day or more, so readouts need the date as well as the time. */
+internal fun TimeRange.spansDays(): Boolean = durationMs >= DAY_MS
 
 /** Axis tick labels switch from clock time to the date once the window covers several days. */
 internal fun TimeRange.usesDateTicks(): Boolean = durationMs > 2 * DAY_MS

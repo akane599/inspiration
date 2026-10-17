@@ -6,6 +6,10 @@
     <string name="chart_lane_awake">Awake</string>
     <string name="chart_lane_charging">Charging</string>
 
+    <!-- Series names (legend) -->
+    <string name="chart_series_battery">Battery</string>
+    <string name="chart_series_temperature">Temperature</string>
+
     <!-- Hypnogram stage names -->
     <string name="chart_stage_awake">Awake</string>
     <string name="chart_stage_maintenance">Maintenance</string>
