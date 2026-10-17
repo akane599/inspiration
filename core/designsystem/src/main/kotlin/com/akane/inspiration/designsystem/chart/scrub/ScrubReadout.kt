@@ -27,8 +27,8 @@ import kotlin.math.roundToInt
 
 /**
  * The one composed element that shows live values. It reads the cursor and the live selection through
- * lambdas, so only this child recomposes while the user scrubs or brushes. Always two lines (time or
- * range, then values), so the chart below never shifts under the finger.
+ * lambdas, so only this child recomposes while the user scrubs or brushes. The title always reserves two lines
+ * (a date range wraps at narrow widths or large fonts) above one values line, so the chart below never shifts.
  */
 @Composable
 internal fun ScrubReadout(
@@ -66,7 +66,8 @@ internal fun ScrubReadout(
             text = title,
             style = MaterialTheme.numericTypography.title,
             color = MaterialTheme.colorScheme.onSurface,
-            maxLines = 1,
+            minLines = 2,
+            maxLines = 2,
             overflow = TextOverflow.Ellipsis,
         )
         Row(horizontalArrangement = Arrangement.spacedBy(MaterialTheme.spacing.md)) {
