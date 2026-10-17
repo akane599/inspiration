@@ -220,7 +220,7 @@ class ProbeReceiver : BroadcastReceiver() {
 
     private fun readInProcess(): JSONObject {
         val startedAt = SystemClock.elapsedRealtime()
-        val usage = BatteryStatsClient { shizukuSystemService(BATTERY_STATS_SERVICE) }.readUsage(0L)
+        val usage = BatteryStatsClient(binderSource = { shizukuSystemService(BATTERY_STATS_SERVICE) }).readUsage(0L)
         val idle = PowerManagerClient { shizukuSystemService(POWER_SERVICE) }.readIdleFlags()
         val idleFailure = idle as? BinderResult.Failed
         return JSONObject()
@@ -250,7 +250,7 @@ class ProbeReceiver : BroadcastReceiver() {
         val plugged = battery?.getIntExtra(BatteryManager.EXTRA_PLUGGED, 0)?.let { it != 0 } ?: false
         return BatteryManagerReading(
             currentNowUa = manager?.getIntProperty(BatteryManager.BATTERY_PROPERTY_CURRENT_NOW).validBatteryValue(),
-            voltageMv = manager?.getIntProperty(BatteryManager.BATTERY_PROPERTY_VOLTAGE).validBatteryValue(),
+            voltageMv = battery?.getIntExtra(BatteryManager.EXTRA_VOLTAGE, Int.MIN_VALUE).validBatteryValue(),
             isCharging = status == BatteryManager.BATTERY_STATUS_CHARGING,
             plugged = plugged,
         )
@@ -281,8 +281,8 @@ class ProbeReceiver : BroadcastReceiver() {
         val plugged: Boolean,
     ) {
         fun toJson(): JSONObject = JSONObject()
-            .putNullable("currentNowUa", currentNowUa)
-            .putNullable("voltageMv", voltageMv)
+            .put("currentNowUa", currentNowUa ?: JSONObject.NULL)
+            .put("voltageMv", voltageMv ?: JSONObject.NULL)
             .put("isCharging", isCharging)
             .put("plugged", plugged)
     }
