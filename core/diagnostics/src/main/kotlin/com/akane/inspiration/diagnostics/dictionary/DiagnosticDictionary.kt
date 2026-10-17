@@ -9,7 +9,8 @@ import java.util.Locale
  * other kinds are case-sensitive. For ALARM and PARTIAL names that start with "*walarm*:" or
  * "*alarm*:", the remainder is looked up first with the same precedence; the full name is only
  * looked up (and so reaches the prefix entries) when nothing specific matches the remainder.
- * PARTIAL names "*job*<v>/..." (JobScheduler variant letter: r, e, u) are looked up as "*job*/...".
+ * PARTIAL names with a JobScheduler variant letter (r, e, u) after the "*job*" tag are looked up
+ * without it, so the unlettered "*job*" entries match.
  */
 class DiagnosticDictionary(entries: List<DictionaryEntry>) {
     private class Compiled(val entry: DictionaryEntry, val regex: Regex?) {
