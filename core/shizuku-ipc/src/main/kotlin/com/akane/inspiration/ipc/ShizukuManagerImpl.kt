@@ -16,8 +16,9 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.mapNotNull
+import kotlinx.coroutines.job
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
@@ -68,6 +69,14 @@ class ShizukuManagerImpl private constructor(
      * and swallow its connect (SQ-114). Binds are deferred until the death (or [UNBIND_SETTLE_TIMEOUT_MS]).
      */
     private var awaitingUnboundDeath = false
+
+    /**
+     * Set when [UNBIND_SETTLE_TIMEOUT_MS] bound before the unbound process's death arrived. The new binding
+     * then shares that process's connection stub, so its late death still reaches [userServiceConnection]
+     * (SQ-118). That one disconnect is swallowed while the new binder is alive; a dead or not-yet-connected
+     * new binder is handled as a real disconnect.
+     */
+    private var unboundDeathOwed = false
     private var settleTimeout: Job? = null
     private var idleUnbind: Job? = null
 
@@ -92,6 +101,12 @@ class ShizukuManagerImpl private constructor(
                         finishUnbindSettleLocked()
                         return
                     }
+                    if (unboundDeathOwed) {
+                        unboundDeathOwed = false
+                        if (mutableTelemetryService.value?.asBinder()?.isBinderAlive == true) {
+                            return // the old process's late death, not ours
+                        }
+                    }
                     serviceBound = false
                     serviceGeneration += 1
                     serviceArgs = null
@@ -112,6 +127,7 @@ class ShizukuManagerImpl private constructor(
                 serviceGeneration += 1
                 serviceArgs = null
                 awaitingUnboundDeath = false
+                unboundDeathOwed = false
                 settleTimeout?.cancel()
                 settleTimeout = null
                 idleUnbind?.cancel()
@@ -160,8 +176,13 @@ class ShizukuManagerImpl private constructor(
             return null
         }
         try {
-            val service = withTimeoutOrNull(timeoutMs) { telemetryService.filterNotNull().first() } ?: return null
-            val serviceGeneration = synchronized(bindingLock) { serviceGeneration }
+            // The service and its generation are read under one lock, so a rebind in between cannot pass.
+            val (service, serviceGeneration) =
+                withTimeoutOrNull(timeoutMs) {
+                    telemetryService
+                        .mapNotNull { currentServiceAndGeneration() }
+                        .first()
+                } ?: return null
             return try {
                 val result = withContext(ioDispatcher) { block(service) }
                 if (synchronized(bindingLock) { serviceGeneration == this.serviceGeneration }) {
@@ -176,6 +197,11 @@ class ShizukuManagerImpl private constructor(
             releaseServiceUse()
         }
     }
+
+    private fun currentServiceAndGeneration(): Pair<ITelemetryUserService, Int>? =
+        synchronized(bindingLock) {
+            mutableTelemetryService.value?.let { it to serviceGeneration }
+        }
 
     override fun holdBinding(): AutoCloseable {
         synchronized(bindingLock) {
@@ -194,6 +220,8 @@ class ShizukuManagerImpl private constructor(
         facade.removeBinderDeadListener(binderDeadListener)
         facade.removeRequestPermissionResultListener(permissionResultListener)
         synchronized(bindingLock) {
+            // Without it a still-open holder/user would rebind on the next death or settle timeout.
+            applicationInfo = null
             unbindTelemetryServiceLocked()
             mutableTelemetryService.value = null
         }
@@ -232,6 +260,8 @@ class ShizukuManagerImpl private constructor(
             scope.launch {
                 delay(IDLE_UNBIND_DELAY_MS)
                 synchronized(bindingLock) {
+                    // cancel() cannot stop a body already waiting for the lock; every cancel also replaces/nulls it.
+                    if (idleUnbind !== coroutineContext.job) return@launch
                     idleUnbind = null
                     if (activeServiceUsers == 0 && bindingHolders == 0) {
                         unbindTelemetryServiceLocked()
@@ -240,8 +270,9 @@ class ShizukuManagerImpl private constructor(
             }
     }
 
-    private fun finishUnbindSettleLocked() {
+    private fun finishUnbindSettleLocked(byTimeout: Boolean = false) {
         awaitingUnboundDeath = false
+        unboundDeathOwed = byTimeout
         settleTimeout?.cancel()
         settleTimeout = null
         bindIfRequiredLocked()
@@ -319,13 +350,16 @@ class ShizukuManagerImpl private constructor(
         if (serviceBound) {
             facade.unbindUserService(args, userServiceConnection, true)
             awaitingUnboundDeath = true
+            // Any owed death now arrives as the awaited one: the shared stub's died() fires once for both.
+            unboundDeathOwed = false
             settleTimeout?.cancel()
             settleTimeout =
                 scope.launch {
                     delay(UNBIND_SETTLE_TIMEOUT_MS)
                     synchronized(bindingLock) {
+                        if (settleTimeout !== coroutineContext.job) return@launch
                         settleTimeout = null
-                        if (awaitingUnboundDeath) finishUnbindSettleLocked()
+                        if (awaitingUnboundDeath) finishUnbindSettleLocked(byTimeout = true)
                     }
                 }
         }

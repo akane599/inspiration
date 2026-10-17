@@ -6,6 +6,7 @@ import android.content.ContextWrapper
 import android.content.ServiceConnection
 import android.content.pm.PackageManager
 import android.os.Binder
+import android.os.IBinder
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.asCoroutineDispatcher
 import kotlinx.coroutines.async
@@ -24,7 +25,9 @@ import org.junit.Assert.assertSame
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import rikka.shizuku.Shizuku
+import java.util.concurrent.CountDownLatch
 import java.util.concurrent.Executors
+import java.util.concurrent.TimeUnit
 
 class ShizukuManagerImplTest {
     @Test
@@ -285,6 +288,114 @@ class ShizukuManagerImplTest {
         holder.close()
     }
 
+    // SQ-118 M1: the fallback bind shares the old process's connection stub, so that process's late death
+    // reaches the new binding. It must not tear the live new binding down (and so issue a duplicate bind).
+    @Test
+    fun theOldServicesDeathAfterTheFallbackBindDoesNotDropTheNewBinding() = runTest {
+        val fixture = Fixture(this)
+        fixture.manager.start()
+        fixture.manager.holdBinding().apply { fixture.facade.deliverServiceConnected() }.close()
+        advanceTimeBy(LINGER_MS + 1)
+        val holder = fixture.manager.holdBinding()
+        advanceTimeBy(SETTLE_TIMEOUT_MS + 1)
+        assertEquals(2, fixture.facade.bindCalls)
+        fixture.facade.deliverServiceConnected(LiveBinder()) // the new process
+
+        fixture.facade.deliverServiceDied() // the old process's late death, on the shared stub
+
+        assertNotNull("the live new binding is kept", fixture.manager.telemetryService.value)
+        assertEquals("ok", fixture.manager.withTelemetryService(1_000L) { "ok" })
+        assertEquals("no duplicate bindUserService for the same args", 2, fixture.facade.bindCalls)
+        holder.close()
+    }
+
+    @Test
+    fun aGenuineDeathOfTheFallbackBoundServiceIsStillADisconnect() = runTest {
+        val fixture = Fixture(this)
+        fixture.manager.start()
+        fixture.manager.holdBinding().apply { fixture.facade.deliverServiceConnected() }.close()
+        advanceTimeBy(LINGER_MS + 1)
+        val holder = fixture.manager.holdBinding()
+        advanceTimeBy(SETTLE_TIMEOUT_MS + 1)
+        val newService = LiveBinder()
+        fixture.facade.deliverServiceConnected(newService)
+
+        newService.alive = false // the new process dies (the old one never reported a death)
+        fixture.facade.deliverServiceDied()
+
+        assertNull("a dead new service must not be handed out", fixture.manager.telemetryService.value)
+        val result = async { fixture.manager.withTelemetryService(1_000L) { "rebound" } }
+        runCurrent()
+        assertEquals("the next user rebinds", 3, fixture.facade.bindCalls)
+        fixture.facade.deliverServiceConnected(LiveBinder())
+        assertEquals("rebound", result.await())
+        holder.close()
+    }
+
+    // SQ-118 L1: stop() unbinds for good, even with a holder still open and a later death or settle timeout.
+    @Test
+    fun stopNeverRebindsAfterALaterSettleTimeoutOrDeath() = runTest {
+        val fixture = Fixture(this)
+        fixture.manager.start()
+        val holder = fixture.manager.holdBinding()
+        fixture.facade.deliverServiceConnected()
+
+        fixture.manager.stop()
+        advanceTimeBy(SETTLE_TIMEOUT_MS + 1)
+        fixture.facade.deliverServiceDied()
+        advanceUntilIdle()
+
+        assertEquals(1, fixture.facade.unbindCalls)
+        assertEquals("stop() must leave the service unbound", 1, fixture.facade.bindCalls)
+        assertNull(fixture.manager.withTelemetryService(1_000L) { Unit })
+        assertEquals(1, fixture.facade.bindCalls)
+        holder.close()
+    }
+
+    // SQ-118 L2: a linger job already past its delay and waiting for the lock must not act once cancelled.
+    @Test
+    fun aCancelledLingerWaitingForTheLockDoesNotUnbindEarly() = runTest {
+        val fixture = Fixture(this)
+        fixture.manager.start()
+        fixture.manager.holdBinding().apply { fixture.facade.deliverServiceConnected() }.close() // linger 1 due at 3 s
+
+        // While linger 1 waits for the lock, a quick acquire/release cancels it and starts linger 2 (due at 6 s).
+        fixture.whileTheLockIsHeldElsewhere(
+            underLock = { fixture.manager.holdBinding().close() },
+        ) { advanceTimeBy(LINGER_MS + 1) }
+
+        assertEquals("the cancelled linger must not unbind inside the new window", 0, fixture.facade.unbindCalls)
+        advanceTimeBy(LINGER_MS)
+        assertEquals(1, fixture.facade.unbindCalls)
+    }
+
+    // SQ-118 L3: the service and its generation are read together, so a rebind in between cannot pass a stale binder.
+    @Test
+    fun aRebindBetweenServiceAndGenerationReadsIsNotMissed() = runTest {
+        val fixture = Fixture(this)
+        fixture.manager.start()
+        val oldService = LiveBinder()
+        val newService = LiveBinder()
+        var received: android.os.IBinder? = null
+        val result = async { fixture.manager.withTelemetryService(1_000L) { received = it.asBinder(); "done" } }
+        runCurrent()
+        fixture.facade.deliverServiceConnected(oldService)
+
+        fixture.whileTheLockIsHeldElsewhere(
+            underLock = {
+                oldService.alive = false
+                fixture.facade.deliverServiceDied()
+                fixture.manager.holdBinding().apply { fixture.facade.deliverServiceConnected(newService) }.close()
+            },
+        ) { runCurrent() }
+
+        val answer = result.await()
+        assertTrue(
+            "a result may only come from the current service",
+            answer == null || received === newService,
+        )
+    }
+
     @Test
     fun unbindClearsTheDeadBinderForCallers() = runTest {
         val fixture = Fixture(this)
@@ -395,6 +506,48 @@ class ShizukuManagerImplTest {
             applicationInfoProvider = ShizukuApplicationInfoProvider { applicationInfo },
             ioDispatcher = StandardTestDispatcher(scope.testScheduler),
         )
+
+        /**
+         * Runs [underLock] on another thread inside the manager's bindingLock (reentered from a facade call the
+         * manager makes under it), once [onTestThread] has run this thread into that lock and blocked there.
+         */
+        fun whileTheLockIsHeldElsewhere(
+            underLock: () -> Unit,
+            onTestThread: () -> Unit,
+        ) {
+            val testThread = Thread.currentThread()
+            val lockHeld = CountDownLatch(1)
+            var failure: Throwable? = null
+            facade.onGetUidUnderLock = {
+                facade.onGetUidUnderLock = null
+                lockHeld.countDown()
+                val deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(10)
+                while (testThread.state != Thread.State.BLOCKED && System.nanoTime() < deadline) {
+                    Thread.onSpinWait()
+                }
+                check(testThread.state == Thread.State.BLOCKED) { "the test thread never waited for the lock" }
+                underLock()
+            }
+            val other = Thread {
+                try {
+                    facade.deliverPermissionResult(PackageManager.PERMISSION_GRANTED) // updateState() takes the lock
+                } catch (t: Throwable) {
+                    failure = t
+                }
+            }
+            other.start()
+            check(lockHeld.await(10, TimeUnit.SECONDS)) { "the other thread never took the lock" }
+            onTestThread()
+            other.join(10_000L)
+            failure?.let { throw it }
+        }
+    }
+
+    /** A binder whose liveness the test controls (the android.jar stub reports every binder dead). */
+    private class LiveBinder : Binder() {
+        @Volatile var alive = true
+
+        override fun isBinderAlive(): Boolean = alive
     }
 
     private class TestContext : ContextWrapper(null) {
@@ -431,7 +584,13 @@ class ShizukuManagerImplTest {
 
         override fun pingBinder(): Boolean = binderAlive
 
-        override fun getUid(): Int = 2000
+        /** Test hook run inside getUid(), which the manager calls while holding its bindingLock. */
+        @Volatile var onGetUidUnderLock: (() -> Unit)? = null
+
+        override fun getUid(): Int {
+            onGetUidUnderLock?.invoke()
+            return 2000
+        }
 
         override fun getVersion(): Int = 13
 
@@ -503,8 +662,8 @@ class ShizukuManagerImplTest {
             binderDeadListener?.onBinderDead()
         }
 
-        fun deliverServiceConnected() {
-            connections.toList().forEach { it.onServiceConnected(ComponentName("test", "service"), Binder()) }
+        fun deliverServiceConnected(binder: IBinder = Binder()) {
+            connections.toList().forEach { it.onServiceConnected(ComponentName("test", "service"), binder) }
         }
 
         /** The bound process exited (e.g. after unbind remove=true): Shizuku's died() path. */
