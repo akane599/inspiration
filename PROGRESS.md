@@ -8,6 +8,7 @@ _Work items, stories and blockers live on the Sidequest board. This file keeps w
 - 2026-10-17 @ end of Phase 2: build ok incl. minifyReleaseWithR8; 137 unit tests (app 8, shizuku-ipc 78, telemetry-engine 41, database 10), 0 failing; screenshot refs validate.
 - 2026-10-17 @ end of Phase 3 (b74c3a2): build ok incl. minifyReleaseWithR8; 260 unit tests (app 8, shizuku-ipc 78, telemetry-engine 59, database 13, diagnostics 102), 0 failing; screenshot refs validate.
 - 2026-10-17 @ end of Phase 4 (91beb5a): build ok incl. minifyReleaseWithR8; 336 unit tests (app 15, shizuku-ipc 78, telemetry-engine 59, database 13, diagnostics 102, designsystem 69), 0 failing; 36 screenshot refs validate (app + designsystem).
+- 2026-10-17 @ Phase 5 gate (4a7e857, SQ-112): build ok incl. minifyReleaseWithR8 and signed assembleRelease; 893 unit tests (app 53, database 23, designsystem 100, diagnostics 130, shizuku-ipc 170, telemetry-engine 194, dashboard 35, health 56, sleeplab 51, toolkit 39, xray 42), 0 failing; all screenshot refs validate; lint 0 errors / 10 warnings. SQ-114/115/118 then added 14 tests (shizuku-ipc 182).
 
 ## Decision log (never delete; one line each)
 - 2026-10-17: scaffolded with android-kit snapshot — Gradle 9.8.0, AGP 9.4.1, Kotlin 2.4.20, Compose BOM 2026.09.00, lifecycle 2.11.0, core-ktx 1.19.1, screenshot 0.0.1-alpha16. (bootstrap)
@@ -36,6 +37,30 @@ _Work items, stories and blockers live on the Sidequest board. This file keeps w
   - bg-dexopt guarded against double starts, re-checked for plugged state, capped at 60 min, and holds the binding.
   - Standby bucket is set with `am set-standby-bucket` (the spec's `cmd usagestats` form doesn't exist).
   - QUERY_ALL_PACKAGES for app labels; per-app network bytes are deferred. (US-5)
+- 2026-10-17: Phase 5 UI decisions (SQ-93–107). One shared vocabulary in designsystem: ScreenHeader, CardTitle, MetricBar, SegmentedToggle, TimeSliceBanner, statusColors. Screens never use a raw LinearProgressIndicator.
+  - LiveGauge shows "No reading" for unknown charging state, never "Discharging".
+  - SegmentedToggle ellipsizes a too-long word instead of breaking it, so Turkish labels ellipsize at 360 dp/1.5× (accepted).
+  - MetricValue/MetricTile shrink to fit rather than wrap mid-word.
+  - tnum was removed from title/label styles; it stays on numeric styles.
+  - Toolkit and X-Ray say "Restrict"/"Kısıtla" for run-in-background and wakelock ops, never "block".
+  (US-5)
+- 2026-10-17: Phase 5 behaviour decisions. Sleep Lab hides deep sleep when kernel counters are invalid, including across a counter reset (conservative). Health has no Shizuku grant action, so its CTA stays "Refresh" (known gap). Refresh has a 60 s success debounce and a 12 s failure backoff, and the backoff is cleared on every transition to Shizuku Ready (SQ-95/102). Toolkit restore and reset return a target to its chain original; an already-original target is refused ALREADY_RESTORED, and restore reads before it asks for confirmation (SQ-92/96/104). A fresh dexopt service status UNKNOWN is Idle unless one of our dexopt rows is still PENDING (SQ-115). (US-5)
+- 2026-10-17: Shizuku UserService binding (SQ-113 device defect → SQ-114, reviewed by SQ-117 → SQ-118). shizuku-api 13.1.5 caches one connection stub per service class, and unbind(remove=true) neither clears nor evicts it, so the old process's late died() tore down the next binding and caused duplicate records (starters exit 1). Fixes:
+  - New binds wait for the old death, with a 2 s fallback; one owed late disconnect is swallowed while the new binder is alive.
+  - Unbind nulls the binder.
+  - The last release lingers 3 s before unbinding, so tab handover keeps the process; H13 holds within about 3 s.
+  - stop() can't rebind.
+  - Library residual: after a swallowed death, a later death of the new service isn't delivered, and calls return null until the next unbind.
+  (US-5)
+- 2026-10-17: Release signing comes from ~/.gradle/gradle.properties (INSPIRATION_RELEASE_*), with the keystore at ~/.android-keystores/inspiration-release.jks, outside the repo. Without the properties the release builds unsigned. The ShizukuProvider artifact is `api` in :core:shizuku-ipc so :app lint resolves the manifest provider (SQ-109). Gates run with --max-workers=4: with no swap, 16 workers plus the Kotlin daemon got OOM-killed (SQ-111). (US-5)
+- 2026-10-18: Phase 5 device evidence, API 36 emulator, signed release build. Earlier run: SQ-113 at ddcf82d. Re-test: SQ-119 at 2bf40d3.
+  - R8 release launches cold in 530 ms with no missing classes. ShizukuProvider is merged at runtime (authority com.akane.inspiration.shizuku). Grant → Cockpit Ready with a live gauge.
+  - All 5 tabs render. Rail sits below the system bars at 1280x800, and the IME keeps the search field visible in both rail and bar modes.
+  - Tab handover keeps one service process and no starter exits 1.
+  - H13: the :telemetry process exits 3.8 s after Home.
+  - Toolkit Restrict→Restore and Reset all were checked by appops read-back. The standby bucket restores to a settable baseline. A system-set bucket baseline (50) is NOT_RESTORABLE by design and stays listed.
+  - After a restore, appops shows an explicit "default" uid-mode entry rather than "No operations"; the effective mode is unchanged.
+  (US-5)
 - 2026-10-17: Chart perf (SQ-60): cursor/selection reads shared a draw node with static content, so every drag frame re-rasterized all paths on the RenderThread (the UI thread blocked in postAndWait). Static data is now recorded once per cache build into an Offscreen GraphicsLayer, and the overlay draws on top. New charts must keep that split. On the API 36 emulator (software rendering via SwiftShader, so read the numbers as relative): drag frames p50 34 → 17 ms, p90 40 → 23 ms, and janky 17% → 0.7% (final run, `build/gfx-final-api36.txt`). Drags trigger 0 recompositions, and a committed brush 1/1. (US-4)
 
 ## Audit status
@@ -45,8 +70,8 @@ _Work items, stories and blockers live on the Sidequest board. This file keeps w
 | Bug hunt | — | — | `/bug-hunt` |
 | Security | — | — | `/claude-security` |
 | UI / design | 2026-10-17 | Phase 4 design system + charts: approve with fixes; F1–F6 applied (SQ-59), readout truncation fixed (SQ-61); F7 + nits deferred to Phase 5 | SQ-58 visual-evaluation (Opus) |
-| Lint | — | — | `./gradlew :app:lintDebug -q` |
-| Device QA | 2026-10-17 | Phase 4 DesignGalleryActivity drag frame stats on API 36: pass after SQ-60 (p50 17 ms, 0.7% janky, software renderer); Phase 3 PROBE_INSIGHTS pass on API 36/37 (2 defects → SQ-49); Phase 2 capture/diff/job pass on API 35/36/37 (SQ-34/35) | `.claude/skills/device-probe` (`device-probe.sh --probe PROBE_INSIGHTS --extras "--es reference_kind since_unplugged"`) |
+| Lint | 2026-10-17 | 0 errors, 10 warnings (after SQ-109 fixed MissingClass ShizukuProvider) | `:app:lintDebug` in SQ-112 gate |
+| Device QA | 2026-10-18 | Phase 5 release build on API 36: SQ-113 found the binding-handover defect (→ SQ-114/118) and the dexopt idle card (→ SQ-115); SQ-119 re-QA all 5 scenarios pass. Phase 4 DesignGalleryActivity drag frame stats on API 36: pass after SQ-60 (p50 17 ms, 0.7% janky, software renderer); Phase 3 PROBE_INSIGHTS pass on API 36/37 (2 defects → SQ-49); Phase 2 capture/diff/job pass on API 35/36/37 (SQ-34/35) | `.claude/skills/device-probe` (`device-probe.sh --probe PROBE_INSIGHTS --extras "--es reference_kind since_unplugged"`) |
 | Content review | 2026-10-17 | Dictionary en/tr wording: 7 findings applied (SQ-48) | SQ-47 review-audit |
 
 ## Environment notes
