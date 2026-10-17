@@ -496,6 +496,7 @@ class RoomSnapshotStore(
         temperatureDeciC = temperatureDeciC,
         levelPct = levelPct,
         plugged = plugged,
+        thermalStatus = thermalStatus,
     )
 
     private fun TelemetrySampleEntity.toDomain() = TelemetrySample(
@@ -508,6 +509,7 @@ class RoomSnapshotStore(
         temperatureDeciC = temperatureDeciC,
         levelPct = levelPct,
         plugged = plugged,
+        thermalStatus = thermalStatus,
     )
 
     private fun ChargeSessionEntity.toDomain() = ChargeSessionRecord(

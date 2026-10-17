@@ -4,6 +4,7 @@ import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
 import android.os.BatteryManager
+import android.os.PowerManager
 import com.akane.inspiration.ipc.ShizukuManager
 import com.akane.inspiration.ipc.model.BatteryHistorySnapshot
 import com.akane.inspiration.ipc.model.DumpTarget
@@ -23,6 +24,7 @@ class AndroidTelemetrySource(
     private val serviceTimeoutMs: Long = DEFAULT_SERVICE_TIMEOUT_MS,
 ) : TelemetrySource {
     private val batteryManager = context.getSystemService(BatteryManager::class.java)
+    private val powerManager = context.getSystemService(PowerManager::class.java)
 
     override suspend fun full(trigger: CaptureTrigger, historyCursor: Pair<Long, Long>?): FullRead? {
         val light = light()
@@ -75,8 +77,12 @@ class AndroidTelemetrySource(
                 ?.takeUnless { it == Int.MIN_VALUE },
             currentMa = currentUa?.div(1_000),
             chargeCounterUah = charge,
+            thermalStatus = thermalStatus(),
         )
     }
+
+    // Available at minSdk 31; a missing manager or service failure reads as unknown, never as "none".
+    private fun thermalStatus(): Int? = runCatching { powerManager?.currentThermalStatus }.getOrNull()
 
     override suspend fun kernelReading(): KernelRead? {
         val light = light()

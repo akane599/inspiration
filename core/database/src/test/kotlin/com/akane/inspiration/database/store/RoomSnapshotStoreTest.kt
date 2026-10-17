@@ -209,7 +209,7 @@ class RoomSnapshotStoreTest {
         store.insertSamples(
             listOf(
                 LiveReading(300L, 3L, 1, -30, 4_000, 1.2, 310, 50, false),
-                LiveReading(100L, 1L, 1, -10, 4_100, 0.4, 290, 52, true),
+                LiveReading(100L, 1L, 1, -10, 4_100, 0.4, 290, 52, true, chargeCounterUah = 3_000_000L, thermalStatus = 3),
                 LiveReading(200L, 2L, 1, null, null, null, null, null, null),
                 LiveReading(400L, 4L, 1, -40, 3_900, 1.6, 320, 48, false),
             ),
@@ -218,7 +218,8 @@ class RoomSnapshotStoreTest {
         val samples = store.samplesBetween(from = 100L, to = 300L)
 
         assertEquals(listOf(100L, 200L, 300L), samples.map { it.wallMs })
-        assertEquals(TelemetrySample(100L, 1L, 1, -10, 4_100, 0.4, 290, 52, true), samples.first())
+        assertEquals(TelemetrySample(100L, 1L, 1, -10, 4_100, 0.4, 290, 52, true, thermalStatus = 3), samples.first())
+        assertNull(samples[1].thermalStatus)
         assertNull(samples[1].currentMa)
         assertTrue(store.samplesBetween(from = 500L, to = 600L).isEmpty())
     }

@@ -40,6 +40,7 @@ data class LightRead(
     val voltageMv: Int?,
     val currentMa: Int?,
     val chargeCounterUah: Long?,
+    val thermalStatus: Int? = null,
 )
 
 data class KernelRead(

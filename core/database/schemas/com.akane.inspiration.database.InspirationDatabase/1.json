@@ -2,7 +2,7 @@
   "formatVersion": 1,
   "database": {
     "version": 1,
-    "identityHash": "faba44efe9f19c0719e45beb9ca0eac8",
+    "identityHash": "a6252b47fe46c21caa8f86d344d6cdd5",
     "entities": [
       {
         "tableName": "snapshot",
@@ -927,7 +927,7 @@
       },
       {
         "tableName": "telemetry_sample",
-        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `wallMs` INTEGER NOT NULL, `elapsedRealtimeMs` INTEGER NOT NULL, `bootCount` INTEGER NOT NULL, `currentMa` INTEGER, `voltageMv` INTEGER, `watts` REAL, `temperatureDeciC` INTEGER, `levelPct` INTEGER, `plugged` INTEGER)",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `wallMs` INTEGER NOT NULL, `elapsedRealtimeMs` INTEGER NOT NULL, `bootCount` INTEGER NOT NULL, `currentMa` INTEGER, `voltageMv` INTEGER, `watts` REAL, `temperatureDeciC` INTEGER, `levelPct` INTEGER, `plugged` INTEGER, `thermalStatus` INTEGER)",
         "fields": [
           {
             "fieldPath": "id",
@@ -981,6 +981,11 @@
           {
             "fieldPath": "plugged",
             "columnName": "plugged",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "thermalStatus",
+            "columnName": "thermalStatus",
             "affinity": "INTEGER"
           }
         ],
@@ -1348,7 +1353,7 @@
     ],
     "setupQueries": [
       "CREATE TABLE IF NOT EXISTS room_master_table (id INTEGER PRIMARY KEY,identity_hash TEXT)",
-      "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, 'faba44efe9f19c0719e45beb9ca0eac8')"
+      "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, 'a6252b47fe46c21caa8f86d344d6cdd5')"
     ]
   }
 }
