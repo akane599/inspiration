@@ -2,6 +2,7 @@ package com.akane.inspiration.dashboard
 
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
@@ -21,26 +22,37 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
 import com.akane.inspiration.designsystem.component.ReferencePill
+import com.akane.inspiration.designsystem.component.ScreenHeader
 import com.akane.inspiration.designsystem.component.ShizukuPulse
 import com.akane.inspiration.designsystem.theme.spacing
 
-/** The top bar: the reference pill with its menu, and the Shizuku connection status. */
+/**
+ * The top of the screen: its title, then the reference pill with its menu and the Shizuku connection status.
+ * [showGrant] is false while the story card already offers the same "Grant access" button.
+ */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 internal fun CockpitHeader(
     reference: ReferenceUi,
     shizuku: ShizukuUi,
+    showGrant: Boolean,
     onIntent: (CockpitIntent) -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    FlowRow(
-        modifier = modifier,
-        horizontalArrangement = Arrangement.spacedBy(MaterialTheme.spacing.md),
-        verticalArrangement = Arrangement.spacedBy(MaterialTheme.spacing.xs),
-        itemVerticalAlignment = Alignment.CenterVertically,
-    ) {
-        ReferenceMenu(reference = reference, onIntent = onIntent)
-        ShizukuStatus(shizuku = shizuku, onGrant = { onIntent(CockpitIntent.GrantShizuku) })
+    Column(modifier = modifier, verticalArrangement = Arrangement.spacedBy(MaterialTheme.spacing.sm)) {
+        ScreenHeader(title = stringResource(R.string.cockpit_title))
+        FlowRow(
+            horizontalArrangement = Arrangement.spacedBy(MaterialTheme.spacing.md),
+            verticalArrangement = Arrangement.spacedBy(MaterialTheme.spacing.xs),
+            itemVerticalAlignment = Alignment.CenterVertically,
+        ) {
+            ReferenceMenu(reference = reference, onIntent = onIntent)
+            ShizukuStatus(
+                shizuku = shizuku,
+                showGrant = showGrant,
+                onGrant = { onIntent(CockpitIntent.GrantShizuku) },
+            )
+        }
     }
 }
 
@@ -88,10 +100,10 @@ private fun ReferenceMenu(reference: ReferenceUi, onIntent: (CockpitIntent) -> U
 }
 
 @Composable
-private fun ShizukuStatus(shizuku: ShizukuUi, onGrant: () -> Unit) {
+private fun ShizukuStatus(shizuku: ShizukuUi, showGrant: Boolean, onGrant: () -> Unit) {
     Row(verticalAlignment = Alignment.CenterVertically) {
         ShizukuPulse(status = shizuku.status, label = shizuku.label())
-        if (shizuku.canGrant) {
+        if (showGrant && shizuku.canGrant) {
             TextButton(onClick = onGrant) {
                 Text(text = stringResource(R.string.cockpit_shizuku_grant))
             }

@@ -8,8 +8,6 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -19,8 +17,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
-import androidx.compose.ui.platform.LocalInspectionMode
 import androidx.compose.ui.res.stringResource
+import com.akane.inspiration.designsystem.component.CardTitle
 import com.akane.inspiration.designsystem.component.EmptyState
 import com.akane.inspiration.designsystem.component.EmptyStateAction
 import com.akane.inspiration.designsystem.component.InspirationCard
@@ -42,7 +40,7 @@ internal fun StoryCard(
     onIntent: (CockpitIntent) -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    InspirationCard(modifier = modifier) {
+    InspirationCard(modifier = modifier.fillMaxWidth()) {
         when (analysis) {
             AnalysisUi.Loading -> StoryLoading()
             AnalysisUi.Empty -> {
@@ -69,11 +67,7 @@ internal fun StoryCard(
 
 @Composable
 private fun StoryTitle() {
-    Text(
-        text = stringResource(R.string.cockpit_story_title),
-        style = MaterialTheme.typography.labelLarge,
-        color = MaterialTheme.colorScheme.onSurfaceVariant,
-    )
+    CardTitle(text = stringResource(R.string.cockpit_story_title))
 }
 
 @Composable
@@ -84,10 +78,7 @@ private fun StoryLoading() {
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(MaterialTheme.spacing.sm),
     ) {
-        // The spinner animates forever, so previews and screenshot runs skip it.
-        if (!LocalInspectionMode.current) {
-            CircularProgressIndicator(modifier = Modifier.size(MaterialTheme.spacing.lg))
-        }
+        LoadingIndicator()
         Text(
             text = stringResource(R.string.cockpit_story_loading),
             style = MaterialTheme.typography.bodyMedium,
@@ -111,22 +102,26 @@ private fun StoryText(story: BatteryStory) {
     )
 }
 
-/** The live gauge with its time-to-empty line. A missing reading shows dashes, never zeros. */
+/**
+ * The live gauge with its time-to-empty line. A missing reading shows dashes, never zeros, and with no reading at
+ * all the gauge neither claims a charging state nor a time left.
+ */
 @Composable
 internal fun LiveCard(live: LiveUi?, modifier: Modifier = Modifier) {
     val format = rememberTelemetryFormat()
-    val remaining = live?.remainingMs
+    val remainingMs = live?.remainingMs
+    val remaining = when {
+        live == null -> null
+        remainingMs != null -> stringResource(R.string.cockpit_remaining, format.duration(remainingMs))
+        else -> stringResource(R.string.cockpit_remaining_unknown)
+    }
     LiveGauge(
         currentMa = live?.currentMa,
         watts = live?.watts,
         voltageMv = live?.voltageMv,
         temperatureC = live?.temperatureC,
-        remaining = if (remaining != null) {
-            stringResource(R.string.cockpit_remaining, format.duration(remaining))
-        } else {
-            stringResource(R.string.cockpit_remaining_unknown)
-        },
-        isCharging = live?.charging ?: false,
+        remaining = remaining,
+        isCharging = live?.charging,
         modifier = modifier.fillMaxWidth(),
     )
 }

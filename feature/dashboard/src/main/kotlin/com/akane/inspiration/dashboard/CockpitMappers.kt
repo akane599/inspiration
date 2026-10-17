@@ -19,9 +19,6 @@ import com.akane.inspiration.telemetry.diff.ReferenceKind
 import com.akane.inspiration.telemetry.snapshot.LiveReading
 import kotlinx.collections.immutable.toImmutableList
 
-/** A gap between the requested and the covered range is only worth a warning above this (H14). */
-internal const val SLICE_GAP_THRESHOLD_MS = 5 * 60_000L
-
 /** Same floor the interval metrics use for a rate: under 15 minutes of a state, a per-hour figure is noise. */
 private const val MIN_RATE_WINDOW_MS = 15 * 60_000L
 private const val MS_PER_HOUR = 3_600_000.0
@@ -100,8 +97,8 @@ private fun mahPerHour(mah: Double?, windowMs: Long): Double? =
     if (mah == null || windowMs < MIN_RATE_WINDOW_MS) null else mah / (windowMs / MS_PER_HOUR)
 
 /**
- * The banner data for a committed brush, or null outside time-slice mode. Covered range and gap come from the
- * analysis only when it answers this exact slice; while a new slice is still loading they stay unknown.
+ * The banner data for a committed brush, or null outside time-slice mode. The covered range comes from the
+ * analysis only when it answers this exact slice; while a new slice is still loading it stays unknown.
  */
 internal fun sliceUi(kind: ReferenceKind, analysis: AnalysisState): SliceUi? {
     if (kind !is ReferenceKind.TimeSlice) return null
@@ -110,7 +107,6 @@ internal fun sliceUi(kind: ReferenceKind, analysis: AnalysisState): SliceUi? {
     return SliceUi(
         requested = TimeRange.of(kind.fromWallMs, kind.toWallMs),
         covered = resolved?.let { TimeRange.of(it.coveredFromWallMs, it.coveredToWallMs) },
-        gapMs = resolved?.gapMs?.takeIf { it > SLICE_GAP_THRESHOLD_MS },
     )
 }
 

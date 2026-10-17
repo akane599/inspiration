@@ -124,13 +124,35 @@ internal object CockpitPreviewData {
         refreshing = false,
     )
 
+    /** The story and figures of the 13:30 to 17:30 slice: four hours, not the 14 h of the unplugged period. */
+    private val sliceStory = BatteryStory(
+        listOf(
+            StorySentence.Summary(hours = 4.0, levelUsedPct = 32),
+            StorySentence.ScreenOnRate(pctPerHour = 8.4, rating = UsageRating.NORMAL),
+            StorySentence.ScreenOffRate(pctPerHour = 0.9, rating = UsageRating.EXCELLENT),
+            StorySentence.DeepSleep(ratio = 0.03),
+            StorySentence.Anomalies(count = 0, topRule = null),
+        ),
+    )
+
+    private val sliceMetrics = MetricsUi(
+        activePctPerHour = 8.4,
+        activeMahPerHour = 420.0,
+        idlePctPerHour = 0.9,
+        idleMahPerHour = 45.0,
+        deepSleepRatio = 0.03,
+        deepSleepMs = 7 * 60_000L,
+        screenOnMs = 3 * HOUR_MS + 48 * 60_000L,
+        screenOffAwakeMs = 12 * 60_000L,
+    )
+
     /** The brush has been released over 13:30 to 17:30; the data starts eight minutes late. */
     val slice = ready.copy(
         reference = ReferenceUi.TimeSlice,
+        analysis = AnalysisUi.Ready(sliceStory, sliceMetrics),
         slice = SliceUi(
             requested = TimeRange.of(atHour(13.5), atHour(17.5)),
             covered = TimeRange.of(atHour(13.5) + 8 * 60_000L, atHour(17.5)),
-            gapMs = 8 * 60_000L,
         ),
     )
 
@@ -160,7 +182,7 @@ internal object CockpitPreviewData {
         markers = persistentListOf(
             MarkerUi(3, "After dinner", atHour(19.5)),
             MarkerUi(2, "Before the update", atHour(11.25)),
-            MarkerUi(1, "Marker 8:00 AM", atHour(8.0)),
+            MarkerUi(1, "Marker 08:00", atHour(8.0)),
         ),
         creating = false,
         failed = false,

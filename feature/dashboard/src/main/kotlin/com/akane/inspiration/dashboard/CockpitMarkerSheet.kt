@@ -27,16 +27,15 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
+import com.akane.inspiration.designsystem.component.format.rememberTelemetryFormat
 import com.akane.inspiration.designsystem.theme.spacing
 import java.time.ZoneId
-import java.util.Locale
 
 /** The marker sheet of H10, opened from the pill's "Custom marker" item. */
 @OptIn(ExperimentalMaterial3Api::class)
@@ -63,56 +62,62 @@ internal fun MarkerSheetContent(
     modifier: Modifier = Modifier,
 ) {
     val spacing = MaterialTheme.spacing
-    val locale: Locale = LocalConfiguration.current.locales[0] ?: Locale.getDefault()
+    val format = rememberTelemetryFormat()
     var label by rememberSaveable { mutableStateOf("") }
     val context = LocalContext.current
+    // No horizontal padding on the column: the list rows (ListItem) bring their own, so padding both indented them twice.
     Column(
-        modifier = modifier.navigationBarsPadding().imePadding().padding(horizontal = spacing.md),
+        modifier = modifier.navigationBarsPadding().imePadding(),
         verticalArrangement = Arrangement.spacedBy(spacing.sm),
     ) {
-        Text(
-            text = stringResource(R.string.cockpit_markers_title),
-            style = MaterialTheme.typography.titleLarge,
-            modifier = Modifier.semantics { heading() },
-        )
-        Text(
-            text = stringResource(R.string.cockpit_markers_hint),
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
-        Row(
-            horizontalArrangement = Arrangement.spacedBy(spacing.sm),
-            verticalAlignment = Alignment.CenterVertically,
+        Column(
+            modifier = Modifier.padding(horizontal = spacing.md),
+            verticalArrangement = Arrangement.spacedBy(spacing.sm),
         ) {
-            OutlinedTextField(
-                value = label,
-                onValueChange = { label = it },
-                label = { Text(stringResource(R.string.cockpit_marker_label)) },
-                singleLine = true,
-                modifier = Modifier.weight(1f),
+            Text(
+                text = stringResource(R.string.cockpit_markers_title),
+                style = MaterialTheme.typography.titleLarge,
+                modifier = Modifier.semantics { heading() },
             )
-            Button(
-                onClick = {
-                    // The default label carries the time of the tap, not of the last recomposition.
-                    val named = label.trim().ifEmpty {
-                        context.getString(R.string.cockpit_marker_default_label, formatTime(System.currentTimeMillis(), locale, zone))
-                    }
-                    onIntent(CockpitIntent.MarkNow(named))
-                    label = ""
-                },
-                enabled = !sheet.creating,
+            Text(
+                text = stringResource(R.string.cockpit_markers_hint),
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(spacing.sm),
+                verticalAlignment = Alignment.CenterVertically,
             ) {
-                Text(stringResource(R.string.cockpit_marker_mark_now))
+                OutlinedTextField(
+                    value = label,
+                    onValueChange = { label = it },
+                    label = { Text(stringResource(R.string.cockpit_marker_label)) },
+                    singleLine = true,
+                    modifier = Modifier.weight(1f),
+                )
+                Button(
+                    onClick = {
+                        // The default label carries the time of the tap, not of the last recomposition.
+                        val named = label.trim().ifEmpty {
+                            context.getString(R.string.cockpit_marker_default_label, format.time(System.currentTimeMillis(), zone))
+                        }
+                        onIntent(CockpitIntent.MarkNow(named))
+                        label = ""
+                    },
+                    enabled = !sheet.creating,
+                ) {
+                    Text(stringResource(R.string.cockpit_marker_mark_now))
+                }
+            }
+            if (sheet.failed) {
+                Text(
+                    text = stringResource(R.string.cockpit_markers_failed),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.error,
+                )
             }
         }
-        if (sheet.failed) {
-            Text(
-                text = stringResource(R.string.cockpit_markers_failed),
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.error,
-            )
-        }
-        MarkerList(sheet = sheet, onIntent = onIntent, locale = locale, zone = zone, modifier = Modifier.weight(1f, fill = false))
+        MarkerList(sheet = sheet, onIntent = onIntent, zone = zone, modifier = Modifier.weight(1f, fill = false))
     }
 }
 
@@ -120,10 +125,10 @@ internal fun MarkerSheetContent(
 private fun MarkerList(
     sheet: MarkerSheetUi,
     onIntent: (CockpitIntent) -> Unit,
-    locale: Locale,
     zone: ZoneId,
     modifier: Modifier = Modifier,
 ) {
+    val format = rememberTelemetryFormat()
     when {
         sheet.loading -> MarkerNote(R.string.cockpit_markers_loading, modifier)
         sheet.markers.isEmpty() -> MarkerNote(R.string.cockpit_markers_empty, modifier)
@@ -132,13 +137,14 @@ private fun MarkerList(
                 text = pluralStringResource(R.plurals.cockpit_markers_count, sheet.markers.size, sheet.markers.size),
                 style = MaterialTheme.typography.labelLarge,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(horizontal = MaterialTheme.spacing.md),
             )
             LazyColumn(modifier = modifier) {
                 items(sheet.markers, key = MarkerUi::id) { marker ->
                     val inUse = marker.id == sheet.selectedId
                     ListItem(
                         headlineContent = { Text(marker.label) },
-                        supportingContent = { Text(formatDateTime(marker.wallMs, locale, zone)) },
+                        supportingContent = { Text(format.dateTime(marker.wallMs, zone)) },
                         trailingContent = if (inUse) {
                             {
                                 Text(
@@ -168,6 +174,6 @@ private fun MarkerNote(textRes: Int, modifier: Modifier) {
         text = stringResource(textRes),
         style = MaterialTheme.typography.bodyMedium,
         color = MaterialTheme.colorScheme.onSurfaceVariant,
-        modifier = modifier.padding(vertical = MaterialTheme.spacing.md),
+        modifier = modifier.padding(horizontal = MaterialTheme.spacing.md, vertical = MaterialTheme.spacing.md),
     )
 }

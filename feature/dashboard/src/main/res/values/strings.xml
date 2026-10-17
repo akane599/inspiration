@@ -1,5 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
+    <!-- Screen title -->
+    <string name="cockpit_title">Cockpit</string>
+
     <!-- Reference pill and its menu -->
     <string name="cockpit_ref_since_unplugged">Since unplugged</string>
     <string name="cockpit_ref_since_screen_off">Since last screen-off</string>
@@ -47,14 +50,10 @@
     <string name="cockpit_metric_screen_detail">Awake, screen off: %1$s</string>
 
     <!-- Timeline card -->
-    <string name="cockpit_chart_title">Timeline, last 24 h</string>
+    <string name="cockpit_chart_title">Timeline</string>
     <string name="cockpit_chart_hint">Drag across the chart to analyse a time slice.</string>
     <string name="cockpit_chart_loading">Loading the timeline…</string>
     <string name="cockpit_chart_failed">Couldn\'t load the timeline.</string>
-
-    <!-- Time slice banner -->
-    <!-- %1$s: how far the nearest snapshot is from the requested range -->
-    <string name="cockpit_slice_gap">Snapshots are %1$s away from the requested range, so the figures are approximate.</string>
 
     <!-- Marker sheet -->
     <string name="cockpit_markers_title">Markers</string>
@@ -64,7 +63,7 @@
         <item quantity="other">%1$d markers</item>
     </plurals>
     <string name="cockpit_marker_label">Label (optional)</string>
-    <!-- %1$s: the local time the marker was made, e.g. "2:10 PM" -->
+    <!-- %1$s: the local time the marker was made, e.g. "14:10" -->
     <string name="cockpit_marker_default_label">Marker %1$s</string>
     <string name="cockpit_marker_mark_now">Mark now</string>
     <string name="cockpit_marker_in_use">In use</string>
