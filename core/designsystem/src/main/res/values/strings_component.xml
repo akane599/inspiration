@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- LiveGauge -->
+    <string name="gauge_charging">Charging</string>
+    <string name="gauge_discharging">Discharging</string>
+    <string name="gauge_label_power">Power</string>
+    <string name="gauge_label_voltage">Voltage</string>
+    <string name="gauge_label_temperature">Temperature</string>
+
+    <!-- TimeSliceBanner -->
+    <string name="slice_requested">Requested</string>
+    <string name="slice_covered">Covered</string>
+    <string name="slice_clear">Clear</string>
+</resources>
