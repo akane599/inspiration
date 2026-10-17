@@ -91,6 +91,7 @@ data class UidDelta(
     val uid: Int,
     val packageName: String?,
     val packageChanged: Boolean,
+    val valid: Boolean,
     val totalMah: Double,
     val fgMah: Double?,
     val bgMah: Double?,
@@ -109,6 +110,8 @@ data class DiffValidity(
     val batteryStats: Boolean,
     val kernelCounters: Boolean,
     val problems: List<String>,
+    val invalidDeviceComponents: Set<String> = emptySet(),
+    val invalidKernelWakelocks: Set<String> = emptySet(),
 )
 
 data class SleepStats(
