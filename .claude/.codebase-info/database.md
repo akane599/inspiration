@@ -12,8 +12,9 @@
 Entities are defined in [`Entities.kt`](../../core/database/src/main/kotlin/com/akane/inspiration/database/Entities.kt):
 
 - `snapshot` stores FULL/LIGHT identity, trigger, clock validity tuple, battery values, and usage truncation count.
-- `snapshot_system` stores parsed batterystats timers and discharge values; it is optional and cascades from `snapshot`.
+- `snapshot_system` stores parsed batterystats timers and discharge values, plus Phase 3 `signalBin0Ms..signalBin4Ms`, `signalScanningMs` and `mobileRadioActiveMs` (all nullable; null bins mean the dump carried none); it is optional and cascades from `snapshot`.
 - `snapshot_availability` records source availability/reason for usage, dump, kernel, CPU, history, or light reads.
+- `snapshot_uid_sensor` (Phase 3) stores per-UID sensor usage `(snapshotId, uid, handle, totalMs, bgMs, count)` with primary key `(snapshotId, uid, handle)`; it cascades from `snapshot` and is read/written through `SnapshotDao.insertUidSensors`/`uidSensorsForSnapshot`.
 - `snapshot_uid`, `snapshot_component`, `snapshot_wakelock`, `snapshot_alarm`, and `snapshot_cpu_freq` store per-UID, component, merged wakelock/alarm, and CPU time-in-state details. Their foreign keys cascade with the parent snapshot.
 - `marker` references a snapshot with `RESTRICT`, so a marker protects its snapshot during retention pruning.
 - `history_event` stores stats-session history with a unique `(historyTimeMs, kind, wallMs)` key; `history_cursor` stores the singleton paging cursor.
@@ -21,7 +22,9 @@ Entities are defined in [`Entities.kt`](../../core/database/src/main/kotlin/com/
 - `charge_session` stores capacity segments/verdicts with a unique `(statsStartMs, startHistoryTimeMs)` key.
 - `capture_miss` records bounded full-capture failures by wall time and trigger.
 
-The schema follows the contracts in [`docs/plans/phase-2.md`](../../docs/plans/phase-2.md). There is no export or user-facing database screen in Phase 2.
+The schema follows the contracts in [`docs/plans/phase-2.md`](../../docs/plans/phase-2.md) and, for the signal/sensor additions, [`docs/plans/phase-3.md`](../../docs/plans/phase-3.md) F2.
+
+**Schema v1 was edited in place for Phase 3** (decision E9; no version bump, no destructive fallback). The Room `identityHash` changed, so any existing dev install must be cleared before running a new build: `adb shell pm clear com.akane.inspiration` (or uninstall), also after a revert. The `device-probe` skill's `--clear --grant` does this. There is no export or user-facing database screen in Phase 2.
 
 ## DAO and retention behavior
 

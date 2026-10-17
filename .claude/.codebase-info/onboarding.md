@@ -3,7 +3,7 @@
 
 ## Read first
 
-1. Read [`docs/plans/phase-2.md`](../../docs/plans/phase-2.md) for the selected capture, validity, Room, and module boundaries; consult [`docs/plans/phase-1.md`](../../docs/plans/phase-1.md) for the privileged IPC contract.
+1. Read [`docs/plans/phase-3.md`](../../docs/plans/phase-3.md) for the insight layer (rules, dictionary, story, schema additions); read [`docs/plans/phase-2.md`](../../docs/plans/phase-2.md) for the selected capture, validity, Room, and module boundaries; consult [`docs/plans/phase-1.md`](../../docs/plans/phase-1.md) for the privileged IPC contract.
 2. Read [`architecture.md`](architecture.md), [`modules.md`](modules.md), [`communication.md`](communication.md), and [`database.md`](database.md) before changing capture, IPC, or persistence wiring.
 3. Use [`PROGRESS.md`](../../PROGRESS.md) for durable decisions and API 35/36/37 device evidence. Work items and blockers live on the Sidequest board, as described by [`CLAUDE.md`](../../CLAUDE.md).
 
@@ -16,12 +16,13 @@ From the repository root:
 ./gradlew :app:testDebugUnitTest --console=plain -q
 ./gradlew :core:telemetry-engine:testDebugUnitTest --console=plain -q
 ./gradlew :core:database:testDebugUnitTest --console=plain -q
+./gradlew :core:diagnostics:testDebugUnitTest --console=plain -q
 ./gradlew :app:lintDebug --console=plain -q
 ```
 
 The documented helper form is `bash .claude/kit/gradle-check.sh :app:assembleDebug :app:testDebugUnitTest`. Screenshot references are validated with `:app:validateDebugScreenshotTest`; update references only for an intentional UI ticket with `:app:updateDebugScreenshotTest`.
 
-Room tests use Robolectric and cover WAL, cascades, history deduplication, snapshot round trips, and 30-day maintenance behavior. Protobuf tests use committed API 35/36/37 fixtures under [`core/telemetry-engine/src/test/resources/proto`](../../core/telemetry-engine/src/test/resources/proto).
+Diagnostics tests run under Robolectric (org.json and resources are needed by the dictionary loader and story writer). Room tests use Robolectric and cover WAL, cascades, history deduplication, snapshot round trips, and 30-day maintenance behavior. Protobuf tests use committed API 35/36/37 fixtures under [`core/telemetry-engine/src/test/resources/proto`](../../core/telemetry-engine/src/test/resources/proto).
 
 ## Emulator and app launch
 
@@ -47,11 +48,24 @@ adb shell am broadcast -a com.akane.inspiration.debug.PROBE_CAPTURE \
   -n com.akane.inspiration/.debug.ProbeReceiver
 adb shell am broadcast -a com.akane.inspiration.debug.PROBE_DIFF \
   -n com.akane.inspiration/.debug.ProbeReceiver
+adb shell am broadcast -a com.akane.inspiration.debug.PROBE_INSIGHTS \
+  --es reference_kind since_unplugged -n com.akane.inspiration/.debug.ProbeReceiver
 adb logcat -d -s 'InspirationProbe:*'
 ```
 
-`PROBE_CAPTURE` exercises the full capture/history path and Room persistence; `PROBE_DIFF` resolves stored references and reports validity and sleep/delta values. The ordinary `PROBE` action retains the Phase 1 bounded IPC/calibration/dump probe. Outputs report availability/reasons rather than throwing for unavailable telemetry.
+`PROBE_CAPTURE` exercises the full capture/history path and Room persistence; `PROBE_DIFF` resolves stored references and reports validity and sleep/delta values. `PROBE_INSIGHTS` runs the diff, `IntervalMetricsCalculator`, `DiagnosticRuleEngine`, `BatteryStoryBuilder` and dictionary lookups for the top wakelocks, logging `insightsMetrics`, `insight`, `insightsReport` (with `notEvaluable` and `skippedInvalidUids`), `story` and `dictionary` lines. `PROBE_DIFF` and `PROBE_INSIGHTS` accept the string extra `reference_kind` (`since_unplugged`, `since_screen_off`, `screen_on_session`, `last_24h`); without it they pair the latest two snapshots, which is often a near-zero LIGHT interval. The ordinary `PROBE` action retains the Phase 1 bounded IPC/calibration/dump probe. Outputs report availability/reasons rather than throwing for unavailable telemetry.
 
 The charging job is armed by BOOT_COMPLETED/MY_PACKAGE_REPLACED and can be inspected with `dumpsys jobscheduler`. The app disables cloud backup and device transfer in [`app/src/main/AndroidManifest.xml`](../../app/src/main/AndroidManifest.xml), [`app/src/main/res/xml/backup_rules.xml`](../../app/src/main/res/xml/backup_rules.xml), and [`app/src/main/res/xml/data_extraction_rules.xml`](../../app/src/main/res/xml/data_extraction_rules.xml).
 
 The emulator setup recorded in [`PROGRESS.md`](../../PROGRESS.md) uses the Shizuku APK's `lib/<abi>/libshizuku.so` started with adb. Emulator batteries are synthetic; Phase 2 capture/job evidence covers API 35, 36, and 37, not production hardware.
+
+## Device-probe skill
+
+[`.claude/skills/device-probe/SKILL.md`](../skills/device-probe/SKILL.md) wraps boot, install, Shizuku start, optional permission grant, broadcast and logcat capture in [`scripts/device-probe.sh`](../skills/device-probe/scripts/device-probe.sh):
+
+```sh
+bash .claude/skills/device-probe/scripts/device-probe.sh --avd batstats-api36 --probe PROBE_INSIGHTS --clear --grant \
+  --extras "--es reference_kind since_unplugged"
+```
+
+It saves JSON lines to `build/device-evidence/api<SDK>-<PROBE>.jsonl` (gitignored), ending with `{"probe":"done"}` or `timeout`. Exit codes: 0 finished, 2 setup failed, 3 no terminal line. Use `--clear` after the in-place Room schema change (`pm clear`), with `--grant` because clearing can drop the Shizuku permission. Only the orchestrator runs emulators, one at a time; emulator batteries are synthetic, so evidence proves wiring and parsing, not thresholds. On the emulator the batterystats fixtures carry no signal bins or UID sensors, so R3 reports `signalAvailable = false` and R4 is `NotEvaluable("source_absent")`.

@@ -57,6 +57,7 @@ core/
       common/Clocks.kt
       diff/{ReferenceResolver,SnapshotDiffer}.kt
       dump/{DumpModels,DumpParser,DumpReader}.kt
+      interval/IntervalMetrics.kt
       live/LiveTelemetry.kt
       snapshot/SnapshotModels.kt
       source/{AndroidCalibrationInputReader,AndroidClocks,AndroidTelemetrySource,
@@ -75,7 +76,17 @@ core/
     src/test/kotlin/com/akane/inspiration/database/
       InspirationDatabaseTest.kt
       store/RoomSnapshotStoreTest.kt
-  diagnostics/                    # module configuration only
+  diagnostics/
+    build.gradle.kts
+    src/main/res/raw/diagnostic_dictionary.json
+    src/main/res/{values,values-tr}/strings.xml
+    src/main/kotlin/com/akane/inspiration/diagnostics/
+      dictionary/{DiagnosticDictionary,DictionaryEntry,DictionaryLoader,EntryKind}.kt
+      model/{Insight,InsightOrder}.kt
+      rules/{DiagnosticInput,DiagnosticRuleEngine}.kt
+      sensor/{SensorCatalog,AndroidSensorCatalog}.kt
+      story/{BatteryStory,BatteryStoryBuilder,AndroidStoryWriter}.kt
+    src/test/kotlin/com/akane/inspiration/diagnostics/**   # per-rule, dictionary, story, sensor tests + fixtures
 
 feature/
   dashboard/                       # module configuration only
@@ -88,6 +99,8 @@ settings.gradle.kts                # includes all core and feature modules
 gradle/libs.versions.toml          # toolchain and dependency catalog
 docs/plans/phase-1.md              # audited Phase 1 design
 docs/plans/phase-2.md              # audited Phase 2 design and contracts
+docs/plans/phase-3.md              # audited Phase 3 design (authoritative; F1–F9)
+.claude/skills/device-probe/       # SKILL.md + scripts/device-probe.sh (emulator probe runner)
 PROGRESS.md                        # durable decisions and device evidence
 NOTICE                              # AOSP protobuf attribution
 ```

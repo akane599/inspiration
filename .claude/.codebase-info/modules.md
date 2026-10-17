@@ -10,7 +10,7 @@ The module graph is declared in [`settings.gradle.kts`](../../settings.gradle.kt
 | `:app` | Android application; Compose shell, manifests, capture wiring, container, and debug probes | Implemented Phase 1 shell plus Phase 2 capture/persistence wiring |
 | `build-logic:convention` | `inspiration.android.library`, `.library.compose`, and `.feature` convention plugins | Implemented shared configuration |
 
-`:app` depends on all five feature modules, `:core:shizuku-ipc`, `:core:telemetry-engine`, and `:core:database`. Telemetry-engine is now a production implementation dependency rather than debug-only probe support.
+`:app` depends on all five feature modules, `:core:shizuku-ipc`, `:core:telemetry-engine`, `:core:database`, and `:core:diagnostics`. Telemetry-engine is now a production implementation dependency rather than debug-only probe support.
 
 ## Core modules
 
@@ -18,11 +18,25 @@ The module graph is declared in [`settings.gradle.kts`](../../settings.gradle.kt
 |---|---|---|
 | `:core:hidden-api-stub` | Compile-only declarations for selected hidden Android framework interfaces | Implemented stubs used by IPC clients |
 | `:core:shizuku-ipc` | Shizuku lifecycle/binding, AIDL, shell user service, framework readers, sysfs readers, DTOs, history, and allowlisted dumps | Implemented Phase 1 IPC plus Phase 2 history and usage-budget support |
-| `:core:telemetry-engine` | Protobuf dump parser, snapshot models/capture, diff/reference resolution, capacity, live telemetry, calibration input, and store interface | Implemented Phase 2 domain pipeline |
-| `:core:database` | Room schema v1, DAOs, WAL database, domain mappers, and retention/downsampling store | Implemented Phase 2 persistence |
-| `:core:diagnostics` | Future deterministic insight/rule engine | Module exists; no source yet |
+| `:core:telemetry-engine` | Protobuf dump parser, snapshot models/capture, diff/reference resolution (now with signal-bin, scanning, radio-active and per-UID sensor deltas), `interval/IntervalMetrics`, capacity, live telemetry, calibration input, and store interface | Implemented Phase 2 pipeline plus Phase 3 interval metrics and signal/sensor fields |
+| `:core:database` | Room schema v1 (edited in place for Phase 3: signal columns and `snapshot_uid_sensor`), DAOs, WAL database, domain mappers, and retention/downsampling store | Implemented Phase 2 persistence plus Phase 3 signal/sensor columns |
+| `:core:diagnostics` | Deterministic insight layer: dictionary, rule engine, sensor catalog, Battery Story | Implemented Phase 3 (JVM-tested; device-probed via `PROBE_INSIGHTS`) |
 
-`core:telemetry-engine` exposes `core:shizuku-ipc`. `core:database` implements telemetry-engine's `SnapshotStore`. The feature modules receive telemetry-engine and diagnostics dependencies through `AndroidFeatureConventionPlugin`.
+`core:telemetry-engine` exposes `core:shizuku-ipc`; `core:diagnostics` exposes `core:telemetry-engine` via `api` because its public signatures use `SnapshotDiff`, `SleepStats` and `IntervalMetrics`. `core:database` implements telemetry-engine's `SnapshotStore`. The feature modules receive telemetry-engine and diagnostics dependencies through `AndroidFeatureConventionPlugin`.
+
+## `:core:diagnostics` (Phase 3)
+
+Package root `com.akane.inspiration.diagnostics` under [`core/diagnostics/src/main/kotlin`](../../core/diagnostics/src/main/kotlin/com/akane/inspiration/diagnostics). Design: [`docs/plans/phase-3.md`](../../docs/plans/phase-3.md).
+
+| Package | Contents |
+|---|---|
+| `dictionary/` | `DictionaryLoader.parse(json)` (throws on unknown kind/type, bad regex, missing en/tr, duplicate id), `DictionaryEntry`, `EntryKind` (PARTIAL, KERNEL, WAKEUP_REASON, ALARM), `DiagnosticDictionary.explain(kind, name, locale)`. Matching precedence: exact > longest prefix/suffix > longest contains > regex, ties by file order; kernel/wakeup names are lowercased. Normalization: partial-wakelock `*job*<variant letter>/` collapses to `*job*/`, and `*walarm*:`/`*alarm*:` prefixes are stripped so a specific tag entry wins, with `walarm_prefix`/`alarm_prefix` as the fallback. Data: [`res/raw/diagnostic_dictionary.json`](../../core/diagnostics/src/main/res/raw/diagnostic_dictionary.json) (72 entries, en+tr text kept in the JSON, not strings.xml) |
+| `model/` | `RuleId`, `Severity` (AMBER/RED), `CulpritScope` (SCREEN_OFF_ONLY/WHOLE_INTERVAL_CONTRIBUTORS), `SensorKind`, `Culprit`, `sealed Insight` (`NightVampire`, `AwakeViolation`, `ModemDrain`, `SensorLeak`), `DiagnosticReport(insights, notEvaluable, skippedInvalidUids)`, `InsightOrder` (severity desc, magnitude desc, uid/name) |
+| `rules/` | `DiagnosticInput(diff, metrics, perUidAvailable)`; `DiagnosticRuleEngine(SensorCatalog).evaluate()` runs R1 Night Vampire, R2 Awake Violation, R3 Modem Drain, R4 Sensor Leak. Gates: invalid batterystats validity gives R1/R3/R4 `battery_stats_invalid`; `perUidAvailable == false` gives R1/R4 `per_uid_unavailable`; only valid UIDs are evaluated and skipped ones counted; `screenOffOnly` is derived from metrics (no screen-on, no unknown time, ≥ 30 min screen-off). Other NotEvaluable reasons include `component_invalid`, `screen_power_zero`, `not_screen_off_interval`, `source_absent` |
+| `sensor/` | `SensorCatalog.kindOf(handle)` (fun interface) and `AndroidSensorCatalog(context)`, which maps `SensorManager` handles by reflection; GPS is handle −10000; any failure maps to OTHER |
+| `story/` | `BatteryStoryBuilder.build(metrics, sleep, report)` returns `BatteryStory` of typed sentences (omitted when input is missing); `AndroidStoryWriter` renders them from `res/values/strings.xml` and `res/values-tr/strings.xml` |
+
+Rules and story are pure Kotlin; only `AndroidSensorCatalog`, `AndroidStoryWriter` and dictionary loading tests need Android/Robolectric (`unitTests.isIncludeAndroidResources = true`). Insights are computed on demand, never persisted.
 
 ## Feature modules
 

@@ -1,7 +1,7 @@
 # Patterns
 *Last Updated: 2026-10-17*
 
-These patterns are established across the Phase 1 IPC boundary and Phase 2 snapshot pipeline.
+These patterns are established across the Phase 1 IPC boundary, the Phase 2 snapshot pipeline, and the Phase 3 insight layer.
 
 ## Explicit availability
 
@@ -22,6 +22,18 @@ Capture is triggered by app start, broadcasts, boot/package replacement, a persi
 ## Persistence boundaries
 
 `RoomSnapshotStore` writes a snapshot and its child tables inside a transaction. Room is configured for WAL, schema export is enabled, and marker foreign keys restrict deletion while snapshot children cascade. `MaintenanceDao.prune()` downsamples old live samples to hourly rows, removes data older than 30 days, and preserves marker-referenced snapshots. Backup is disabled by the app manifest and extraction rules before production writes.
+
+## NotEvaluable instead of guessing
+
+Each diagnostic rule returns either insights or a machine-readable reason (`DiagnosticReport.notEvaluable`), never a guess or silence: invalid batterystats, missing per-UID data (LIGHT endpoint), invalid components, absent sensor/signal sources. Only `UidDelta.valid` UIDs are evaluated and skipped ones are counted. R2 culprits carry `CulpritScope`, so a mixed screen-on/off interval is labelled "contributors over the whole interval", never "cause". The Battery Story omits any sentence whose fact is missing.
+
+## Deterministic dictionary matching
+
+Explanations come from a bundled JSON dictionary with fixed precedence (exact > longest prefix/suffix > longest contains > regex, then file order), load-time validation that fails on malformed entries, and name normalization (job variant letter, alarm prefixes). Localized text is test-enforced en/tr complete rather than in strings.xml.
+
+## Interval metrics from history
+
+`IntervalMetricsCalculator` derives screen on/off time and level drops from `history_event` over the diff's covered bounds, because broadcasts coalesce for frozen apps. Levels are seeded from any event kind, drops apply only on LEVEL events, charging time is excluded, and RESET/START boundaries are recorded as discontinuities rather than attributed. Rates are null below 15 minutes of state time.
 
 ## Fakes over mocks
 
