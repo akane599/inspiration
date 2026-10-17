@@ -105,13 +105,70 @@ object DozeRaw {
     /** Values the service is willing to replay into `device_idle_constants`. */
     fun isSafe(raw: String): Boolean = SAFE.matches(raw)
 
-    private val PAIR = Regex("([a-z_]+)=(\\d{1,9})")
+    private const val MAX_LENGTH = 1024
+    private val PAIR = Regex("([a-z_]+)=(\\d{1,18}(\\.\\d{1,9})?|true|false)")
 
-    /** Comma-separated `key=number` pairs whose keys all belong to [DozeProfile.controlledKeys]. */
-    fun isControlledProfileValue(raw: String): Boolean {
-        if (raw.isEmpty()) return false
+    /**
+     * Every `device_idle_constants` key AOSP's `DeviceIdleController.Constants` has parsed in API 31-37:
+     * the union of the `KEY_*` string constants in
+     * `frameworks/base/apex/jobscheduler/service/java/com/android/server/DeviceIdleController.java`
+     * at the android-12.0.0_r1, android-13.0.0_r1, android-14.0.0_r1, android-15.0.0_r1 and
+     * android-16.0.0_r1 tags plus the main branch (android.googlesource.com). A release that does not
+     * know a key ignores it when it parses the setting.
+     */
+    val AOSP_KEYS: Set<String> = setOf(
+        "flex_time_short",
+        "idle_after_inactive_to",
+        "idle_factor",
+        "idle_pending_factor",
+        "idle_pending_to",
+        "idle_to",
+        "inactive_to",
+        "light_after_inactive_to",
+        "light_idle_factor",
+        "light_idle_flex_linear_increase_factor_ms",
+        "light_idle_increase_linearly",
+        "light_idle_linear_increase_factor_ms",
+        "light_idle_maintenance_max_budget",
+        "light_idle_maintenance_min_budget",
+        "light_idle_to",
+        "light_idle_to_initial_flex",
+        "light_max_idle_to",
+        "light_max_idle_to_flex",
+        "light_pre_idle_to",
+        "locating_to",
+        "location_accuracy",
+        "max_idle_pending_to",
+        "max_idle_to",
+        "max_temp_app_allowlist_duration_ms",
+        "min_deep_maintenance_time",
+        "min_light_maintenance_time",
+        "min_time_to_alarm",
+        "mms_temp_app_allowlist_duration_ms",
+        "motion_inactive_to",
+        "motion_inactive_to_flex",
+        "notification_allowlist_duration_ms",
+        "pre_idle_factor_long",
+        "pre_idle_factor_short",
+        "quick_doze_delay_to",
+        "sensing_to",
+        "sms_temp_app_allowlist_duration_ms",
+        "use_mode_manager",
+        "use_window_alarms",
+        "wait_for_unlock",
+    )
+
+    /**
+     * Comma-separated `key=value` pairs: every key in [AOSP_KEYS], no key repeated, every value a
+     * non-negative integer, an optional decimal (factors) or `true`/`false`; at most 1024 characters.
+     * A restore may replay this without the service having read it itself.
+     */
+    fun isRestorable(raw: String): Boolean {
+        if (raw.isEmpty() || raw.length > MAX_LENGTH) return false
+        val seen = HashSet<String>()
         return raw.split(',').all { pair ->
-            PAIR.matchEntire(pair)?.groupValues?.get(1) in DozeProfile.controlledKeys
+            val key = PAIR.matchEntire(pair)?.groupValues?.get(1)
+            key != null && key in AOSP_KEYS && seen.add(key)
         }
     }
 }
