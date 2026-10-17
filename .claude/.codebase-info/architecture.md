@@ -75,7 +75,7 @@ AppContainer.timeline(from, to) = TimelineEvents.withSeeds(store.lastHistoryOfEa
 
 ## Privileged data flow
 
-1. `ShizukuManagerImpl` watches Shizuku state but binds the user service on demand through `withTelemetryService`; `holdBinding()` is the explicit UI keep-warm holder.
+1. `ShizukuManagerImpl` watches Shizuku state but binds the user service on demand through `withTelemetryService`; `holdBinding()` is the explicit UI keep-warm holder. The last release lingers 3 s before unbinding (tab handover keeps one process). After an unbind, the next bind waits for the old service's death (2 s fallback), because shizuku-api 13.1.5 shares one connection stub per service class and delivers the old death to the new binding (SQ-114/118).
 2. Shizuku launches `TelemetryUserService` under the shell UID. It resolves the app UID and rejects every AIDL call unless `Binder.getCallingUid()` matches it.
 3. Authorized calls (read txns 1–6 and 8, typed toolkit txns 20–30, `getApiVersion` 31, per H11; txn 7 stays retired) read framework services (`batterystats`, `powerstats`, `deviceidle`, `power`) through binder clients, selected sysfs nodes, CPU frequency paths, and `BatteryUsageStats` history.
 4. Results cross the AIDL boundary as parcelable DTOs with `available` and machine-readable `reason` fields. Dumps use an allowlisted `DumpTarget` and a capped pipe; arbitrary command execution is not exposed. Writes exist only as the typed toolkit calls (fixed absolute argv, `--user 0`, validated package names, hard-deny rules, one write lock); see "Toolkit write path" in [`modules.md`](modules.md).
