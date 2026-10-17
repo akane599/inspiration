@@ -1,0 +1,72 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Units and shared values. Numbers always come from TelemetryFormat; these only carry the unit or wrapper. -->
+    <string name="health_unit_mah">mAh</string>
+    <string name="health_unit_volt">V</string>
+    <string name="health_percent_value" formatted="true">%1$s%%</string>
+    <string name="health_chart_range" formatted="true">%1$s to %2$s</string>
+
+    <!-- Charge curve -->
+    <string name="health_curve_title">Charge curve</string>
+    <string name="health_curve_live">Live</string>
+    <string name="health_metric_power">Power</string>
+    <string name="health_metric_current">Current</string>
+    <string name="health_metric_voltage">Voltage</string>
+    <string name="health_metric_temperature">Temperature</string>
+    <string name="health_curve_axis">Battery level</string>
+    <string name="health_curve_caption_live">Recording while this screen is open and your phone is charging.</string>
+    <string name="health_curve_caption_recorded">Recorded while this screen was open. Gaps mean it was closed.</string>
+    <string name="health_curve_caption_partial" formatted="true">Power and current were recorded from %1$s on, while this screen was open. Earlier points come from battery history, which has level, temperature and voltage only.</string>
+    <string name="health_curve_caption_history">Drawn from battery history. Charging in the background records only level, temperature and voltage, so power and current are not shown.</string>
+    <string name="health_throttle_key">Thermal throttling</string>
+    <string name="health_throttle_none">The system did not throttle the charge.</string>
+    <string name="health_throttle_range" formatted="true">The system throttled the charge between %1$s and %2$s battery.</string>
+    <string name="health_throttle_at" formatted="true">The system throttled the charge at %1$s battery.</string>
+    <string name="health_curve_none_title">No recent charge</string>
+    <string name="health_curve_none_body">Plug in your phone with this screen open to record a live curve of power, current, voltage and temperature. Charges in the last day also show up here from battery history.</string>
+    <string name="health_chart_desc" formatted="true">%1$s chart, %2$s, across %3$s battery level</string>
+
+    <!-- Health card -->
+    <string name="health_card_title">Battery health</string>
+    <string name="health_design_title">Design capacity</string>
+    <string name="health_reported_title">Kernel full capacity</string>
+    <string name="health_measured_title">Measured capacity</string>
+    <string name="health_cycles_title">Charge cycles</string>
+    <string name="health_of_design" formatted="true">%1$s of design</string>
+    <string name="health_missing_no_kernel">Kernel battery data is unavailable. Start Shizuku, then refresh.</string>
+    <string name="health_missing_not_reported">This kernel does not report it.</string>
+    <string name="health_missing_not_measured" formatted="false">Needs a clean charge of 40% or more first.</string>
+    <string name="health_card_note">Measured capacity comes from the charge counter during long charges, so it can differ from the kernel figure.</string>
+
+    <!-- Wear chart -->
+    <string name="health_wear_title">Wear over time</string>
+    <string name="health_wear_subtitle">Full capacity as a share of design capacity</string>
+    <string name="health_wear_summary" formatted="true">Now %1$s, first record %2$s</string>
+    <string name="health_wear_empty_title">Not enough history yet</string>
+    <string name="health_wear_empty_body">Wear needs at least two health records. One is saved after each long charge, so check back after a few.</string>
+    <string name="health_wear_desc" formatted="true">Wear chart, from %1$s to %2$s</string>
+
+    <!-- Heat and voltage analysis -->
+    <string name="health_analysis_title">Heat and voltage while charging</string>
+    <string name="health_analysis_coverage" formatted="true">The charge lasted %1$s.</string>
+    <string name="health_hot_none" formatted="true">No time above %1$s. Checked %2$s of the charge.</string>
+    <string name="health_hot_some" formatted="true">%1$s above %2$s (peak %3$s). Charging warm wears a battery faster. Checked %4$s of the charge.</string>
+    <string name="health_hot_unknown">No temperature readings for this charge.</string>
+    <string name="health_voltage_none" formatted="true">No time at or above %1$s. Checked %2$s of the charge.</string>
+    <string name="health_voltage_some" formatted="true">%1$s at or above %2$s (peak %3$s). Sitting at high voltage wears a battery faster. Checked %4$s of the charge.</string>
+    <string name="health_voltage_unknown">No voltage readings for this charge.</string>
+    <string name="health_analysis_sparse">Based on battery history, which logs about one point per percent, so brief peaks can be missed.</string>
+    <string name="health_analysis_basis" formatted="true">Rules of thumb: heat means above %1$s, high voltage means %2$s or more. They are guides, not a verdict on your battery.</string>
+    <string name="health_analysis_none_title">Nothing to analyse yet</string>
+    <string name="health_analysis_none_body">Heat and voltage findings appear once a charge has been recorded.</string>
+
+    <!-- Screen states -->
+    <string name="health_loading">Reading battery health…</string>
+    <string name="health_empty_title">No battery data yet</string>
+    <string name="health_empty_body">Allow Shizuku, then charge your phone with this screen open. Your health record starts after the first long charge.</string>
+    <string name="health_empty_refresh">Refresh</string>
+    <string name="health_error_title">Could not read battery data</string>
+    <string name="health_error_body">Something went wrong while reading. Try again in a moment.</string>
+    <string name="health_error_retry">Try again</string>
+    <string name="health_refresh_failed">Could not refresh. Showing the last data.</string>
+</resources>
