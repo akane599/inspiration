@@ -33,6 +33,13 @@ android {
 }
 
 dependencies {
+    implementation(project(":feature:dashboard"))
+    implementation(project(":feature:xray"))
+    implementation(project(":feature:sleeplab"))
+    implementation(project(":feature:health"))
+    implementation(project(":feature:toolkit"))
+    implementation(project(":core:shizuku-ipc"))
+
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.activity.compose)
     implementation(libs.androidx.lifecycle.runtime.compose)
