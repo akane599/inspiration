@@ -22,7 +22,7 @@
 
     <!-- Readout row: values at the cursor, selection summary, window summary -->
     <string name="chart_readout_battery">Battery %1$d%%</string>
-    <string name="chart_readout_temperature">Temperature %1$.1f °C</string>
+    <string name="chart_readout_temperature">Temperature %1$.1f °C</string>
     <string name="chart_readout_time_range">%1$s – %2$s</string>
     <string name="chart_readout_selection_drop">Battery %1$d%% drop</string>
     <string name="chart_readout_selection_gain">Battery %1$d%% gain</string>
