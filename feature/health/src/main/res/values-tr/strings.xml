@@ -1,0 +1,71 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="health_unit_mah">mAh</string>
+    <string name="health_unit_volt">V</string>
+    <string name="health_percent_value" formatted="true">%%%1$s</string>
+    <string name="health_chart_range" formatted="true">%1$s ile %2$s arası</string>
+
+    <!-- Şarj eğrisi -->
+    <string name="health_curve_title">Şarj eğrisi</string>
+    <string name="health_curve_live">Canlı</string>
+    <string name="health_metric_power">Güç</string>
+    <string name="health_metric_current">Akım</string>
+    <string name="health_metric_voltage">Gerilim</string>
+    <string name="health_metric_temperature">Sıcaklık</string>
+    <string name="health_curve_axis">Pil seviyesi</string>
+    <string name="health_curve_caption_live">Bu ekran açıkken ve telefon şarjdayken kaydediliyor.</string>
+    <string name="health_curve_caption_recorded">Bu ekran açıkken kaydedildi. Boşluklar ekranın kapalı olduğu anlardır.</string>
+    <string name="health_curve_caption_partial" formatted="true">Güç ve akım, bu ekran açıkken %1$s seviyesinden itibaren kaydedildi. Öncesi pil geçmişinden geliyor; orada yalnızca seviye, sıcaklık ve gerilim var.</string>
+    <string name="health_curve_caption_history">Pil geçmişinden çizildi. Arka planda şarjda yalnızca seviye, sıcaklık ve gerilim kaydedilir; bu yüzden güç ve akım gösterilmiyor.</string>
+    <string name="health_throttle_key">Isıl kısıtlama</string>
+    <string name="health_throttle_none">Sistem şarjı kısıtlamadı.</string>
+    <string name="health_throttle_range" formatted="true">Sistem şarjı pil %1$s ile %2$s arasında kısıtladı.</string>
+    <string name="health_throttle_at" formatted="true">Sistem şarjı pil %1$s iken kısıtladı.</string>
+    <string name="health_curve_none_title">Yakın zamanda şarj yok</string>
+    <string name="health_curve_none_body">Güç, akım, gerilim ve sıcaklığın canlı eğrisini görmek için telefonu bu ekran açıkken şarja takın. Son bir gündeki şarjlar pil geçmişinden burada görünür.</string>
+    <string name="health_chart_desc" formatted="true">%1$s grafiği, %2$s, pil seviyesi %3$s</string>
+
+    <!-- Sağlık karnesi -->
+    <string name="health_card_title">Pil sağlığı</string>
+    <string name="health_design_title">Tasarım kapasitesi</string>
+    <string name="health_reported_title">Çekirdek tam kapasite</string>
+    <string name="health_measured_title">Ölçülen kapasite</string>
+    <string name="health_cycles_title">Şarj döngüsü</string>
+    <string name="health_of_design" formatted="true">Tasarıma göre %1$s</string>
+    <string name="health_missing_no_kernel">Çekirdek pil verisi alınamıyor. Shizuku\'yu başlatıp yenileyin.</string>
+    <string name="health_missing_not_reported">Bu çekirdek bunu bildirmiyor.</string>
+    <string name="health_missing_not_measured" formatted="false">Önce %40 veya daha fazla temiz bir şarj gerekir.</string>
+    <string name="health_card_note">Ölçülen kapasite uzun şarjlarda şarj sayacından hesaplanır; çekirdeğin verdiği değerden farklı olabilir.</string>
+
+    <!-- Aşınma grafiği -->
+    <string name="health_wear_title">Zaman içinde aşınma</string>
+    <string name="health_wear_subtitle">Tam kapasitenin tasarım kapasitesine oranı</string>
+    <string name="health_wear_summary" formatted="true">Şimdi %1$s, ilk kayıt %2$s</string>
+    <string name="health_wear_empty_title">Henüz yeterli geçmiş yok</string>
+    <string name="health_wear_empty_body">Aşınma grafiği için en az iki sağlık kaydı gerekir. Her uzun şarjdan sonra bir kayıt tutulur; birkaç şarj sonra tekrar bakın.</string>
+    <string name="health_wear_desc" formatted="true">Aşınma grafiği, %1$s ile %2$s arası</string>
+
+    <!-- Isı ve gerilim analizi -->
+    <string name="health_analysis_title">Şarj sırasında ısı ve gerilim</string>
+    <string name="health_analysis_coverage" formatted="true">Şarj %1$s sürdü.</string>
+    <string name="health_hot_none" formatted="true">%1$s üzerinde hiç süre geçmedi. Şarjın %2$s kısmı denetlendi.</string>
+    <string name="health_hot_some" formatted="true">%2$s üzerinde %1$s geçti (en yüksek %3$s). Sıcakken şarj, pili daha hızlı yıpratır. Şarjın %4$s kısmı denetlendi.</string>
+    <string name="health_hot_unknown">Bu şarj için sıcaklık okuması yok.</string>
+    <string name="health_voltage_none" formatted="true">%1$s ve üzerinde hiç süre geçmedi. Şarjın %2$s kısmı denetlendi.</string>
+    <string name="health_voltage_some" formatted="true">%2$s ve üzerinde %1$s geçti (en yüksek %3$s). Yüksek gerilimde beklemek pili daha hızlı yıpratır. Şarjın %4$s kısmı denetlendi.</string>
+    <string name="health_voltage_unknown">Bu şarj için gerilim okuması yok.</string>
+    <string name="health_analysis_sparse">Pil geçmişine dayanıyor; geçmiş yüzde başına yaklaşık bir nokta tutar, bu yüzden kısa tepeler kaçabilir.</string>
+    <string name="health_analysis_basis" formatted="true">Pratik ölçütler: sıcak, %1$s üzeri; yüksek gerilim, %2$s ve üzeri demektir. Bunlar yol göstericidir, pilinize verilmiş bir hüküm değildir.</string>
+    <string name="health_analysis_none_title">Henüz analiz edilecek bir şey yok</string>
+    <string name="health_analysis_none_body">Isı ve gerilim bulguları, bir şarj kaydedildikten sonra görünür.</string>
+
+    <!-- Ekran durumları -->
+    <string name="health_loading">Pil sağlığı okunuyor…</string>
+    <string name="health_empty_title">Henüz pil verisi yok</string>
+    <string name="health_empty_body">Shizuku\'ya izin verin, sonra telefonu bu ekran açıkken şarja takın. Sağlık kaydınız ilk uzun şarjdan sonra başlar.</string>
+    <string name="health_empty_refresh">Yenile</string>
+    <string name="health_error_title">Pil verisi okunamadı</string>
+    <string name="health_error_body">Okunurken bir sorun oldu. Biraz sonra tekrar deneyin.</string>
+    <string name="health_error_retry">Tekrar dene</string>
+    <string name="health_refresh_failed">Yenilenemedi. Son veriler gösteriliyor.</string>
+</resources>
