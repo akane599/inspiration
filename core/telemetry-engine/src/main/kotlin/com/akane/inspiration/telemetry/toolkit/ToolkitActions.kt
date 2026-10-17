@@ -234,7 +234,8 @@ class ToolkitActions internal constructor(
     /**
      * Undoes audit row [actionId]: the stored values are decoded through the same enums and validation
      * as any action. An override row goes back to the original of its chain (as [resetAll] does), and is
-     * refused with ALREADY_RESTORED when its own `after` already is that original. If the current value is no longer the recorded `after`, confirmation is needed
+     * refused with ALREADY_RESTORED when its own `after`, or the value read back now, already is that
+     * original (nothing is written then). If the current value is no longer the recorded `after`, confirmation is needed
      * (see [planRestore]). The new row carries `restoresId`; the original becomes RESTORED.
      */
     suspend fun restore(actionId: Long, confirmed: Boolean = false): ToolkitOutcome<ToolkitActionRecord> =
@@ -360,8 +361,28 @@ class ToolkitActions internal constructor(
         if (isInvalid(action)) return ToolkitPlan.Refused(ToolkitRefusal.INVALID_ARGUMENT)
         return when (val prep = prepare(action, restoring)) {
             is Prep.Stop -> ToolkitPlan.Refused(planRefusal(prep.outcome))
-            is Prep.Ok -> confirmationPlan(prep.warnings())
+            is Prep.Ok ->
+                if (alreadyRestored(action, prep, restoring)) {
+                    ToolkitPlan.Refused(ToolkitRefusal.ALREADY_RESTORED)
+                } else {
+                    confirmationPlan(prep.warnings())
+                }
         }
+    }
+
+    /**
+     * Whether restoring [restoring] would write what the target already reads back (same state, "allow" being
+     * the default mode): its chain is already at the original, whoever got it there, so nothing is written.
+     */
+    private fun alreadyRestored(action: ToolkitAction, prep: Prep.Ok, restoring: ToolkitActionRecord?): Boolean {
+        if (restoring == null || restoring.kind !in OVERRIDE_KINDS) return false
+        val target = when (action) {
+            is ToolkitAction.SetAppOp -> action.mode.argv
+            is ToolkitAction.SetBucket -> action.bucket.rawValue.toString()
+            is ToolkitAction.RestoreDoze -> action.rawOrNull
+            else -> return false
+        }
+        return sameState(restoring.kind, prep.current, target)
     }
 
     private fun confirmationPlan(warnings: List<ToolkitWarning>): ToolkitPlan =
@@ -475,6 +496,7 @@ class ToolkitActions internal constructor(
             is Prep.Stop -> return stopOutcome(spec, restoresId, prepared.outcome)
             is Prep.Ok -> prepared
         }
+        if (alreadyRestored(action, prep, restoring)) return ToolkitOutcome.Refused(ToolkitRefusal.ALREADY_RESTORED)
         if (!confirmed && prep.warnings().isNotEmpty()) {
             return refuse(spec, restoresId, ToolkitRefusal.NOT_CONFIRMED, ToolkitClientCode.NOT_CONFIRMED)
         }
@@ -718,8 +740,11 @@ class ToolkitActions internal constructor(
 
     /**
      * The value that existed before the first change of [row]'s chain: older rows of the same target join the
-     * chain while each one's `after` is what the next one found (`before`). A restore row or a gap (something
-     * else changed the target in between) ends it. [rows] is [overrideRows], newest first.
+     * chain while each one's `after` is what the next one found (`before`). The walk covers DONE and RESTORED
+     * rows alike (see [overrideRows]): a row already undone by a restore is still a link, so restoring one row
+     * of a chain does not turn an older row's `before` into the original of the rows above it. A restore row
+     * (`restoresId` set) or a gap (something else changed the target in between) ends it. [rows] is
+     * [overrideRows], newest first.
      */
     private fun chainOriginal(row: ToolkitActionRecord, rows: List<ToolkitActionRecord>): String? {
         val key = targetKey(row)
@@ -740,20 +765,28 @@ class ToolkitActions internal constructor(
 
     // ---- active overrides ------------------------------------------------------------------
 
-    /** Successful override-kind rows, newest first. */
+    /**
+     * Successful override-kind rows, newest first: DONE rows, plus RESTORED ones. A RESTORED row is a
+     * change that did happen and was undone by a newer restore row, so it still belongs to its chain;
+     * dropping it would break the chain and make [chainOriginal] stop at an intermediate value.
+     */
     private suspend fun overrideRows(): List<ToolkitActionRecord> = overrideRows(audit.recent(MAX_ROWS))
 
     private fun overrideRows(all: List<ToolkitActionRecord>): List<ToolkitActionRecord> = all
-        .filter { it.status == ToolkitActionStatus.DONE && it.kind in OVERRIDE_KINDS }
+        .filter {
+            (it.status == ToolkitActionStatus.DONE || it.status == ToolkitActionStatus.RESTORED) &&
+                it.kind in OVERRIDE_KINDS
+        }
         .sortedWith(compareByDescending<ToolkitActionRecord> { it.startedAt }.thenByDescending { it.id })
 
     private suspend fun computeOverrides(): List<Override> = computeOverrides(overrideRows())
 
     private suspend fun computeOverrides(rows: List<ToolkitActionRecord>): List<Override> {
-        // The newest successful write per target decides; a newer restore row means nothing is overridden.
+        // The newest successful write per target decides; a newer restore row (or a RESTORED newest row)
+        // means nothing is overridden.
         val newest = LinkedHashMap<String, ToolkitActionRecord>()
         for (row in rows) newest.putIfAbsent(targetKey(row), row)
-        val candidates = newest.values.filter { it.restoresId == null }
+        val candidates = newest.values.filter { it.restoresId == null && it.status == ToolkitActionStatus.DONE }
         val result = mutableListOf<Override>()
         for ((pkg, group) in candidates.filter { it.kind != KIND_DOZE }.groupBy { it.pkg }) {
             val name = pkg ?: continue
