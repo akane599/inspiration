@@ -41,6 +41,7 @@ dependencies {
     implementation(project(":core:shizuku-ipc"))
     implementation(project(":core:telemetry-engine"))
     implementation(project(":core:database"))
+    implementation(project(":core:diagnostics"))
     implementation(libs.hiddenapibypass)
 
     implementation(libs.androidx.core.ktx)
