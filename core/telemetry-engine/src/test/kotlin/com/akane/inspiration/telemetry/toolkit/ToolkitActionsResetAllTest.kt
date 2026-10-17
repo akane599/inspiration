@@ -33,8 +33,8 @@ class ToolkitActionsResetAllTest {
 
         assertEquals("default", opNow())
         assertTrue("no write may restrict the app again: ${backend.writes}", backend.writes.none { "ignore" in it })
-        assertEquals(1, report.size)
-        assertEquals(ToolkitOutcome.Refused(ToolkitRefusal.ALREADY_RESTORED), report.single().outcome)
+        // back at its original value, so it is no active override at all (SQ-92)
+        assertTrue(report.isEmpty())
     }
 
     @Test
@@ -48,7 +48,7 @@ class ToolkitActionsResetAllTest {
 
         assertTrue(backend.writes.isEmpty())
         assertEquals("ignore", opNow())
-        assertEquals(listOf<ToolkitOutcome<*>>(ToolkitOutcome.Refused(ToolkitRefusal.ALREADY_RESTORED)), report.map { it.outcome })
+        assertTrue(report.isEmpty())
     }
 
     @Test
@@ -83,10 +83,13 @@ class ToolkitActionsResetAllTest {
         backend.buckets[PKG] = StandbyBucket.FREQUENT.rawValue // changed outside the app
         actions.execute(ToolkitAction.SetBucket(PKG, StandbyBucket.RESTRICTED), confirmed = true)
 
-        actions.resetAll()
+        val report = actions.resetAll()
 
         // the value found before the second change, not the one before the first
         assertEquals(StandbyBucket.FREQUENT.rawValue, backend.buckets[PKG])
+        assertEquals(1, report.size)
+        assertTrue(report.single().outcome is ToolkitOutcome.Done)
+        assertTrue(actions.activeOverrides().first().isEmpty())
     }
 
     @Test
