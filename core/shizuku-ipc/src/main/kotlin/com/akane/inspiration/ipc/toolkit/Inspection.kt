@@ -79,7 +79,7 @@ internal class AndroidPackageInspector(
         val ime = secureSetting("default_input_method") ?: return null
         val accessibility = secureSetting("enabled_accessibility_services") ?: return null
         val vpn = secureSetting("always_on_vpn_app") ?: return null
-        val policy = runner.run(listOf(DUMPSYS, "device_policy"))
+        val policy = runner.run(DEVICE_POLICY_ARGV)
         if (!policy.ok) return null
         val admins = ToolkitParsers.deviceAdmins(policy.text, policy.truncated) ?: return null
         return ProtectedPackages(
@@ -112,6 +112,9 @@ internal class AndroidPackageInspector(
     }
 }
 
+/** Cap per `cmd battery get`: the probe runs on a binder thread and on every dexopt re-check. */
+private const val PROBE_TIMEOUT_MS = 2_000L
+
 /**
  * Plugged-in state, first answer wins: the sticky ACTION_BATTERY_CHANGED, then BatteryService's own
  * view via `cmd battery get`, then sysfs `power_supply/<non-battery>/online`. The middle step exists
@@ -139,7 +142,7 @@ internal class AndroidPluggedProbe(
     private fun batteryServicePlugged(): Boolean? {
         var answered = false
         for (source in listOf("ac", "usb", "wireless", "dock")) {
-            val out = runner.run(listOf(CMD, "battery", "get", source))
+            val out = runner.run(listOf(CMD, "battery", "get", source), PROBE_TIMEOUT_MS)
             when (if (out.ok) out.text.trim() else null) {
                 "true" -> return true
                 "false" -> answered = true

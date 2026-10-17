@@ -77,6 +77,33 @@ class ProcessCommandRunnerTest {
     }
 
     @Test
+    fun `the child's stdin is closed right after start, before any wait or destroy`() {
+        val process = FakeProcess("x".toByteArray(), finishes = true)
+
+        val started = ProcessCommandRunner { process }.start(listOf("x"))
+
+        assertTrue("stdin closed at start", process.stdinClosed)
+        started.destroy()
+    }
+
+    @Test
+    fun `device_policy keeps far more than 4 KB and is only truncated past its own cap`() {
+        val preamble = ByteArray(100_000) { 'x'.code.toByte() }
+        val whole = ProcessCommandRunner { FakeProcess(preamble, finishes = true) }.run(DEVICE_POLICY_ARGV)
+        assertEquals(100_000, whole.text.length)
+        assertFalse(whole.truncated)
+
+        val huge = ByteArray(DEVICE_POLICY_RETENTION_CAP_BYTES + 5_000) { 'x'.code.toByte() }
+        val capped = ProcessCommandRunner { FakeProcess(huge, finishes = true) }.run(DEVICE_POLICY_ARGV)
+        assertEquals(DEVICE_POLICY_RETENTION_CAP_BYTES, capped.text.length)
+        assertTrue(capped.truncated)
+
+        val other = ProcessCommandRunner { FakeProcess(preamble, finishes = true) }.run(listOf(DUMPSYS, "deviceidle"))
+        assertEquals("other commands keep the 4 KB cap", RETENTION_CAP_BYTES, other.text.length)
+        assertTrue(other.truncated)
+    }
+
+    @Test
     fun `small output is returned whole and not flagged truncated`() {
         val out = ProcessCommandRunner { FakeProcess("hello\n".toByteArray(), finishes = true) }.run(listOf("x"))
 

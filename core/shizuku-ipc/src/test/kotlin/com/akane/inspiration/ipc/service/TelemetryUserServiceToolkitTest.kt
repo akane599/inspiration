@@ -1,5 +1,6 @@
 package com.akane.inspiration.ipc.service
 
+import android.os.Process
 import com.akane.inspiration.ipc.model.BgDexoptReason
 import com.akane.inspiration.ipc.model.BgDexoptState
 import com.akane.inspiration.ipc.model.ToolkitApi
@@ -17,6 +18,7 @@ import com.akane.inspiration.ipc.toolkit.ok
 import com.akane.inspiration.ipc.toolkit.userApp
 import java.io.File
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -98,6 +100,129 @@ class TelemetryUserServiceToolkitTest {
         service.setAppOp("com.example.app", 3, 1)
 
         assertTrue(listOf(CMD, "appops", "set", "--user", "0", "com.example.app", "WAKE_LOCK", "ignore") in runner.calls)
+        assertEquals(BgDexoptState.UNKNOWN, service.getBgDexoptStatus().state)
+    }
+
+    // --- destroy(): caller gate, dexopt cancel, exit hook ---------------------------------------
+
+    private val cancelArgv = listOf(CMD, "package", "bg-dexopt-job", "--cancel")
+
+    /** One ordered log shared by the fake runner and the exit hook, so ordering is observable. */
+    private class Harness(runnerFor: (MutableList<String>) -> FakeRunner) {
+        val events = mutableListOf<String>()
+        val runner = runnerFor(events)
+        var caller = APP_UID
+        val service = TelemetryUserService(
+            appUid = APP_UID,
+            fileRoot = File("/"),
+            callingUid = { caller },
+            toolkit = ToolkitExecutor(
+                runner,
+                FakeInspector(),
+                BgDexoptController(runner, { true }, { 0L }, { }),
+                "com.akane.inspiration",
+            ) { },
+            exitProcess = { events += "exit" },
+        )
+    }
+
+    private fun harness() = Harness { events ->
+        FakeRunner { argv ->
+            events += argv.last()
+            ok()
+        }
+    }
+
+    @Test
+    fun `destroy cancels a running bg-dexopt job with a bounded wait before exiting`() {
+        val h = harness()
+        h.service.startBgDexopt()
+        assertEquals(BgDexoptState.RUNNING, h.service.getBgDexoptStatus().state)
+
+        h.service.destroy()
+
+        assertEquals(listOf(cancelArgv), h.runner.calls)
+        assertTrue("cancel wait is bounded to about 3 s", h.runner.timeouts.single() in 1L..3_000L)
+        assertEquals("cancel runs before the exit hook", listOf("--cancel", "exit"), h.events)
+    }
+
+    @Test
+    fun `destroy issues no command when no job is running and still exits`() {
+        val h = harness()
+
+        h.service.destroy()
+
+        assertTrue(h.runner.calls.isEmpty())
+        assertEquals(listOf("exit"), h.events)
+    }
+
+    @Test
+    fun `destroy still exits when the cancel cannot be spawned`() {
+        val spawnFails = ThrowingRunner()
+        var exited = false
+        val service = TelemetryUserService(
+            appUid = APP_UID,
+            fileRoot = File("/"),
+            callingUid = { APP_UID },
+            toolkit = toolkit(spawnFails),
+            exitProcess = { exited = true },
+        )
+        service.startBgDexopt()
+
+        service.destroy()
+
+        assertEquals("the cancel was attempted", 1, spawnFails.starts)
+        assertTrue(exited)
+    }
+
+    @Test
+    fun `destroy accepts the app uid and its own uid and refuses every other caller`() {
+        val h = harness()
+        h.service.startBgDexopt()
+
+        h.caller = APP_UID + 1
+        h.service.destroy()
+        h.caller = Process.myUid() + 1
+        h.service.destroy()
+        h.caller = -1
+        h.service.destroy()
+        assertTrue("refused callers neither cancel nor exit", h.events.isEmpty())
+        assertTrue(h.runner.calls.isEmpty())
+
+        h.caller = APP_UID
+        h.service.destroy()
+        assertEquals(listOf("--cancel", "exit"), h.events)
+
+        h.events.clear()
+        h.caller = Process.myUid()
+        h.service.destroy()
+        assertEquals("exit", h.events.last())
+    }
+
+    @Test
+    fun `a throwing caller lookup refuses destroy`() {
+        var exited = false
+        val service = TelemetryUserService(
+            appUid = APP_UID,
+            fileRoot = File("/"),
+            callingUid = { throw IllegalStateException() },
+            toolkit = toolkit(),
+            exitProcess = { exited = true },
+        )
+
+        service.destroy()
+
+        assertFalse(exited)
+    }
+
+    @Test
+    fun `a cancel through the service moves a fresh unknown dexopt status to idle`() {
+        val runner = FakeRunner { ok() }
+        val service = service(APP_UID, { APP_UID }, toolkit(runner))
+        assertEquals(BgDexoptState.UNKNOWN, service.getBgDexoptStatus().state)
+
+        service.cancelBgDexopt()
+
         assertEquals(BgDexoptState.IDLE, service.getBgDexoptStatus().state)
     }
 

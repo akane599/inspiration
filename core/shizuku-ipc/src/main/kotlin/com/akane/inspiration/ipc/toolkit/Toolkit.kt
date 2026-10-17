@@ -104,4 +104,14 @@ object DozeRaw {
 
     /** Values the service is willing to replay into `device_idle_constants`. */
     fun isSafe(raw: String): Boolean = SAFE.matches(raw)
+
+    private val PAIR = Regex("([a-z_]+)=(\\d{1,9})")
+
+    /** Comma-separated `key=number` pairs whose keys all belong to [DozeProfile.controlledKeys]. */
+    fun isControlledProfileValue(raw: String): Boolean {
+        if (raw.isEmpty()) return false
+        return raw.split(',').all { pair ->
+            PAIR.matchEntire(pair)?.groupValues?.get(1) in DozeProfile.controlledKeys
+        }
+    }
 }

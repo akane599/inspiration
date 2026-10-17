@@ -10,11 +10,17 @@ internal fun failure(text: String = "Error"): CommandOutput = CommandOutput(exit
 internal class FakeRunner(var handler: (List<String>) -> CommandOutput = { ok() }) : CommandRunner {
     val calls = mutableListOf<List<String>>()
 
+    /** The wait bound each command was given, parallel to [calls]. */
+    val timeouts = mutableListOf<Long>()
+
     override fun start(argv: List<String>): CommandProcess {
         calls += argv
         val out = handler(argv)
         return object : CommandProcess {
-            override fun awaitExit(timeoutMs: Long): Boolean = !out.timedOut
+            override fun awaitExit(timeoutMs: Long): Boolean {
+                timeouts += timeoutMs
+                return !out.timedOut
+            }
 
             override fun output(timedOut: Boolean): CommandOutput = out
 
@@ -58,13 +64,13 @@ internal class FakeDozeDevice(
     )
 
     fun handle(argv: List<String>): CommandOutput = when {
-        argv == listOf(CMD, "settings", "get", "global", "device_idle_constants") -> ok(raw ?: "null")
-        argv.take(4) == listOf(CMD, "settings", "put", "global") -> {
+        argv == listOf(CMD, "settings", "get", "--user", "0", "global", "device_idle_constants") -> ok(raw ?: "null")
+        argv.take(6) == listOf(CMD, "settings", "put", "--user", "0", "global") -> {
             writes += argv
-            raw = argv[5]
+            raw = argv[7]
             ok()
         }
-        argv == listOf(CMD, "settings", "delete", "global", "device_idle_constants") -> {
+        argv == listOf(CMD, "settings", "delete", "--user", "0", "global", "device_idle_constants") -> {
             writes += argv
             raw = null
             ok("Deleted 1 rows")
