@@ -48,6 +48,8 @@ internal object HistoryBits {
     const val STATE_SCREEN_ON_FLAG = 1 shl 20
     const val STATE2_DEVICE_IDLE_SHIFT = 25
     const val STATE2_DEVICE_IDLE_MASK = 0x3 shl STATE2_DEVICE_IDLE_SHIFT
+    const val DEVICE_IDLE_MODE_OFF = 0
+    const val DEVICE_IDLE_MODE_LIGHT = 1
     const val DEVICE_IDLE_MODE_DEEP = 2
 }
 
@@ -100,13 +102,13 @@ internal object BatteryHistoryExtractor {
     }
 }
 
-/** Tracks screen/plug/deep-idle/level baselines and the wall-clock anchor across one walk. */
+/** Tracks screen/plug/device-idle (off, light, deep)/level baselines and the wall-clock anchor across one walk. */
 private class HistoryWalker {
     private var anchorWallMs: Long? = null
     private var anchorTimeMs = 0L
     private var screenOn: Boolean? = null
     private var plugged: Boolean? = null
-    private var deepIdle: Boolean? = null
+    private var idleMode: Int? = null
     private var level: Int? = null
 
     fun advance(record: HistoryRecord): List<HistoryEvent> {
@@ -129,16 +131,14 @@ private class HistoryWalker {
         val kinds = ArrayList<Int>(2)
         val nowScreenOn = record.states and HistoryBits.STATE_SCREEN_ON_FLAG != 0
         val nowPlugged = record.states and HistoryBits.STATE_BATTERY_PLUGGED_FLAG != 0
-        val nowDeepIdle = record.isDeepIdle()
+        val nowIdleMode = record.idleMode()
         if (screenOn != null && screenOn != nowScreenOn) {
             kinds += if (nowScreenOn) HistoryKind.SCREEN_ON else HistoryKind.SCREEN_OFF
         }
         if (plugged != null && plugged != nowPlugged) {
             kinds += if (nowPlugged) HistoryKind.PLUGGED else HistoryKind.UNPLUGGED
         }
-        if (deepIdle != null && deepIdle != nowDeepIdle) {
-            kinds += if (nowDeepIdle) HistoryKind.DEEP_IDLE_ON else HistoryKind.DEEP_IDLE_OFF
-        }
+        idleMode?.let { previous -> if (previous != nowIdleMode) kinds += idleTransition(previous, nowIdleMode) }
         if (level != null && level != record.batteryLevel) kinds += HistoryKind.LEVEL
         setBaseline(record)
         return kinds
@@ -147,7 +147,7 @@ private class HistoryWalker {
     private fun setBaseline(record: HistoryRecord) {
         screenOn = record.states and HistoryBits.STATE_SCREEN_ON_FLAG != 0
         plugged = record.states and HistoryBits.STATE_BATTERY_PLUGGED_FLAG != 0
-        deepIdle = record.isDeepIdle()
+        idleMode = record.idleMode()
         level = record.batteryLevel
     }
 
@@ -155,13 +155,34 @@ private class HistoryWalker {
     private fun clearBaseline() {
         screenOn = null
         plugged = null
-        deepIdle = null
+        idleMode = null
         level = null
     }
 
-    private fun HistoryRecord.isDeepIdle(): Boolean =
-        (states2 and HistoryBits.STATE2_DEVICE_IDLE_MASK) shr HistoryBits.STATE2_DEVICE_IDLE_SHIFT ==
-            HistoryBits.DEVICE_IDLE_MODE_DEEP
+    /**
+     * Exit of the old doze state first, then entry of the new one, so light to deep (or back) at
+     * one timestamp reads as OFF then ON.
+     */
+    private fun idleTransition(from: Int, to: Int): List<Int> = buildList {
+        when (from) {
+            HistoryBits.DEVICE_IDLE_MODE_LIGHT -> add(HistoryKind.LIGHT_IDLE_OFF)
+            HistoryBits.DEVICE_IDLE_MODE_DEEP -> add(HistoryKind.DEEP_IDLE_OFF)
+        }
+        when (to) {
+            HistoryBits.DEVICE_IDLE_MODE_LIGHT -> add(HistoryKind.LIGHT_IDLE_ON)
+            HistoryBits.DEVICE_IDLE_MODE_DEEP -> add(HistoryKind.DEEP_IDLE_ON)
+        }
+    }
+
+    /** The 2-bit device-idle field; the unused value 3 is treated as off. */
+    private fun HistoryRecord.idleMode(): Int {
+        val mode = (states2 and HistoryBits.STATE2_DEVICE_IDLE_MASK) shr HistoryBits.STATE2_DEVICE_IDLE_SHIFT
+        return if (mode == HistoryBits.DEVICE_IDLE_MODE_LIGHT || mode == HistoryBits.DEVICE_IDLE_MODE_DEEP) {
+            mode
+        } else {
+            HistoryBits.DEVICE_IDLE_MODE_OFF
+        }
+    }
 
     private fun event(record: HistoryRecord, kind: Int) = HistoryEvent(
         historyTimeMs = record.time,

@@ -16,6 +16,7 @@ class BatteryHistoryTest {
         screenOn: Boolean = false,
         plugged: Boolean = false,
         deepIdle: Boolean = false,
+        lightIdle: Boolean = false,
         level: Int = 50,
         chargeUah: Int = 3_000_000,
         plugType: Int = 0,
@@ -25,7 +26,11 @@ class BatteryHistoryTest {
         cmd = cmd,
         states = (if (screenOn) HistoryBits.STATE_SCREEN_ON_FLAG else 0) or
             (if (plugged) HistoryBits.STATE_BATTERY_PLUGGED_FLAG else 0),
-        states2 = if (deepIdle) HistoryBits.DEVICE_IDLE_MODE_DEEP shl HistoryBits.STATE2_DEVICE_IDLE_SHIFT else 0,
+        states2 = when {
+            deepIdle -> HistoryBits.DEVICE_IDLE_MODE_DEEP shl HistoryBits.STATE2_DEVICE_IDLE_SHIFT
+            lightIdle -> HistoryBits.DEVICE_IDLE_MODE_LIGHT shl HistoryBits.STATE2_DEVICE_IDLE_SHIFT
+            else -> 0
+        },
         batteryLevel = level,
         plugType = plugType,
         chargeUah = chargeUah,
@@ -131,6 +136,56 @@ class BatteryHistoryTest {
             ),
             read(history).kinds(),
         )
+    }
+
+    @Test
+    fun `every device-idle transition emits the exit of the old state then the entry of the new one`() {
+        // off -> light -> deep -> light -> off -> deep -> off, one record each, level constant.
+        val history = FakeBatteryHistory(
+            records = listOf(
+                record(time = 1),
+                record(time = 2, lightIdle = true),
+                record(time = 3, deepIdle = true),
+                record(time = 4, lightIdle = true),
+                record(time = 5),
+                record(time = 6, deepIdle = true),
+                record(time = 7),
+            ),
+        )
+
+        val events = read(history).events
+
+        assertEquals(
+            listOf(
+                2L to HistoryKind.LIGHT_IDLE_ON, // off -> light
+                3L to HistoryKind.LIGHT_IDLE_OFF, // light -> deep: exit first ...
+                3L to HistoryKind.DEEP_IDLE_ON, // ... then entry, same timestamp
+                4L to HistoryKind.DEEP_IDLE_OFF, // deep -> light: reverse
+                4L to HistoryKind.LIGHT_IDLE_ON,
+                5L to HistoryKind.LIGHT_IDLE_OFF, // light -> off
+                6L to HistoryKind.DEEP_IDLE_ON, // off -> deep
+                7L to HistoryKind.DEEP_IDLE_OFF, // deep -> off
+            ),
+            events.map { it.historyTimeMs to it.kind },
+        )
+        assertEquals(11, HistoryKind.LIGHT_IDLE_ON)
+        assertEquals(12, HistoryKind.LIGHT_IDLE_OFF)
+        assertEquals(9, HistoryKind.DEEP_IDLE_ON)
+        assertEquals(10, HistoryKind.DEEP_IDLE_OFF)
+    }
+
+    @Test
+    fun `an overflow makes the next device-idle state a baseline, not a transition`() {
+        val history = FakeBatteryHistory(
+            records = listOf(
+                record(time = 1),
+                record(time = 2, cmd = HistoryBits.CMD_OVERFLOW),
+                record(time = 3, lightIdle = true),
+                record(time = 4),
+            ),
+        )
+
+        assertEquals(listOf(HistoryKind.LIGHT_IDLE_OFF), read(history).kinds())
     }
 
     @Test

@@ -58,4 +58,8 @@ object HistoryKind {
     const val SHUTDOWN = 8
     const val DEEP_IDLE_ON = 9
     const val DEEP_IDLE_OFF = 10
+
+    /** Append-only additions (docs/plans/phase-5.md H6); codes 1-10 never change. */
+    const val LIGHT_IDLE_ON = 11
+    const val LIGHT_IDLE_OFF = 12
 }
