@@ -105,7 +105,7 @@ class RoomSnapshotStoreTest {
     }
 
     @Test
-    fun `history deduplicates and cursor round trips`() = runBlocking {
+    fun `history ignores reingested events across stats sessions and cursor round trips`() = runBlocking {
         val event = HistoryEvent(
             historyTimeMs = 10L,
             wallMs = 20L,
@@ -116,11 +116,13 @@ class RoomSnapshotStoreTest {
             voltageMv = 4_000,
             plugType = 1,
         )
-        store.insertHistory(listOf(event, event), statsStartMs = 7L)
-        store.setHistoryCursor(statsStartMs = 7L, lastHistoryTimeMs = 10L)
+        store.insertHistory(listOf(event), statsStartMs = 7L)
+        store.insertHistory(listOf(event), statsStartMs = 8L)
+        store.setHistoryCursor(statsStartMs = 8L, lastHistoryTimeMs = 10L)
 
         assertEquals(listOf(event), store.historyBetween(0L, 100L))
-        assertEquals(7L to 10L, store.historyCursor())
+        assertEquals(7L, database.historyDao().between(0L, 100L).single().statsStartMs)
+        assertEquals(8L to 10L, store.historyCursor())
     }
 
     @Test

@@ -62,9 +62,30 @@ class SnapshotCapturerTest {
         capturer.captureFull(CaptureTrigger.APP_OPEN, deadlineMs = 100, ingestHistory = true)
         capturer.captureFull(CaptureTrigger.APP_OPEN, deadlineMs = 100, ingestHistory = true)
 
-        assertEquals(4, store.history.size)
+        assertEquals(2, store.history.size)
         assertEquals(10L to 9L, store.cursor)
         assertEquals(10L to 9L, source.receivedCursors.last())
+    }
+
+    @Test
+    fun `session restart reingestion stores only new history events`() = runTest {
+        val old = historyEvent(5)
+        val new = historyEvent(9)
+        val store = FakeStore()
+        val source = FakeSource(
+            histories = listOf(
+                listOf(page(truncated = false, old, statsStartMs = 10L)),
+                listOf(page(truncated = false, old, new, statsStartMs = 20L, sessionChanged = true)),
+            ),
+        )
+        val capturer = SnapshotCapturer(source, store, TestClocks())
+
+        capturer.captureFull(CaptureTrigger.APP_OPEN, deadlineMs = 100, ingestHistory = true)
+        capturer.captureFull(CaptureTrigger.APP_OPEN, deadlineMs = 100, ingestHistory = true)
+
+        assertEquals(listOf(old, new), store.history)
+        assertEquals(20L to 9L, store.cursor)
+        assertEquals(10L to 5L, source.receivedCursors.last())
     }
 
     @Test
@@ -104,12 +125,15 @@ class SnapshotCapturerTest {
 
     private open class FakeSource(
         private val history: List<BatteryHistorySnapshot> = emptyList(),
+        private val histories: List<List<BatteryHistorySnapshot>> = emptyList(),
         private val usage: BatteryUsageSnapshot = BatteryUsageSnapshot.unavailable("not_needed"),
     ) : TelemetrySource {
         val receivedCursors = mutableListOf<Pair<Long, Long>?>()
+        private var fullReadCount = 0
 
         override suspend fun full(trigger: CaptureTrigger, historyCursor: Pair<Long, Long>?): FullRead {
             receivedCursors += historyCursor
+            val pageSet = histories.getOrElse(fullReadCount++) { history }
             return FullRead(
                 light = light(),
                 usage = usage,
@@ -118,7 +142,7 @@ class SnapshotCapturerTest {
                 alarm = DumpParse.Unavailable("not_needed"),
                 kernel = null,
                 cpuTimes = emptyList(),
-                history = history,
+                history = pageSet,
             )
         }
 
@@ -137,6 +161,7 @@ class SnapshotCapturerTest {
     private class FakeStore : SnapshotStore {
         var cursor: Pair<Long, Long>? = null
         val history = mutableListOf<HistoryEvent>()
+        private val historyKeys = mutableSetOf<Triple<Long, Int, Long>>()
         val misses = mutableListOf<Pair<CaptureTrigger, String>>()
         val snapshots = mutableListOf<BatterySnapshot>()
 
@@ -149,7 +174,13 @@ class SnapshotCapturerTest {
         override suspend fun firstAtOrAfter(wallMs: Long, kind: SnapshotKind?, statsStartMs: Long?, bootCount: Int?): BatterySnapshot? = null
         override suspend fun lastAtOrBefore(wallMs: Long, kind: SnapshotKind?): BatterySnapshot? = null
         override suspend fun latestByTrigger(trigger: CaptureTrigger): BatterySnapshot? = null
-        override suspend fun insertHistory(events: List<HistoryEvent>, statsStartMs: Long) { history += events }
+        override suspend fun insertHistory(events: List<HistoryEvent>, statsStartMs: Long) {
+            events.forEach { event ->
+                if (historyKeys.add(Triple(event.historyTimeMs, event.kind, event.wallMs))) {
+                    history += event
+                }
+            }
+        }
         override suspend fun historyBetween(fromWallMs: Long, toWallMs: Long): List<HistoryEvent> = history
         override suspend fun historyCursor(): Pair<Long, Long>? = cursor
         override suspend fun setHistoryCursor(statsStartMs: Long, lastHistoryTimeMs: Long) { cursor = statsStartMs to lastHistoryTimeMs }
@@ -169,12 +200,17 @@ class SnapshotCapturerTest {
         override fun bootCount(): Int = 4
     }
 
-    private fun page(truncated: Boolean, event: HistoryEvent) = BatteryHistorySnapshot(
+    private fun page(
+        truncated: Boolean,
+        vararg events: HistoryEvent,
+        statsStartMs: Long = 10L,
+        sessionChanged: Boolean = false,
+    ) = BatteryHistorySnapshot(
         available = true,
         reason = null,
-        statsStartMs = 10L,
-        sessionChanged = false,
-        events = listOf(event),
+        statsStartMs = statsStartMs,
+        sessionChanged = sessionChanged,
+        events = events.toList(),
         truncated = truncated,
     )
 
