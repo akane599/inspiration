@@ -18,21 +18,22 @@ Source of truth: [`gradle/libs.versions.toml`](../../gradle/libs.versions.toml),
 | JUnit | 4.13.2 |
 | Compose screenshot validation | 0.0.1-alpha16 |
 
-The compile SDK and AndroidX choices are explained in the Phase 1 decision log in [`PROGRESS.md`](../../PROGRESS.md).
-
 ## Runtime and build libraries
 
 | Catalog entry | Version | Current use |
 |---|---:|---|
 | `dev.rikka.shizuku:api` / `provider` | 13.1.5 | Shizuku lifecycle, binder wrapper, and provider integration in `:app`/`:core:shizuku-ipc` |
 | `org.lsposed.hiddenapibypass:hiddenapibypass` | 6.1 | Hidden API exemption in `InspirationApplication` and IPC module |
-| `com.google.protobuf:protobuf-javalite` / `protobuf-kotlin-lite` | 4.36.2 | Cataloged for telemetry protobuf work; no generated proto source is present yet |
-| `com.google.devtools.ksp` | 2.3.12 | Cataloged; no KSP processor is currently applied |
-| `com.google.protobuf` Gradle plugin | 0.10.0 | Cataloged; no protobuf source set is currently present |
+| `com.google.protobuf:protobuf-javalite` / `protobuf-kotlin-lite` / `protoc` | 4.36.2 | Lite runtime and protoc for trimmed vendored batterystats, alarm, and power schemas in `:core:telemetry-engine` |
+| `com.google.devtools.ksp` | 2.3.12 | Room compiler integration in `:core:database` |
+| `com.google.protobuf` Gradle plugin | 0.10.0 | Lite Java code generation for telemetry proto sources |
+| `androidx.room` runtime / ktx / compiler / testing | 2.8.5 | WAL database, schema v1, DAOs, and repository tests in `:core:database` |
+| `org.robolectric:robolectric` | 4.16.1 | JVM Room/DAO tests |
+| `androidx.test:core` | 1.7.0 | Room test application context support |
 | AndroidX Compose UI / Runtime / Material3 | BOM-managed | UI shell and feature convention dependencies |
 
-`core:shizuku-ipc` also uses compile-only Android annotations and the hidden API stub module. `core:telemetry-engine` exposes the IPC module and currently has no new runtime dependency. Room, KSP-backed database code, and network libraries are not present; `:core:database` is reserved for a later phase.
+`:core:telemetry-engine` exposes the IPC module and owns parser, snapshot, diff, capacity, capture, and live-telemetry code. `:core:database` depends on telemetry-engine and owns Room entities/DAOs/store. `:app` uses both in production and keeps the debug probe in the debug source set.
 
-## Testing
+## Testing and fixtures
 
-Unit tests use JUnit and `kotlinx-coroutines-test` where needed. The app has Compose screenshot validation and committed references under `app/src/screenshotTestDebug/reference`. IPC tests live under `core/shizuku-ipc/src/test`; calibration tests live under `core/telemetry-engine/src/test`.
+Unit tests use JUnit and `kotlinx-coroutines-test` where needed. Telemetry parser tests consume committed API 35/36/37 protobuf fixtures under [`core/telemetry-engine/src/test/resources/proto`](../../core/telemetry-engine/src/test/resources/proto). IPC tests live under `core/shizuku-ipc/src/test`; telemetry tests live under `core/telemetry-engine/src/test`; Room tests live under `core/database/src/test`. The app has Compose screenshot validation and committed references under `app/src/screenshotTestDebug/reference`.

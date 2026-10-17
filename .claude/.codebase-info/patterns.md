@@ -1,22 +1,32 @@
 # Patterns
 *Last Updated: 2026-10-17*
 
-These patterns are established in Phase 1 and are worth preserving as new telemetry readers and features land.
+These patterns are established across the Phase 1 IPC boundary and Phase 2 snapshot pipeline.
 
 ## Explicit availability
 
-Cross-process snapshots are `@Parcelize` data classes with `available` and nullable `reason` fields. Each model provides an `unavailable(reason)` factory, so missing permissions, framework APIs, sysfs nodes, and remote binders remain observable without exceptions crossing the AIDL boundary. Keep `Reasons` values machine-readable and put user-facing explanation in the UI/domain layer.
+Cross-process DTOs and merged snapshots retain `available` plus nullable machine-readable `reason` fields. Missing permissions, framework APIs, sysfs nodes, dumps, history, and remote binders remain observable without exceptions crossing the AIDL boundary. `DumpParse.Ok`/`Unavailable` and `BinderResult.Ok`/`Failed` keep source-specific failure information until the domain layer chooses a fallback.
 
-For direct framework binder clients, [`BinderResult<T>`](../../core/shizuku-ipc/src/main/kotlin/com/akane/inspiration/ipc/client/BinderResult.kt) distinguishes `Ok(value)` from `Failed(reason)`. `withBinder` handles null binders and maps remote, permission, reflection, and linkage failures consistently.
+## Validity instead of clamping
 
-## Version and capability gates
+`SnapshotDiffer` validates the clock/session tuple before producing deltas: matching `statsStartMs` and nondecreasing stats duration are required for batterystats values; matching boot count and increasing elapsed time are required for kernel/clock values. Negative per-UID or device-component deltas invalidate that part and are reported, not clamped. Missing UIDs are zero; a package change for a UID ≥ 10000 is treated as a new UID. Light snapshots provide a same-boot deep-sleep fallback when dump timers are unavailable.
 
-`ShizukuManagerImpl` gates readiness on manager presence, binder liveness, API compatibility (`isPreV11()`), and permission. The manager reports `ShizukuState` rather than exposing raw Shizuku calls to consumers. Capability-specific readers also return unavailable results when a framework service, hidden method, or sysfs node is absent. Do not infer support solely from the device API level.
+## Deterministic merging
+
+`SnapshotCapturer` merges usage, dump, alarm, kernel, and CPU sources by UID and source availability. Duplicate wakelocks are grouped by name, blank names become `<unnamed>`, and alarm counts are summed by UID/tag. Room repeats these invariants at the persistence boundary with conflict-updating wakelocks and conflict-ignored history rows.
+
+## Pull-first capture and bounded work
+
+Capture is triggered by app start, broadcasts, boot/package replacement, a persisted charging job, or a debug marker. There is no polling loop or resident foreground service. `CapturePolicy` chooses light work for screen transitions and cold broadcasts; full work has an explicit deadline, records a `capture_miss` on timeout, and history paging is capped. `withTelemetryService()` binds only while a capture needs the shell service; `holdBinding()` is the explicit long-lived UI exception.
+
+## Persistence boundaries
+
+`RoomSnapshotStore` writes a snapshot and its child tables inside a transaction. Room is configured for WAL, schema export is enabled, and marker foreign keys restrict deletion while snapshot children cascade. `MaintenanceDao.prune()` downsamples old live samples to hourly rows, removes data older than 30 days, and preserves marker-referenced snapshots. Backup is disabled by the app manifest and extraction rules before production writes.
 
 ## Fakes over mocks
 
-IPC unit tests inject binder sources, service binders, file roots, clocks, pipe factories, and thread starters. [`core/shizuku-ipc/src/test/kotlin/com/akane/inspiration/ipc/client/Fakes.kt`](../../core/shizuku-ipc/src/test/kotlin/com/akane/inspiration/ipc/client/Fakes.kt) supplies recording and fake adapters; [`TelemetryUserServiceTest.kt`](../../core/shizuku-ipc/src/test/kotlin/com/akane/inspiration/ipc/service/TelemetryUserServiceTest.kt) uses injected seams for authorization, filesystem, and pipe behavior. Prefer small deterministic fakes over a mocking framework when adding tests.
+IPC and telemetry unit tests inject binder sources, service binders, file roots, clocks, pipe factories, telemetry sources, and stores. [`core/shizuku-ipc/src/test/kotlin/com/akane/inspiration/ipc/client/Fakes.kt`](../../core/shizuku-ipc/src/test/kotlin/com/akane/inspiration/ipc/client/Fakes.kt) supplies recording/fake adapters; [`SnapshotCapturerTest.kt`](../../core/telemetry-engine/src/test/kotlin/com/akane/inspiration/telemetry/capture/SnapshotCapturerTest.kt) uses fake source/store seams. Prefer small deterministic fakes over a mocking framework.
 
 ## Privileged boundary
 
-Keep framework and sysfs access in the shell `TelemetryUserService`; the app process coordinates through `ShizukuManager` and consumes DTOs. Preserve the caller-UID check, the dump target allowlist, and pipe cleanup. Do not add a generic command runner or move privileged reads into Compose/ViewModel code.
+Keep framework, history, and sysfs access in the shell `TelemetryUserService`; the app process coordinates through `ShizukuManager` and consumes DTOs. Preserve the caller-UID check, dump target allowlist, parcel budget, history bounds, and pipe cleanup. Do not add a generic command runner or move privileged reads into Compose/ViewModel code.

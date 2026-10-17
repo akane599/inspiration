@@ -1,7 +1,7 @@
 # Directory Structure
 *Last Updated: 2026-10-17*
 
-Generated `build/`, `.gradle/`, screenshot intermediates, and other build output are intentionally omitted.
+Generated `build/`, `.gradle/`, screenshot intermediates, Room generated sources, and other build output are intentionally omitted.
 
 ```
 app/
@@ -10,11 +10,14 @@ app/
     MainActivity.kt
     InspirationApplication.kt
     AppContainer.kt
+    capture/{BootCaptureReceiver,CapturePolicy,ChargingCaptureJobService,
+      ChargingCaptureRunner,ChargingCaptureScheduler,RuntimeCaptureReceiver}.kt
     ui/home/{HomeScreen,HomeViewModel}.kt
     ui/theme/{Color,Shape,Spacing,Theme,Type}.kt
+  src/main/res/xml/{backup_rules,data_extraction_rules}.xml
   src/debug/AndroidManifest.xml
   src/debug/kotlin/com/akane/inspiration/debug/ProbeReceiver.kt
-  src/test/kotlin/com/akane/inspiration/ui/home/HomeViewModelTest.kt
+  src/test/kotlin/com/akane/inspiration/{ui/home/HomeViewModelTest.kt,capture/*Test.kt}
   src/screenshotTest/kotlin/.../HomeScreenScreenshots.kt
   src/screenshotTestDebug/reference/.../*.png
 
@@ -31,19 +34,48 @@ core/
     ServiceManager,UidBatteryConsumer}.java
   shizuku-ipc/
     src/main/aidl/com/akane/inspiration/ipc/ITelemetryUserService.aidl
-    src/main/aidl/com/akane/inspiration/ipc/model/*.aidl
+    src/main/aidl/com/akane/inspiration/ipc/model/{BatteryHistorySnapshot,HistoryEvent}.aidl
     src/main/kotlin/com/akane/inspiration/ipc/
       ShizukuFacade.kt, ShizukuManager.kt, ShizukuManagerImpl.kt, ShizukuState.kt
-      client/{BatteryStatsClient,BatteryUsageAdapter,BinderResult,DeviceIdleReader,PowerStatsClient}.kt
-      model/{BatteryUsageSnapshot,CpuTimeSnapshot,DeviceIdleSnapshot,DumpResult,DumpTarget,
-        KernelBatterySnapshot,PowerMonitorSnapshot,TelemetryValues}.kt
+      client/{BatteryHistory,BatteryStatsClient,BatteryUsageAdapter,BinderResult,
+        DeviceIdleReader,PowerStatsClient,UsageParcelBudget}.kt
+      model/{BatteryHistorySnapshot,BatteryUsageSnapshot,CpuTimeSnapshot,
+        DeviceIdleSnapshot,DumpResult,DumpTarget,HistoryEvent,KernelBatterySnapshot,
+        PowerMonitorSnapshot,TelemetryValues}.kt
       service/TelemetryUserService.kt
     src/test/kotlin/com/akane/inspiration/ipc/**/*.kt
   telemetry-engine/
-    src/main/kotlin/com/akane/inspiration/telemetry/calibration/PowerCalibrator.kt
-    src/test/kotlin/com/akane/inspiration/telemetry/calibration/PowerCalibratorTest.kt
+    build.gradle.kts
+    src/main/proto/{android/os/batterystats.proto,
+      android/service/batterystats/batterystats.proto,
+      com/android/server/alarm/alarmmanagerservice.proto,
+      com/android/server/power/powermanagerservice.proto}
+    src/main/kotlin/com/akane/inspiration/telemetry/
+      calibration/PowerCalibrator.kt
+      capacity/CapacityEstimator.kt
+      capture/SnapshotCapturer.kt
+      common/Clocks.kt
+      diff/{ReferenceResolver,SnapshotDiffer}.kt
+      dump/{DumpModels,DumpParser,DumpReader}.kt
+      live/LiveTelemetry.kt
+      snapshot/SnapshotModels.kt
+      source/{AndroidCalibrationInputReader,AndroidClocks,AndroidTelemetrySource,
+        TelemetrySource}.kt
+      store/SnapshotStore.kt
+    src/test/kotlin/com/akane/inspiration/telemetry/**
+    src/test/resources/proto/{alarm-api35,alarm-api36,alarm-api37,
+      batterystats-api35,batterystats-api36,batterystats-api37,
+      power-api35,power-api36,power-api37}.pb
+  database/
+    build.gradle.kts
+    schemas/com.akane.inspiration.database.InspirationDatabase/1.json
+    src/main/kotlin/com/akane/inspiration/database/
+      Daos.kt,Entities.kt,InspirationDatabase.kt
+      store/RoomSnapshotStore.kt
+    src/test/kotlin/com/akane/inspiration/database/
+      InspirationDatabaseTest.kt
+      store/RoomSnapshotStoreTest.kt
   diagnostics/                    # module configuration only
-  database/                       # module configuration only
 
 feature/
   dashboard/                       # module configuration only
@@ -55,7 +87,9 @@ feature/
 settings.gradle.kts                # includes all core and feature modules
 gradle/libs.versions.toml          # toolchain and dependency catalog
 docs/plans/phase-1.md              # audited Phase 1 design
+docs/plans/phase-2.md              # audited Phase 2 design and contracts
 PROGRESS.md                        # durable decisions and device evidence
+NOTICE                              # AOSP protobuf attribution
 ```
 
-The package path `com.akane.inspiration` is used by the app, while library namespaces are declared in their module build files. The feature modules are already wired into `:app`, but their source directories are intentionally empty until their respective screen tickets land.
+The package path `com.akane.inspiration` is used by the app; library namespaces are declared in their module build files. The feature modules are already wired into `:app`, but their source directories remain intentionally empty until their screen tickets land.
