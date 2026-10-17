@@ -10,5 +10,12 @@ interface ShizukuManager {
 
     fun start()
 
+    suspend fun <T> withTelemetryService(
+        timeoutMs: Long,
+        block: suspend (ITelemetryUserService) -> T,
+    ): T?
+
+    fun holdBinding(): AutoCloseable
+
     fun stop()
 }

@@ -6,11 +6,15 @@ import android.content.ServiceConnection
 import android.content.pm.ApplicationInfo
 import android.content.pm.PackageManager
 import android.os.IBinder
+import android.os.RemoteException
 import android.util.Log
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.filterNotNull
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.withTimeoutOrNull
 import rikka.shizuku.Shizuku
 
 class ShizukuManagerImpl private constructor(
@@ -35,12 +39,16 @@ class ShizukuManagerImpl private constructor(
 
     private val mutableState = MutableStateFlow<ShizukuState>(ShizukuState.NotRunning)
     private val mutableTelemetryService = MutableStateFlow<ITelemetryUserService?>(null)
+    private val bindingLock = Any()
 
     override val state: StateFlow<ShizukuState> = mutableState.asStateFlow()
     override val telemetryService: StateFlow<ITelemetryUserService?> = mutableTelemetryService.asStateFlow()
 
     private var started = false
     private var serviceBound = false
+    private var serviceGeneration = 0
+    private var activeServiceUsers = 0
+    private var bindingHolders = 0
     private var applicationInfo: ShizukuApplicationInfo? = null
     private var serviceArgs: Shizuku.UserServiceArgs? = null
 
@@ -54,8 +62,12 @@ class ShizukuManagerImpl private constructor(
             }
 
             override fun onServiceDisconnected(name: ComponentName) {
-                serviceBound = false
-                mutableTelemetryService.value = null
+                synchronized(bindingLock) {
+                    serviceBound = false
+                    serviceGeneration += 1
+                    serviceArgs = null
+                    mutableTelemetryService.value = null
+                }
             }
         }
 
@@ -66,9 +78,13 @@ class ShizukuManagerImpl private constructor(
 
     private val binderDeadListener =
         Shizuku.OnBinderDeadListener {
-            serviceBound = false
-            mutableTelemetryService.value = null
-            mutableState.value = ShizukuState.NotRunning
+            synchronized(bindingLock) {
+                serviceBound = false
+                serviceGeneration += 1
+                serviceArgs = null
+                mutableTelemetryService.value = null
+                mutableState.value = ShizukuState.NotRunning
+            }
         }
 
     private val permissionResultListener =
@@ -76,8 +92,7 @@ class ShizukuManagerImpl private constructor(
             if (grantResult == PackageManager.PERMISSION_GRANTED) {
                 updateState()
             } else {
-                mutableState.value = ShizukuState.PermissionDenied
-                mutableTelemetryService.value = null
+                setUnavailableState(ShizukuState.PermissionDenied)
             }
         }
 
@@ -99,6 +114,39 @@ class ShizukuManagerImpl private constructor(
         updateState()
     }
 
+    override suspend fun <T> withTelemetryService(
+        timeoutMs: Long,
+        block: suspend (ITelemetryUserService) -> T,
+    ): T? {
+        if (!acquireServiceUse()) {
+            return null
+        }
+        try {
+            val service = withTimeoutOrNull(timeoutMs) { telemetryService.filterNotNull().first() } ?: return null
+            val serviceGeneration = synchronized(bindingLock) { serviceGeneration }
+            return try {
+                val result = block(service)
+                if (synchronized(bindingLock) { serviceGeneration == this.serviceGeneration }) {
+                    result
+                } else {
+                    null
+                }
+            } catch (_: RemoteException) {
+                null
+            }
+        } finally {
+            releaseServiceUse()
+        }
+    }
+
+    override fun holdBinding(): AutoCloseable {
+        synchronized(bindingLock) {
+            bindingHolders += 1
+            bindIfRequiredLocked()
+        }
+        return BindingHolder()
+    }
+
     override fun stop() {
         if (!started) {
             return
@@ -107,16 +155,36 @@ class ShizukuManagerImpl private constructor(
         facade.removeBinderReceivedListener(binderReceivedListener)
         facade.removeBinderDeadListener(binderDeadListener)
         facade.removeRequestPermissionResultListener(permissionResultListener)
-        unbindTelemetryService()
-        mutableTelemetryService.value = null
+        synchronized(bindingLock) {
+            unbindTelemetryServiceLocked()
+            mutableTelemetryService.value = null
+        }
+    }
+
+    private fun acquireServiceUse(): Boolean =
+        synchronized(bindingLock) {
+            if (mutableState.value !is ShizukuState.Ready || applicationInfo == null) {
+                false
+            } else {
+                activeServiceUsers += 1
+                bindIfRequiredLocked()
+                true
+            }
+        }
+
+    private fun releaseServiceUse() {
+        synchronized(bindingLock) {
+            activeServiceUsers -= 1
+            if (activeServiceUsers == 0 && bindingHolders == 0) {
+                unbindTelemetryServiceLocked()
+            }
+        }
     }
 
     private fun updateState() {
         val info = applicationInfoProvider.load()
-        applicationInfo = info
         if (info == null) {
-            mutableTelemetryService.value = null
-            mutableState.value = ShizukuState.NotInstalled
+            setUnavailableState(ShizukuState.NotInstalled)
             return
         }
         val isPreV11 = facade.isPreV11()
@@ -124,31 +192,43 @@ class ShizukuManagerImpl private constructor(
             if (isPreV11) {
                 logUnsupportedVersion()
             }
-            mutableTelemetryService.value = null
-            mutableState.value = ShizukuState.NotRunning
+            setUnavailableState(ShizukuState.NotRunning)
             return
         }
 
         when (facade.checkSelfPermission()) {
             PackageManager.PERMISSION_GRANTED -> {
-                mutableState.value = ShizukuState.Ready(facade.getUid(), facade.getVersion())
-                bindTelemetryService(info)
+                synchronized(bindingLock) {
+                    applicationInfo = info
+                    mutableState.value = ShizukuState.Ready(facade.getUid(), facade.getVersion())
+                    bindIfRequiredLocked()
+                }
             }
 
             else -> {
-                mutableTelemetryService.value = null
-                mutableState.value =
+                val unavailableState =
                     if (facade.shouldShowRequestPermissionRationale()) {
                         ShizukuState.PermissionDenied
                     } else {
                         ShizukuState.PermissionRequired
                     }
+                setUnavailableState(unavailableState)
             }
         }
     }
 
-    private fun bindTelemetryService(info: ShizukuApplicationInfo) {
-        if (serviceBound) {
+    private fun setUnavailableState(newState: ShizukuState) {
+        synchronized(bindingLock) {
+            applicationInfo = null
+            unbindTelemetryServiceLocked()
+            mutableTelemetryService.value = null
+            mutableState.value = newState
+        }
+    }
+
+    private fun bindIfRequiredLocked() {
+        val info = applicationInfo ?: return
+        if (serviceBound || (activeServiceUsers == 0 && bindingHolders == 0)) {
             return
         }
         val args =
@@ -161,13 +241,30 @@ class ShizukuManagerImpl private constructor(
         facade.bindUserService(args, userServiceConnection)
     }
 
-    private fun unbindTelemetryService() {
+    private fun unbindTelemetryServiceLocked() {
         val args = serviceArgs ?: return
         if (serviceBound) {
             facade.unbindUserService(args, userServiceConnection, true)
         }
         serviceBound = false
         serviceArgs = null
+    }
+
+    private inner class BindingHolder : AutoCloseable {
+        private var closed = false
+
+        override fun close() {
+            synchronized(bindingLock) {
+                if (closed) {
+                    return
+                }
+                closed = true
+                bindingHolders -= 1
+                if (bindingHolders == 0 && activeServiceUsers == 0) {
+                    unbindTelemetryServiceLocked()
+                }
+            }
+        }
     }
 
     private fun logUnsupportedVersion() {
