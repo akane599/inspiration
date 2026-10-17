@@ -16,7 +16,7 @@
 | `openDump(int target)` | 6 | `DumpResult` containing a pipe FD when available |
 | `readBatteryHistory(long statsStartMs, long afterHistoryTimeMs, int maxEvents)` | 8 | `BatteryHistorySnapshot` |
 
-Code 7 is explicitly reserved and must not be reused; typed Phase 5 actions start at 20. The generated Kotlin/Java stub is produced from the AIDL source and is not checked into the map.
+Code 7 is explicitly reserved and must not be reused; typed Phase 5 toolkit actions are txns 20–30 (`setAppOp`, `getAppOps`, `setStandbyBucket`, `getStandbyBucket`, `applyDozeProfile`, `getDozeState`, `forceStop`, `startBgDexopt`, `getBgDexoptStatus`, `cancelBgDexopt`, `restoreDozeRaw`) and `getApiVersion` is 31; only int codes cross the boundary (`ToolkitResult`, `BgDexoptStatus` parcelables). The generated Kotlin/Java stub is produced from the AIDL source and is not checked into the map.
 
 History reads are bounded by the service to at most 4,096 fixed-size events per page. A page reports `truncated` so the caller can request the next page; the capture path limits paging to eight pages and advances a persisted cursor. A stats-session reset reports `sessionChanged` and restarts the cursor conservatively.
 

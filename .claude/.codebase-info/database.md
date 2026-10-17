@@ -21,6 +21,7 @@ Entities are defined in [`Entities.kt`](../../core/database/src/main/kotlin/com/
 - `telemetry_sample` stores charging live readings; `telemetry_hourly` stores their retention aggregate.
 - `charge_session` stores capacity segments/verdicts with a unique `(statsStartMs, startHistoryTimeMs)` key.
 - `capture_miss` records bounded full-capture failures by wall time and trigger.
+- `toolkit_action` (Phase 5) is the audit row for every privileged toolkit write (`ToolkitActionEntity`; explicit status/kind codes, before/after raw values, `restoresId`, indexed by status). The store maps it to `ToolkitActionRecord`/`ToolkitActionStatus` (PENDING, DONE, FAILED, REFUSED, RESTORED, CANCELLED) and prunes to a bounded number of rows.
 
 The schema follows the contracts in [`docs/plans/phase-2.md`](../../docs/plans/phase-2.md) and, for the signal/sensor additions, [`docs/plans/phase-3.md`](../../docs/plans/phase-3.md) F2.
 
@@ -32,7 +33,8 @@ The schema follows the contracts in [`docs/plans/phase-2.md`](../../docs/plans/p
 
 - `SnapshotDao`: insert/read snapshots and children, query latest/nearest snapshots, and merge wakelocks with an `ON CONFLICT ... DO UPDATE` sum.
 - `MarkerDao`: insert and resolve marker-to-snapshot references.
-- `HistoryDao`: insert-ignore events, query wall-time ranges, and read/upsert the cursor.
+- `HistoryDao`: insert-ignore events, query wall-time ranges, `lastOfEachKindBefore(beforeWallMs)` (the newest event of each kind strictly before a bound, oldest first, in one query; the store exposes it as `lastHistoryOfEachKindBefore`, which seeds the timeline state without scanning all older history), and read/upsert the cursor.
+- `ToolkitActionDao`: insert (with `insertAndPrune`), update, newest-N and by-status queries for the `toolkit_action` audit table.
 - `TelemetryDao`: insert live samples and read hourly aggregates.
 - `ChargeSessionDao`: upsert segments and return accepted estimates chronologically.
 - `CaptureMissDao`: record misses.

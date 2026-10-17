@@ -6,8 +6,9 @@
 The repository is a single Android application assembled from `:app`, convention-backed `:core:*` libraries, and convention-backed `:feature:*` libraries. Phase 2 adds a pull-first snapshot pipeline: light snapshots use local battery state and clocks; full snapshots combine BatteryUsageStats, parsed framework dumps, kernel battery values, CPU time-in-state, and optional battery history before persistence.
 
 ```
-MainActivity.onStart → InspirationApplication.captureAppOpen()
-                     └→ SnapshotCapturer.captureFull(APP_OPEN)
+MainActivity.onStart → InspirationApplication.captureAppOpen() → AppContainer.refresh()
+                     └→ RefreshCoordinator (mutex, 60 s debounce, 12 s failure backoff)
+                          └→ SnapshotCapturer.captureFull(APP_OPEN, ingestHistory = true) + store.prune
                           ├→ AndroidTelemetrySource
                           │    └→ ShizukuManager.withTelemetryService()
                           │         └→ TelemetryUserService (shell UID)
@@ -21,17 +22,17 @@ BootCaptureReceiver ──light snapshot + arm JobScheduler
 ChargingCaptureJobService ──full snapshot + history + prune
 ```
 
-`MainActivity` triggers a debounced app-open capture. `InspirationApplication` owns the application scope, registers the non-exported runtime receiver, and wires `AppContainer`. `AppContainer` creates `AndroidTelemetrySource`, `SnapshotCapturer`, and the Room-backed `SnapshotStore`.
+`MainActivity` triggers an app-open refresh through `AppContainer.refresh()`, which is the one debounced, mutex-guarded entry point every screen shares. `InspirationApplication` registers the non-exported runtime receiver and creates `AppContainer`, which owns the application scope (SupervisorJob + IO) and creates `AndroidTelemetrySource`, `SnapshotCapturer`, the Room-backed `SnapshotStore`, `LiveTelemetry`, `AnalysisSession` and `ToolkitActions`.
 
 ## Layers and responsibilities
 
-- **Application shell — `:app`**: manifest, launcher activity, application/container wiring, capture policy, runtime and boot receivers, persisted charging `JobService`, backup exclusions, placeholder Home UI themed by `:core:designsystem` (leaf UI module: tokens, components, scrubbing chart, hypnogram), and debug probes plus `DesignGalleryActivity`.
-- **Feature layer — `:feature:dashboard`, `:feature:xray`, `:feature:sleeplab`, `:feature:health`, `:feature:toolkit`**: Compose library boundaries with shared telemetry/diagnostics dependencies. They still contain no implemented screens.
-- **Telemetry layer — `:core:telemetry-engine`**: snapshot models, clock/source abstractions, trimmed protobuf parsing, full/light capture and merge, snapshot diff and reference resolution, capacity estimation, live telemetry, calibration input, and `SnapshotStore`.
-- **Persistence layer — `:core:database`**: Room 2.8.5 schema v1, entities/DAOs, explicit WAL configuration, domain mappers, history cursor/deduplication, markers, charge sessions, capture misses, and 30-day pruning/downsampling.
-- **IPC layer — `:core:shizuku-ipc`**: Shizuku lifecycle and ref-counted binding, AIDL contract, parcelable telemetry/history DTOs, framework binder readers, allowlisted dumps, battery history, and shell-service authorization.
+- **Application shell — `:app`**: manifest (incl. `QUERY_ALL_PACKAGES`), launcher activity hosting `AppShell` (bottom `NavigationBar` below 600 dp, `NavigationRail` from 600 dp, five destinations, no navigation library), `AppContainer` manual DI, `di/` (`RefreshCoordinator`, `ReconcileOnReady`, `Preloaded`, label cache, timeline seeding), capture policy, runtime and boot receivers, persisted charging `JobService`, backup exclusions, and debug probes plus `DesignGalleryActivity`. UI is themed by `:core:designsystem`.
+- **Feature layer — `:feature:dashboard`, `:feature:xray`, `:feature:sleeplab`, `:feature:health`, `:feature:toolkit`**: MVI screens (`XxxRoute` → `XxxViewModel` → `XxxScreen`). Each depends only on its own pinned `XxxDependencies` interface, implemented by `AppContainer`; none depends on `:app` or another feature. See [`modules.md`](modules.md).
+- **Telemetry layer — `:core:telemetry-engine`**: snapshot models, clock/source abstractions, trimmed protobuf parsing, full/light capture and merge, snapshot diff and reference resolution, capacity estimation, live telemetry, calibration input, `SnapshotStore` (incl. `lastHistoryOfEachKindBefore`), the app-facing shared types (`telemetry/app`) and the toolkit write layer (`ToolkitActions`, `ToolkitGateway`).
+- **Persistence layer — `:core:database`**: Room 2.8.5 schema v1, entities/DAOs, explicit WAL configuration, domain mappers, history cursor/deduplication, markers, charge sessions, capture misses, the `toolkit_action` audit table, and 30-day pruning/downsampling.
+- **IPC layer — `:core:shizuku-ipc`**: Shizuku lifecycle and ref-counted binding, AIDL contract, parcelable telemetry/history DTOs, framework binder readers, allowlisted dumps, battery history, shell-service authorization, and the typed toolkit executor (`ipc/toolkit/`, txns 20–30).
 - **Stub layer — `:core:hidden-api-stub`**: compile-time declarations for selected hidden Android interfaces used by IPC clients.
-- **Insight layer — `:core:diagnostics`**: pure-Kotlin rule engine (R1–R4), wakelock/alarm dictionary, sensor catalog, and Battery Story builder/writer (en/tr) over `SnapshotDiff` plus `IntervalMetrics`. See [`modules.md`](modules.md).
+- **Insight layer — `:core:diagnostics`**: pure-Kotlin rule engine (R1–R4), wakelock/alarm dictionary, sensor catalog, and Battery Story builder/writer (en/tr) over `SnapshotDiff` plus `IntervalMetrics`; Phase 5 adds `analysis/` (`AnalysisSession`, `IntervalAnalyzer`, `TimelineBuilder`). See [`modules.md`](modules.md).
 - **Build layer — `build-logic/convention`**: shared Android library, Compose library, and feature convention plugins.
 
 ## Capture and persistence flow
@@ -53,17 +54,34 @@ store.historyBetween(0, MAX) → IntervalMetricsCalculator.compute(events, cover
 DiagnosticDictionary.explain(kind, name, locale) ← wakelock/kernel/alarm names
 ```
 
-Screen state for metrics comes from `history_event`, not broadcasts. Nothing in this flow is persisted or scheduled; no UI consumes it yet (only the debug `PROBE_INSIGHTS`).
+Screen state for metrics comes from `history_event`, not broadcasts. Nothing in this flow is persisted. In production it runs inside the one process-wide `AnalysisSession` (see below); the debug `PROBE_INSIGHTS` runs the same chain on demand.
+
+## Screen flow (Phase 5)
+
+```
+MainActivity → AppShell(selected Destination) → XxxRoute(container as XxxDependencies)
+   LifecycleStartEffect: Visible … onStopOrDispose: Hidden → XxxViewModel (Activity-scoped)
+AnalysisSelection ┐
+refreshTicks (RefreshCoordinator.lastRefreshWallMs) ┴→ AnalysisSession → IntervalAnalyzer → StateFlow<AnalysisState>
+                                                         └→ Cockpit, X-Ray, Sleep Lab (shared, passive flows)
+AppContainer.timeline(from, to) = TimelineEvents.withSeeds(store.lastHistoryOfEachKindBefore(from), store.historyBetween(from, to))
+                                  → TimelineBuilder.build → Cockpit chart / Sleep Lab hypnogram
+```
+
+- **Visibility drives work (H13, zero observer effect).** Nothing polls except the visible Cockpit (1.5 s `liveReadings`) and Health (only while charging); a screen leaving composition stops its reads and releases `holdBinding()`. `ToolkitActions` polls dexopt status every 5 s only while a job is RUNNING and collected, and holds the binding itself for that job. Never `WhileSubscribed(5000)`.
+- **Refresh.** Every screen's `refresh()` goes through `RefreshCoordinator`; a successful refresh advances `lastRefreshWallMs`, which re-runs the `AnalysisSession`. A transition of Shizuku to Ready clears the failure backoff and reconciles PENDING toolkit rows (`reconcileOnEachReady`).
+- **Threading.** `AppContainer.applicationScope` and `LiveTelemetry` run on IO; `ShizukuManagerImpl.withTelemetryService` runs the block on its IO dispatcher; the bundled dictionary loads once through `Preloaded` and never parses on the caller's thread.
+- **Insets.** Each shell layout owns the system-bar and IME insets (see `modules.md`); screens receive an already-inset area.
 
 ## Privileged data flow
 
 1. `ShizukuManagerImpl` watches Shizuku state but binds the user service on demand through `withTelemetryService`; `holdBinding()` is the explicit UI keep-warm holder.
 2. Shizuku launches `TelemetryUserService` under the shell UID. It resolves the app UID and rejects every AIDL call unless `Binder.getCallingUid()` matches it.
-3. Authorized calls read framework services (`batterystats`, `powerstats`, `deviceidle`, `power`) through binder clients, selected sysfs nodes, CPU frequency paths, and `BatteryUsageStats` history.
-4. Results cross the AIDL boundary as parcelable DTOs with `available` and machine-readable `reason` fields. Dumps use an allowlisted `DumpTarget` and a capped pipe; arbitrary command execution is not exposed.
+3. Authorized calls (read txns 1–6 and 8, typed toolkit txns 20–30, `getApiVersion` 31, per H11; txn 7 stays retired) read framework services (`batterystats`, `powerstats`, `deviceidle`, `power`) through binder clients, selected sysfs nodes, CPU frequency paths, and `BatteryUsageStats` history.
+4. Results cross the AIDL boundary as parcelable DTOs with `available` and machine-readable `reason` fields. Dumps use an allowlisted `DumpTarget` and a capped pipe; arbitrary command execution is not exposed. Writes exist only as the typed toolkit calls (fixed absolute argv, `--user 0`, validated package names, hard-deny rules, one write lock); see "Toolkit write path" in [`modules.md`](modules.md).
 
 The debug receiver exercises permission, IPC, capture, diff, direct readers, dumps, and timing. See [`entry-points.md`](entry-points.md) and [`onboarding.md`](onboarding.md).
 
 ## Product boundaries
 
-Phases 2–3 deliberately leave UI screens, charts, ViewModels, and toolkit actions out of the implemented path; the Phase 3 rule engine exists but has no production caller yet beyond `AppContainer` accessors. No polling, resident/foreground service, WorkManager loop, or DI framework is introduced. Device-specific sysfs availability, hidden API signatures, synthetic emulator batteries, and history availability remain runtime assumptions recorded in [`PROGRESS.md`](../../PROGRESS.md). The selected Phase 2 decisions are in [`docs/plans/phase-2.md`](../../docs/plans/phase-2.md); Phase 3 decisions F1–F9 and reopen conditions are in [`docs/plans/phase-3.md`](../../docs/plans/phase-3.md).
+Features are read-mostly: the only privileged writes are the five user-initiated toolkit actions (app-op, standby bucket, Doze profile, force-stop, bg-dexopt), each confirmed when risky and recorded in `toolkit_action`. No resident/foreground service, WorkManager loop, or DI framework exists; DI is manual (`AppContainer`). Device-specific sysfs availability, hidden API signatures, synthetic emulator batteries, and history availability remain runtime assumptions recorded in [`PROGRESS.md`](../../PROGRESS.md). Design and decisions: [`docs/plans/phase-5.md`](../../docs/plans/phase-5.md) (H1–H18), [`phase-3.md`](../../docs/plans/phase-3.md) (F1–F9), [`phase-2.md`](../../docs/plans/phase-2.md).

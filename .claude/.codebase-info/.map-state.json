@@ -3,7 +3,7 @@
   "tool": "codebase-mapper",
   "version": "2.15.10",
   "mappedAt": "2026-10-17",
-  "gitCommit": "ea266b57d7ece7f20c4e059298d57a9547006ccb",
+  "gitCommit": "4a7e8572e8effaa10cf54e512dca63e711f8c640",
   "documents": [
     "architecture.md",
     "communication.md",
@@ -16,15 +16,15 @@
     "tech-landscape.md"
   ],
   "hashes": {
-    "INDEX.md": "769789411e58bc6dfed4c1b4ed7edb646b8c0d2b4376bb7481e3728f4ef6a11b",
-    "architecture.md": "b1e93e49fc4fc8a2886a1500dc832e91911f841bf4a8b2d42746768ee2fcb278",
-    "communication.md": "73d7c3dcce162af21ed7c918397a86ae272a669df4b33fbbdcb71fddadfe7113",
-    "database.md": "c9421322ee124b23b5e04bce966e13c554fe24477dcb25d61a8082943d8a4ffb",
-    "directory-structure.md": "6f442b2520586d03a2967f1751204fe6cbf83de54c54c47be1c551f031f6cade",
-    "entry-points.md": "e945d40ca41e0c712e68bef34068aa9fb38aeac20adbd1e9caf7cee2bcc1b7f6",
-    "modules.md": "3c8db87c5129d4fca8228b132d278decb8263b5c968ae509539690b713a3af5c",
-    "onboarding.md": "b628e62c8352663e9b8d4a0990021177d8e4d943a8c6174b65c54e07626d30c9",
-    "patterns.md": "ebf2fecf260162c49c6d15ab0e414a5e18dff355a9f92ad51456b5e389b95ae0",
+    "INDEX.md": "a4b633a61aacd6561b0621d825bc485474419b71b3eb1a51888d4e7e7e3e7319",
+    "architecture.md": "ac2de77660c642f98521c50a5a3e0d783d4c251041b0cd00663a9606fcf542eb",
+    "communication.md": "0bb3fb372005c937c03526f7af2bf92118784b6d217408fea9f13bad86652316",
+    "database.md": "9361bbba83ee905ad7a21d6483cb69fcd1565ac1c1b1fc9ae93c893466a4d640",
+    "directory-structure.md": "314b202fb6ff02742312a495f05ef90042b6b2a70b2bf9371b76a9a178a3ba50",
+    "entry-points.md": "0d8e04a877bd793c399cf636cfe69d167f8892de9d27e6901b2bd44ec0e7c579",
+    "modules.md": "6ae2cb1be3880f549426fa1be3900800a9b900ab3e3d3a692eb8a5ce56dff658",
+    "onboarding.md": "318da87cb4e9be5569c6e454634d071730e7a79f07a98c4b2f975eb528a9638a",
+    "patterns.md": "81c809ab73563c02eb28bd9ca58da832c7fae982bf6f947ee2e1b7cd63a9febd",
     "tech-landscape.md": "b653cadf3ecfb3d1e38112303f0e394f0e5acfa7cd60e14ca45dda6c1789831a"
   }
 }

@@ -1,7 +1,7 @@
 # Patterns
 *Last Updated: 2026-10-17*
 
-These patterns are established across the Phase 1 IPC boundary, the Phase 2 snapshot pipeline, the Phase 3 insight layer, and the Phase 4 design-system charts.
+These patterns are established across the Phase 1 IPC boundary, the Phase 2 snapshot pipeline, the Phase 3 insight layer, the Phase 4 design-system charts, and the Phase 5 screens and toolkit.
 
 ## Explicit availability
 
@@ -39,10 +39,26 @@ Explanations come from a bundled JSON dictionary with fixed precedence (exact > 
 
 Charts in `:core:designsystem` keep per-frame interaction state (cursor, brush, selection) in draw-phase state (`mutableLongStateOf`/`mutableFloatStateOf`) read only inside draw/layout lambdas, so dragging never recomposes. The readout row is an isolated child reading through a lambda. Static content (series paths, axis, hypnogram bars) is recorded once per cache build into an Offscreen `GraphicsLayer`; only the cursor/selection overlay is drawn on top each frame (SQ-60: this removed per-frame path re-rasterization, frame p50 32 -> 16 ms on the API 36 emulator). There is no allocation in the per-frame draw path. New chart components must keep the static/overlay split; gesture logic lives in the pure `ScrubGestureReducer`. Models use sanitizing factories instead of constructor `require`. Chart strings live only in `strings_chart.xml` (en/tr).
 
+## MVI with visibility-driven work
+
+Each feature has a `val`-only `State` (ImmutableList collections), a sealed `Intent`, and one-shot sealed `Effect`s (`RefreshFailed`, `ResetFinished`) shown as snackbars, never state. The Activity-scoped ViewModel outlives the tab, so device reads are tied to `Visible`/`Hidden` intents sent from `LifecycleStartEffect { onStopOrDispose }` in the Route (H13), not to the ViewModel's lifetime; pending confirmations and in-flight work are dropped on `Hidden`. Never `WhileSubscribed(5000)`. A ViewModel sees only its `XxxDependencies` interface, so tests use fakes of it.
+
+## Refresh: one debounced, mutex-guarded entry point
+
+`RefreshCoordinator.refresh()` serialises captures, returns `Debounced` within 60 s of a success, replays a cached `Failed` for 12 s after a failure (so Visible/onStart bursts against a hung service queue nothing), and runs the capture `NonCancellable`. A Shizuku transition to Ready clears the failure backoff only. Nothing schedules a refresh.
+
+## Toolkit writes: plan, confirm, audit, read back
+
+Writes go plan → (confirm when risky) → PENDING `toolkit_action` row → privileged call → settle from the service's own before/after → read-back `verify`. `restore`, `planRestore` and `resetAll` return a target to the original of its chain (`chainOriginal`), and `activeOverrides()` lists only changes that read-back shows are still in effect; a target already at its original is not an override and nothing is written. `reconcile()` finalizes crash-orphaned PENDING rows. The write is never taken from an Intent or URI; the UI names a package only from the in-app list. Warnings, refusals and unavailability are typed enums whose wording lives in the UI's strings.
+
+## Design-system components over raw Material
+
+Screens use `ScreenHeader`/`CardTitle`, `MetricBar` (not `LinearProgressIndicator`), `SegmentedToggle`, `MetricValue(shrinkToFit)`/`MetricTile`, `TimeSliceBanner`, `LiveGauge(isCharging = null)` for an unknown state, `MaterialTheme.statusColors` for ok/warning/neutral, and `TelemetryFormat` for every number, unit, duration and date (U+2212 minus). No raw colors, `.dp`/`.sp` or hard-coded strings in screen files; text is en+tr.
+
 ## Fakes over mocks
 
 IPC and telemetry unit tests inject binder sources, service binders, file roots, clocks, pipe factories, telemetry sources, and stores. [`core/shizuku-ipc/src/test/kotlin/com/akane/inspiration/ipc/client/Fakes.kt`](../../core/shizuku-ipc/src/test/kotlin/com/akane/inspiration/ipc/client/Fakes.kt) supplies recording/fake adapters; [`SnapshotCapturerTest.kt`](../../core/telemetry-engine/src/test/kotlin/com/akane/inspiration/telemetry/capture/SnapshotCapturerTest.kt) uses fake source/store seams. Prefer small deterministic fakes over a mocking framework.
 
 ## Privileged boundary
 
-Keep framework, history, and sysfs access in the shell `TelemetryUserService`; the app process coordinates through `ShizukuManager` and consumes DTOs. Preserve the caller-UID check, dump target allowlist, parcel budget, history bounds, and pipe cleanup. Do not add a generic command runner or move privileged reads into Compose/ViewModel code.
+Keep framework, history, and sysfs access in the shell `TelemetryUserService`; the app process coordinates through `ShizukuManager` and consumes DTOs. Preserve the caller-UID check, dump target allowlist, parcel budget, history bounds, and pipe cleanup. Do not add a generic command runner or move privileged reads or writes into Compose/ViewModel code. Privileged writes exist only as typed AIDL txns 20–30 with explicit int codes (no Kotlin enum crosses AIDL), `matchEntire` package validation, hard-deny rules, the caller-UID check first and one write lock (H11); features reach them only through `ToolkitActions`, never `ToolkitGateway` (H12).
