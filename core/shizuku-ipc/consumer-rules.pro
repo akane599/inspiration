@@ -20,3 +20,7 @@
 -keep class com.akane.inspiration.ipc.service.TelemetryUserService { <init>(...); }
 -keep class com.akane.inspiration.ipc.ITelemetryUserService$Stub { *; }
 -keep class com.akane.inspiration.ipc.ITelemetryUserService$Stub$Proxy { *; }
+-dontwarn android.os.AggregateBatteryConsumer
+-dontwarn android.os.BatteryStats
+-dontwarn android.os.BatteryStats$*
+-dontwarn com.android.internal.os.BatteryStatsHistoryIterator
