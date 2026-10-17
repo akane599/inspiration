@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Run one debug ProbeReceiver probe on an emulator and keep its InspirationProbe JSON lines.
-# Usage: device-probe.sh [--avd NAME] [--probe ACTION] [--clear] [--no-install]
+# Usage: device-probe.sh [--avd NAME] [--probe ACTION] [--clear] [--grant] [--no-install]
 #                        [--timeout SEC] [--extras "<am extras>"]
 # Output: build/device-evidence/api<SDK>-<probe>.jsonl (one JSON object per line).
 # Exit: 0 probe finished; 2 setup failure (boot/install/Shizuku); 3 probe timed out or crashed.
@@ -15,6 +15,7 @@ avd=batstats-api36
 probe=PROBE
 clear=0
 install=1
+grant=0
 timeout=120
 extras=""
 
@@ -24,6 +25,7 @@ while [[ $# -gt 0 ]]; do
     --probe) probe=$2; shift 2 ;;
     --clear) clear=1; shift ;;
     --no-install) install=0; shift ;;
+    --grant) grant=1; shift ;;
     --timeout) timeout=$2; shift 2 ;;
     --extras) extras=$2; shift 2 ;;
     -h|--help) sed -n 2,6p "$0"; exit 0 ;;
@@ -72,6 +74,31 @@ if [[ -z $(adb shell pidof shizuku_server 2>/dev/null | tr -d '\r') ]]; then
   [[ -n $(adb shell pidof shizuku_server | tr -d '\r') ]] || { say "Shizuku server did not start"; exit 2; }
 fi
 
+# 3b. --grant: answer Shizuku's permission dialog ("Allow all the time", android:id/button1).
+# pm clear and reinstall-with-clear drop the grant; pm grant does not restore it (Shizuku keeps its own list).
+if [[ $grant == 1 ]]; then
+  adb shell am broadcast -a "$PKG.debug.PROBE_REQUEST_PERMISSION" -n "$RECEIVER" >/dev/null
+  bounds=""
+  for _ in $(seq 1 10); do
+    sleep 1
+    adb shell uiautomator dump /sdcard/device-probe-ui.xml >/dev/null 2>&1
+    bounds=$(adb shell cat /sdcard/device-probe-ui.xml 2>/dev/null \
+      | grep -oE 'resource-id="android:id/button1"[^>]*package="moe\.shizuku\.privileged\.api"[^>]*bounds="\[[0-9]+,[0-9]+\]\[[0-9]+,[0-9]+\]"' \
+      | grep -oE '\[[0-9]+,[0-9]+\]\[[0-9]+,[0-9]+\]' | head -1)
+    [[ -n $bounds ]] && break
+  done
+  if [[ -n $bounds ]]; then
+    read -r x1 y1 x2 y2 <<<"$(echo "$bounds" | tr '[],' '   ')"
+    adb shell input tap $(((x1 + x2) / 2)) $(((y1 + y2) / 2))
+    say "Shizuku permission dialog accepted"
+  else
+    say "no Shizuku permission dialog shown (already granted?)"
+  fi
+  # The running process caches the old Shizuku state; restart it so the probe sees the grant.
+  sleep 1
+  adb shell am force-stop "$PKG"
+fi
+
 # 4. Fire the probe and collect until the receiver's terminal line.
 out=build/device-evidence/api$sdk-$probe.jsonl
 mkdir -p build/device-evidence
@@ -94,7 +121,7 @@ lines=$(wc -l <"$out")
 say "$lines line(s) -> $out"
 if grep -q '"state"' "$out" && ! grep -q '"state":"Ready' "$out"; then
   say "Shizuku state is not Ready: $(grep -o '"state":"[^"]*"' "$out" | head -1)"
-  say "grant it: rerun with --probe PROBE_REQUEST_PERMISSION, tap 'Allow all the time' on the AVD"
+  say "grant it: rerun with --grant (taps Shizuku's 'Allow all the time' via uiautomator)"
 fi
 [[ $status == 0 ]] || say "probe did not finish cleanly (timeout ${timeout}s or probe-side timeout)"
 exit $status

@@ -10,12 +10,13 @@ Device evidence in this project means the JSON lines the debug `ProbeReceiver` l
 ## Run
 
 ```bash
-bash .claude/skills/device-probe/scripts/device-probe.sh --avd batstats-api36 --probe PROBE_CAPTURE [--clear] [--no-install] [--timeout 120] [--extras "--ei key 1"]
+bash .claude/skills/device-probe/scripts/device-probe.sh --avd batstats-api36 --probe PROBE_CAPTURE [--clear --grant] [--no-install] [--timeout 120] [--extras "--es reference_kind since_unplugged"]
 ```
 
 - `--avd`: the probe AVDs are `pixel-api35`, `batstats-api36`, `screenoff-api37`. If a device is already attached (or `ANDROID_SERIAL` is set), it is reused and `--avd` is ignored.
 - `--probe`: the action suffix after `com.akane.inspiration.debug.`. Check `app/src/debug/kotlin/com/akane/inspiration/debug/ProbeReceiver.kt` for the actions that exist right now; new phases add probes there.
-- `--clear`: `pm clear` after install. Use it when the Room schema changed in place (identityHash mismatch would otherwise crash the app on open).
+- `--clear`: `pm clear` after install. Use it when the Room schema changed in place (identityHash mismatch would otherwise crash the app on open). It drops the Shizuku grant, so add `--grant`.
+- `--grant`: accept Shizuku's permission dialog automatically (see below).
 - `--extras`: passed verbatim to `am broadcast` (e.g. PROBE_DIFF takes snapshot ids).
 
 Output: `build/device-evidence/api<SDK>-<PROBE>.jsonl`, one JSON object per line, ending with `{"probe":"done"}` (or `{"probe":"timeout"}` when the probe's own deadline hit). `build/` is gitignored, so quote the relevant lines into PROGRESS.md or the story log instead of committing the file.
@@ -29,7 +30,11 @@ Exit codes: `0` finished, `2` setup failed (boot, installDebug, Shizuku missing/
 
 ## Shizuku permission
 
-The script starts the Shizuku server via its adb starter if it is not running, but it cannot grant permission. If it reports a state other than `Ready`, run `--probe PROBE_REQUEST_PERMISSION` and have someone tap "Allow all the time" on the AVD (screen access needed — this is a real blocker in a headless run; say so rather than retrying). The grant survives `pm clear` because it is keyed by UID.
+The script starts the Shizuku server via its adb starter if it is not running. `pm clear` can drop the Shizuku grant (it did on API 36, not on API 37), and `pm grant … API_V23` does not restore it (Shizuku v11+ keeps its own list), so pass `--grant` together with `--clear`: it fires PROBE_REQUEST_PERMISSION, finds Shizuku's "Allow all the time" button (`android:id/button1`) with uiautomator, taps it, then force-stops the app, because a running process keeps reporting the stale `PermissionRequired` state. If the script still reports a state other than `Ready`, inspect the screen (`adb exec-out screencap -p`) rather than retrying blindly.
+
+## Choosing the interval
+
+Without extras, PROBE_DIFF / PROBE_INSIGHTS pair the latest snapshot with the one just before it, which is often an automatic LIGHT snapshot milliseconds earlier (unplug/screen receivers). Pass `--extras "--es reference_kind since_unplugged"` (also `since_screen_off`, `screen_on_session`, `last_24h`) for a meaningful interval. To simulate discharge: `adb shell dumpsys battery set level 80`, `dumpsys battery unplug`, screen off with `input keyevent 223`, lower the level, capture, then `dumpsys battery reset`. Unplugging at 100% makes Android reset batterystats, so the diff reports `battery_stats_invalid`; unplug below full to evaluate the rules.
 
 ## Limits
 
