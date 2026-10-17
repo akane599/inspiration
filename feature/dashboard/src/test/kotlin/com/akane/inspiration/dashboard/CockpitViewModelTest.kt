@@ -210,7 +210,7 @@ class CockpitViewModelTest {
     }
 
     @Test
-    fun `the banner covers the slice the analysis answers and warns past five minutes of gap`() = runTest(dispatcher) {
+    fun `the banner covers the slice the analysis answers`() = runTest(dispatcher) {
         val vm = viewModel()
         val from = NOW_MS - 5 * HOUR_MS
         val to = NOW_MS - 3 * HOUR_MS
@@ -223,20 +223,15 @@ class CockpitViewModelTest {
         val slice = vm.state.value.slice
         assertEquals(from + 12 * MIN_MS, slice?.covered?.startMs)
         assertEquals(to, slice?.covered?.endMs)
-        assertEquals(12 * MIN_MS, slice?.gapMs)
     }
 
     @Test
-    fun `a gap of five minutes or less is not reported and an analysis for another range is ignored`() = runTest(dispatcher) {
+    fun `an analysis for another range is ignored by the banner`() = runTest(dispatcher) {
         val vm = viewModel()
         val from = NOW_MS - 5 * HOUR_MS
         val to = NOW_MS - 3 * HOUR_MS
         vm.onIntent(CockpitIntent.CommitBrush(from, to))
-        deps.analysis.value = AnalysisState.Ready(
-            intervalAnalysis(resolved(boundaryFrom = from, boundaryTo = to, coveredFrom = from + 5 * MIN_MS, coveredTo = to)),
-        )
         runCurrent()
-        assertNull(vm.state.value.slice?.gapMs)
 
         deps.analysis.value = AnalysisState.Ready(intervalAnalysis(resolved(boundaryFrom = from - HOUR_MS, boundaryTo = to)))
         runCurrent()

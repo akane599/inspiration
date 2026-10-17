@@ -1,5 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
+    <!-- Ekran başlığı -->
+    <string name="cockpit_title">Kokpit</string>
+
     <!-- Referans seçici ve menüsü -->
     <string name="cockpit_ref_since_unplugged">Şarjdan beri</string>
     <string name="cockpit_ref_since_screen_off">Son ekran kapanışı</string>
@@ -42,13 +45,10 @@
     <string name="cockpit_metric_screen_detail">Ekran kapalı uyanık: %1$s</string>
 
     <!-- Zaman çizelgesi kartı -->
-    <string name="cockpit_chart_title">Zaman çizelgesi, son 24 saat</string>
+    <string name="cockpit_chart_title">Zaman çizelgesi</string>
     <string name="cockpit_chart_hint">Bir zaman dilimini analiz etmek için grafik üzerinde sürükle.</string>
     <string name="cockpit_chart_loading">Zaman çizelgesi yükleniyor…</string>
     <string name="cockpit_chart_failed">Zaman çizelgesi yüklenemedi.</string>
-
-    <!-- Zaman dilimi bandı -->
-    <string name="cockpit_slice_gap">En yakın anlık görüntü istenen aralıktan %1$s uzakta, bu yüzden değerler yaklaşıktır.</string>
 
     <!-- İşaretleyici sayfası -->
     <string name="cockpit_markers_title">İşaretleyiciler</string>

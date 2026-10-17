@@ -75,13 +75,11 @@ sealed interface ChartUi {
     data class Ready(val data: ScrubChartData) : ChartUi
 }
 
-/** The time-slice banner: what the brush asked for, what the data covers, and a gap worth warning about. */
+/** The time-slice banner: what the brush asked for and what the data covers; the banner words any gap itself. */
 @Immutable
 data class SliceUi(
     val requested: TimeRange,
     val covered: TimeRange?,
-    /** Distance between the requested and covered ranges when it is over five minutes, else null. */
-    val gapMs: Long?,
 )
 
 @Immutable

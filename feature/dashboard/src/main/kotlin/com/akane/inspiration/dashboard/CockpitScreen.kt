@@ -42,7 +42,13 @@ internal fun CockpitScreen(
                 modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(spacing.md),
                 verticalArrangement = Arrangement.spacedBy(spacing.md),
             ) {
-                CockpitHeader(reference = state.reference, shizuku = state.shizuku, onIntent = onIntent)
+                CockpitHeader(
+                    reference = state.reference,
+                    shizuku = state.shizuku,
+                    // The empty story card already carries a "Grant access" button.
+                    showGrant = state.analysis != AnalysisUi.Empty,
+                    onIntent = onIntent,
+                )
                 state.slice?.let { slice ->
                     SliceBanner(slice = slice, onClear = { onIntent(CockpitIntent.ClearSlice) }, zone = zone)
                 }
