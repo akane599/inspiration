@@ -1,0 +1,77 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Reference pill and its menu -->
+    <string name="cockpit_ref_since_unplugged">Since unplugged</string>
+    <string name="cockpit_ref_since_screen_off">Since last screen-off</string>
+    <string name="cockpit_ref_last_24h">Last 24 h</string>
+    <string name="cockpit_ref_custom_marker">Custom marker</string>
+    <string name="cockpit_ref_time_slice">Time slice</string>
+
+    <!-- Shizuku status next to the pill -->
+    <!-- %1$d: the UID Shizuku runs as -->
+    <string name="cockpit_shizuku_active">Binder active · UID %1$d</string>
+    <string name="cockpit_shizuku_permission_required">Shizuku permission needed</string>
+    <string name="cockpit_shizuku_permission_denied">Shizuku permission denied</string>
+    <string name="cockpit_shizuku_not_running">Shizuku not running</string>
+    <string name="cockpit_shizuku_not_installed">Shizuku not installed</string>
+    <string name="cockpit_shizuku_grant">Grant access</string>
+
+    <!-- Battery story card -->
+    <string name="cockpit_story_title">Battery story</string>
+    <string name="cockpit_story_loading">Analysing your battery…</string>
+    <string name="cockpit_empty_title">Nothing to analyse yet</string>
+    <string name="cockpit_empty_body">There is no pair of snapshots for this period yet. Keep using your phone, then refresh.</string>
+    <string name="cockpit_empty_blocked_body">Shizuku isn\'t connected, so there is no battery history yet. Grant access to start collecting it.</string>
+    <string name="cockpit_empty_refresh">Refresh</string>
+    <string name="cockpit_error_title">Couldn\'t analyse this period</string>
+    <string name="cockpit_error_body">Something went wrong while reading your battery history. Try again, or pick another period.</string>
+    <string name="cockpit_error_retry">Try again</string>
+
+    <!-- Live gauge -->
+    <!-- %1$s: a duration such as "3 h 20 min" -->
+    <string name="cockpit_remaining">%1$s left</string>
+    <string name="cockpit_remaining_unknown">Time left: —</string>
+
+    <!-- Metric grid -->
+    <string name="cockpit_metric_active">Active drain</string>
+    <string name="cockpit_metric_idle">Idle drain</string>
+    <!-- %1$s: a formatted value such as "410 mAh/h" -->
+    <string name="cockpit_metric_active_detail">%1$s · screen on</string>
+    <string name="cockpit_metric_idle_detail">%1$s · screen off</string>
+    <string name="cockpit_metric_deep_sleep">Deep sleep</string>
+    <string name="cockpit_metric_screen">Screen time</string>
+    <string name="cockpit_unit_percent">%</string>
+    <!-- %1$s: how long the CPU was suspended, e.g. "5 h 20 min" -->
+    <string name="cockpit_metric_deep_sleep_detail">CPU suspended %1$s</string>
+    <!-- %1$s: how long the device stayed awake with the screen off -->
+    <string name="cockpit_metric_screen_detail">Awake, screen off: %1$s</string>
+
+    <!-- Timeline card -->
+    <string name="cockpit_chart_title">Timeline, last 24 h</string>
+    <string name="cockpit_chart_hint">Drag across the chart to analyse a time slice.</string>
+    <string name="cockpit_chart_loading">Loading the timeline…</string>
+    <string name="cockpit_chart_failed">Couldn\'t load the timeline.</string>
+
+    <!-- Time slice banner -->
+    <!-- %1$s: how far the nearest snapshot is from the requested range -->
+    <string name="cockpit_slice_gap">Snapshots are %1$s away from the requested range, so the figures are approximate.</string>
+
+    <!-- Marker sheet -->
+    <string name="cockpit_markers_title">Markers</string>
+    <string name="cockpit_markers_hint">Mark now saves a snapshot. Pick a marker to see usage since then.</string>
+    <plurals name="cockpit_markers_count">
+        <item quantity="one">%1$d marker</item>
+        <item quantity="other">%1$d markers</item>
+    </plurals>
+    <string name="cockpit_marker_label">Label (optional)</string>
+    <!-- %1$s: the local time the marker was made, e.g. "2:10 PM" -->
+    <string name="cockpit_marker_default_label">Marker %1$s</string>
+    <string name="cockpit_marker_mark_now">Mark now</string>
+    <string name="cockpit_marker_in_use">In use</string>
+    <string name="cockpit_markers_loading">Loading markers…</string>
+    <string name="cockpit_markers_empty">No markers yet.</string>
+    <string name="cockpit_markers_failed">That didn\'t work. Check that Shizuku is connected, then try again.</string>
+
+    <!-- Snackbar -->
+    <string name="cockpit_refresh_failed">Couldn\'t refresh. Is Shizuku running?</string>
+</resources>

@@ -1,0 +1,70 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Referans seçici ve menüsü -->
+    <string name="cockpit_ref_since_unplugged">Şarjdan beri</string>
+    <string name="cockpit_ref_since_screen_off">Son ekran kapanışı</string>
+    <string name="cockpit_ref_last_24h">Son 24 saat</string>
+    <string name="cockpit_ref_custom_marker">Özel işaretleyici</string>
+    <string name="cockpit_ref_time_slice">Zaman dilimi</string>
+
+    <!-- Hapın yanındaki Shizuku durumu -->
+    <string name="cockpit_shizuku_active">Binder aktif · UID %1$d</string>
+    <string name="cockpit_shizuku_permission_required">Shizuku izni gerekli</string>
+    <string name="cockpit_shizuku_permission_denied">Shizuku izni reddedildi</string>
+    <string name="cockpit_shizuku_not_running">Shizuku çalışmıyor</string>
+    <string name="cockpit_shizuku_not_installed">Shizuku yüklü değil</string>
+    <string name="cockpit_shizuku_grant">İzin ver</string>
+
+    <!-- Pil hikâyesi kartı -->
+    <string name="cockpit_story_title">Pil hikâyesi</string>
+    <string name="cockpit_story_loading">Pilin analiz ediliyor…</string>
+    <string name="cockpit_empty_title">Henüz analiz edilecek veri yok</string>
+    <string name="cockpit_empty_body">Bu dönem için henüz bir çift anlık görüntü yok. Telefonu kullanmaya devam et, sonra yenile.</string>
+    <string name="cockpit_empty_blocked_body">Shizuku bağlı olmadığı için henüz pil geçmişi yok. Toplamaya başlamak için izin ver.</string>
+    <string name="cockpit_empty_refresh">Yenile</string>
+    <string name="cockpit_error_title">Bu dönem analiz edilemedi</string>
+    <string name="cockpit_error_body">Pil geçmişin okunurken bir sorun oluştu. Tekrar dene ya da başka bir dönem seç.</string>
+    <string name="cockpit_error_retry">Tekrar dene</string>
+
+    <!-- Canlı kadran -->
+    <string name="cockpit_remaining">%1$s kaldı</string>
+    <string name="cockpit_remaining_unknown">Kalan süre: —</string>
+
+    <!-- Metrik ızgarası -->
+    <string name="cockpit_metric_active">Aktif tüketim</string>
+    <string name="cockpit_metric_idle">Boşta tüketim</string>
+    <string name="cockpit_metric_active_detail">%1$s · ekran açık</string>
+    <string name="cockpit_metric_idle_detail">%1$s · ekran kapalı</string>
+    <string name="cockpit_metric_deep_sleep">Derin uyku</string>
+    <string name="cockpit_metric_screen">Ekran süresi</string>
+    <string name="cockpit_unit_percent">%</string>
+    <string name="cockpit_metric_deep_sleep_detail">CPU uykuda: %1$s</string>
+    <string name="cockpit_metric_screen_detail">Ekran kapalı uyanık: %1$s</string>
+
+    <!-- Zaman çizelgesi kartı -->
+    <string name="cockpit_chart_title">Zaman çizelgesi, son 24 saat</string>
+    <string name="cockpit_chart_hint">Bir zaman dilimini analiz etmek için grafik üzerinde sürükle.</string>
+    <string name="cockpit_chart_loading">Zaman çizelgesi yükleniyor…</string>
+    <string name="cockpit_chart_failed">Zaman çizelgesi yüklenemedi.</string>
+
+    <!-- Zaman dilimi bandı -->
+    <string name="cockpit_slice_gap">En yakın anlık görüntü istenen aralıktan %1$s uzakta, bu yüzden değerler yaklaşıktır.</string>
+
+    <!-- İşaretleyici sayfası -->
+    <string name="cockpit_markers_title">İşaretleyiciler</string>
+    <string name="cockpit_markers_hint">Şimdi işaretle bir anlık görüntü kaydeder. O andan beri kullanımı görmek için bir işaretleyici seç.</string>
+    <plurals name="cockpit_markers_count">
+        <item quantity="one">%1$d işaretleyici</item>
+        <item quantity="other">%1$d işaretleyici</item>
+    </plurals>
+    <string name="cockpit_marker_label">Etiket (isteğe bağlı)</string>
+    <string name="cockpit_marker_default_label">İşaretleyici %1$s</string>
+    <string name="cockpit_marker_mark_now">Şimdi işaretle</string>
+    <string name="cockpit_marker_in_use">Kullanımda</string>
+    <string name="cockpit_markers_loading">İşaretleyiciler yükleniyor…</string>
+    <string name="cockpit_markers_empty">Henüz işaretleyici yok.</string>
+    <string name="cockpit_markers_failed">Olmadı. Shizuku\'nun bağlı olduğunu kontrol edip tekrar dene.</string>
+
+    <!-- Snackbar -->
+    <string name="cockpit_refresh_failed">Yenilenemedi. Shizuku çalışıyor mu?</string>
+</resources>
