@@ -129,7 +129,9 @@ enum class OverrideKind { APP_OP, BUCKET, DOZE }
 
 /**
  * A change of ours that read-back shows is still in effect. [actionId] is the audit row to pass to
- * `ToolkitActions.restore`. [pkg] and [appOp] are null for doze.
+ * `ToolkitActions.restore`. [pkg] and [appOp] are null for doze. [restorable] is false when the
+ * recorded previous value cannot be replayed (the service did not report it, or it is not a value this
+ * surface can set): the change is in effect but `restore` refuses it as NOT_RESTORABLE.
  */
 data class Override(
     val actionId: Long,
@@ -139,6 +141,7 @@ data class Override(
     val currentRaw: String?,
     val previousRaw: String?,
     val sinceMs: Long,
+    val restorable: Boolean = true,
 )
 
 /** One [resetAll][ToolkitActions.resetAll] item: what was restored and how it went. */

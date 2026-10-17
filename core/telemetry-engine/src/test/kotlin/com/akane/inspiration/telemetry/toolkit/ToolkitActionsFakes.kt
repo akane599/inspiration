@@ -11,6 +11,7 @@ import com.akane.inspiration.ipc.toolkit.DozeProfile
 import com.akane.inspiration.ipc.toolkit.StandbyBucket
 import com.akane.inspiration.telemetry.store.ToolkitActionRecord
 import com.akane.inspiration.telemetry.store.ToolkitActionStatus
+import kotlinx.coroutines.yield
 
 const val PKG = "com.example.chatty"
 const val SYSTEM_PKG = "com.example.updatedsys"
@@ -30,6 +31,8 @@ class FakeAudit : ToolkitAuditStore {
     }
 
     override suspend fun update(record: ToolkitActionRecord) {
+        // A real cancellation point, like a Room call: an update the caller's cancel can abort.
+        yield()
         val index = rows.indexOfFirst { it.id == record.id }
         if (index >= 0) rows[index] = record
     }
@@ -62,6 +65,7 @@ class FakeBackend : ToolkitBackend {
     /** When set, the next write returns this instead of changing the device. */
     var scriptedWrite: ToolkitResult? = null
     var nullBeforeOnAppOpWrite = false
+    var nullBeforeOnBucketWrite = false
 
     /** Names of the writes issued, in order. Reads are not listed. */
     val writes = mutableListOf<String>()
@@ -69,6 +73,12 @@ class FakeBackend : ToolkitBackend {
 
     /** Runs at the start of every write, before the device changes (used to look at the audit log). */
     var onWrite: suspend (String) -> Unit = {}
+
+    /** Runs after the device changed, before the reply is returned (the write has happened by now). */
+    var afterWrite: suspend (String) -> Unit = {}
+
+    /** When set, every write throws this once the call has started (a backend that blows up). */
+    var writeFailure: Throwable? = null
 
     var startResult: ToolkitResult = ToolkitResult.done(before = "${BgDexoptState.IDLE}", after = "${BgDexoptState.RUNNING}")
     var cancelResult: ToolkitResult = ToolkitResult.done()
@@ -94,7 +104,10 @@ class FakeBackend : ToolkitBackend {
         writes += name
         onWrite(name)
         writeUnavailable?.let { return GatewayReply.Unavailable(it) }
-        return GatewayReply.Reply(scriptedWrite?.also { scriptedWrite = null } ?: block())
+        writeFailure?.let { throw it }
+        val reply = GatewayReply.Reply(scriptedWrite?.also { scriptedWrite = null } ?: block())
+        afterWrite(name)
+        return reply
     }
 
     override suspend fun setAppOp(pkg: String, op: AppOp, mode: AppOpMode) = write("setAppOp($pkg,${op.argv},${mode.argv})") {
@@ -119,7 +132,7 @@ class FakeBackend : ToolkitBackend {
         refusal(pkg) ?: run {
             val before = buckets[pkg] ?: StandbyBucket.ACTIVE.rawValue
             buckets[pkg] = bucket.rawValue
-            ToolkitResult.done(warnCode(pkg), before.toString(), bucket.rawValue.toString())
+            ToolkitResult.done(warnCode(pkg), before.toString().takeUnless { nullBeforeOnBucketWrite }, bucket.rawValue.toString())
         }
     }
 
