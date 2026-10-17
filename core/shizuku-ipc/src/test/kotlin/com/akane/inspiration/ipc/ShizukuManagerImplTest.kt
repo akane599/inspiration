@@ -1,10 +1,14 @@
 package com.akane.inspiration.ipc
 
+import android.content.ComponentName
 import android.content.Context
 import android.content.ContextWrapper
 import android.content.ServiceConnection
 import android.content.pm.PackageManager
+import android.os.Binder
+import kotlinx.coroutines.async
 import kotlinx.coroutines.test.TestScope
+import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
@@ -62,7 +66,7 @@ class ShizukuManagerImplTest {
     }
 
     @Test
-    fun grantedPermissionBindsTelemetryServiceAndReportsReady() = runTest {
+    fun grantedPermissionReportsReadyWithoutBinding() = runTest {
         val fixture = Fixture(this).apply {
             facade.permissionResult = PackageManager.PERMISSION_DENIED
         }
@@ -72,7 +76,84 @@ class ShizukuManagerImplTest {
         fixture.facade.deliverPermissionResult(PackageManager.PERMISSION_GRANTED)
 
         assertEquals(ShizukuState.Ready(2000, 13), fixture.manager.state.value)
+        assertEquals(0, fixture.facade.bindCalls)
+    }
+
+    @Test
+    fun withTelemetryServiceUnbindsWhenLastUserCompletes() = runTest {
+        val fixture = Fixture(this)
+        fixture.manager.start()
+
+        val result = async { fixture.manager.withTelemetryService(1_000L) { "complete" } }
+        runCurrent()
         assertEquals(1, fixture.facade.bindCalls)
+        fixture.facade.deliverServiceConnected()
+
+        assertEquals("complete", result.await())
+        assertEquals(1, fixture.facade.unbindCalls)
+        assertTrue(fixture.facade.lastUnbindRemove)
+    }
+
+    @Test
+    fun bindingHolderKeepsServiceBoundUntilClosed() = runTest {
+        val fixture = Fixture(this)
+        fixture.manager.start()
+
+        val holder = fixture.manager.holdBinding()
+        assertEquals(1, fixture.facade.bindCalls)
+        fixture.facade.deliverServiceConnected()
+
+        assertEquals(Unit, fixture.manager.withTelemetryService(1_000L) { Unit })
+        assertEquals(0, fixture.facade.unbindCalls)
+
+        holder.close()
+        holder.close()
+        assertEquals(1, fixture.facade.unbindCalls)
+        assertTrue(fixture.facade.lastUnbindRemove)
+    }
+
+    @Test
+    fun withTelemetryServiceReturnsNullAfterTimeout() = runTest {
+        val fixture = Fixture(this)
+        fixture.manager.start()
+
+        assertNull(fixture.manager.withTelemetryService(1L) { Unit })
+        assertEquals(1, fixture.facade.bindCalls)
+        assertEquals(1, fixture.facade.unbindCalls)
+    }
+
+    @Test
+    fun withTelemetryServiceReturnsNullOnBinderDeathDuringBlock() = runTest {
+        val fixture = Fixture(this)
+        fixture.manager.start()
+
+        val result = async {
+            fixture.manager.withTelemetryService(1_000L) {
+                fixture.facade.deliverBinderDeath()
+                Unit
+            }
+        }
+        runCurrent()
+        fixture.facade.deliverServiceConnected()
+
+        assertNull(result.await())
+        assertEquals(0, fixture.facade.unbindCalls)
+    }
+
+    @Test
+    fun concurrentTelemetryServiceUsersShareOneBind() = runTest {
+        val fixture = Fixture(this)
+        fixture.manager.start()
+
+        val first = async { fixture.manager.withTelemetryService(1_000L) { "first" } }
+        val second = async { fixture.manager.withTelemetryService(1_000L) { "second" } }
+        runCurrent()
+        assertEquals(1, fixture.facade.bindCalls)
+        fixture.facade.deliverServiceConnected()
+
+        assertEquals("first", first.await())
+        assertEquals("second", second.await())
+        assertEquals(1, fixture.facade.unbindCalls)
     }
 
     @Test
@@ -109,11 +190,13 @@ class ShizukuManagerImplTest {
     }
 
     @Test
-    fun stopUnregistersListenersAndUnbindsService() = runTest {
+    fun stopUnregistersListenersAndUnbindsHeldService() = runTest {
         val fixture = Fixture(this)
         fixture.manager.start()
+        val holder = fixture.manager.holdBinding()
 
         fixture.manager.stop()
+        holder.close()
 
         assertEquals(1, fixture.facade.removedBinderReceivedListeners)
         assertEquals(1, fixture.facade.removedBinderDeadListeners)
@@ -235,5 +318,8 @@ class ShizukuManagerImplTest {
             binderDeadListener?.onBinderDead()
         }
 
+        fun deliverServiceConnected() {
+            serviceConnection?.onServiceConnected(ComponentName("test", "service"), Binder())
+        }
     }
 }

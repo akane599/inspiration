@@ -20,10 +20,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.flow.filterNotNull
-import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withTimeout
-import kotlinx.coroutines.withTimeoutOrNull
 import org.json.JSONArray
 import org.json.JSONObject
 import rikka.shizuku.ShizukuBinderWrapper
@@ -31,7 +28,10 @@ import rikka.shizuku.SystemServiceHelper
 import java.io.InputStream
 
 class ProbeReceiver : BroadcastReceiver() {
-    override fun onReceive(context: Context, intent: Intent) {
+    override fun onReceive(
+        context: Context,
+        intent: Intent,
+    ) {
         val action = intent.action ?: return
         if (action !in setOf(ACTION_PROBE, ACTION_REQUEST_PERMISSION)) return
 
@@ -67,164 +67,169 @@ class ProbeReceiver : BroadcastReceiver() {
         log(JSONObject().put("state", manager.state.value.label()))
         if (manager.state.value !is ShizukuState.Ready) return
 
-        val service = withTimeoutOrNull((deadlineElapsedMs - SystemClock.elapsedRealtime()).coerceAtLeast(1L)) {
-            manager.telemetryService.filterNotNull().first()
+        val holder = manager.holdBinding()
+        try {
+            val service =
+                manager.withTelemetryService(
+                    (deadlineElapsedMs - SystemClock.elapsedRealtime()).coerceAtLeast(1L),
+                ) { it }
+            val bindElapsedMs = SystemClock.elapsedRealtime() - bindStartedAt
+            if (service == null) {
+                log(JSONObject().put("bind", JSONObject().put("ms", bindElapsedMs).put("bound", false)))
+                return
+            }
+            log(JSONObject().put("bind", JSONObject().put("ms", bindElapsedMs).put("bound", true)))
+
+            val batteryManager = context.getSystemService(BatteryManager::class.java)
+            val batteryManagerReading = batteryManagerReading(context, batteryManager)
+            val kernel = service.readKernelBattery()
+            val calibrationInput =
+                CalibrationInput(
+                    sysfsCurrentRaw = kernel.currentNowRaw,
+                    sysfsVoltageRaw = kernel.voltageNowRaw,
+                    bmCurrentNowUa = batteryManagerReading.currentNowUa,
+                    bmVoltageMv = batteryManagerReading.voltageMv,
+                    isCharging = batteryManagerReading.isCharging,
+                    plugged = batteryManagerReading.plugged,
+                )
+            val calibrator = PowerCalibrator()
+            val calibration = calibrator.calibrate(listOf(calibrationInput))
+            val reading = calibrator.toReading(calibrationInput, calibration)
+            log(
+                JSONObject().put(
+                    "kernel",
+                    JSONObject()
+                        .put("available", kernel.available)
+                        .putNullable("reason", kernel.reason)
+                        .put(
+                            "snapshot",
+                            JSONObject()
+                                .putNullable("currentNowRaw", kernel.currentNowRaw)
+                                .putNullable("voltageNowRaw", kernel.voltageNowRaw)
+                                .putNullable("chargeCounterRaw", kernel.chargeCounterRaw)
+                                .putNullable("chargeFullRaw", kernel.chargeFullRaw)
+                                .putNullable("chargeFullDesignRaw", kernel.chargeFullDesignRaw)
+                                .putNullable("cycleCount", kernel.cycleCount)
+                                .putNullable("temperatureDeciC", kernel.temperatureDeciC)
+                                .putNullable("status", kernel.status)
+                                .putNullable("capacityPercent", kernel.capacityPercent)
+                                .putNullable("sourcePath", kernel.sourcePath)
+                                .put("readAtElapsedMs", kernel.readAtElapsedMs),
+                        ).put("batteryManager", batteryManagerReading.toJson())
+                        .put("calibration", calibration.toJson())
+                        .putNullable("reading", reading?.toJson()),
+                ),
+            )
+
+            val usage = service.readBatteryUsage(0L)
+            log(
+                JSONObject().put(
+                    "usage",
+                    JSONObject()
+                        .put("available", usage.available)
+                        .putNullable("reason", usage.reason)
+                        .put("dischargedMah", usage.dischargedPowerMah)
+                        .put(
+                            "topUids",
+                            JSONArray().apply {
+                                usage.uids.sortedByDescending { it.totalMah }.take(3).forEach { uid ->
+                                    put(
+                                        JSONObject()
+                                            .put("uid", uid.uid)
+                                            .putNullable("packageName", uid.packageName)
+                                            .put("totalMah", uid.totalMah),
+                                    )
+                                }
+                            },
+                        ).put("byProcessStatePresent", usage.uids.any { it.byProcessState != null })
+                        .put("statsDurationMs", usage.statsDurationMs)
+                        .put("deviceComponentCount", usage.deviceComponents.size)
+                        .put("truncatedUids", usage.truncatedUids),
+                ),
+            )
+
+            val history = service.readBatteryHistory(usage.statsStartMs, 0L, MAX_HISTORY_EVENTS)
+            log(
+                JSONObject().put(
+                    "history",
+                    JSONObject()
+                        .put("available", history.available)
+                        .putNullable("reason", history.reason)
+                        .put("count", history.events.size)
+                        .put("truncated", history.truncated)
+                        .put("sessionChanged", history.sessionChanged)
+                        .putNullable("firstKind", history.events.firstOrNull()?.kind)
+                        .putNullable("lastKind", history.events.lastOrNull()?.kind),
+                ),
+            )
+
+            val power = service.readPowerMonitors()
+            log(
+                JSONObject().put(
+                    "power",
+                    JSONObject()
+                        .put("available", power.available)
+                        .putNullable("reason", power.reason)
+                        .put("count", power.monitors.size)
+                        .put(
+                            "first",
+                            JSONArray().apply {
+                                power.monitors.take(3).forEach { monitor ->
+                                    put(
+                                        JSONObject()
+                                            .put("name", monitor.name)
+                                            .put("type", monitor.type)
+                                            .put("energyUws", monitor.energyUws)
+                                            .put("timestampMs", monitor.timestampMs),
+                                    )
+                                }
+                            },
+                        ),
+                ),
+            )
+
+            val idle = service.readDeviceIdle()
+            log(
+                JSONObject().put(
+                    "idle",
+                    JSONObject()
+                        .put("available", idle.available)
+                        .putNullable("reason", idle.reason)
+                        .put("deepIdle", idle.deepIdle)
+                        .put("lightIdle", idle.lightIdle)
+                        .put("whitelistCount", idle.powerSaveWhitelist.size),
+                ),
+            )
+
+            val cpu = service.readCpuTimeInState()
+            log(
+                JSONObject().put(
+                    "cpu",
+                    JSONObject()
+                        .put("available", cpu.available)
+                        .putNullable("reason", cpu.reason)
+                        .put("entryCount", cpu.entries.size),
+                ),
+            )
+
+            log(JSONObject().put("dump", readDump(service.openDump(DumpTarget.BATTERYSTATS_PROTO))))
+
+            val warmStartedAt = SystemClock.elapsedRealtime()
+            val warm = service.readKernelBattery()
+            log(
+                JSONObject().put(
+                    "warm",
+                    JSONObject()
+                        .put("ms", SystemClock.elapsedRealtime() - warmStartedAt)
+                        .put("available", warm.available)
+                        .putNullable("reason", warm.reason),
+                ),
+            )
+
+            log(JSONObject().put("inproc", readInProcess()))
+        } finally {
+            holder.close()
         }
-        val bindElapsedMs = SystemClock.elapsedRealtime() - bindStartedAt
-        if (service == null) {
-            log(JSONObject().put("bind", JSONObject().put("ms", bindElapsedMs).put("bound", false)))
-            return
-        }
-        log(JSONObject().put("bind", JSONObject().put("ms", bindElapsedMs).put("bound", true)))
-
-        val batteryManager = context.getSystemService(BatteryManager::class.java)
-        val batteryManagerReading = batteryManagerReading(context, batteryManager)
-        val kernel = service.readKernelBattery()
-        val calibrationInput = CalibrationInput(
-            sysfsCurrentRaw = kernel.currentNowRaw,
-            sysfsVoltageRaw = kernel.voltageNowRaw,
-            bmCurrentNowUa = batteryManagerReading.currentNowUa,
-            bmVoltageMv = batteryManagerReading.voltageMv,
-            isCharging = batteryManagerReading.isCharging,
-            plugged = batteryManagerReading.plugged,
-        )
-        val calibrator = PowerCalibrator()
-        val calibration = calibrator.calibrate(listOf(calibrationInput))
-        val reading = calibrator.toReading(calibrationInput, calibration)
-        log(
-            JSONObject().put(
-                "kernel",
-                JSONObject()
-                    .put("available", kernel.available)
-                    .putNullable("reason", kernel.reason)
-                    .put(
-                        "snapshot",
-                        JSONObject()
-                            .putNullable("currentNowRaw", kernel.currentNowRaw)
-                            .putNullable("voltageNowRaw", kernel.voltageNowRaw)
-                            .putNullable("chargeCounterRaw", kernel.chargeCounterRaw)
-                            .putNullable("chargeFullRaw", kernel.chargeFullRaw)
-                            .putNullable("chargeFullDesignRaw", kernel.chargeFullDesignRaw)
-                            .putNullable("cycleCount", kernel.cycleCount)
-                            .putNullable("temperatureDeciC", kernel.temperatureDeciC)
-                            .putNullable("status", kernel.status)
-                            .putNullable("capacityPercent", kernel.capacityPercent)
-                            .putNullable("sourcePath", kernel.sourcePath)
-                            .put("readAtElapsedMs", kernel.readAtElapsedMs),
-                    )
-                    .put("batteryManager", batteryManagerReading.toJson())
-                    .put("calibration", calibration.toJson())
-                    .putNullable("reading", reading?.toJson()),
-            ),
-        )
-
-        val usage = service.readBatteryUsage(0L)
-        log(
-            JSONObject().put(
-                "usage",
-                JSONObject()
-                    .put("available", usage.available)
-                    .putNullable("reason", usage.reason)
-                    .put("dischargedMah", usage.dischargedPowerMah)
-                    .put(
-                        "topUids",
-                        JSONArray().apply {
-                            usage.uids.sortedByDescending { it.totalMah }.take(3).forEach { uid ->
-                                put(
-                                    JSONObject()
-                                        .put("uid", uid.uid)
-                                        .putNullable("packageName", uid.packageName)
-                                        .put("totalMah", uid.totalMah),
-                                )
-                            }
-                        },
-                    )
-                    .put("byProcessStatePresent", usage.uids.any { it.byProcessState != null })
-                    .put("statsDurationMs", usage.statsDurationMs)
-                    .put("deviceComponentCount", usage.deviceComponents.size)
-                    .put("truncatedUids", usage.truncatedUids),
-            ),
-        )
-
-        val history = service.readBatteryHistory(usage.statsStartMs, 0L, MAX_HISTORY_EVENTS)
-        log(
-            JSONObject().put(
-                "history",
-                JSONObject()
-                    .put("available", history.available)
-                    .putNullable("reason", history.reason)
-                    .put("count", history.events.size)
-                    .put("truncated", history.truncated)
-                    .put("sessionChanged", history.sessionChanged)
-                    .putNullable("firstKind", history.events.firstOrNull()?.kind)
-                    .putNullable("lastKind", history.events.lastOrNull()?.kind),
-            ),
-        )
-
-        val power = service.readPowerMonitors()
-        log(
-            JSONObject().put(
-                "power",
-                JSONObject()
-                    .put("available", power.available)
-                    .putNullable("reason", power.reason)
-                    .put("count", power.monitors.size)
-                    .put(
-                        "first",
-                        JSONArray().apply {
-                            power.monitors.take(3).forEach { monitor ->
-                                put(
-                                    JSONObject()
-                                        .put("name", monitor.name)
-                                        .put("type", monitor.type)
-                                        .put("energyUws", monitor.energyUws)
-                                        .put("timestampMs", monitor.timestampMs),
-                                )
-                            }
-                        },
-                    ),
-            ),
-        )
-
-        val idle = service.readDeviceIdle()
-        log(
-            JSONObject().put(
-                "idle",
-                JSONObject()
-                    .put("available", idle.available)
-                    .putNullable("reason", idle.reason)
-                    .put("deepIdle", idle.deepIdle)
-                    .put("lightIdle", idle.lightIdle)
-                    .put("whitelistCount", idle.powerSaveWhitelist.size),
-            ),
-        )
-
-        val cpu = service.readCpuTimeInState()
-        log(
-            JSONObject().put(
-                "cpu",
-                JSONObject()
-                    .put("available", cpu.available)
-                    .putNullable("reason", cpu.reason)
-                    .put("entryCount", cpu.entries.size),
-            ),
-        )
-
-        log(JSONObject().put("dump", readDump(service.openDump(DumpTarget.BATTERYSTATS_PROTO))))
-
-        val warmStartedAt = SystemClock.elapsedRealtime()
-        val warm = service.readKernelBattery()
-        log(
-            JSONObject().put(
-                "warm",
-                JSONObject()
-                    .put("ms", SystemClock.elapsedRealtime() - warmStartedAt)
-                    .put("available", warm.available)
-                    .putNullable("reason", warm.reason),
-            ),
-        )
-
-        log(JSONObject().put("inproc", readInProcess()))
     }
 
     private fun requestPermission(context: Context) {
@@ -247,22 +252,25 @@ class ProbeReceiver : BroadcastReceiver() {
             .put("ms", SystemClock.elapsedRealtime() - startedAt)
     }
 
-    private fun shizukuSystemService(name: String) =
-        SystemServiceHelper.getSystemService(name)?.let(::ShizukuBinderWrapper)
+    private fun shizukuSystemService(name: String) = SystemServiceHelper.getSystemService(name)?.let(::ShizukuBinderWrapper)
 
     private fun readDump(dump: com.akane.inspiration.ipc.model.DumpResult): JSONObject {
-        val bytesRead = dump.fd?.let { descriptor ->
-            ParcelFileDescriptor.AutoCloseInputStream(descriptor).use { input ->
-                input.readAtMost(MAX_DUMP_BYTES)
+        val bytesRead =
+            dump.fd?.let { descriptor ->
+                ParcelFileDescriptor.AutoCloseInputStream(descriptor).use { input ->
+                    input.readAtMost(MAX_DUMP_BYTES)
+                }
             }
-        }
         return JSONObject()
             .put("available", dump.available)
             .putNullable("reason", dump.reason)
             .putNullable("bytesRead", bytesRead)
     }
 
-    private fun batteryManagerReading(context: Context, manager: BatteryManager?): BatteryManagerReading {
+    private fun batteryManagerReading(
+        context: Context,
+        manager: BatteryManager?,
+    ): BatteryManagerReading {
         val battery = context.registerReceiver(null, IntentFilter(Intent.ACTION_BATTERY_CHANGED))
         val status = battery?.getIntExtra(BatteryManager.EXTRA_STATUS, UNKNOWN_STATUS) ?: UNKNOWN_STATUS
         val plugged = battery?.getIntExtra(BatteryManager.EXTRA_PLUGGED, 0)?.let { it != 0 } ?: false
@@ -274,23 +282,25 @@ class ProbeReceiver : BroadcastReceiver() {
         )
     }
 
-    private fun Int?.validBatteryValue(): Int? =
-        this?.takeUnless { it == Int.MIN_VALUE || it == 0 }
+    private fun Int?.validBatteryValue(): Int? = this?.takeUnless { it == Int.MIN_VALUE || it == 0 }
 
-    private fun JSONObject.putNullable(name: String, value: Any?): JSONObject =
-        put(name, value ?: JSONObject.NULL)
+    private fun JSONObject.putNullable(
+        name: String,
+        value: Any?,
+    ): JSONObject = put(name, value ?: JSONObject.NULL)
 
     private fun log(value: JSONObject) {
         Log.i(TAG, value.toString())
     }
 
-    private fun ShizukuState.label(): String = when (this) {
-        ShizukuState.NotInstalled -> "NotInstalled"
-        ShizukuState.NotRunning -> "NotRunning"
-        ShizukuState.PermissionRequired -> "PermissionRequired"
-        ShizukuState.PermissionDenied -> "PermissionDenied"
-        is ShizukuState.Ready -> "Ready"
-    }
+    private fun ShizukuState.label(): String =
+        when (this) {
+            ShizukuState.NotInstalled -> "NotInstalled"
+            ShizukuState.NotRunning -> "NotRunning"
+            ShizukuState.PermissionRequired -> "PermissionRequired"
+            ShizukuState.PermissionDenied -> "PermissionDenied"
+            is ShizukuState.Ready -> "Ready"
+        }
 
     private data class BatteryManagerReading(
         val currentNowUa: Int?,
@@ -298,24 +308,27 @@ class ProbeReceiver : BroadcastReceiver() {
         val isCharging: Boolean,
         val plugged: Boolean,
     ) {
-        fun toJson(): JSONObject = JSONObject()
-            .put("currentNowUa", currentNowUa ?: JSONObject.NULL)
-            .put("voltageMv", voltageMv ?: JSONObject.NULL)
-            .put("isCharging", isCharging)
-            .put("plugged", plugged)
+        fun toJson(): JSONObject =
+            JSONObject()
+                .put("currentNowUa", currentNowUa ?: JSONObject.NULL)
+                .put("voltageMv", voltageMv ?: JSONObject.NULL)
+                .put("isCharging", isCharging)
+                .put("plugged", plugged)
     }
 
-    private fun com.akane.inspiration.telemetry.calibration.PowerCalibration.toJson(): JSONObject = JSONObject()
-        .put("currentScaleToMa", currentScaleToMa)
-        .put("dischargeIsNegative", dischargeIsNegative)
-        .put("voltageScaleToMv", voltageScaleToMv)
-        .put("cellCount", cellCount)
-        .put("confidence", confidence.name)
+    private fun com.akane.inspiration.telemetry.calibration.PowerCalibration.toJson(): JSONObject =
+        JSONObject()
+            .put("currentScaleToMa", currentScaleToMa)
+            .put("dischargeIsNegative", dischargeIsNegative)
+            .put("voltageScaleToMv", voltageScaleToMv)
+            .put("cellCount", cellCount)
+            .put("confidence", confidence.name)
 
-    private fun com.akane.inspiration.telemetry.calibration.PowerReading.toJson(): JSONObject = JSONObject()
-        .put("currentMa", currentMa)
-        .put("voltageV", voltageV)
-        .put("watts", watts)
+    private fun com.akane.inspiration.telemetry.calibration.PowerReading.toJson(): JSONObject =
+        JSONObject()
+            .put("currentMa", currentMa)
+            .put("voltageV", voltageV)
+            .put("watts", watts)
 
     private companion object {
         const val ACTION_PROBE = "com.akane.inspiration.debug.PROBE"
