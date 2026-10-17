@@ -39,6 +39,7 @@ dependencies {
     implementation(project(":feature:health"))
     implementation(project(":feature:toolkit"))
     implementation(project(":core:shizuku-ipc"))
+    implementation(libs.hiddenapibypass)
 
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.activity.compose)

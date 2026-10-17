@@ -32,6 +32,7 @@ class ShizukuManagerImpl private constructor(
         scope: CoroutineScope,
         applicationInfoProvider: ShizukuApplicationInfoProvider,
     ) : this(context, facade, scope, applicationInfoProvider, Unit)
+
     private val mutableState = MutableStateFlow<ShizukuState>(ShizukuState.NotRunning)
     private val mutableTelemetryService = MutableStateFlow<ITelemetryUserService?>(null)
 
@@ -43,26 +44,32 @@ class ShizukuManagerImpl private constructor(
     private var applicationInfo: ShizukuApplicationInfo? = null
     private var serviceArgs: Shizuku.UserServiceArgs? = null
 
-    private val userServiceConnection = object : ServiceConnection {
-        override fun onServiceConnected(name: ComponentName, service: IBinder) {
-            mutableTelemetryService.value = ITelemetryUserService.Stub.asInterface(service)
+    private val userServiceConnection =
+        object : ServiceConnection {
+            override fun onServiceConnected(
+                name: ComponentName,
+                service: IBinder,
+            ) {
+                mutableTelemetryService.value = ITelemetryUserService.Stub.asInterface(service)
+            }
+
+            override fun onServiceDisconnected(name: ComponentName) {
+                serviceBound = false
+                mutableTelemetryService.value = null
+            }
         }
 
-        override fun onServiceDisconnected(name: ComponentName) {
+    private val binderReceivedListener =
+        Shizuku.OnBinderReceivedListener {
+            updateState()
+        }
+
+    private val binderDeadListener =
+        Shizuku.OnBinderDeadListener {
             serviceBound = false
             mutableTelemetryService.value = null
+            mutableState.value = ShizukuState.NotRunning
         }
-    }
-
-    private val binderReceivedListener = Shizuku.OnBinderReceivedListener {
-        updateState()
-    }
-
-    private val binderDeadListener = Shizuku.OnBinderDeadListener {
-        serviceBound = false
-        mutableTelemetryService.value = null
-        mutableState.value = ShizukuState.NotRunning
-    }
 
     private val permissionResultListener =
         Shizuku.OnRequestPermissionResultListener { _, grantResult ->
@@ -127,13 +134,15 @@ class ShizukuManagerImpl private constructor(
                 mutableState.value = ShizukuState.Ready(facade.getUid(), facade.getVersion())
                 bindTelemetryService(info)
             }
+
             else -> {
                 mutableTelemetryService.value = null
-                mutableState.value = if (facade.shouldShowRequestPermissionRationale()) {
-                    ShizukuState.PermissionDenied
-                } else {
-                    ShizukuState.PermissionRequired
-                }
+                mutableState.value =
+                    if (facade.shouldShowRequestPermissionRationale()) {
+                        ShizukuState.PermissionDenied
+                    } else {
+                        ShizukuState.PermissionRequired
+                    }
             }
         }
     }
@@ -142,10 +151,11 @@ class ShizukuManagerImpl private constructor(
         if (serviceBound) {
             return
         }
-        val args = shizukuUserServiceArgs(
-            ComponentName(context.packageName, TELEMETRY_USER_SERVICE_CLASS),
-            info,
-        )
+        val args =
+            shizukuUserServiceArgs(
+                ComponentName(context.packageName, TELEMETRY_USER_SERVICE_CLASS),
+                info,
+            )
         serviceArgs = args
         serviceBound = true
         facade.bindUserService(args, userServiceConnection)
@@ -179,6 +189,8 @@ class ShizukuManagerImpl private constructor(
 private fun androidApplicationInfoProvider(context: Context): ShizukuApplicationInfoProvider =
     ShizukuApplicationInfoProvider {
         try {
+            // Null means the Shizuku manager is absent (visible via <queries> in the app manifest).
+            context.packageManager.getPackageInfo(SHIZUKU_MANAGER_PACKAGE, 0)
             context.packageManager.getPackageInfo(context.packageName, 0).let { packageInfo ->
                 ShizukuApplicationInfo(
                     versionCode = packageInfo.longVersionCode,
@@ -189,3 +201,5 @@ private fun androidApplicationInfoProvider(context: Context): ShizukuApplication
             null
         }
     }
+
+private const val SHIZUKU_MANAGER_PACKAGE = "moe.shizuku.privileged.api"
