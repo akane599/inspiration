@@ -67,6 +67,12 @@ class FakeBackend : ToolkitBackend {
     var nullBeforeOnAppOpWrite = false
     var nullBeforeOnBucketWrite = false
 
+    /** When set, every app-op/bucket/doze read answers this instead of the device state (a read-back that fails). */
+    var scriptedRead: ToolkitResult? = null
+
+    /** Runs at the start of every read, before the answer is built (a device that changes between two reads). */
+    var onRead: (String) -> Unit = {}
+
     /** Names of the writes issued, in order. Reads are not listed. */
     val writes = mutableListOf<String>()
     val reads = mutableListOf<String>()
@@ -120,8 +126,9 @@ class FakeBackend : ToolkitBackend {
 
     override suspend fun getAppOps(pkg: String): GatewayReply<ToolkitResult> = guard(pkg) {
         reads += "getAppOps($pkg)"
+        onRead("getAppOps($pkg)")
         GatewayReply.Reply(
-            refusal(pkg) ?: ToolkitResult.done(
+            scriptedRead ?: refusal(pkg) ?: ToolkitResult.done(
                 warnCode(pkg),
                 after = AppOp.entries.joinToString(",") { "${it.argv}=${device(pkg)[it]}" },
             ),
@@ -138,8 +145,9 @@ class FakeBackend : ToolkitBackend {
 
     override suspend fun getStandbyBucket(pkg: String): GatewayReply<ToolkitResult> = guard(pkg) {
         reads += "getBucket($pkg)"
+        onRead("getBucket($pkg)")
         GatewayReply.Reply(
-            refusal(pkg) ?: ToolkitResult.done(warnCode(pkg), after = (buckets[pkg] ?: StandbyBucket.ACTIVE.rawValue).toString()),
+            scriptedRead ?: refusal(pkg) ?: ToolkitResult.done(warnCode(pkg), after = (buckets[pkg] ?: StandbyBucket.ACTIVE.rawValue).toString()),
         )
     }
 
@@ -156,9 +164,10 @@ class FakeBackend : ToolkitBackend {
 
     override suspend fun getDozeState(): GatewayReply<ToolkitResult> = guard(null) {
         reads += "getDozeState"
+        onRead("getDozeState")
         val matched = DozeProfile.entries.firstOrNull { it.constants == dozeRaw }
         GatewayReply.Reply(
-            ToolkitResult.done(
+            scriptedRead ?: ToolkitResult.done(
                 code = matched?.code ?: ToolkitCode.DOZE_CUSTOM,
                 after = dozeRaw,
                 message = matched?.effectiveMs?.entries?.joinToString(",") { "${it.key}=${it.value}" },
