@@ -2,6 +2,7 @@ package com.akane.inspiration.capture
 
 import android.app.job.JobParameters
 import android.app.job.JobService
+import android.util.Log
 import com.akane.inspiration.InspirationApplication
 import com.akane.inspiration.ipc.model.HistoryKind
 import com.akane.inspiration.telemetry.snapshot.CaptureTrigger
@@ -18,55 +19,65 @@ class ChargingCaptureJobService : JobService() {
 
     override fun onStartJob(params: JobParameters): Boolean {
         val app = application as InspirationApplication
-        val job = app.appContainer.applicationScope.launch(start = CoroutineStart.LAZY) {
-            try {
-                val container = app.appContainer
-                val store = container.store
-                val historyAvailable = container.capturer.ingestHistory(FULL_CAPTURE_DEADLINE_MS)
-                val lastPluggedHistoryWallMs = if (historyAvailable) {
-                    store.historyBetween(0L, Long.MAX_VALUE)
-                        .lastOrNull { it.kind == HistoryKind.PLUGGED }
-                        ?.wallMs
-                } else {
-                    null
-                }
-                val lastPowerConnectedWallMs = store.latestByTrigger(CaptureTrigger.POWER_CONNECTED)?.clock?.wallMs
-                val lastChargeJob = store.latestByTrigger(CaptureTrigger.CHARGE_JOB)
-                runner.run(
-                    shouldCapture = CapturePolicy.chargeJobShouldRun(
-                        lastPluggedHistoryWallMs = lastPluggedHistoryWallMs,
-                        lastPowerConnectedWallMs = lastPowerConnectedWallMs,
-                        lastChargeJobWallMs = lastChargeJob?.clock?.wallMs,
-                        lastChargeJobBootCount = lastChargeJob?.clock?.bootCount,
-                        currentBootCount = container.clocks.bootCount(),
-                        historyAvailable = historyAvailable,
-                    ),
-                    capture = {
-                        container.capturer.captureFull(
-                            trigger = CaptureTrigger.CHARGE_JOB,
-                            deadlineMs = FULL_CAPTURE_DEADLINE_MS,
-                            ingestHistory = true,
-                        )
-                    },
-                    prune = { store.prune(container.clocks.wallMs()) },
-                )
-                if (isActive) {
-                    // A same-ID schedule cancels active work, so finish before re-arming the next attempt.
+        val job =
+            app.appContainer.applicationScope.launch(start = CoroutineStart.LAZY) {
+                try {
+                    val container = app.appContainer
+                    val store = container.store
+                    val historyAvailable = container.capturer.ingestHistory(FULL_CAPTURE_DEADLINE_MS)
+                    val lastPluggedHistoryWallMs =
+                        if (historyAvailable) {
+                            store
+                                .historyBetween(0L, Long.MAX_VALUE)
+                                .lastOrNull { it.kind == HistoryKind.PLUGGED }
+                                ?.wallMs
+                        } else {
+                            null
+                        }
+                    val lastPowerConnectedWallMs = store.latestByTrigger(CaptureTrigger.POWER_CONNECTED)?.clock?.wallMs
+                    val lastChargeJob = store.latestByTrigger(CaptureTrigger.CHARGE_JOB)
+                    runner.run(
+                        shouldCapture =
+                            CapturePolicy.chargeJobShouldRun(
+                                lastPluggedHistoryWallMs = lastPluggedHistoryWallMs,
+                                lastPowerConnectedWallMs = lastPowerConnectedWallMs,
+                                lastChargeJobWallMs = lastChargeJob?.clock?.wallMs,
+                                lastChargeJobBootCount = lastChargeJob?.clock?.bootCount,
+                                currentBootCount = container.clocks.bootCount(),
+                                historyAvailable = historyAvailable,
+                            ),
+                        capture = {
+                            container.capturer.captureFull(
+                                trigger = CaptureTrigger.CHARGE_JOB,
+                                deadlineMs = FULL_CAPTURE_DEADLINE_MS,
+                                ingestHistory = true,
+                            )
+                        },
+                        prune = { store.prune(container.clocks.wallMs()) },
+                    )
+                    if (isActive) {
+                        // A same-ID schedule cancels active work, so finish before re-arming the next attempt.
+                        jobFinished(params, false)
+                        ChargingCaptureScheduler.arm(this@ChargingCaptureJobService, reArmFromJob = true)
+                    }
+                } catch (_: CancellationException) {
+                    // onStopJob has already stopped this job; re-arm only after its coroutine is cancelled.
+                    ChargingCaptureScheduler.arm(this@ChargingCaptureJobService, reArmFromJob = true)
+                } catch (error: Exception) {
+                    // applicationScope has no exception handler, so a capture/store failure must not escape and
+                    // kill the process; finish and re-arm so the persisted job survives a bad run.
+                    Log.w(TAG, "charge job capture failed", error)
                     jobFinished(params, false)
                     ChargingCaptureScheduler.arm(this@ChargingCaptureJobService, reArmFromJob = true)
-                }
-            } catch (_: CancellationException) {
-                // onStopJob has already stopped this job; re-arm only after its coroutine is cancelled.
-                ChargingCaptureScheduler.arm(this@ChargingCaptureJobService, reArmFromJob = true)
-            } finally {
-                val currentJob = currentCoroutineContext()[Job]
-                synchronized(runningJobs) {
-                    if (runningJobs[params.jobId] === currentJob) {
-                        runningJobs.remove(params.jobId)
+                } finally {
+                    val currentJob = currentCoroutineContext()[Job]
+                    synchronized(runningJobs) {
+                        if (runningJobs[params.jobId] === currentJob) {
+                            runningJobs.remove(params.jobId)
+                        }
                     }
                 }
             }
-        }
         synchronized(runningJobs) {
             runningJobs[params.jobId]?.cancel()
             runningJobs[params.jobId] = job
@@ -84,5 +95,6 @@ class ChargingCaptureJobService : JobService() {
 
     private companion object {
         const val FULL_CAPTURE_DEADLINE_MS = 10_000L
+        const val TAG = "ChargingCaptureJob"
     }
 }
