@@ -54,13 +54,23 @@ class BatteryStatsClient internal constructor(
         if (stats == null) {
             BatteryUsageSnapshot.unavailable(Reasons.REMOTE)
         } else {
-            val snapshot = BatteryUsageMapper.map(
-                stats = stats,
-                sdkInt = sdkInt,
-                batteryTimeRemainingMs = calls.computeBatteryTimeRemaining(),
-                chargeTimeRemainingMs = calls.computeChargeTimeRemaining(),
-            )
-            UsageParcelBudget.fit(snapshot, parcelBytes)
+            try {
+                val snapshot = BatteryUsageMapper.map(
+                    stats = stats,
+                    sdkInt = sdkInt,
+                    batteryTimeRemainingMs = calls.computeBatteryTimeRemaining(),
+                    chargeTimeRemainingMs = calls.computeChargeTimeRemaining(),
+                )
+                UsageParcelBudget.fit(snapshot, parcelBytes)
+            } finally {
+                try {
+                    stats.close()
+                } catch (_: Exception) {
+                    // Releasing framework buffers must not mask the read result or failure.
+                } catch (_: LinkageError) {
+                    // Same for an unexpected framework shape.
+                }
+            }
         }
     }
 
@@ -198,6 +208,10 @@ private class FrameworkBatteryUsageAdapter(
     private val stats: BatteryUsageStats,
     private val sdkInt: Int,
 ) : BatteryUsageAdapter {
+    override fun close() {
+        stats.close()
+    }
+
     override val statsStartMs: Long get() = stats.statsStartTimestamp
     override val statsEndMs: Long get() = stats.statsEndTimestamp
     override val consumedPowerMah: Double get() = stats.consumedPower

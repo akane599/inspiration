@@ -19,8 +19,9 @@ interface BatteryUsageQueryBuilder {
     fun setPreferredHistoryDurationMs(durationMs: Long)
 }
 
-/** Read-only view of a framework `BatteryUsageStats`. */
-interface BatteryUsageAdapter {
+/** Read-only view of a framework `BatteryUsageStats`; the caller closes it after mapping. */
+interface BatteryUsageAdapter : AutoCloseable {
+    override fun close() = Unit
     val statsStartMs: Long
     val statsEndMs: Long
     val consumedPowerMah: Double

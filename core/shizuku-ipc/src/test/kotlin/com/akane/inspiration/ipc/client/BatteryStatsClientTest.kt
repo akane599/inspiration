@@ -10,8 +10,11 @@ import org.junit.Test
 import java.lang.reflect.InvocationTargetException
 
 class BatteryStatsClientTest {
-    private fun client(calls: FakeBatteryStatsCalls, sdkInt: Int = 35) =
-        BatteryStatsClient({ fakeBinder }, sdkInt, { 0 }) { calls }
+    private fun client(
+        calls: BatteryStatsCalls,
+        sdkInt: Int = 35,
+        parcelBytes: (com.akane.inspiration.ipc.model.BatteryUsageSnapshot) -> Int = { 0 },
+    ) = BatteryStatsClient({ fakeBinder }, sdkInt, parcelBytes) { calls }
 
     private fun queryCallsFor(sdkInt: Int): List<String> {
         val calls = FakeBatteryStatsCalls()
@@ -60,6 +63,48 @@ class BatteryStatsClientTest {
         assertEquals(42.5, snapshot.dischargedPowerMah, 0.0)
         assertEquals(3_600_000L, snapshot.batteryTimeRemainingMs)
         assertEquals(-1L, snapshot.chargeTimeRemainingMs)
+    }
+
+    @Test
+    fun `usage stats close after successful mapping and parcel budget fit`() {
+        val usage = FakeBatteryUsage(closeFailure = NoSuchMethodError("close"))
+
+        val snapshot = client(FakeBatteryStatsCalls(usage = usage)).readUsage(0L)
+
+        assertTrue(snapshot.available)
+        assertEquals(1, usage.closed)
+    }
+
+    @Test
+    fun `usage stats close when mapper throws`() {
+        val usage = MapperFailingBatteryUsage()
+
+        client(FakeBatteryStatsCalls(usage = usage)).readUsage(0L)
+
+        assertEquals(1, usage.closed)
+    }
+
+    @Test
+    fun `usage stats close when parcel measurement throws`() {
+        val usage = FakeBatteryUsage()
+
+        client(FakeBatteryStatsCalls(usage = usage), parcelBytes = { throw IllegalStateException("parcel") })
+            .readUsage(0L)
+
+        assertEquals(1, usage.closed)
+    }
+
+    @Test
+    fun `usage stats close when battery time remaining linkage error throws`() {
+        val usage = FakeBatteryUsage()
+        val calls = FakeBatteryStatsCalls(
+            usage = usage,
+            batteryTimeRemaining = { throw NoSuchMethodError("computeBatteryTimeRemaining") },
+        )
+
+        client(calls).readUsage(0L)
+
+        assertEquals(1, usage.closed)
     }
 
     @Test
