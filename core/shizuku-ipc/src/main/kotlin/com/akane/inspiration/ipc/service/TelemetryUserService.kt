@@ -14,6 +14,7 @@ import com.akane.inspiration.ipc.client.DeviceIdleClient
 import com.akane.inspiration.ipc.client.DeviceIdleReader
 import com.akane.inspiration.ipc.client.PowerManagerClient
 import com.akane.inspiration.ipc.client.PowerStatsClient
+import com.akane.inspiration.ipc.model.BatteryHistorySnapshot
 import com.akane.inspiration.ipc.model.BatteryUsageSnapshot
 import com.akane.inspiration.ipc.model.ClusterFreqTime
 import com.akane.inspiration.ipc.model.CpuTimeSnapshot
@@ -170,6 +171,16 @@ class TelemetryUserService private constructor(
     override fun readBatteryUsage(maxAgeMs: Long): BatteryUsageSnapshot {
         if (!isCallerAllowed()) return BatteryUsageSnapshot.unavailable(Reasons.CALLER)
         return BatteryStatsClient(binderSource = { serviceBinder(BATTERY_STATS_SERVICE) }).readUsage(maxAgeMs)
+    }
+
+    override fun readBatteryHistory(
+        statsStartMs: Long,
+        afterHistoryTimeMs: Long,
+        maxEvents: Int,
+    ): BatteryHistorySnapshot {
+        if (!isCallerAllowed()) return BatteryHistorySnapshot.unavailable(Reasons.CALLER)
+        return BatteryStatsClient(binderSource = { serviceBinder(BATTERY_STATS_SERVICE) })
+            .readHistory(statsStartMs, afterHistoryTimeMs, maxEvents)
     }
 
     override fun readPowerMonitors(): PowerMonitorSnapshot {

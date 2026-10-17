@@ -11,7 +11,7 @@ import java.lang.reflect.InvocationTargetException
 
 class BatteryStatsClientTest {
     private fun client(calls: FakeBatteryStatsCalls, sdkInt: Int = 35) =
-        BatteryStatsClient({ fakeBinder }, sdkInt) { calls }
+        BatteryStatsClient({ fakeBinder }, sdkInt, { 0 }) { calls }
 
     private fun queryCallsFor(sdkInt: Int): List<String> {
         val calls = FakeBatteryStatsCalls()
@@ -65,7 +65,7 @@ class BatteryStatsClientTest {
     @Test
     fun `null binder maps to remote without calling the service`() {
         var factoryCalls = 0
-        val snapshot = BatteryStatsClient({ null }, 35) {
+        val snapshot = BatteryStatsClient({ null }, 35, { 0 }) {
             factoryCalls++
             FakeBatteryStatsCalls()
         }.readUsage(0L)
@@ -101,7 +101,7 @@ class BatteryStatsClientTest {
 
     @Test
     fun `throwing binder source maps to its reason`() {
-        val snapshot = BatteryStatsClient({ throw SecurityException("x") }, 35) { FakeBatteryStatsCalls() }
+        val snapshot = BatteryStatsClient({ throw SecurityException("x") }, 35, { 0 }) { FakeBatteryStatsCalls() }
             .readUsage(0L)
         assertUnavailable(Reasons.PERMISSION, snapshot.available, snapshot.reason)
     }

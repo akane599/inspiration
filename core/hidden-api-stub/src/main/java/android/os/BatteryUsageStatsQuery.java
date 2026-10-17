@@ -35,6 +35,17 @@ public final class BatteryUsageStatsQuery {
             throw new RuntimeException("Stub!");
         }
 
+        public Builder includeBatteryHistory() {
+            throw new RuntimeException("Stub!");
+        }
+
+        /**
+         * Present since API 36.
+         */
+        public Builder setPreferredHistoryDurationMs(long preferredHistoryDurationMs) {
+            throw new RuntimeException("Stub!");
+        }
+
         public BatteryUsageStatsQuery build() {
             throw new RuntimeException("Stub!");
         }
