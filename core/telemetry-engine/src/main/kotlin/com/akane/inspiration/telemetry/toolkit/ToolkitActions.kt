@@ -929,7 +929,10 @@ class ToolkitActions internal constructor(
             is GatewayReply.Unavailable -> return if (pending.isEmpty()) BgDexoptStatus.Idle else BgDexoptStatus.Unknown
             is GatewayReply.Reply -> reply.value
         }
-        val status = statusOf(service)
+        // A freshly created service reports UNKNOWN because it cannot see a job an earlier instance left behind.
+        // With no PENDING dexopt row of ours there is nothing we started that could still be running, so the
+        // card is idle; UNKNOWN stays for a job we did start and cannot confirm.
+        val status = if (service.state == BgDexoptState.UNKNOWN && pending.isEmpty()) BgDexoptStatus.Idle else statusOf(service)
         syncHold(running = status is BgDexoptStatus.Running, startedAtMs = (status as? BgDexoptStatus.Running)?.startedAtMs ?: 0L)
         if (pending.isNotEmpty()) {
             when (status) {

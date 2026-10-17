@@ -6,6 +6,7 @@ import com.akane.inspiration.ipc.toolkit.AppOp
 import com.akane.inspiration.ipc.toolkit.DozeProfile
 import com.akane.inspiration.ipc.toolkit.StandbyBucket
 import com.akane.inspiration.telemetry.app.AppEntry
+import com.akane.inspiration.telemetry.store.ToolkitActionRecord
 import com.akane.inspiration.telemetry.store.ToolkitActionStatus
 import com.akane.inspiration.telemetry.toolkit.BgDexoptCancelReason
 import com.akane.inspiration.telemetry.toolkit.BgDexoptStatus
@@ -659,10 +660,32 @@ class ToolkitViewModelTest {
     }
 
     @Test
+    fun `a fresh service that reports unknown is idle when no job of ours was started`() {
+        start {
+            device.dexopt = ServiceDexopt(BgDexoptState.UNKNOWN, 0, 0, 0, 0)
+        }
+        assertEquals(BgDexoptStatus.Idle, state.dexopt.status)
+
+        vm.onIntent(ToolkitIntent.CancelDexopt)
+        assertEquals(0, device.writes.count { it == "cancelBgDexopt" })
+
+        vm.onIntent(ToolkitIntent.StartDexopt)
+        assertEquals(1, device.writes.count { it == "startBgDexopt" })
+    }
+
+    @Test
     fun `an unknown job may still be running, offers cancel and cannot be started over`() {
         start {
             device.dexopt = ServiceDexopt(
                 BgDexoptState.UNKNOWN, 0, 0, 0, 0,
+            )
+            // A job we started earlier whose outcome was never confirmed.
+            device.store.rows += ToolkitActionRecord(
+                id = 1L,
+                startedAt = 1L,
+                kind = "dexopt",
+                op = "bg_dexopt",
+                status = ToolkitActionStatus.PENDING,
             )
         }
         assertEquals(BgDexoptStatus.Unknown, state.dexopt.status)
