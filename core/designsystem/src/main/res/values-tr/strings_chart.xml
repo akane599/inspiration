@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Lane names (legend and accessibility) -->
+    <string name="chart_lane_screen_on">Ekran açık</string>
+    <string name="chart_lane_deep_sleep">Derin uyku</string>
+    <string name="chart_lane_awake">Uyanık</string>
+    <string name="chart_lane_charging">Şarj oluyor</string>
+
+    <!-- Hypnogram stage names -->
+    <string name="chart_stage_awake">Uyanık</string>
+    <string name="chart_stage_maintenance">Bakım</string>
+    <string name="chart_stage_light_idle">Hafif uyku</string>
+    <string name="chart_stage_deep_idle">Derin uyku</string>
+
+    <!-- Empty state and actions -->
+    <string name="chart_empty">Bu dönem için veri yok</string>
+    <string name="chart_clear_selection">Seçimi temizle</string>
+
+    <!-- Durations: %1$d hours, %2$d minutes -->
+    <string name="chart_duration_hours_minutes">%1$d sa %2$d dk</string>
+    <string name="chart_duration_hours">%1$d sa</string>
+    <string name="chart_duration_minutes">%1$d dk</string>
+
+    <!-- Readout row: values at the cursor, selection summary, window summary -->
+    <string name="chart_readout_battery">Pil %%%1$d</string>
+    <string name="chart_readout_temperature">Sıcaklık %1$.1f °C</string>
+    <string name="chart_readout_time_range">%1$s – %2$s</string>
+    <string name="chart_readout_selection_drop">Pil %%%1$d düştü</string>
+    <string name="chart_readout_selection_gain">Pil %%%1$d arttı</string>
+
+    <!-- Hypnogram per-stage total: %1$s stage name, %2$s formatted duration -->
+    <string name="chart_stage_total">%1$s %2$s</string>
+
+    <!-- Accessibility -->
+    <string name="chart_a11y_window">%1$s – %2$s arası grafik</string>
+    <string name="chart_a11y_selection">%1$s – %2$s arası seçili, süre %3$s</string>
+    <string name="chart_a11y_no_selection">Seçim yok</string>
+    <string name="chart_a11y_cursor">İmleç %1$s konumunda</string>
+</resources>
