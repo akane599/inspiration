@@ -30,6 +30,9 @@ interface SnapshotDao {
     suspend fun insertAlarms(alarms: List<SnapshotAlarmEntity>)
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertUidSensors(sensors: List<SnapshotUidSensorEntity>)
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertCpuFrequencies(frequencies: List<SnapshotCpuFreqEntity>)
 
     /**
@@ -102,6 +105,9 @@ interface SnapshotDao {
 
     @Query("SELECT * FROM snapshot_alarm WHERE snapshotId = :snapshotId ORDER BY uid, tag")
     suspend fun alarmsForSnapshot(snapshotId: Long): List<SnapshotAlarmEntity>
+
+    @Query("SELECT * FROM snapshot_uid_sensor WHERE snapshotId = :snapshotId ORDER BY uid, handle")
+    suspend fun uidSensorsForSnapshot(snapshotId: Long): List<SnapshotUidSensorEntity>
 
     @Query("SELECT * FROM snapshot_cpu_freq WHERE snapshotId = :snapshotId ORDER BY policy, freqKhz")
     suspend fun cpuFrequenciesForSnapshot(snapshotId: Long): List<SnapshotCpuFreqEntity>

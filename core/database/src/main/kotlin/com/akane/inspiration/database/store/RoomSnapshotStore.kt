@@ -14,6 +14,7 @@ import com.akane.inspiration.database.SnapshotCpuFreqEntity
 import com.akane.inspiration.database.SnapshotEntity
 import com.akane.inspiration.database.SnapshotSystemEntity
 import com.akane.inspiration.database.SnapshotUidEntity
+import com.akane.inspiration.database.SnapshotUidSensorEntity
 import com.akane.inspiration.database.SnapshotWakelockEntity
 import com.akane.inspiration.database.TelemetrySampleEntity
 import com.akane.inspiration.ipc.model.HistoryEvent
@@ -22,6 +23,7 @@ import com.akane.inspiration.telemetry.capacity.SegmentVerdict
 import com.akane.inspiration.telemetry.dump.KernelWakelock
 import com.akane.inspiration.telemetry.dump.SystemTimers
 import com.akane.inspiration.telemetry.dump.UidAlarm
+import com.akane.inspiration.telemetry.dump.UidSensor
 import com.akane.inspiration.telemetry.dump.UidWakelock
 import com.akane.inspiration.telemetry.snapshot.BatterySnapshot
 import com.akane.inspiration.telemetry.snapshot.BatteryState
@@ -56,6 +58,7 @@ class RoomSnapshotStore(
         snapshotDao.insertComponents(snapshot.componentEntities(snapshotId))
         snapshot.mergeWakelocks(snapshotId, snapshotDao)
         snapshotDao.insertAlarms(snapshot.alarmEntities(snapshotId))
+        snapshotDao.insertUidSensors(snapshot.sensorEntities(snapshotId))
         snapshotDao.insertCpuFrequencies(
             snapshot.cpuFreq.map {
                 SnapshotCpuFreqEntity(
@@ -190,6 +193,7 @@ class RoomSnapshotStore(
         val components = snapshotDao.componentsForSnapshot(snapshot.id)
         val wakelocks = snapshotDao.wakelocksForSnapshot(snapshot.id)
         val alarms = snapshotDao.alarmsForSnapshot(snapshot.id)
+        val sensors = snapshotDao.uidSensorsForSnapshot(snapshot.id)
         return BatterySnapshot(
             id = snapshot.id,
             kind = SnapshotKind.valueOf(snapshot.kind),
@@ -218,6 +222,7 @@ class RoomSnapshotStore(
                     components = components.filter { it.uid == uid.uid },
                     wakelocks = wakelocks.filter { it.uid == uid.uid && it.kind == PARTIAL_WAKELOCK },
                     alarms = alarms.filter { it.uid == uid.uid },
+                    sensors = sensors.filter { it.uid == uid.uid },
                 )
             },
             deviceComponentsMah = components.filter { it.uid == DEVICE_UID }.associate { it.component to it.mah },
@@ -276,6 +281,13 @@ class RoomSnapshotStore(
         dischargeScreenOffMah = dischargeScreenOffMah,
         chargeTimeRemainingMs = chargeTimeRemainingMs,
         dischargeTimeRemainingMs = dischargeTimeRemainingMs,
+        signalBin0Ms = signalStrengthMs.getOrNull(0),
+        signalBin1Ms = signalStrengthMs.getOrNull(1),
+        signalBin2Ms = signalStrengthMs.getOrNull(2),
+        signalBin3Ms = signalStrengthMs.getOrNull(3),
+        signalBin4Ms = signalStrengthMs.getOrNull(4),
+        signalScanningMs = signalScanningMs,
+        mobileRadioActiveMs = mobileRadioActiveMs,
     )
 
     private fun SnapshotSystemEntity.toDomain() = SystemTimers(
@@ -296,7 +308,15 @@ class RoomSnapshotStore(
         dischargeScreenOffMah = dischargeScreenOffMah,
         chargeTimeRemainingMs = chargeTimeRemainingMs,
         dischargeTimeRemainingMs = dischargeTimeRemainingMs,
+        signalStrengthMs = signalBins(),
+        signalScanningMs = signalScanningMs,
+        mobileRadioActiveMs = mobileRadioActiveMs,
     )
+
+    private fun SnapshotSystemEntity.signalBins(): List<Long> {
+        val bins = listOf(signalBin0Ms, signalBin1Ms, signalBin2Ms, signalBin3Ms, signalBin4Ms)
+        return if (bins.all { it == null }) emptyList() else bins.map { it ?: 0L }
+    }
 
     private fun UidSnapshot.toEntity(snapshotId: Long) = SnapshotUidEntity(
         snapshotId = snapshotId,
@@ -317,6 +337,7 @@ class RoomSnapshotStore(
         components: List<SnapshotComponentEntity>,
         wakelocks: List<SnapshotWakelockEntity>,
         alarms: List<SnapshotAlarmEntity>,
+        sensors: List<SnapshotUidSensorEntity>,
     ) = UidSnapshot(
         uid = uid,
         packageName = packageName,
@@ -332,6 +353,7 @@ class RoomSnapshotStore(
         fgServiceMs = fgServiceMs,
         partialWakelocks = wakelocks.map { UidWakelock(it.name, it.durationMs, it.bgDurationMs, it.count) },
         wakeupAlarms = alarms.map { UidAlarm(it.tag, it.count) },
+        sensors = sensors.map { UidSensor(it.handle, it.totalMs, it.bgMs, it.count) },
     )
 
     private fun BatterySnapshot.componentEntities(snapshotId: Long): List<SnapshotComponentEntity> = buildList {
@@ -387,6 +409,11 @@ class RoomSnapshotStore(
         uids.flatMap { uid -> uid.wakeupAlarms.map { alarm -> uid.uid to alarm } }
             .groupBy({ (uid, alarm) -> uid to alarm.tag }, { it.second.count })
             .map { (key, counts) -> SnapshotAlarmEntity(snapshotId, key.first, key.second, counts.sum()) }
+
+    private fun BatterySnapshot.sensorEntities(snapshotId: Long): List<SnapshotUidSensorEntity> =
+        uids.flatMap { uid ->
+            uid.sensors.map { SnapshotUidSensorEntity(snapshotId, uid.uid, it.handle, it.totalMs, it.bgMs, it.count) }
+        }
 
     private fun HistoryEvent.toEntity(statsStartMs: Long) = HistoryEventEntity(
         statsStartMs = statsStartMs,
