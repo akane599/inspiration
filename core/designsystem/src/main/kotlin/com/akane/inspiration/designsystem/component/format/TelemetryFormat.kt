@@ -8,6 +8,9 @@ import androidx.compose.ui.res.stringResource
 import com.akane.inspiration.designsystem.R
 import java.math.RoundingMode
 import java.text.NumberFormat
+import java.time.Instant
+import java.time.ZoneId
+import java.time.format.DateTimeFormatter
 import java.util.Locale
 import kotlin.math.abs
 
@@ -17,8 +20,20 @@ const val MINUS_SIGN: Char = '−'
 /** Shown instead of a number when a reading is unavailable. */
 const val NO_VALUE: String = "—"
 
+/**
+ * No-break space (U+00A0). It joins a number to its unit and the parts of a date-time, so "4410 mV" and
+ * "17 Oct 00:00" never wrap between their halves.
+ */
+const val NBSP: Char = ' '
+
 private const val MS_PER_MINUTE = 60_000L
 private const val MINUTES_PER_HOUR = 60L
+private const val DATE_PATTERN = "d MMM"
+private const val TIME_PATTERN = "HH:mm"
+
+// Between the two ends of a range that cannot be collapsed: a no-break space before the dash keeps it with the
+// first end, and the plain space after it is the one place the range may wrap.
+private const val RANGE_SEPARATOR = "$NBSP– "
 
 /** The unit strings [TelemetryFormat] needs. Resolved from `strings_format.xml` by [rememberTelemetryFormat]. */
 @Immutable
@@ -47,10 +62,10 @@ data class TelemetryUnits(
     }
 }
 
-/** A number and the unit that goes with it; [text] joins them ("45 °C"). */
+/** A number and the unit that goes with it; [text] joins them with a no-break space ("45 °C"). */
 @Immutable
 data class FormattedValue(val value: String, val unit: String) {
-    val text: String get() = if (unit.isEmpty()) value else "$value $unit"
+    val text: String get() = if (unit.isEmpty()) value else "$value$NBSP$unit"
 
     override fun toString(): String = text
 }
@@ -89,20 +104,51 @@ data class TelemetryFormat(val locale: Locale, val units: TelemetryUnits) {
         FormattedValue(number(value, decimals = 0), units.milliampHoursPerHour)
 
     /**
-     * "1 h 05 min" (en) / "1 sa 05 dk" (tr). Whole minutes, truncated; under an hour it is just "45 min".
-     * A negative duration gets [MINUS_SIGN].
+     * "1 h 05 min" (en) / "1 sa 05 dk" (tr), joined with no-break spaces. Whole minutes, truncated; under an hour
+     * it is just "45 min". A negative duration gets [MINUS_SIGN].
      */
     fun duration(durationMs: Long): String {
         val totalMinutes = abs(durationMs) / MS_PER_MINUTE
         val hours = totalMinutes / MINUTES_PER_HOUR
         val minutes = totalMinutes % MINUTES_PER_HOUR
         val body = if (hours > 0) {
-            "${number(hours.toDouble())} ${units.hour} ${twoDigits(minutes)} ${units.minute}"
+            "${number(hours.toDouble())}$NBSP${units.hour}$NBSP${twoDigits(minutes)}$NBSP${units.minute}"
         } else {
-            "${number(minutes.toDouble())} ${units.minute}"
+            "${number(minutes.toDouble())}$NBSP${units.minute}"
         }
         return if (durationMs < 0 && totalMinutes > 0) MINUS_SIGN + body else body
     }
+
+    /** "16 Oct" (en) / "16 Eki" (tr) in [zone]. */
+    fun date(epochMs: Long, zone: ZoneId = ZoneId.systemDefault()): String = formatWith(DATE_PATTERN, epochMs, zone)
+
+    /** "13:30" in [zone]. */
+    fun time(epochMs: Long, zone: ZoneId = ZoneId.systemDefault()): String = formatWith(TIME_PATTERN, epochMs, zone)
+
+    /** "16 Oct 13:30": the one date-time style (the chart's), joined with no-break spaces so it never wraps inside. */
+    fun dateTime(epochMs: Long, zone: ZoneId = ZoneId.systemDefault()): String =
+        "${date(epochMs, zone)}$NBSP${time(epochMs, zone)}"
+
+    /**
+     * A time range in the same style. A repeated date collapses ("2 Mar 08:00–14:00"); across days both ends keep
+     * theirs ("2 Mar 23:00 – 3 Mar 02:00"); equal ends are one date-time. The ends may come in either order.
+     */
+    fun range(startMs: Long, endMs: Long, zone: ZoneId = ZoneId.systemDefault()): String {
+        val first = minOf(startMs, endMs)
+        val last = maxOf(startMs, endMs)
+        return when {
+            first == last -> dateTime(first, zone)
+            sameDay(first, last, zone) -> "${dateTime(first, zone)}–${time(last, zone)}"
+            else -> "${dateTime(first, zone)}$RANGE_SEPARATOR${dateTime(last, zone)}"
+        }
+    }
+
+    private fun sameDay(aMs: Long, bMs: Long, zone: ZoneId): Boolean =
+        Instant.ofEpochMilli(aMs).atZone(zone).toLocalDate() == Instant.ofEpochMilli(bMs).atZone(zone).toLocalDate()
+
+    private fun formatWith(pattern: String, epochMs: Long, zone: ZoneId): String =
+        DateTimeFormatter.ofPattern(pattern, locale).withZone(zone).format(Instant.ofEpochMilli(epochMs))
+            .replace(' ', NBSP)
 
     private fun numberFormat(decimals: Int): NumberFormat =
         NumberFormat.getNumberInstance(locale).apply {

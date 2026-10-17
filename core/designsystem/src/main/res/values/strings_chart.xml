@@ -13,17 +13,12 @@
     <!-- Hypnogram stage names -->
     <string name="chart_stage_awake">Awake</string>
     <string name="chart_stage_maintenance">Maintenance</string>
-    <string name="chart_stage_light_idle">Light idle</string>
+    <string name="chart_stage_light_idle">Light doze</string>
     <string name="chart_stage_deep_idle">Deep doze</string>
 
     <!-- Empty state and actions -->
     <string name="chart_empty">No data for this period</string>
     <string name="chart_clear_selection">Clear selection</string>
-
-    <!-- Durations: %1$d hours, %2$d minutes -->
-    <string name="chart_duration_hours_minutes">%1$d h %2$d min</string>
-    <string name="chart_duration_hours">%1$d h</string>
-    <string name="chart_duration_minutes">%1$d min</string>
 
     <!-- Readout row: values at the cursor, selection summary, window summary -->
     <string name="chart_readout_battery">Battery %1$d%%</string>

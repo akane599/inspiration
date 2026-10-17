@@ -7,13 +7,13 @@ import com.android.tools.screenshot.PreviewTest
 // Rendered on the JVM: ./gradlew :core:designsystem:updateDebugScreenshotTest (write refs) / validateDebugScreenshotTest (diff)
 // Heights are explicit: the renderer caps unspecified heights, which clipped the sheets.
 
-@PreviewTest @Preview(name = "dark", showBackground = true, widthDp = 412, heightDp = 880)
+@PreviewTest @Preview(name = "dark", showBackground = true, widthDp = 412, heightDp = 1080)
 @Composable fun TokenColorsDark() = InspirationTheme(darkTheme = true) { TokenSheetColors() }
 
-@PreviewTest @Preview(name = "light", showBackground = true, widthDp = 412, heightDp = 880)
+@PreviewTest @Preview(name = "light", showBackground = true, widthDp = 412, heightDp = 1080)
 @Composable fun TokenColorsLight() = InspirationTheme(darkTheme = false) { TokenSheetColors() }
 
-@PreviewTest @Preview(name = "large-font", showBackground = true, widthDp = 412, heightDp = 1200, fontScale = 1.5f)
+@PreviewTest @Preview(name = "large-font", showBackground = true, widthDp = 412, heightDp = 1500, fontScale = 1.5f)
 @Composable fun TokenColorsLargeFont() = InspirationTheme(darkTheme = true) { TokenSheetColors() }
 
 @PreviewTest @Preview(name = "dark", showBackground = true, widthDp = 412, heightDp = 1450)

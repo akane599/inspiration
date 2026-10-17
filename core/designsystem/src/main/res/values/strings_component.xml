@@ -3,6 +3,7 @@
     <!-- LiveGauge -->
     <string name="gauge_charging">Charging</string>
     <string name="gauge_discharging">Discharging</string>
+    <string name="gauge_no_reading">No reading</string>
     <string name="gauge_label_power">Power</string>
     <string name="gauge_label_voltage">Voltage</string>
     <string name="gauge_label_temperature">Temperature</string>
@@ -11,4 +12,6 @@
     <string name="slice_requested">Requested</string>
     <string name="slice_covered">Covered</string>
     <string name="slice_clear">Clear</string>
+    <!-- No data inside the requested range: %1$s the gap length ("25 min"), %2$s where it is ("2 Mar 08:00–08:25") -->
+    <string name="slice_gap">No data for %1$s at %2$s</string>
 </resources>

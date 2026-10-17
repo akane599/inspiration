@@ -35,6 +35,7 @@ fun InspirationTheme(
     }
     CompositionLocalProvider(
         LocalTelemetryColors provides if (darkTheme) DarkTelemetryColors else LightTelemetryColors,
+        LocalStatusColors provides if (darkTheme) DarkStatusColors else LightStatusColors,
         LocalNumericTypography provides InspirationNumericTypography,
         LocalSpacing provides Spacing(),
     ) {

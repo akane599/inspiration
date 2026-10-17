@@ -87,14 +87,4 @@ class HypnogramMathTest {
         )
         assertEquals(800L, totals[HypnogramStage.DEEP_IDLE.ordinal])
     }
-
-    @Test
-    fun hoursAndMinutesRoundToTheNearestMinute() {
-        assertEquals(0 to 0, hoursAndMinutes(0L))
-        assertEquals(0 to 1, hoursAndMinutes(30_000L))
-        assertEquals(0 to 0, hoursAndMinutes(29_999L))
-        assertEquals(5 to 12, hoursAndMinutes((5 * 60 + 12) * 60_000L))
-        assertEquals(2 to 0, hoursAndMinutes((119 * 60_000L) + 45_000L))
-        assertEquals(0 to 0, hoursAndMinutes(-5_000L))
-    }
 }

@@ -23,6 +23,7 @@ import androidx.compose.ui.platform.LocalInspectionMode
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import com.akane.inspiration.designsystem.theme.spacing
+import com.akane.inspiration.designsystem.theme.statusColors
 import com.akane.inspiration.designsystem.theme.telemetryColors
 
 /** State of the Shizuku connection, as a status indicator shows it. */
@@ -48,9 +49,10 @@ fun ShizukuPulse(
     modifier: Modifier = Modifier,
 ) {
     val telemetry = MaterialTheme.telemetryColors
+    val hues = MaterialTheme.statusColors
     val color = when (status) {
-        PulseStatus.ACTIVE -> telemetry.deepSleep
-        PulseStatus.CONNECTING -> telemetry.awake
+        PulseStatus.ACTIVE -> hues.ok
+        PulseStatus.CONNECTING -> hues.warning
         PulseStatus.BLOCKED -> telemetry.critical
     }
     val pulsing = status == PulseStatus.ACTIVE && !rememberReducedMotion() && !LocalInspectionMode.current

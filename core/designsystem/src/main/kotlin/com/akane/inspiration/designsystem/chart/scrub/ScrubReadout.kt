@@ -18,6 +18,7 @@ import com.akane.inspiration.designsystem.chart.model.ScrubChartData
 import com.akane.inspiration.designsystem.chart.model.SeriesKind
 import com.akane.inspiration.designsystem.chart.model.TimePoint
 import com.akane.inspiration.designsystem.chart.model.TimeRange
+import com.akane.inspiration.designsystem.component.format.rememberTelemetryFormat
 import com.akane.inspiration.designsystem.theme.numericTypography
 import com.akane.inspiration.designsystem.theme.spacing
 import java.time.ZoneId
@@ -118,12 +119,4 @@ internal fun rangeText(range: TimeRange, zone: ZoneId, withDate: Boolean, locale
     )
 
 @Composable
-internal fun durationText(durationMs: Long): String {
-    val parts = splitDuration(durationMs)
-    return when {
-        parts.hours > 0 && parts.minutes > 0 ->
-            stringResource(R.string.chart_duration_hours_minutes, parts.hours, parts.minutes)
-        parts.hours > 0 -> stringResource(R.string.chart_duration_hours, parts.hours)
-        else -> stringResource(R.string.chart_duration_minutes, parts.minutes)
-    }
-}
+internal fun durationText(durationMs: Long): String = rememberTelemetryFormat().duration(durationMs)

@@ -5,7 +5,6 @@ import com.akane.inspiration.designsystem.chart.model.HypnogramStage
 import com.akane.inspiration.designsystem.chart.model.StageSegment
 import com.akane.inspiration.designsystem.chart.model.TimeRange
 
-private const val MINUTE_MS = 60_000L
 
 /**
  * Clips every segment accepted by [include] to [window] and merges overlapping or touching pieces.
@@ -61,10 +60,4 @@ internal fun stageDurationsMs(data: HypnogramData): LongArray {
         totals[stage.ordinal] = unionWithin(data.window, data.segments) { it.stage == stage }.sumOf { it.durationMs }
     }
     return totals
-}
-
-/** Whole hours and remaining minutes of [durationMs], rounded to the nearest minute. */
-internal fun hoursAndMinutes(durationMs: Long): Pair<Int, Int> {
-    val totalMinutes = ((durationMs.coerceAtLeast(0L) + MINUTE_MS / 2) / MINUTE_MS).toInt()
-    return totalMinutes / 60 to totalMinutes % 60
 }

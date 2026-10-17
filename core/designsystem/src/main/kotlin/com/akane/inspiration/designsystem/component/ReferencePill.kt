@@ -27,7 +27,7 @@ fun ReferencePill(
         trailingIcon = {
             Text(
                 text = DROPDOWN_GLYPH,
-                style = MaterialTheme.typography.labelLarge,
+                style = MaterialTheme.typography.titleMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.clearAndSetSemantics {},
             )

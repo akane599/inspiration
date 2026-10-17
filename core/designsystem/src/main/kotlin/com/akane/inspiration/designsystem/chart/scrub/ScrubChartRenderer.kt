@@ -33,6 +33,7 @@ import com.akane.inspiration.designsystem.chart.model.ScrubChartData
 import com.akane.inspiration.designsystem.chart.model.SeriesKind
 import com.akane.inspiration.designsystem.chart.model.TimePoint
 import com.akane.inspiration.designsystem.chart.model.TimeRange
+import com.akane.inspiration.designsystem.component.format.NBSP
 import java.time.ZoneId
 import java.util.Locale
 
@@ -71,11 +72,16 @@ internal class ValueAxisLabels(
 
 internal const val BATTERY_LABEL_COUNT = 3
 
-internal fun measureValueAxisLabels(measurer: TextMeasurer, style: TextStyle, temperature: ValueAxis?): ValueAxisLabels {
+internal fun measureValueAxisLabels(
+    measurer: TextMeasurer,
+    style: TextStyle,
+    temperature: ValueAxis?,
+    temperatureUnit: String = "°C",
+): ValueAxisLabels {
     fun measure(text: String) = measurer.measure(text, style, maxLines = 1, softWrap = false)
     val battery = listOf("0%", "50%", "100%").map(::measure)
     val temp = temperature?.let { axis ->
-        listOf(axis.min, axis.mid, axis.max).map { measure("${it.toInt()}°") }
+        listOf(axis.min, axis.mid, axis.max).map { measure("${it.toInt()}$NBSP$temperatureUnit") }
     }.orEmpty()
     return ValueAxisLabels(
         battery = battery,

@@ -32,12 +32,12 @@ fun ComponentSheet() {
             Text("Components", style = MaterialTheme.typography.titleLarge)
 
             InspirationCard(modifier = Modifier.fillMaxWidth()) {
-                Text("Battery level", style = MaterialTheme.typography.labelLarge)
+                CardTitle("Battery level")
                 MetricValue(value = "87", unit = "%", style = MaterialTheme.numericTypography.display)
             }
 
             InspirationCard(modifier = Modifier.fillMaxWidth(), onClick = {}) {
-                Text("Tappable card", style = MaterialTheme.typography.labelLarge)
+                CardTitle("Tappable card")
                 FlowRow(
                     horizontalArrangement = Arrangement.spacedBy(MaterialTheme.spacing.lg),
                     verticalArrangement = Arrangement.spacedBy(MaterialTheme.spacing.sm),
@@ -50,7 +50,7 @@ fun ComponentSheet() {
             }
 
             InspirationCard(modifier = Modifier.fillMaxWidth()) {
-                Text("Semantic dots", style = MaterialTheme.typography.labelLarge)
+                CardTitle("Semantic dots")
                 Row(
                     horizontalArrangement = Arrangement.spacedBy(MaterialTheme.spacing.md),
                     verticalAlignment = Alignment.CenterVertically,
@@ -65,7 +65,7 @@ fun ComponentSheet() {
             }
 
             InspirationCard(modifier = Modifier.fillMaxWidth()) {
-                Text("Legend", style = MaterialTheme.typography.labelLarge)
+                CardTitle("Legend")
                 LegendRow(
                     items = persistentListOf(
                         LegendItem(telemetry.screenOn, "Screen on"),

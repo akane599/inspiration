@@ -97,17 +97,6 @@ class ScrubChartMathTest {
     }
 
     @Test
-    fun `splitDuration rounds to the nearest minute and carries into hours`() {
-        val parts = splitDuration(89 * 60_000L + 40_000L)
-        assertEquals(1, parts.hours)
-        assertEquals(30, parts.minutes)
-        val carry = splitDuration(59 * 60_000L + 40_000L)
-        assertEquals(1, carry.hours)
-        assertEquals(0, carry.minutes)
-        assertEquals(0, splitDuration(-5).hours)
-    }
-
-    @Test
     fun `window flags flip at one and two days`() {
         val day = 24 * 3_600_000L
         assertFalse(TimeRange.of(0, day - 1).spansDays())
