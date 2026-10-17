@@ -23,6 +23,7 @@ import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.translate
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalResources
 import androidx.compose.ui.semantics.contentDescription
@@ -42,6 +43,7 @@ import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import com.akane.inspiration.designsystem.R
 import com.akane.inspiration.designsystem.chart.draw.AxisStyle
+import com.akane.inspiration.designsystem.chart.draw.SELECTION_DIM_ALPHA
 import com.akane.inspiration.designsystem.chart.draw.TimeTick
 import com.akane.inspiration.designsystem.chart.draw.drawTimeAxis
 import com.akane.inspiration.designsystem.chart.math.TimeScale
@@ -57,8 +59,8 @@ import java.time.format.DateTimeFormatter
 import java.util.Locale
 import kotlin.math.abs
 
-private const val MAINTENANCE_ALPHA = 0.7f
-private const val DIM_ALPHA = 0.55f
+private const val MAINTENANCE_ALPHA_DARK = 0.7f
+private const val MAINTENANCE_ALPHA_LIGHT = 0.85f
 private const val GAP_HATCH_ALPHA = 0.45f
 private const val CONNECTOR_ALPHA = 0.5f
 
@@ -126,11 +128,12 @@ fun SleepHypnogram(
     val telemetry = MaterialTheme.telemetryColors
     val scheme = MaterialTheme.colorScheme
     val textMeasurer = rememberTextMeasurer()
-    val palette = remember(telemetry, scheme.background, scheme.onSurface) {
+    val palette = remember(telemetry, scheme.background, scheme.surfaceContainer, scheme.onSurface) {
+        val maintenanceAlpha = if (scheme.background.luminance() < 0.5f) MAINTENANCE_ALPHA_DARK else MAINTENANCE_ALPHA_LIGHT
         HypnogramPalette(
             stage = arrayOf(
                 telemetry.awake,
-                telemetry.awake.copy(alpha = MAINTENANCE_ALPHA),
+                telemetry.awake.copy(alpha = maintenanceAlpha),
                 telemetry.lightSleep,
                 telemetry.deepSleep,
             ),
@@ -139,7 +142,7 @@ fun SleepHypnogram(
             connector = telemetry.chartAxisLabel.copy(alpha = CONNECTOR_ALPHA),
             gapHatch = telemetry.chartAxisLabel.copy(alpha = GAP_HATCH_ALPHA),
             label = telemetry.chartAxisLabel,
-            dim = scheme.background.copy(alpha = DIM_ALPHA),
+            dim = scheme.surfaceContainer.copy(alpha = SELECTION_DIM_ALPHA),
             cursor = scheme.onSurface,
         )
     }

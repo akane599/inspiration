@@ -110,7 +110,8 @@ class ScrubChartMathTest {
     @Test
     fun `window flags flip at one and two days`() {
         val day = 24 * 3_600_000L
-        assertFalse(TimeRange.of(0, day).spansDays())
+        assertFalse(TimeRange.of(0, day - 1).spansDays())
+        assertTrue("an exact 24 h window shows dates", TimeRange.of(0, day).spansDays())
         assertTrue(TimeRange.of(0, day + 1).spansDays())
         assertFalse(TimeRange.of(0, 2 * day).usesDateTicks())
         assertTrue(TimeRange.of(0, 2 * day + 1).usesDateTicks())

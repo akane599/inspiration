@@ -25,7 +25,6 @@ internal object ScrubChartMetrics {
     val TickLength = 4.dp
     val HandleHit = 48.dp
     val GestureExclusionMax = 200.dp
-    const val SCRIM_ALPHA = 0.6f
     const val DIM_FADE_MS = 150
 }
 

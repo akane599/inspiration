@@ -21,6 +21,7 @@ import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.drawText
 import androidx.compose.ui.unit.Dp
 import com.akane.inspiration.designsystem.chart.draw.AxisStyle
+import com.akane.inspiration.designsystem.chart.draw.SELECTION_DIM_ALPHA
 import com.akane.inspiration.designsystem.chart.draw.TimeTick
 import com.akane.inspiration.designsystem.chart.draw.drawTimeAxis
 import com.akane.inspiration.designsystem.chart.math.TimeScale
@@ -116,7 +117,8 @@ internal fun CacheDrawScope.buildScrubRenderer(c: ScrubRenderConfig): ScrubRende
     val plotHeight = ScrubChartMetrics.PlotHeight.toPx()
     val laneHeight = ScrubChartMetrics.LaneHeight.toPx()
     val laneGap = c.laneGap.toPx()
-    val inset = (ScrubChartMetrics.MarkerRadius + ScrubChartMetrics.MarkerRing).toPx()
+    // The top inset also holds the selection handle (centered on it), so it must clear the handle's ring.
+    val inset = (maxOf(ScrubChartMetrics.MarkerRadius, ScrubChartMetrics.HandleRadius) + ScrubChartMetrics.MarkerRing).toPx()
     val innerHeight = plotHeight - 2f * inset
     val plotWidth = (size.width - c.gutters.leftPx - c.gutters.rightPx).coerceAtLeast(1f)
     val scale = TimeScale(c.data.window, plotWidth)
@@ -321,7 +323,7 @@ internal class ScrubRenderer(
         val xs = scale.toX(startMs).coerceIn(0f, plotWidth)
         val xe = scale.toX(endMs).coerceIn(0f, plotWidth)
         if (progress > 0f) {
-            val scrim = palette.surface.copy(alpha = ScrubChartMetrics.SCRIM_ALPHA * progress)
+            val scrim = palette.surface.copy(alpha = SELECTION_DIM_ALPHA * progress)
             drawRect(scrim, Offset.Zero, Size(xs, lanesBottom))
             drawRect(scrim, Offset(xe, 0f), Size(plotWidth - xe, lanesBottom))
         }
@@ -330,8 +332,9 @@ internal class ScrubRenderer(
     }
 
     private fun DrawScope.drawEdge(x: Float) {
-        drawLine(palette.accent, Offset(x, 0f), Offset(x, lanesBottom), edgeWidth)
-        val center = Offset(x, plotHeight / 2f)
+        // The handle caps the top end of the edge line, in the plot's top inset, clear of the series lines.
+        drawLine(palette.accent, Offset(x, inset), Offset(x, lanesBottom), edgeWidth)
+        val center = Offset(x, inset)
         drawCircle(palette.surface, handleRadius + markerRing, center)
         drawCircle(palette.accent, handleRadius, center)
     }

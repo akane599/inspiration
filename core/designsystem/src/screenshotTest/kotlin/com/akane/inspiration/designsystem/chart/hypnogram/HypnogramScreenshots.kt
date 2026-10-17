@@ -21,6 +21,12 @@ private val Cursor = nightMs(195)
 @PreviewTest @Preview(name = "large-font", showBackground = true, widthDp = 412, heightDp = 270, fontScale = 1.5f)
 @Composable fun HypnogramLargeFont() = InspirationTheme(darkTheme = true) { HypnogramSheet(syntheticNight()) }
 
+@PreviewTest @Preview(name = "narrow-360", showBackground = true, widthDp = 360, heightDp = 240)
+@Composable fun HypnogramNarrow() = InspirationTheme(darkTheme = true) { HypnogramSheet(syntheticNight()) }
+
+@PreviewTest @Preview(name = "narrow-360-large-font", showBackground = true, widthDp = 360, heightDp = 290, fontScale = 1.5f)
+@Composable fun HypnogramNarrowLargeFont() = InspirationTheme(darkTheme = true) { HypnogramSheet(syntheticNight()) }
+
 @PreviewTest @Preview(name = "wide", showBackground = true, widthDp = 840, heightDp = 240)
 @Composable fun HypnogramWide() = InspirationTheme(darkTheme = true) { HypnogramSheet(syntheticNight()) }
 

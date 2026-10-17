@@ -6,6 +6,10 @@
     <string name="chart_lane_awake">Uyanık</string>
     <string name="chart_lane_charging">Şarj oluyor</string>
 
+    <!-- Series names (legend) -->
+    <string name="chart_series_battery">Pil</string>
+    <string name="chart_series_temperature">Sıcaklık</string>
+
     <!-- Hypnogram stage names -->
     <string name="chart_stage_awake">Uyanık</string>
     <string name="chart_stage_maintenance">Bakım</string>

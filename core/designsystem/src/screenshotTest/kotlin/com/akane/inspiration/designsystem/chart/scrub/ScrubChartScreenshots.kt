@@ -42,26 +42,32 @@ private fun ScrubChartSheet(
     }
 }
 
-@PreviewTest @Preview(name = "dark", showBackground = true, widthDp = 412, heightDp = 400)
+@PreviewTest @Preview(name = "dark", showBackground = true, widthDp = 412, heightDp = 448)
 @Composable fun ScrubChartDark() = ScrubChartSheet(darkTheme = true)
 
-@PreviewTest @Preview(name = "light", showBackground = true, widthDp = 412, heightDp = 400)
+@PreviewTest @Preview(name = "light", showBackground = true, widthDp = 412, heightDp = 448)
 @Composable fun ScrubChartLight() = ScrubChartSheet(darkTheme = false)
 
-@PreviewTest @Preview(name = "large-font", showBackground = true, widthDp = 412, heightDp = 452, fontScale = 1.5f)
+@PreviewTest @Preview(name = "large-font", showBackground = true, widthDp = 412, heightDp = 540, fontScale = 1.5f)
 @Composable fun ScrubChartLargeFont() = ScrubChartSheet(darkTheme = true)
+
+@PreviewTest @Preview(name = "narrow-360", showBackground = true, widthDp = 360, heightDp = 480)
+@Composable fun ScrubChartNarrow() = ScrubChartSheet(darkTheme = true)
+
+@PreviewTest @Preview(name = "narrow-360-large-font", showBackground = true, widthDp = 360, heightDp = 600, fontScale = 1.5f)
+@Composable fun ScrubChartNarrowLargeFont() = ScrubChartSheet(darkTheme = true)
 
 @PreviewTest @Preview(name = "wide-840", showBackground = true, widthDp = 840, heightDp = 400)
 @Composable fun ScrubChartWide() = ScrubChartSheet(darkTheme = true)
 
-@PreviewTest @Preview(name = "selection-dark", showBackground = true, widthDp = 412, heightDp = 400)
+@PreviewTest @Preview(name = "selection-dark", showBackground = true, widthDp = 412, heightDp = 448)
 @Composable fun ScrubChartSelectionDark() = ScrubChartSheet(darkTheme = true, selection = ScrubPreviewData.selection)
 
-@PreviewTest @Preview(name = "selection-light", showBackground = true, widthDp = 412, heightDp = 400)
+@PreviewTest @Preview(name = "selection-light", showBackground = true, widthDp = 412, heightDp = 448)
 @Composable fun ScrubChartSelectionLight() = ScrubChartSheet(darkTheme = false, selection = ScrubPreviewData.selection)
 
-@PreviewTest @Preview(name = "cursor", showBackground = true, widthDp = 412, heightDp = 400)
+@PreviewTest @Preview(name = "cursor", showBackground = true, widthDp = 412, heightDp = 448)
 @Composable fun ScrubChartCursor() = ScrubChartSheet(darkTheme = true, fixedCursorMs = ScrubPreviewData.cursorMs)
 
-@PreviewTest @Preview(name = "empty", showBackground = true, widthDp = 412, heightDp = 400)
+@PreviewTest @Preview(name = "empty", showBackground = true, widthDp = 412, heightDp = 448)
 @Composable fun ScrubChartEmpty() = ScrubChartSheet(darkTheme = true, data = ScrubPreviewData.empty)
