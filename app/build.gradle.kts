@@ -39,6 +39,8 @@ dependencies {
     implementation(project(":feature:health"))
     implementation(project(":feature:toolkit"))
     implementation(project(":core:shizuku-ipc"))
+    implementation(project(":core:telemetry-engine"))
+    implementation(project(":core:database"))
     implementation(libs.hiddenapibypass)
 
     implementation(libs.androidx.core.ktx)
@@ -52,7 +54,6 @@ dependencies {
     implementation(libs.androidx.compose.material3)
     implementation(libs.kotlinx.collections.immutable)
     debugImplementation(libs.androidx.compose.ui.tooling)
-    debugImplementation(project(":core:telemetry-engine"))
     debugImplementation(libs.shizuku.api)
 
     testImplementation(libs.junit)

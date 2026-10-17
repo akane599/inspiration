@@ -7,15 +7,18 @@ import android.content.IntentFilter
 import android.os.BatteryManager
 import android.os.ParcelFileDescriptor
 import android.os.SystemClock
+import android.database.sqlite.SQLiteDatabase
 import android.util.Log
 import com.akane.inspiration.InspirationApplication
 import com.akane.inspiration.ipc.ShizukuState
 import com.akane.inspiration.ipc.client.BatteryStatsClient
-import com.akane.inspiration.ipc.client.BinderResult
-import com.akane.inspiration.ipc.client.PowerManagerClient
 import com.akane.inspiration.ipc.model.DumpTarget
 import com.akane.inspiration.telemetry.calibration.CalibrationInput
 import com.akane.inspiration.telemetry.calibration.PowerCalibrator
+import com.akane.inspiration.telemetry.diff.ReferenceKind
+import com.akane.inspiration.telemetry.diff.ReferenceResolver
+import com.akane.inspiration.telemetry.diff.SnapshotDiffer
+import com.akane.inspiration.telemetry.snapshot.CaptureTrigger
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.TimeoutCancellationException
@@ -33,7 +36,7 @@ class ProbeReceiver : BroadcastReceiver() {
         intent: Intent,
     ) {
         val action = intent.action ?: return
-        if (action !in setOf(ACTION_PROBE, ACTION_REQUEST_PERMISSION)) return
+        if (action !in setOf(ACTION_PROBE, ACTION_PROBE_CAPTURE, ACTION_PROBE_DIFF, ACTION_REQUEST_PERMISSION)) return
 
         val pendingResult = goAsync()
         CoroutineScope(Dispatchers.IO).launch {
@@ -41,6 +44,8 @@ class ProbeReceiver : BroadcastReceiver() {
                 withTimeout(PROBE_TIMEOUT_MS) {
                     when (action) {
                         ACTION_PROBE -> runProbe(context.applicationContext)
+                        ACTION_PROBE_CAPTURE -> probeCapture(context.applicationContext)
+                        ACTION_PROBE_DIFF -> probeDiff(context.applicationContext, intent)
                         ACTION_REQUEST_PERMISSION -> requestPermission(context.applicationContext)
                     }
                 }
@@ -121,12 +126,15 @@ class ProbeReceiver : BroadcastReceiver() {
                 ),
             )
 
+            val usageStartedAt = SystemClock.elapsedRealtime()
             val usage = service.readBatteryUsage(0L)
+            val usageElapsedMs = SystemClock.elapsedRealtime() - usageStartedAt
             log(
                 JSONObject().put(
                     "usage",
                     JSONObject()
                         .put("available", usage.available)
+                        .put("userServiceMs", usageElapsedMs)
                         .putNullable("reason", usage.reason)
                         .put("dischargedMah", usage.dischargedPowerMah)
                         .put(
@@ -232,6 +240,81 @@ class ProbeReceiver : BroadcastReceiver() {
         }
     }
 
+    private suspend fun probeCapture(context: Context) {
+        val app = context as InspirationApplication
+        val result = app.appContainer.capturer.captureFull(
+            trigger = CaptureTrigger.MARKER,
+            deadlineMs = PROBE_TIMEOUT_MS,
+            ingestHistory = true,
+        )
+        val latest = app.appContainer.store.latest()
+        log(
+            JSONObject().put(
+                "capture",
+                JSONObject()
+                    .put("result", result.javaClass.simpleName)
+                    .putNullable("snapshotId", latest?.id)
+                    .putNullable("kind", latest?.kind?.name)
+                    .putNullable("trigger", latest?.trigger?.name)
+                    .putNullable("wallMs", latest?.clock?.wallMs),
+            ),
+        )
+        logJournalMode(app)
+    }
+
+    private suspend fun probeDiff(context: Context, intent: Intent) {
+        val app = context as InspirationApplication
+        val store = app.appContainer.store
+        val latest = store.latest()
+        if (latest == null) {
+            log(JSONObject().put("diff", JSONObject().put("available", false).put("reason", "no_snapshots")))
+            return
+        }
+        val reference = intent.getStringExtra(EXTRA_REFERENCE_KIND)
+            ?.let(::referenceKind)
+            ?.let { ReferenceResolver(store).resolve(it, latest.clock.wallMs)?.let { resolved -> resolved.ref to resolved.now } }
+            ?: store.lastAtOrBefore(latest.clock.wallMs - 1, null)?.let { it to latest }
+        if (reference == null) {
+            log(JSONObject().put("diff", JSONObject().put("available", false).put("reason", "no_reference")))
+            return
+        }
+        val diff = SnapshotDiffer.diff(reference.first, reference.second)
+        log(
+            JSONObject().put(
+                "diff",
+                JSONObject()
+                    .put("available", true)
+                    .put("reference", intent.getStringExtra(EXTRA_REFERENCE_KIND) ?: "latest_two")
+                    .put("durationMs", diff.durationMs)
+                    .put("batteryStatsValid", diff.validity.batteryStats)
+                    .put("kernelCountersValid", diff.validity.kernelCounters)
+                    .put("problems", JSONArray(diff.validity.problems)),
+            ),
+        )
+        logJournalMode(app)
+    }
+
+    private fun referenceKind(value: String): ReferenceKind? = when (value) {
+        "since_unplugged" -> ReferenceKind.SinceUnplugged
+        "since_screen_off" -> ReferenceKind.SinceScreenOff
+        "screen_on_session" -> ReferenceKind.ScreenOnSession
+        "last_24h" -> ReferenceKind.Last24h
+        else -> null
+    }
+
+    private fun logJournalMode(app: InspirationApplication) {
+        SQLiteDatabase.openDatabase(
+            app.getDatabasePath(DATABASE_NAME).path,
+            null,
+            SQLiteDatabase.OPEN_READONLY,
+        ).use { database ->
+            database.rawQuery("PRAGMA journal_mode", null).use { cursor ->
+                val mode = if (cursor.moveToFirst()) cursor.getString(0) else null
+                log(JSONObject().put("database", JSONObject().putNullable("journalMode", mode)))
+            }
+        }
+    }
+
     private fun requestPermission(context: Context) {
         val manager = (context as InspirationApplication).appContainer.shizukuManager
         manager.start()
@@ -244,12 +327,10 @@ class ProbeReceiver : BroadcastReceiver() {
     private fun readInProcess(): JSONObject {
         val startedAt = SystemClock.elapsedRealtime()
         val usage = BatteryStatsClient(binderSource = { shizukuSystemService(BATTERY_STATS_SERVICE) }).readUsage(0L)
-        val idle = PowerManagerClient { shizukuSystemService(POWER_SERVICE) }.readIdleFlags()
-        val idleFailure = idle as? BinderResult.Failed
         return JSONObject()
-            .put("available", usage.available && idleFailure == null)
-            .putNullable("reason", usage.reason ?: idleFailure?.reason)
-            .put("ms", SystemClock.elapsedRealtime() - startedAt)
+            .put("available", usage.available)
+            .putNullable("reason", usage.reason)
+            .put("inProcessMs", SystemClock.elapsedRealtime() - startedAt)
     }
 
     private fun shizukuSystemService(name: String) = SystemServiceHelper.getSystemService(name)?.let(::ShizukuBinderWrapper)
@@ -332,9 +413,12 @@ class ProbeReceiver : BroadcastReceiver() {
 
     private companion object {
         const val ACTION_PROBE = "com.akane.inspiration.debug.PROBE"
+        const val ACTION_PROBE_CAPTURE = "com.akane.inspiration.debug.PROBE_CAPTURE"
+        const val ACTION_PROBE_DIFF = "com.akane.inspiration.debug.PROBE_DIFF"
         const val ACTION_REQUEST_PERMISSION = "com.akane.inspiration.debug.PROBE_REQUEST_PERMISSION"
+        const val EXTRA_REFERENCE_KIND = "reference_kind"
         const val BATTERY_STATS_SERVICE = "batterystats"
-        const val POWER_SERVICE = "power"
+        const val DATABASE_NAME = "inspiration.db"
         const val MAX_DUMP_BYTES = 4 * 1024 * 1024
         const val MAX_HISTORY_EVENTS = 4096
         const val PROBE_TIMEOUT_MS = 10_000L

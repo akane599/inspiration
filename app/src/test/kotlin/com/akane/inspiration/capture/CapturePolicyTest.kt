@@ -1,0 +1,56 @@
+package com.akane.inspiration.capture
+
+import android.content.Intent
+import com.akane.inspiration.telemetry.snapshot.CaptureTrigger
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
+import org.junit.Test
+
+class CapturePolicyTest {
+    @Test
+    fun `screen broadcasts always take synchronous light plan`() {
+        assertEquals(
+            CapturePlan.Light(CaptureTrigger.SCREEN_ON),
+            CapturePolicy.forBroadcast(Intent.ACTION_SCREEN_ON, serviceWarm = false),
+        )
+        assertEquals(
+            CapturePlan.Light(CaptureTrigger.SCREEN_OFF),
+            CapturePolicy.forBroadcast(Intent.ACTION_SCREEN_OFF, serviceWarm = true),
+        )
+    }
+
+    @Test
+    fun `power broadcast is full only when telemetry service is warm`() {
+        assertEquals(
+            CapturePlan.Full(CaptureTrigger.POWER_CONNECTED, CapturePolicy.BROADCAST_FULL_DEADLINE_MS),
+            CapturePolicy.forBroadcast(Intent.ACTION_POWER_CONNECTED, serviceWarm = true),
+        )
+        assertEquals(
+            CapturePlan.Light(CaptureTrigger.POWER_CONNECTED),
+            CapturePolicy.forBroadcast(Intent.ACTION_POWER_CONNECTED, serviceWarm = false),
+        )
+    }
+
+    @Test
+    fun `unknown broadcasts are ignored`() {
+        assertNull(CapturePolicy.forBroadcast("unknown", serviceWarm = true))
+    }
+
+    @Test
+    fun `charge job runs once per observed plug session`() {
+        assertTrue(CapturePolicy.chargeJobShouldRun(lastPluggedWallMs = null, lastChargeJobWallMs = null))
+        assertFalse(CapturePolicy.chargeJobShouldRun(lastPluggedWallMs = null, lastChargeJobWallMs = 10L))
+        assertTrue(CapturePolicy.chargeJobShouldRun(lastPluggedWallMs = 100L, lastChargeJobWallMs = null))
+        assertTrue(CapturePolicy.chargeJobShouldRun(lastPluggedWallMs = 100L, lastChargeJobWallMs = 99L))
+        assertFalse(CapturePolicy.chargeJobShouldRun(lastPluggedWallMs = 100L, lastChargeJobWallMs = 100L))
+    }
+
+    @Test
+    fun `app open debounce accepts first and sixty second opens`() {
+        assertTrue(CapturePolicy.appOpenDebounced(null, 1_000L))
+        assertFalse(CapturePolicy.appOpenDebounced(1_000L, 60_999L))
+        assertTrue(CapturePolicy.appOpenDebounced(1_000L, 61_000L))
+    }
+}
