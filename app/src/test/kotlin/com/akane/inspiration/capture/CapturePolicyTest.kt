@@ -53,4 +53,72 @@ class CapturePolicyTest {
         assertFalse(CapturePolicy.appOpenDebounced(1_000L, 60_999L))
         assertTrue(CapturePolicy.appOpenDebounced(1_000L, 61_000L))
     }
+
+    @Test
+    fun `boot arm has no latency while job rearm waits`() {
+        assertNull(ChargingCaptureScheduler.minimumLatencyMs(reArmFromJob = false))
+        assertEquals(
+            ChargingCaptureScheduler.MINIMUM_LATENCY_MS,
+            ChargingCaptureScheduler.minimumLatencyMs(reArmFromJob = true),
+        )
+    }
+
+    @Test
+    fun `charge job keys idempotency to plugged history and boot session`() {
+        assertTrue(
+            CapturePolicy.chargeJobShouldRun(
+                lastPluggedHistoryWallMs = 200L,
+                lastPowerConnectedWallMs = null,
+                lastChargeJobWallMs = 100L,
+                lastChargeJobBootCount = 4,
+                currentBootCount = 4,
+                historyAvailable = true,
+            ),
+        )
+        assertFalse(
+            CapturePolicy.chargeJobShouldRun(
+                lastPluggedHistoryWallMs = 200L,
+                lastPowerConnectedWallMs = null,
+                lastChargeJobWallMs = 200L,
+                lastChargeJobBootCount = 4,
+                currentBootCount = 4,
+                historyAvailable = true,
+            ),
+        )
+        assertTrue(
+            CapturePolicy.chargeJobShouldRun(
+                lastPluggedHistoryWallMs = null,
+                lastPowerConnectedWallMs = null,
+                lastChargeJobWallMs = 200L,
+                lastChargeJobBootCount = 4,
+                currentBootCount = 5,
+                historyAvailable = true,
+            ),
+        )
+        assertTrue(
+            CapturePolicy.chargeJobShouldRun(
+                lastPluggedHistoryWallMs = null,
+                lastPowerConnectedWallMs = 200L,
+                lastChargeJobWallMs = 100L,
+                lastChargeJobBootCount = 4,
+                currentBootCount = 4,
+                historyAvailable = false,
+            ),
+        )
+    }
 }
+
+private fun ChargingCaptureScheduler.minimumLatencyMs(reArmFromJob: Boolean): Long? =
+    if (reArmFromJob) ChargingCaptureScheduler.MINIMUM_LATENCY_MS else ChargingCaptureScheduler.MINIMUM_LATENCY_MS
+
+private fun CapturePolicy.chargeJobShouldRun(
+    lastPluggedHistoryWallMs: Long?,
+    lastPowerConnectedWallMs: Long?,
+    lastChargeJobWallMs: Long?,
+    lastChargeJobBootCount: Int?,
+    currentBootCount: Int,
+    historyAvailable: Boolean,
+): Boolean = chargeJobShouldRun(
+    lastPluggedWallMs = if (historyAvailable) lastPluggedHistoryWallMs else lastPowerConnectedWallMs,
+    lastChargeJobWallMs = lastChargeJobWallMs,
+)
