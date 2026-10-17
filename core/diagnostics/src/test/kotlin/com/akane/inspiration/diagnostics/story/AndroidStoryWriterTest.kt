@@ -1,0 +1,97 @@
+package com.akane.inspiration.diagnostics.story
+
+import android.content.Context
+import androidx.test.core.app.ApplicationProvider
+import com.akane.inspiration.diagnostics.model.RuleId
+import java.util.Locale
+import org.junit.Assert.assertEquals
+import org.junit.Test
+import org.junit.runner.RunWith
+import org.robolectric.RobolectricTestRunner
+import org.robolectric.annotation.Config
+
+@RunWith(RobolectricTestRunner::class)
+@Config(sdk = [35])
+class AndroidStoryWriterTest {
+    private val context: Context = ApplicationProvider.getApplicationContext()
+    private val writer = AndroidStoryWriter(context)
+    private val tr = Locale.forLanguageTag("tr")
+
+    // TEMPLATE.md section 5 Ekran 1 item 2: 14 h, 48%, 8.2 %/h on, 0.5 %/h off, 94.6% deep sleep.
+    private val example = BatteryStory(
+        listOf(
+            StorySentence.Summary(hours = 14.0, levelUsedPct = 48),
+            StorySentence.ScreenOnRate(8.2, UsageRating.NORMAL),
+            StorySentence.ScreenOffRate(0.5, UsageRating.EXCELLENT),
+            StorySentence.DeepSleep(0.946),
+            StorySentence.Anomalies(0, null),
+        ),
+    )
+
+    @Test
+    fun rendersTheSectionFiveExampleInEnglish() {
+        assertEquals(
+            "In the last 14 hours you used 48% of your battery. " +
+                "With the screen on you used 8.2% per hour (normal). " +
+                "With the screen off you used 0.5% per hour (excellent). " +
+                "Deep sleep ratio was 94.6%. " +
+                "No anomalies detected.",
+            writer.render(example, Locale.ENGLISH),
+        )
+    }
+
+    @Test
+    fun rendersTheSectionFiveExampleInTurkishWithCommaDecimals() {
+        assertEquals(
+            "Son 14 saatte pilin %48 kadarını kullandın. " +
+                "Ekran açıkken saatte %8,2 tükettin (normal). " +
+                "Ekran kapalıyken saatte %0,5 tükettin (kusursuz). " +
+                "Derin uyku oranı %94,6. " +
+                "Herhangi bir anomali tespit edilmedi.",
+            writer.render(example, tr),
+        )
+    }
+
+    @Test
+    fun anomalySentenceNamesTheTopRuleInBothLocales() {
+        val story = BatteryStory(listOf(StorySentence.Anomalies(3, RuleId.AWAKE_VIOLATION)))
+        assertEquals("3 anomalies detected, most notable: Awake violation.", writer.render(story, Locale.ENGLISH))
+        assertEquals("3 anomali tespit edildi, en belirgini: Uyanıklık ihlali.", writer.render(story, tr))
+    }
+
+    @Test
+    fun singleAnomalyUsesTheSingularPlural() {
+        val story = BatteryStory(listOf(StorySentence.Anomalies(1, RuleId.SENSOR_LEAK)))
+        assertEquals("1 anomaly detected: Sensor leak.", writer.render(story, Locale.ENGLISH))
+    }
+
+    @Test
+    fun hoursPluralFollowsTheDisplayedValue() {
+        fun hours(value: Double) = writer.render(BatteryStory(listOf(StorySentence.Summary(value, 5))), Locale.ENGLISH)
+        assertEquals("In the last 1 hour you used 5% of your battery.", hours(1.0))
+        assertEquals("In the last 1 hour you used 5% of your battery.", hours(1.04))
+        assertEquals("In the last 1.5 hours you used 5% of your battery.", hours(1.5))
+        assertEquals("In the last 0.5 hours you used 5% of your battery.", hours(0.5))
+    }
+
+    @Test
+    fun turkishHoursUseCommaDecimal() {
+        val text = writer.render(BatteryStory(listOf(StorySentence.Summary(2.5, 5))), tr)
+        assertEquals("Son 2,5 saatte pilin %5 kadarını kullandın.", text)
+    }
+
+    @Test
+    fun highRatingsAndEmptyStory() {
+        val story = BatteryStory(
+            listOf(
+                StorySentence.ScreenOnRate(12.0, UsageRating.HIGH),
+                StorySentence.ScreenOffRate(5.0, UsageRating.VERY_HIGH),
+            ),
+        )
+        assertEquals(
+            "With the screen on you used 12.0% per hour (high). With the screen off you used 5.0% per hour (very high).",
+            writer.render(story, Locale.ENGLISH),
+        )
+        assertEquals("", writer.render(BatteryStory(emptyList()), Locale.ENGLISH))
+    }
+}

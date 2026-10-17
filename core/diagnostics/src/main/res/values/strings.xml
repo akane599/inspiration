@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Battery Story: %1$s = hours, %2$d = percent of battery used -->
+    <plurals name="story_summary">
+        <item quantity="one">In the last %1$s hour you used %2$d%% of your battery.</item>
+        <item quantity="other">In the last %1$s hours you used %2$d%% of your battery.</item>
+    </plurals>
+    <string name="story_screen_on_rate">With the screen on you used %1$s%% per hour (%2$s).</string>
+    <string name="story_screen_off_rate">With the screen off you used %1$s%% per hour (%2$s).</string>
+    <string name="story_deep_sleep">Deep sleep ratio was %1$s%%.</string>
+    <string name="story_anomalies_none">No anomalies detected.</string>
+    <plurals name="story_anomalies_count">
+        <item quantity="one">%1$d anomaly detected.</item>
+        <item quantity="other">%1$d anomalies detected.</item>
+    </plurals>
+    <plurals name="story_anomalies_top">
+        <item quantity="one">%1$d anomaly detected: %2$s.</item>
+        <item quantity="other">%1$d anomalies detected, most notable: %2$s.</item>
+    </plurals>
+
+    <string name="story_rating_excellent">excellent</string>
+    <string name="story_rating_normal">normal</string>
+    <string name="story_rating_high">high</string>
+    <string name="story_rating_very_high">very high</string>
+
+    <string name="rule_name_night_vampire">Night vampire</string>
+    <string name="rule_name_awake_violation">Awake violation</string>
+    <string name="rule_name_modem_drain">Modem drain</string>
+    <string name="rule_name_sensor_leak">Sensor leak</string>
+</resources>
