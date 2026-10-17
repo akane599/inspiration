@@ -61,9 +61,10 @@
     <string name="health_analysis_none_body">Heat and voltage findings appear once a charge has been recorded.</string>
 
     <!-- Screen states -->
+    <string name="health_screen_title">Charge and health</string>
     <string name="health_loading">Reading battery health…</string>
     <string name="health_empty_title">No battery data yet</string>
-    <string name="health_empty_body">Allow Shizuku, then charge your phone with this screen open. Your health record starts after the first long charge.</string>
+    <string name="health_empty_body">Grant Shizuku access from Cockpit, then charge your phone with this screen open. Your health record starts after the first long charge.</string>
     <string name="health_empty_refresh">Refresh</string>
     <string name="health_error_title">Could not read battery data</string>
     <string name="health_error_body">Something went wrong while reading. Try again in a moment.</string>

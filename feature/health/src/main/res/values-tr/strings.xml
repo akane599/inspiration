@@ -60,9 +60,10 @@
     <string name="health_analysis_none_body">Isı ve gerilim bulguları, bir şarj kaydedildikten sonra görünür.</string>
 
     <!-- Ekran durumları -->
+    <string name="health_screen_title">Şarj ve sağlık</string>
     <string name="health_loading">Pil sağlığı okunuyor…</string>
     <string name="health_empty_title">Henüz pil verisi yok</string>
-    <string name="health_empty_body">Shizuku\'ya izin verin, sonra telefonu bu ekran açıkken şarja takın. Sağlık kaydınız ilk uzun şarjdan sonra başlar.</string>
+    <string name="health_empty_body">Kokpit\'ten Shizuku erişimi verin, sonra telefonu bu ekran açıkken şarja takın. Sağlık kaydınız ilk uzun şarjdan sonra başlar.</string>
     <string name="health_empty_refresh">Yenile</string>
     <string name="health_error_title">Pil verisi okunamadı</string>
     <string name="health_error_body">Okunurken bir sorun oldu. Biraz sonra tekrar deneyin.</string>
