@@ -59,7 +59,7 @@ data class SnapshotSystemEntity(
     val screenOnMs: Long,
     val interactiveMs: Long,
     val deepDozeMs: Long,
-    val deepDozeCount: Int,
+    val deepDozeCount: Long,
     val lightDozeMs: Long,
     val dischargeTotalMah: Double,
     val dischargeScreenOffMah: Double,

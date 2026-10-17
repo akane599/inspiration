@@ -18,16 +18,19 @@ interface SnapshotDao {
     suspend fun insertAvailability(availability: SnapshotAvailabilityEntity)
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
-    suspend fun insertUid(uid: SnapshotUidEntity)
+    suspend fun insertAvailability(availability: List<SnapshotAvailabilityEntity>)
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
-    suspend fun insertComponent(component: SnapshotComponentEntity)
+    suspend fun insertUids(uids: List<SnapshotUidEntity>)
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
-    suspend fun insertAlarm(alarm: SnapshotAlarmEntity)
+    suspend fun insertComponents(components: List<SnapshotComponentEntity>)
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
-    suspend fun insertCpuFrequency(frequency: SnapshotCpuFreqEntity)
+    suspend fun insertAlarms(alarms: List<SnapshotAlarmEntity>)
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertCpuFrequencies(frequencies: List<SnapshotCpuFreqEntity>)
 
     /**
      * Merges duplicate parsed wakelocks at insert time by adding their durations and counts.
@@ -82,11 +85,26 @@ interface SnapshotDao {
     @Query("SELECT * FROM snapshot WHERE trigger = :trigger ORDER BY wallMs DESC, id DESC LIMIT 1")
     suspend fun latestByTrigger(trigger: String): SnapshotEntity?
 
-    @Query("SELECT * FROM snapshot_wakelock WHERE snapshotId = :snapshotId ORDER BY kind, uid, name")
-    suspend fun wakelocksForSnapshot(snapshotId: Long): List<SnapshotWakelockEntity>
+    @Query("SELECT * FROM snapshot_system WHERE snapshotId = :snapshotId")
+    suspend fun systemForSnapshot(snapshotId: Long): SnapshotSystemEntity?
 
     @Query("SELECT * FROM snapshot_availability WHERE snapshotId = :snapshotId ORDER BY source")
     suspend fun availabilityForSnapshot(snapshotId: Long): List<SnapshotAvailabilityEntity>
+
+    @Query("SELECT * FROM snapshot_uid WHERE snapshotId = :snapshotId ORDER BY uid")
+    suspend fun uidsForSnapshot(snapshotId: Long): List<SnapshotUidEntity>
+
+    @Query("SELECT * FROM snapshot_component WHERE snapshotId = :snapshotId ORDER BY uid, component")
+    suspend fun componentsForSnapshot(snapshotId: Long): List<SnapshotComponentEntity>
+
+    @Query("SELECT * FROM snapshot_wakelock WHERE snapshotId = :snapshotId ORDER BY kind, uid, name")
+    suspend fun wakelocksForSnapshot(snapshotId: Long): List<SnapshotWakelockEntity>
+
+    @Query("SELECT * FROM snapshot_alarm WHERE snapshotId = :snapshotId ORDER BY uid, tag")
+    suspend fun alarmsForSnapshot(snapshotId: Long): List<SnapshotAlarmEntity>
+
+    @Query("SELECT * FROM snapshot_cpu_freq WHERE snapshotId = :snapshotId ORDER BY policy, freqKhz")
+    suspend fun cpuFrequenciesForSnapshot(snapshotId: Long): List<SnapshotCpuFreqEntity>
 
     @Query("DELETE FROM snapshot WHERE id = :id")
     suspend fun deleteById(id: Long): Int
