@@ -10,6 +10,8 @@ import com.akane.inspiration.telemetry.dump.UidSensor
 import com.akane.inspiration.telemetry.snapshot.BatterySnapshot
 import com.akane.inspiration.telemetry.snapshot.BatteryState
 import com.akane.inspiration.telemetry.snapshot.CaptureTrigger
+import com.akane.inspiration.telemetry.snapshot.CpuFreqDelta
+import com.akane.inspiration.telemetry.snapshot.CpuFreqTime
 import com.akane.inspiration.telemetry.snapshot.LiveReading
 import com.akane.inspiration.telemetry.snapshot.SnapshotClock
 import com.akane.inspiration.telemetry.snapshot.SnapshotKind
@@ -121,6 +123,79 @@ class SnapshotDifferTest {
         assertTrue(diff.validity.problems.contains("negative_signal_strength:1"))
         assertTrue(diff.validity.problems.contains("negative_signal_scanning"))
         assertTrue(diff.validity.problems.contains("negative_mobile_radio_active"))
+    }
+
+    @Test
+    fun `discharge deltas subtract the persisted system fields of the same stats session`() {
+        val diff = SnapshotDiffer.diff(
+            discharge(snapshot(elapsed = 1_000), total = 10.0, screenOff = 4.0),
+            discharge(snapshot(elapsed = 2_000, duration = 2_000), total = 16.5, screenOff = 5.0),
+        )
+
+        assertEquals(6.5, diff.dischargeMah!!, 0.000_001)
+        assertEquals(1.0, diff.dischargeScreenOffMah!!, 0.000_001)
+    }
+
+    @Test
+    fun `discharge deltas are null when statsStart differs or a side lacks system timers`() {
+        val ref = discharge(snapshot(elapsed = 1_000), total = 10.0, screenOff = 4.0)
+        val reset = discharge(snapshot(elapsed = 2_000, duration = 2_000, statsStart = 100_001), total = 1.0, screenOff = 0.5)
+        val mismatched = SnapshotDiffer.diff(ref, reset)
+        assertNull(mismatched.dischargeMah)
+        assertNull(mismatched.dischargeScreenOffMah)
+
+        val bare = SnapshotDiffer.diff(ref, snapshot(elapsed = 2_000, duration = 2_000))
+        assertNull(bare.dischargeMah)
+        assertNull(bare.dischargeScreenOffMah)
+        val bareRef = SnapshotDiffer.diff(snapshot(elapsed = 1_000), ref.copy(clock = ref.clock.copy(elapsedRealtimeMs = 2_000, statsDurationMs = 2_000)))
+        assertNull(bareRef.dischargeMah)
+
+        val unknownStart = ref.copy(clock = ref.clock.copy(statsStartMs = null))
+        assertNull(SnapshotDiffer.diff(unknownStart, unknownStart.copy(clock = unknownStart.clock.copy(elapsedRealtimeMs = 2_000))).dischargeMah)
+    }
+
+    @Test
+    fun `cpu freq delta is per policy and frequency sorted and only filled for valid kernel counters`() {
+        val ref = snapshot(elapsed = 1_000).copy(
+            cpuFreq = listOf(CpuFreqTime(4, 2_000_000, 50), CpuFreqTime(0, 600_000, 100), CpuFreqTime(0, 1_200_000, 10)),
+        )
+        val now = snapshot(elapsed = 2_000, duration = 2_000).copy(
+            cpuFreq = listOf(
+                CpuFreqTime(4, 2_000_000, 80),
+                CpuFreqTime(0, 600_000, 400),
+                CpuFreqTime(0, 1_200_000, 10),
+                CpuFreqTime(0, 1_800_000, 7),
+            ),
+        )
+
+        val diff = SnapshotDiffer.diff(ref, now)
+
+        assertEquals(
+            listOf(
+                CpuFreqDelta(0, 600_000, 300),
+                CpuFreqDelta(0, 1_200_000, 0),
+                CpuFreqDelta(0, 1_800_000, 7),
+                CpuFreqDelta(4, 2_000_000, 30),
+            ),
+            diff.cpuFreqDelta,
+        )
+
+        val rebooted = SnapshotDiffer.diff(ref, now.copy(clock = now.clock.copy(bootCount = 2)))
+        assertFalse(rebooted.validity.kernelCounters)
+        assertTrue(rebooted.cpuFreqDelta.isEmpty())
+    }
+
+    @Test
+    fun `negative cpu freq entry is dropped with a problem`() {
+        val ref = snapshot(elapsed = 1_000).copy(cpuFreq = listOf(CpuFreqTime(0, 600_000, 100), CpuFreqTime(0, 1_200_000, 5)))
+        val now = snapshot(elapsed = 2_000, duration = 2_000).copy(
+            cpuFreq = listOf(CpuFreqTime(0, 600_000, 90), CpuFreqTime(0, 1_200_000, 9)),
+        )
+
+        val diff = SnapshotDiffer.diff(ref, now)
+
+        assertEquals(listOf(CpuFreqDelta(0, 1_200_000, 4)), diff.cpuFreqDelta)
+        assertTrue(diff.validity.problems.contains("negative_cpu_freq:0:600000"))
     }
 
     @Test
@@ -343,6 +418,10 @@ class SnapshotDifferTest {
             signalScanningMs = scanning,
             mobileRadioActiveMs = radio,
         ),
+    )
+
+    private fun discharge(snapshot: BatterySnapshot, total: Double, screenOff: Double) = snapshot.copy(
+        system = systemTimers(100_000).copy(dischargeTotalMah = total, dischargeScreenOffMah = screenOff),
     )
 
     private fun history(wallMs: Long, kind: Int) = HistoryEvent(0, wallMs, kind, 0, -1, 0, 0, 0)
