@@ -179,7 +179,10 @@ data class SnapshotAlarmEntity(
     val snapshotId: Long,
     val uid: Int,
     val tag: String,
+    // Batterystats count; 0 on a row that only the alarm dump reported.
     val count: Long,
+    // The alarm dump's own wakeupCount for the same (uid, tag); never part of [count].
+    @ColumnInfo(defaultValue = "0") val alarmDumpWakeups: Long = 0,
 )
 
 @Entity(
@@ -316,6 +319,32 @@ data class ChargeSessionEntity(
     val independent: Boolean,
     val accepted: Boolean,
     val rejectReason: String? = null,
+)
+
+@Entity(tableName = "battery_health_sample")
+data class HealthSampleEntity(
+    @PrimaryKey val wallMs: Long,
+    val fccMah: Double,
+    val designMah: Double,
+    val cycleCount: Int,
+    val measuredMah: Double? = null,
+)
+
+/** Audit row for a privileged toolkit write; [status] holds a stable explicit code, never an ordinal. */
+@Entity(tableName = "toolkit_action", indices = [Index(value = ["status"])])
+data class ToolkitActionEntity(
+    @PrimaryKey(autoGenerate = true) val id: Long = 0,
+    val startedAt: Long,
+    val endedAt: Long? = null,
+    val kind: String,
+    val pkg: String? = null,
+    val op: String,
+    val param: String? = null,
+    val status: String,
+    val code: Int? = null,
+    val beforeRaw: String? = null,
+    val afterRaw: String? = null,
+    val restoresId: Long? = null,
 )
 
 @Entity(tableName = "capture_miss", indices = [Index(value = ["wallMs"])])

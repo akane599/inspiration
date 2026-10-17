@@ -5,6 +5,7 @@ import androidx.room.Insert
 import androidx.room.OnConflictStrategy
 import androidx.room.Query
 import androidx.room.Transaction
+import androidx.room.Update
 
 @Dao
 interface SnapshotDao {
@@ -123,6 +124,9 @@ interface MarkerDao {
 
     @Query("SELECT * FROM marker WHERE id = :id")
     suspend fun byId(id: Long): MarkerEntity?
+
+    @Query("SELECT * FROM marker ORDER BY wallMs DESC, id DESC")
+    suspend fun all(): List<MarkerEntity>
 }
 
 @Dao
@@ -145,14 +149,59 @@ interface TelemetryDao {
     @Insert
     suspend fun insertSamples(samples: List<TelemetrySampleEntity>): List<Long>
 
+    @Query("SELECT * FROM telemetry_sample WHERE wallMs BETWEEN :fromWallMs AND :toWallMs ORDER BY wallMs, id")
+    suspend fun between(fromWallMs: Long, toWallMs: Long): List<TelemetrySampleEntity>
+
     @Query("SELECT * FROM telemetry_hourly WHERE hourStartWallMs = :hourStartWallMs")
     suspend fun hourly(hourStartWallMs: Long): TelemetryHourlyEntity?
+}
+
+@Dao
+interface HealthDao {
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insert(sample: HealthSampleEntity)
+
+    @Query("SELECT * FROM battery_health_sample ORDER BY wallMs")
+    suspend fun all(): List<HealthSampleEntity>
+}
+
+@Dao
+interface ToolkitActionDao {
+    @Insert
+    suspend fun insert(action: ToolkitActionEntity): Long
+
+    @Update
+    suspend fun update(action: ToolkitActionEntity)
+
+    @Query("SELECT * FROM toolkit_action ORDER BY id DESC LIMIT :limit")
+    suspend fun newest(limit: Int): List<ToolkitActionEntity>
+
+    @Query("SELECT * FROM toolkit_action WHERE status = :status ORDER BY id")
+    suspend fun withStatus(status: String): List<ToolkitActionEntity>
+
+    /** Deletes everything but the newest [keep] rows. */
+    @Query("DELETE FROM toolkit_action WHERE id NOT IN (SELECT id FROM toolkit_action ORDER BY id DESC LIMIT :keep)")
+    suspend fun pruneTo(keep: Int): Int
+
+    @Transaction
+    suspend fun insertAndPrune(action: ToolkitActionEntity): Long {
+        val id = insert(action)
+        pruneTo(MAX_ROWS)
+        return id
+    }
+
+    companion object {
+        const val MAX_ROWS = 500
+    }
 }
 
 @Dao
 interface ChargeSessionDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsert(session: ChargeSessionEntity): Long
+
+    @Query("SELECT * FROM charge_session ORDER BY endWallMs, id")
+    suspend fun all(): List<ChargeSessionEntity>
 
     @Query("SELECT estimateMah FROM charge_session WHERE accepted = 1 AND estimateMah IS NOT NULL ORDER BY endWallMs ASC LIMIT :limit")
     suspend fun acceptedEstimatesChronological(limit: Int): List<Double>

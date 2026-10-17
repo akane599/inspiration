@@ -38,7 +38,13 @@ interface SnapshotStore {
 
     suspend fun marker(id: Long): Pair<Long, BatterySnapshot>?
 
+    /** All markers, newest first. */
+    suspend fun markers(): List<Marker>
+
     suspend fun insertSamples(samples: List<LiveReading>)
+
+    /** Samples with `from <= wallMs <= to`, oldest first. */
+    suspend fun samplesBetween(from: Long, to: Long): List<TelemetrySample>
 
     suspend fun upsertChargeSession(
         statsStartMs: Long,
@@ -46,7 +52,27 @@ interface SnapshotStore {
         verdict: SegmentVerdict,
     )
 
+    /** All charge sessions, oldest first by end time. */
+    suspend fun chargeSessions(): List<ChargeSessionRecord>
+
     suspend fun acceptedEstimatesChronological(limit: Int): List<Double>
+
+    /** Health samples, oldest first. Inserting an existing `wallMs` replaces that sample. */
+    suspend fun healthSamples(): List<HealthSample>
+
+    suspend fun insertHealthSample(sample: HealthSample)
+
+    /** Inserts [record] (its id is ignored), prunes the table to the newest 500 rows and returns the new id. */
+    suspend fun insertToolkitAction(record: ToolkitActionRecord): Long
+
+    /** Overwrites the row with `record.id`; a missing row is left missing. */
+    suspend fun updateToolkitAction(record: ToolkitActionRecord)
+
+    /** The newest [limit] audit rows, newest first. */
+    suspend fun toolkitActions(limit: Int): List<ToolkitActionRecord>
+
+    /** Rows still in [ToolkitActionStatus.PENDING], oldest first. */
+    suspend fun pendingToolkitActions(): List<ToolkitActionRecord>
 
     suspend fun recordMiss(wallMs: Long, trigger: CaptureTrigger, reason: String)
 

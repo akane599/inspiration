@@ -173,6 +173,7 @@ object SnapshotDiffer {
                     partialWakelocks = previous?.partialWakelocks?.map { it.copy(durationMs = 0, bgDurationMs = 0, count = 0) }.orEmpty(),
                     wakeupAlarms = previous?.wakeupAlarms?.map { it.copy(count = 0) }.orEmpty(),
                     sensors = previous?.sensors?.map { it.copy(totalMs = 0, bgMs = 0, count = 0) }.orEmpty(),
+                    alarmDumpWakeups = previous?.alarmDumpWakeups?.map { it.copy(count = 0) }.orEmpty(),
                 )
             } else {
                 val packageChanged = uid >= FIRST_APPLICATION_UID && previous != null && previous.packageName != current.packageName
@@ -193,8 +194,15 @@ object SnapshotDiffer {
                     fgActivityMs = current.fgActivityMs - (baseline?.fgActivityMs ?: 0),
                     fgServiceMs = current.fgServiceMs - (baseline?.fgServiceMs ?: 0),
                     partialWakelocks = diffUidWakelocks(baseline?.partialWakelocks.orEmpty(), current.partialWakelocks, uid, problems),
-                    wakeupAlarms = diffUidAlarms(baseline?.wakeupAlarms.orEmpty(), current.wakeupAlarms, uid, problems),
+                    wakeupAlarms = diffUidAlarms(baseline?.wakeupAlarms.orEmpty(), current.wakeupAlarms, uid, problems, "negative_uid_alarm"),
                     sensors = diffUidSensors(baseline?.sensors.orEmpty(), current.sensors, uid, problems),
+                    alarmDumpWakeups = diffUidAlarms(
+                        baseline?.alarmDumpWakeups.orEmpty(),
+                        current.alarmDumpWakeups,
+                        uid,
+                        problems,
+                        "negative_uid_alarm_dump",
+                    ),
                 )
                 val valid = !hasNegative(delta)
                 if (!valid) problems += "negative_uid:$uid"
@@ -263,10 +271,11 @@ object SnapshotDiffer {
         now: List<UidAlarm>,
         uid: Int,
         problems: MutableList<String>,
+        negativeProblem: String,
     ): List<UidAlarm> = (ref.map(UidAlarm::tag) + now.map(UidAlarm::tag)).distinct().sorted().map { tag ->
         val count = now.filter { it.tag == tag }.sumOf(UidAlarm::count) - ref.filter { it.tag == tag }.sumOf(UidAlarm::count)
         UidAlarm(tag, count).also { delta ->
-            if (delta.count < 0) problems += "negative_uid_alarm:$uid:$tag"
+            if (delta.count < 0) problems += "$negativeProblem:$uid:$tag"
         }
     }
 
@@ -365,6 +374,7 @@ object SnapshotDiffer {
             delta.fgServiceMs < 0 ||
             delta.partialWakelocks.any { it.durationMs < 0 || it.bgDurationMs < 0 || it.count < 0 } ||
             delta.wakeupAlarms.any { it.count < 0 } ||
+            delta.alarmDumpWakeups.any { it.count < 0 } ||
             delta.sensors.any { it.totalMs < 0 || it.bgMs < 0 || it.count < 0 }
 
     private fun delta(now: Double?, ref: Double?): Double? = now?.minus(ref ?: 0.0)

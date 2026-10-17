@@ -79,9 +79,13 @@ data class UidSnapshot(
     val fgActivityMs: Long,
     val fgServiceMs: Long,
     val partialWakelocks: List<UidWakelock>,
+    // Batterystats wakeup-alarm counts per tag.
     val wakeupAlarms: List<UidAlarm>,
     // Default is a placeholder until persistence (T1b) maps sensors.
     val sensors: List<UidSensor> = emptyList(),
+    // The alarm dump's own wakeup count per tag (count = wakeupCount). A separate counter, never added
+    // into [wakeupAlarms] (the two overlap), so consumers must not sum them.
+    val alarmDumpWakeups: List<UidAlarm> = emptyList(),
 )
 
 data class CpuFreqTime(
@@ -108,6 +112,8 @@ data class UidDelta(
     val partialWakelocks: List<UidWakelock>,
     val wakeupAlarms: List<UidAlarm>,
     val sensors: List<UidSensor>,
+    // Delta of [UidSnapshot.alarmDumpWakeups]; kept apart from [wakeupAlarms].
+    val alarmDumpWakeups: List<UidAlarm> = emptyList(),
 )
 
 data class DiffValidity(

@@ -23,6 +23,8 @@ import androidx.room.RoomDatabase
         TelemetryHourlyEntity::class,
         ChargeSessionEntity::class,
         CaptureMissEntity::class,
+        HealthSampleEntity::class,
+        ToolkitActionEntity::class,
     ],
     version = 1,
     exportSchema = true,
@@ -34,6 +36,8 @@ abstract class InspirationDatabase : RoomDatabase() {
     abstract fun telemetryDao(): TelemetryDao
     abstract fun chargeSessionDao(): ChargeSessionDao
     abstract fun captureMissDao(): CaptureMissDao
+    abstract fun healthDao(): HealthDao
+    abstract fun toolkitActionDao(): ToolkitActionDao
     abstract fun maintenanceDao(): MaintenanceDao
 
     companion object {
