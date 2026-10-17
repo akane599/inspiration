@@ -488,8 +488,10 @@ class ToolkitActions internal constructor(
         if (isInvalid(action)) {
             return refuse(spec, restoresId, ToolkitRefusal.INVALID_ARGUMENT, ToolkitCode.ARG_VALUE)
         }
-        // Reasons known without a read are checked first so an unconfirmed risky action touches nothing.
-        if (!confirmed && staticWarnings(action).isNotEmpty()) {
+        // Reasons known without a read are checked first so an unconfirmed risky action touches nothing. A
+        // restore reads first: when the target already reads its original, ALREADY_RESTORED (no row, no write)
+        // outranks the confirmation, exactly as in planRestore. The check below still covers its static reasons.
+        if (restoring == null && !confirmed && staticWarnings(action).isNotEmpty()) {
             return refuse(spec, restoresId, ToolkitRefusal.NOT_CONFIRMED, ToolkitClientCode.NOT_CONFIRMED)
         }
         val prep = when (val prepared = prepare(action, restoring)) {
