@@ -1,5 +1,6 @@
 package com.akane.inspiration.xray
 
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
@@ -7,6 +8,7 @@ import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.verticalScroll
@@ -17,7 +19,9 @@ import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.FilterChip
+import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.LinearProgressIndicator
+import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Surface
@@ -29,20 +33,27 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.StrokeJoin
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.semantics
+import com.akane.inspiration.designsystem.component.CardTitle
 import com.akane.inspiration.designsystem.component.InspirationCard
 import com.akane.inspiration.designsystem.component.LegendItem
 import com.akane.inspiration.designsystem.component.LegendRow
 import com.akane.inspiration.designsystem.component.MetricValue
 import com.akane.inspiration.designsystem.component.SemanticDot
+import com.akane.inspiration.designsystem.component.color
 import com.akane.inspiration.designsystem.component.format.rememberTelemetryFormat
 import com.akane.inspiration.designsystem.theme.numericTypography
 import com.akane.inspiration.designsystem.theme.spacing
-import com.akane.inspiration.designsystem.theme.telemetryColors
+import com.akane.inspiration.designsystem.theme.statusColors
 import com.akane.inspiration.diagnostics.dictionary.EntryKind
 import com.akane.inspiration.ipc.toolkit.StandbyBucket
 import kotlinx.collections.immutable.toImmutableList
@@ -117,7 +128,7 @@ private fun DetailHeader(app: AppRow) {
         }
         GroupBar(slices = app.slices, total = app.totalMah.toFloat())
         val items = ComponentGroup.entries.filter { group -> app.slices.any { it.group == group } }.map { group ->
-            LegendItem(color = group.legendColorOf(), label = stringResource(groupLabelRes(group)))
+            LegendItem(color = group.role().color(), label = stringResource(groupLabelRes(group)))
         }
         LegendRow(items = items.toImmutableList())
     }
@@ -198,7 +209,7 @@ private fun AlarmSection(app: AppRow, explain: Explainer) {
 @Composable
 private fun Section(title: String, content: @Composable () -> Unit) {
     Column(verticalArrangement = Arrangement.spacedBy(MaterialTheme.spacing.sm)) {
-        SectionHeading(title)
+        CardTitle(title)
         content()
     }
 }
@@ -268,7 +279,7 @@ private fun QuickActions(detail: AppDetail, onIntent: (XRayIntent) -> Unit) {
         modifier = Modifier.fillMaxWidth().filterTouchesWhenObscured(),
         verticalArrangement = Arrangement.spacedBy(spacing.md),
     ) {
-        SectionHeading(stringResource(R.string.xray_actions_title))
+        CardTitle(stringResource(R.string.xray_actions_title))
         when (val actions = detail.actions) {
             is ActionsState.Blocked -> BlockedCard(actions.reason)
             ActionsState.NoPackage -> InfoText(stringResource(R.string.xray_actions_no_package))
@@ -299,7 +310,7 @@ private fun BlockedCard(reason: BlockedReason) {
     ) {
         Column(modifier = Modifier.padding(spacing.md), verticalArrangement = Arrangement.spacedBy(spacing.xs)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                SemanticDot(color = MaterialTheme.telemetryColors.awake)
+                SemanticDot(color = MaterialTheme.statusColors.warning)
                 Text(
                     text = stringResource(R.string.xray_blocked_title),
                     style = MaterialTheme.typography.titleMedium,
@@ -332,8 +343,7 @@ private fun LoadingLine(text: String) {
 
 @Composable
 private fun NoticeLine(notice: ActionNotice) {
-    val telemetry = MaterialTheme.telemetryColors
-    val color = if (notice is ActionNotice.Applied) telemetry.deepSleep else telemetry.critical
+    val color = if (notice is ActionNotice.Applied) MaterialTheme.statusColors.ok else MaterialTheme.colorScheme.error
     Row(
         modifier = Modifier.fillMaxWidth().semantics { liveRegion = LiveRegionMode.Polite },
         verticalAlignment = Alignment.Top,
@@ -364,11 +374,25 @@ private fun Controls(controls: AppControls, enabled: Boolean, onIntent: (XRayInt
             InfoText(stringResource(R.string.xray_action_bucket_body), small = true)
             FlowRow(horizontalArrangement = Arrangement.spacedBy(spacing.sm)) {
                 StandbyBucket.entries.forEach { bucket ->
+                    val selected = controls.bucket == bucket
                     FilterChip(
-                        selected = controls.bucket == bucket,
-                        onClick = { if (controls.bucket != bucket) onIntent(XRayIntent.Act(ActionRequest.SetBucket(bucket))) },
+                        selected = selected,
+                        onClick = { if (!selected) onIntent(XRayIntent.Act(ActionRequest.SetBucket(bucket))) },
                         label = { Text(stringResource(bucketLabelRes(bucket))) },
                         enabled = enabled,
+                        // The selected bucket is unmistakable: a check, a stronger fill and an outline.
+                        leadingIcon = if (selected) ({ SelectedCheck() }) else null,
+                        colors = FilterChipDefaults.filterChipColors(
+                            selectedContainerColor = MaterialTheme.colorScheme.primaryContainer,
+                            selectedLabelColor = MaterialTheme.colorScheme.onPrimaryContainer,
+                            selectedLeadingIconColor = MaterialTheme.colorScheme.onPrimaryContainer,
+                        ),
+                        border = FilterChipDefaults.filterChipBorder(
+                            enabled = enabled,
+                            selected = selected,
+                            selectedBorderColor = MaterialTheme.colorScheme.primary,
+                            selectedBorderWidth = MaterialTheme.spacing.xs / 4, // the 1 dp hairline of an unselected chip
+                        ),
                     )
                 }
             }
@@ -392,6 +416,28 @@ private fun Controls(controls: AppControls, enabled: Boolean, onIntent: (XRayInt
         }
     }
 }
+
+/** The check of the selected chip, in the chip's own icon colour (the app has no icon font to take one from). */
+@Composable
+private fun SelectedCheck() {
+    val color = LocalContentColor.current
+    val strokeWidth = MaterialTheme.spacing.xs / 2
+    Canvas(modifier = Modifier.size(FilterChipDefaults.IconSize)) {
+        val path = Path().apply {
+            CHECK_POINTS.forEachIndexed { i, (x, y) ->
+                val point = Offset(x * size.width, y * size.height)
+                if (i == 0) moveTo(point.x, point.y) else lineTo(point.x, point.y)
+            }
+        }
+        drawPath(
+            path = path,
+            color = color,
+            style = Stroke(width = strokeWidth.toPx(), cap = StrokeCap.Round, join = StrokeJoin.Round),
+        )
+    }
+}
+
+private val CHECK_POINTS = listOf(0.12f to 0.55f, 0.40f to 0.80f, 0.88f to 0.22f)
 
 @Composable
 private fun RestrictRow(controls: AppControls, enabled: Boolean, onIntent: (XRayIntent) -> Unit) {
@@ -430,11 +476,7 @@ private fun Overrides(detail: AppDetail, onIntent: (XRayIntent) -> Unit) {
     val spacing = MaterialTheme.spacing
     InspirationCard(modifier = Modifier.fillMaxWidth()) {
         Column(verticalArrangement = Arrangement.spacedBy(spacing.sm)) {
-            Text(
-                text = stringResource(R.string.xray_overrides_title),
-                style = MaterialTheme.typography.titleMedium,
-                color = MaterialTheme.colorScheme.onSurface,
-            )
+            CardTitle(stringResource(R.string.xray_overrides_title))
             detail.overrides.forEach { row ->
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(spacing.sm)) {
                     Column(modifier = Modifier.weight(1f)) {
@@ -504,7 +546,7 @@ fun ConfirmationPanel(
             confirmation.warnings.forEach { warning ->
                 Row(verticalAlignment = Alignment.Top) {
                     SemanticDot(
-                        color = MaterialTheme.telemetryColors.awake,
+                        color = MaterialTheme.statusColors.warning,
                         modifier = Modifier.padding(top = spacing.xs, end = spacing.sm),
                     )
                     Text(
@@ -538,13 +580,3 @@ fun ConfirmationPanel(
     }
 }
 
-@Composable
-private fun ComponentGroup.legendColorOf(): androidx.compose.ui.graphics.Color {
-    val telemetry = MaterialTheme.telemetryColors
-    return when (role()) {
-        com.akane.inspiration.designsystem.component.BarRole.SCREEN_ON -> telemetry.screenOn
-        com.akane.inspiration.designsystem.component.BarRole.AWAKE -> telemetry.awake
-        com.akane.inspiration.designsystem.component.BarRole.CHARGING -> telemetry.charging
-        else -> MaterialTheme.colorScheme.onSurfaceVariant
-    }
-}

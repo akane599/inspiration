@@ -7,7 +7,10 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
+import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LifecycleStartEffect
+import androidx.lifecycle.compose.LocalLifecycleOwner
+import androidx.lifecycle.repeatOnLifecycle
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 
@@ -38,10 +41,14 @@ fun XRayRoute(
         viewModel.onIntent(XRayIntent.Visible)
         onStopOrDispose { viewModel.onIntent(XRayIntent.Hidden) }
     }
-    LaunchedEffect(viewModel, refreshFailed) {
-        viewModel.effects.collect { effect ->
-            when (effect) {
-                XRayEffect.RefreshFailed -> snackbarHostState.showSnackbar(refreshFailed)
+    // One-shot results are shown only while the route is started; the ViewModel queues none while it is not.
+    val lifecycle = LocalLifecycleOwner.current.lifecycle
+    LaunchedEffect(viewModel, lifecycle, refreshFailed) {
+        lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) {
+            viewModel.effects.collect { effect ->
+                when (effect) {
+                    XRayEffect.RefreshFailed -> snackbarHostState.showSnackbar(refreshFailed)
+                }
             }
         }
     }

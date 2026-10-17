@@ -8,6 +8,7 @@ import com.akane.inspiration.telemetry.app.RefreshResult
 import com.akane.inspiration.telemetry.diff.ReferenceKind
 import com.akane.inspiration.telemetry.toolkit.ToolkitRefusal
 import com.akane.inspiration.telemetry.toolkit.ToolkitWarning
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.first
@@ -15,6 +16,7 @@ import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.test.setMain
+import kotlinx.coroutines.withTimeoutOrNull
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -116,6 +118,34 @@ class XRayViewModelTest {
         assertEquals(XRayEffect.RefreshFailed, vm.effects.first())
         assertEquals(XRayStatus.READY, state.status)
         assertFalse(state.refreshing)
+    }
+
+    /** The next effect, or null when none is queued (virtual time: the timeout costs nothing). */
+    private suspend fun nextEffect(): XRayEffect? = withTimeoutOrNull(1_000L) { vm.effects.first() }
+
+    @Test
+    fun `a failure reported while the screen is hidden is not shown when it comes back`() = runTest {
+        val gate = CompletableDeferred<Unit>()
+        start(FakeXRayDeps().apply { refreshGate = gate; refreshResult = RefreshResult.Failed("deadline") })
+
+        vm.onIntent(XRayIntent.Hidden)
+        gate.complete(Unit) // the capture fails after the user left
+        deps.refreshGate = null
+        deps.refreshResult = RefreshResult.Refreshed(0L)
+        vm.onIntent(XRayIntent.Visible)
+
+        assertNull(nextEffect())
+    }
+
+    @Test
+    fun `a failure nobody collected is dropped on hidden instead of replaying on return`() = runTest {
+        start(FakeXRayDeps().apply { refreshResult = RefreshResult.Failed("deadline") }) // queued while visible
+
+        vm.onIntent(XRayIntent.Hidden)
+        deps.refreshResult = RefreshResult.Refreshed(0L)
+        vm.onIntent(XRayIntent.Visible)
+
+        assertNull(nextEffect())
     }
 
     @Test
@@ -277,6 +307,43 @@ class XRayViewModelTest {
         vm.onIntent(XRayIntent.ConfirmPending)
 
         assertNull(state.confirmation)
+        assertTrue(deps.device.writes.isEmpty())
+    }
+
+    @Test
+    fun `a plan still running when the screen is hidden never opens a confirmation`() {
+        openChatty()
+        val gate = CompletableDeferred<Unit>()
+        deps.device.gate = gate
+
+        vm.onIntent(XRayIntent.Act(ActionRequest.ForceStop))
+        assertTrue(detail.busy)
+
+        vm.onIntent(XRayIntent.Hidden)
+        assertFalse(detail.busy)
+        gate.complete(Unit) // the slow read answers after the user left
+        deps.device.gate = null
+        vm.onIntent(XRayIntent.Visible)
+        vm.onIntent(XRayIntent.ConfirmPending)
+
+        assertNull(state.confirmation)
+        assertFalse(detail.busy)
+        assertTrue(deps.device.writes.isEmpty())
+    }
+
+    @Test
+    fun `a plan still running when the sheet is closed never opens a confirmation`() {
+        openChatty()
+        val gate = CompletableDeferred<Unit>()
+        deps.device.gate = gate
+
+        vm.onIntent(XRayIntent.Act(ActionRequest.ForceStop))
+        vm.onIntent(XRayIntent.CloseApp)
+        gate.complete(Unit)
+        vm.onIntent(XRayIntent.ConfirmPending)
+
+        assertNull(state.confirmation)
+        assertNull(state.detail)
         assertTrue(deps.device.writes.isEmpty())
     }
 

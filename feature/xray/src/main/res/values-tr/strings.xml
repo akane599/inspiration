@@ -24,10 +24,6 @@
     <string name="xray_error_action">Yeniden dene</string>
     <string name="xray_refresh_failed">Yeni veri alınamadı. Son kayıt gösteriliyor.</string>
 
-    <!-- Time slice -->
-    <string name="xray_range">%1$s – %2$s</string>
-    <string name="xray_slice_gap">İstenen aralığın %1$s kadarı için veri yok</string>
-
     <!-- Components tab -->
     <string name="xray_components_heading">Donanım bileşenleri</string>
     <string name="xray_components_unavailable_title">Bileşen dökümü yok</string>
