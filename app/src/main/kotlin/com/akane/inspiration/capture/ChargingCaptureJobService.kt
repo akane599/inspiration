@@ -5,7 +5,10 @@ import android.app.job.JobService
 import android.util.Log
 import com.akane.inspiration.InspirationApplication
 import com.akane.inspiration.ipc.model.HistoryKind
+import com.akane.inspiration.telemetry.capacity.KernelCapacity
+import com.akane.inspiration.telemetry.live.KernelUnits
 import com.akane.inspiration.telemetry.snapshot.CaptureTrigger
+import com.akane.inspiration.telemetry.source.AndroidTelemetrySource
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Job
@@ -53,6 +56,13 @@ class ChargingCaptureJobService : JobService() {
                                 ingestHistory = true,
                             )
                         },
+                        analyze = {
+                            ChargeHealthPipeline(
+                                store = store,
+                                kernelCapacity = { readKernelCapacity(app) },
+                                log = { message, error -> Log.w(TAG, message, error) },
+                            ).run(container.clocks.wallMs())
+                        },
                         prune = { store.prune(container.clocks.wallMs()) },
                     )
                     if (isActive) {
@@ -91,6 +101,16 @@ class ChargingCaptureJobService : JobService() {
             runningJobs.remove(params.jobId)?.cancel()
         }
         return false
+    }
+
+    // One bounded kernel read through the existing telemetry source; null (no Shizuku, no sysfs node) skips analysis.
+    private suspend fun readKernelCapacity(app: InspirationApplication): KernelCapacity? {
+        val container = app.appContainer
+        return AndroidTelemetrySource(app, container.shizukuManager, container.clocks)
+            .kernelReading()
+            ?.kernel
+            ?.takeIf { it.available }
+            ?.let(KernelUnits::kernelCapacity)
     }
 
     private companion object {

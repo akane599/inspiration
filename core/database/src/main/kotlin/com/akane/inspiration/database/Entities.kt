@@ -284,6 +284,7 @@ data class TelemetrySampleEntity(
     val temperatureDeciC: Int? = null,
     val levelPct: Int? = null,
     val plugged: Boolean? = null,
+    val thermalStatus: Int? = null,
 )
 
 @Entity(tableName = "telemetry_hourly")

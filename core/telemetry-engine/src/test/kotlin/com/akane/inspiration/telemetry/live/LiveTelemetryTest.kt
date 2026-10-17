@@ -30,21 +30,51 @@ class LiveTelemetryTest {
         assertEquals(1, source.kernelCalls)
     }
 
-    private class CountingSource : TelemetrySource {
+    @Test
+    fun `reading carries charge counter and thermal status and normalizes an inverted kernel sign`() = runTest {
+        val source = CountingSource(
+            light = lightRead().copy(
+                plugged = true,
+                status = "charging",
+                currentMa = -900,
+                chargeCounterUah = 3_000_000L,
+                thermalStatus = 2,
+            ),
+        )
+
+        val reading = LiveTelemetry(source, PowerCalibrator(), TestClocks()).readings().take(1).toList().single()
+
+        assertEquals(900, reading.currentMa)
+        assertEquals(3_000_000L, reading.chargeCounterUah)
+        assertEquals(2, reading.thermalStatus)
+    }
+
+    @Test
+    fun `reading leaves thermal status null when the source cannot read it`() = runTest {
+        val reading = LiveTelemetry(CountingSource(), PowerCalibrator(), TestClocks())
+            .readings().take(1).toList().single()
+
+        assertEquals(-100, reading.currentMa)
+        assertEquals(null, reading.thermalStatus)
+    }
+
+    private fun lightRead() = LightRead(
+        clock = SnapshotClock(1, 2, 3, 4, null, null),
+        levelPct = 50,
+        plugged = false,
+        status = "discharging",
+        temperatureDeciC = 250,
+        voltageMv = 4000,
+        currentMa = -100,
+        chargeCounterUah = null,
+    )
+
+    private inner class CountingSource(private val light: LightRead = lightRead()) : TelemetrySource {
         var kernelCalls = 0
 
         override suspend fun full(trigger: CaptureTrigger, historyCursor: Pair<Long, Long>?): FullRead? = null
 
-        override fun light(): LightRead = LightRead(
-            clock = SnapshotClock(1, 2, 3, 4, null, null),
-            levelPct = 50,
-            plugged = false,
-            status = "discharging",
-            temperatureDeciC = 250,
-            voltageMv = 4000,
-            currentMa = -100,
-            chargeCounterUah = null,
-        )
+        override fun light(): LightRead = light
 
         override suspend fun kernelReading(): KernelRead {
             kernelCalls++

@@ -19,6 +19,7 @@ data class TelemetrySample(
     val temperatureDeciC: Int?,
     val levelPct: Int?,
     val plugged: Boolean?,
+    val thermalStatus: Int? = null,
 )
 
 /** One battery-health observation; [wallMs] is unique, inserting the same instant again replaces it. */

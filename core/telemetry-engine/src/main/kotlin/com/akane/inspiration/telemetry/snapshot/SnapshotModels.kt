@@ -174,4 +174,7 @@ data class LiveReading(
     val temperatureDeciC: Int?,
     val levelPct: Int?,
     val plugged: Boolean?,
+    val chargeCounterUah: Long? = null,
+    // PowerManager.THERMAL_STATUS_* (0 none .. 6 shutdown); null when the platform call is unavailable.
+    val thermalStatus: Int? = null,
 )
