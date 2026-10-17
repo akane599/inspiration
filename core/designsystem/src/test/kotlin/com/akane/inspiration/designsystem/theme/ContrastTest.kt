@@ -31,6 +31,29 @@ class ContrastTest {
         assertTelemetry("light", LightTelemetryColors, InspirationLightColorScheme.background)
 
     @Test
+    fun darkStatusColorsOnSurfaces() =
+        assertStatus("dark", DarkStatusColors, InspirationDarkColorScheme)
+
+    @Test
+    fun lightStatusColorsOnSurfaces() =
+        assertStatus("light", LightStatusColors, InspirationLightColorScheme)
+
+    @Test
+    fun statusHuesAreNotTheDataHues() {
+        // A status that reused a data hue would read as data (deep sleep, awake, charging).
+        val pairs = listOf(
+            Triple("dark", DarkStatusColors, DarkTelemetryColors),
+            Triple("light", LightStatusColors, LightTelemetryColors),
+        )
+        for ((theme, status, data) in pairs) {
+            val dataHues = listOf(data.deepSleep, data.lightSleep, data.awake, data.charging, data.screenOn, data.radios)
+            for ((name, color) in mapOf("ok" to status.ok, "warning" to status.warning)) {
+                assertTrue("$theme status $name reuses a data hue", color !in dataHues)
+            }
+        }
+    }
+
+    @Test
     fun contrastFormulaMatchesKnownValues() {
         val blackOnWhite = contrast(Color.Black, Color.White)
         assertTrue("black on white was $blackOnWhite", kotlin.math.abs(blackOnWhite - 21.0) < 0.001)
@@ -58,6 +81,7 @@ class ContrastTest {
             "awake" to colors.awake,
             "critical" to colors.critical,
             "charging" to colors.charging,
+            "radios" to colors.radios,
             "batteryLine" to colors.batteryLine,
             "temperatureLine" to colors.temperatureLine,
             "chartAxisLabel" to colors.chartAxisLabel,
@@ -66,6 +90,19 @@ class ContrastTest {
             val ratio = contrast(color, background)
             println("$theme $name on background = %.2f".format(ratio))
             assertTrue("$theme $name on background was $ratio, needs >= 3.0", ratio >= 3.0)
+        }
+    }
+
+    // Status dots and marks sit on the screen background and on card fills; the *Container fills are decorative.
+    private fun assertStatus(theme: String, status: StatusColors, scheme: ColorScheme) {
+        val marks = mapOf("ok" to status.ok, "warning" to status.warning, "neutral" to status.neutral)
+        val surfaces = mapOf("background" to scheme.background, "surfaceContainer" to scheme.surfaceContainer)
+        for ((name, color) in marks) {
+            for ((surfaceName, surface) in surfaces) {
+                val ratio = contrast(color, surface)
+                println("$theme status $name on $surfaceName = %.2f".format(ratio))
+                assertTrue("$theme status $name on $surfaceName was $ratio, needs >= 3.0", ratio >= 3.0)
+            }
         }
     }
 

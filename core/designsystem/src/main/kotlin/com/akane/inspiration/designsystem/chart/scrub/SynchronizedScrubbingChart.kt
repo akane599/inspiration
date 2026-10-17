@@ -47,8 +47,10 @@ import com.akane.inspiration.designsystem.chart.model.TimeRange
 import com.akane.inspiration.designsystem.chart.model.labelRes
 import com.akane.inspiration.designsystem.component.LegendItem
 import com.akane.inspiration.designsystem.component.LegendRow
+import com.akane.inspiration.designsystem.component.format.rememberTelemetryFormat
 import com.akane.inspiration.designsystem.theme.spacing
 import com.akane.inspiration.designsystem.theme.telemetryColors
+import com.akane.inspiration.designsystem.theme.withTabularFigures
 import kotlinx.collections.immutable.toImmutableList
 import java.time.ZoneId
 import java.util.Locale
@@ -158,7 +160,8 @@ private fun ScrubPlot(
     val density = LocalDensity.current
     val locale = LocalConfiguration.current.locales[0] ?: Locale.getDefault()
     val textMeasurer = rememberTextMeasurer()
-    val labelStyle = MaterialTheme.typography.labelSmall
+    val labelStyle = MaterialTheme.typography.labelSmall.withTabularFigures()
+    val celsiusUnit = rememberTelemetryFormat().units.celsius
 
     val palette = remember(telemetry, scheme.onSurface, scheme.primary, scheme.surfaceContainer) {
         ScrubPalette(
@@ -181,8 +184,8 @@ private fun ScrubPlot(
         if (points.isEmpty()) null else temperatureAxis(points.minOf { it.value }, points.maxOf { it.value })
     }
     // Value-axis labels depend on data and style only, so they are measured once here: their width sets the gutters.
-    val labels = remember(temperatureAxis, labelStyle, textMeasurer) {
-        measureValueAxisLabels(textMeasurer, labelStyle, temperatureAxis)
+    val labels = remember(temperatureAxis, labelStyle, textMeasurer, celsiusUnit) {
+        measureValueAxisLabels(textMeasurer, labelStyle, temperatureAxis, celsiusUnit)
     }
     val gutters = remember(labels, density, spacing) {
         val gap = with(density) { spacing.sm.toPx() }

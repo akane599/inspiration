@@ -22,7 +22,7 @@ import com.akane.inspiration.designsystem.theme.telemetryColors
 import kotlinx.collections.immutable.ImmutableList
 
 /** Which theme colour a [BarSegment] takes. Features name a role; they never pass raw colours. */
-enum class BarRole { SCREEN_ON, DEEP_SLEEP, LIGHT_SLEEP, AWAKE, CRITICAL, CHARGING, NEUTRAL }
+enum class BarRole { SCREEN_ON, DEEP_SLEEP, LIGHT_SLEEP, AWAKE, CRITICAL, CHARGING, NEUTRAL, RADIOS }
 
 /**
  * One slice of a [StackedBar]: [value] in the same unit as the bar's total, drawn in [role]'s colour.
@@ -42,9 +42,10 @@ private object BarMetrics {
     val Separator = 2.dp
 }
 
+/** The colour [StackedBar] draws this role in, for a matching [LegendItem]. */
 @Composable
 @ReadOnlyComposable
-private fun BarRole.color(): Color {
+fun BarRole.color(): Color {
     val telemetry = MaterialTheme.telemetryColors
     return when (this) {
         BarRole.SCREEN_ON -> telemetry.screenOn
@@ -53,6 +54,7 @@ private fun BarRole.color(): Color {
         BarRole.AWAKE -> telemetry.awake
         BarRole.CRITICAL -> telemetry.critical
         BarRole.CHARGING -> telemetry.charging
+        BarRole.RADIOS -> telemetry.radios
         BarRole.NEUTRAL -> MaterialTheme.colorScheme.onSurfaceVariant
     }
 }

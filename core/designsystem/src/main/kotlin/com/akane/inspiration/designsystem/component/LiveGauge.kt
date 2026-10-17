@@ -22,23 +22,29 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import com.akane.inspiration.designsystem.R
 import com.akane.inspiration.designsystem.component.format.FormattedValue
+import com.akane.inspiration.designsystem.component.format.NO_VALUE
 import com.akane.inspiration.designsystem.component.format.rememberTelemetryFormat
 import com.akane.inspiration.designsystem.theme.numericTypography
 import com.akane.inspiration.designsystem.theme.spacing
+import com.akane.inspiration.designsystem.theme.statusColors
 import com.akane.inspiration.designsystem.theme.telemetryColors
 
-// Widest plausible reading per slot. Tabular figures make every digit equally wide, so the template reserves
-// the width of the longest value and the unit stays put while digits change.
-private const val CURRENT_TEMPLATE = "8888"
-private const val POWER_TEMPLATE = "88.88"
+// Typical reading per slot (a minus sign or an extra digit just grows the slot). Tabular figures make every digit
+// equally wide, so the template keeps the unit in place while digits change, and a typical value fills the slot
+// so there is no gap between it and its unit ("1.65 W", not "1.65   W").
+private const val CURRENT_TEMPLATE = "888"
+private const val POWER_TEMPLATE = "8.88"
 private const val VOLTAGE_TEMPLATE = "8888"
 private const val TEMPERATURE_TEMPLATE = "88.8"
 
 /**
  * The live battery reading: current as the headline, then power, voltage and temperature, then an optional
- * [remaining] line ("3 h 20 min left", already worded by the caller). Null readings show a dash. Numbers go
- * through `TelemetryFormat`, and every value sits in a slot at least as wide as its widest plausible reading, so
- * the gauge does not jump as digits change. Pass [currentMa] negative while discharging.
+ * [remaining] line ("3 h 20 min left", already worded by the caller). Numbers go through `TelemetryFormat`, and
+ * a value sits in a slot at least as wide as its typical reading, so the gauge does not jump as digits change.
+ * Pass [currentMa] negative while discharging.
+ *
+ * A null reading shows a plain dash at body size, with no slot and no unit. [isCharging] is null when the
+ * charging state is unknown (no battery data at all): the status then reads "No reading", never "Discharging".
  */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
@@ -48,7 +54,7 @@ fun LiveGauge(
     voltageMv: Int?,
     temperatureC: Double?,
     remaining: String?,
-    isCharging: Boolean,
+    isCharging: Boolean?,
     modifier: Modifier = Modifier,
 ) {
     val format = rememberTelemetryFormat()
@@ -56,10 +62,20 @@ fun LiveGauge(
     InspirationCard(modifier = modifier) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             SemanticDot(
-                color = if (isCharging) MaterialTheme.telemetryColors.charging else MaterialTheme.colorScheme.onSurfaceVariant,
+                color = when (isCharging) {
+                    true -> MaterialTheme.telemetryColors.charging
+                    false -> MaterialTheme.colorScheme.onSurfaceVariant
+                    null -> MaterialTheme.statusColors.neutral
+                },
             )
             Text(
-                text = stringResource(if (isCharging) R.string.gauge_charging else R.string.gauge_discharging),
+                text = stringResource(
+                    when (isCharging) {
+                        true -> R.string.gauge_charging
+                        false -> R.string.gauge_discharging
+                        null -> R.string.gauge_no_reading
+                    },
+                ),
                 style = MaterialTheme.typography.labelLarge,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.padding(start = spacing.sm),
@@ -69,6 +85,7 @@ fun LiveGauge(
             reading = format.milliamps(currentMa),
             template = CURRENT_TEMPLATE,
             style = MaterialTheme.numericTypography.display,
+            missingStyle = MaterialTheme.numericTypography.title,
             modifier = Modifier.padding(top = spacing.xs),
         )
         FlowRow(
@@ -102,18 +119,36 @@ private fun LabeledSlot(labelRes: Int, reading: FormattedValue, template: String
             style = MaterialTheme.typography.labelMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
-        SlotValue(reading = reading, template = template, style = MaterialTheme.numericTypography.body)
+        SlotValue(
+            reading = reading,
+            template = template,
+            style = MaterialTheme.numericTypography.body,
+            missingStyle = MaterialTheme.numericTypography.body,
+        )
     }
 }
 
-/** A value left-aligned in a slot at least as wide as [template] in [style], followed by its unit. */
+/**
+ * A value left-aligned in a slot at least as wide as [template] in [style], followed by its unit. A missing
+ * reading is just a dash in [missingStyle]: no slot width, no unit.
+ */
 @Composable
 private fun SlotValue(
     reading: FormattedValue,
     template: String,
     style: TextStyle,
+    missingStyle: TextStyle,
     modifier: Modifier = Modifier,
 ) {
+    if (reading.value == NO_VALUE) {
+        Text(
+            text = NO_VALUE,
+            style = missingStyle,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = modifier,
+        )
+        return
+    }
     val measurer = rememberTextMeasurer()
     val density = LocalDensity.current
     val slotWidth = remember(template, style, density, measurer) {

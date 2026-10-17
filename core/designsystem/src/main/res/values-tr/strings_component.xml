@@ -3,6 +3,7 @@
     <!-- LiveGauge -->
     <string name="gauge_charging">Şarj oluyor</string>
     <string name="gauge_discharging">Deşarj oluyor</string>
+    <string name="gauge_no_reading">Okuma yok</string>
     <string name="gauge_label_power">Güç</string>
     <string name="gauge_label_voltage">Gerilim</string>
     <string name="gauge_label_temperature">Sıcaklık</string>
@@ -11,4 +12,6 @@
     <string name="slice_requested">İstenen</string>
     <string name="slice_covered">Kapsanan</string>
     <string name="slice_clear">Temizle</string>
+    <!-- İstenen aralıkta veri yok: %1$s boşluk süresi ("25 dk"), %2$s yeri ("2 Mar 08:00–08:25") -->
+    <string name="slice_gap">%2$s arasında %1$s veri yok</string>
 </resources>

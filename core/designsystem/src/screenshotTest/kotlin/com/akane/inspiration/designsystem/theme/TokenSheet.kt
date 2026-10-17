@@ -33,6 +33,7 @@ private class Swatch(val name: String, val color: Color)
 internal fun TokenSheetColors() {
     val scheme = MaterialTheme.colorScheme
     val telemetry = MaterialTheme.telemetryColors
+    val status = MaterialTheme.statusColors
     val roles = listOf(
         Swatch("background", scheme.background),
         Swatch("onBackground", scheme.onBackground),
@@ -62,6 +63,7 @@ internal fun TokenSheetColors() {
         Swatch("awake", telemetry.awake),
         Swatch("critical", telemetry.critical),
         Swatch("charging", telemetry.charging),
+        Swatch("radios", telemetry.radios),
         Swatch("batteryLine", telemetry.batteryLine),
         Swatch("temperatureLine", telemetry.temperatureLine),
         Swatch("chartGrid", telemetry.chartGrid),
@@ -72,11 +74,20 @@ internal fun TokenSheetColors() {
         Swatch("criticalContainer", telemetry.criticalContainer),
         Swatch("chargingContainer", telemetry.chargingContainer),
     )
+    val statuses = listOf(
+        Swatch("status ok", status.ok),
+        Swatch("status warning", status.warning),
+        Swatch("status neutral", status.neutral),
+        Swatch("status okContainer", status.okContainer),
+        Swatch("status warningContainer", status.warningContainer),
+    )
     SheetSurface {
         SectionTitle("Color roles")
         SwatchGrid(roles)
-        SectionTitle("Telemetry colors")
+        SectionTitle("Telemetry colors (data meaning)")
         SwatchGrid(semantic)
+        SectionTitle("Status colors (state, never data)")
+        SwatchGrid(statuses)
         Row(horizontalArrangement = Arrangement.spacedBy(MaterialTheme.spacing.sm)) {
             // Legend sample: hues used as the data marks they stand for.
             listOf(telemetry.deepSleep, telemetry.lightSleep, telemetry.screenOn, telemetry.awake, telemetry.critical, telemetry.charging)

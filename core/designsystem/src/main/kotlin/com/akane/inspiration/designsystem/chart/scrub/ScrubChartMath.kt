@@ -8,14 +8,12 @@ import java.time.format.DateTimeFormatter
 import java.util.Locale
 import kotlin.math.ceil
 import kotlin.math.floor
-import kotlin.math.roundToInt
 import kotlin.math.roundToLong
 
 /** Temperature at or above this is drawn in the critical hue. */
 internal const val CRITICAL_TEMPERATURE_C = 40f
 
 private const val DAY_MS = 24 * 60 * 60_000L
-private const val MINUTE_MS = 60_000L
 private const val TEMPERATURE_ALIGN_C = 5f
 
 /** A connected stretch of a series that is entirely below or entirely at/above a threshold. */
@@ -82,14 +80,6 @@ internal fun interpolateAt(times: LongArray, values: FloatArray, t: Long): Float
     if (times[lo] == t || lo == 0) return values[lo]
     val fraction = (t - times[lo - 1]).toDouble() / (times[lo] - times[lo - 1])
     return (values[lo - 1] + (values[lo] - values[lo - 1]) * fraction).toFloat()
-}
-
-internal class DurationParts(val hours: Int, val minutes: Int)
-
-/** Whole hours and minutes, rounded to the nearest minute. */
-internal fun splitDuration(durationMs: Long): DurationParts {
-    val totalMinutes = (durationMs.coerceAtLeast(0L).toDouble() / MINUTE_MS).roundToInt()
-    return DurationParts(totalMinutes / 60, totalMinutes % 60)
 }
 
 /** True when the window spans a day or more, so readouts need the date as well as the time. */

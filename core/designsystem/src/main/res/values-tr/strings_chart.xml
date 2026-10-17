@@ -13,17 +13,12 @@
     <!-- Hypnogram stage names -->
     <string name="chart_stage_awake">Uyanık</string>
     <string name="chart_stage_maintenance">Bakım</string>
-    <string name="chart_stage_light_idle">Hafif uyku</string>
+    <string name="chart_stage_light_idle">Hafif doze</string>
     <string name="chart_stage_deep_idle">Derin doze</string>
 
     <!-- Empty state and actions -->
     <string name="chart_empty">Bu dönem için veri yok</string>
     <string name="chart_clear_selection">Seçimi temizle</string>
-
-    <!-- Durations: %1$d hours, %2$d minutes -->
-    <string name="chart_duration_hours_minutes">%1$d sa %2$d dk</string>
-    <string name="chart_duration_hours">%1$d sa</string>
-    <string name="chart_duration_minutes">%1$d dk</string>
 
     <!-- Readout row: values at the cursor, selection summary, window summary -->
     <string name="chart_readout_battery">Pil %%%1$d</string>

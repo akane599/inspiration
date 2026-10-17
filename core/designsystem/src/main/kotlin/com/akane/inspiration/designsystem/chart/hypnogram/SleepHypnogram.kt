@@ -54,7 +54,9 @@ import com.akane.inspiration.designsystem.chart.model.HypnogramData
 import com.akane.inspiration.designsystem.chart.model.HypnogramStage
 import com.akane.inspiration.designsystem.chart.model.TimeRange
 import com.akane.inspiration.designsystem.chart.model.labelRes
+import com.akane.inspiration.designsystem.component.format.rememberTelemetryFormat
 import com.akane.inspiration.designsystem.theme.telemetryColors
+import com.akane.inspiration.designsystem.theme.withTabularFigures
 import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
@@ -115,7 +117,7 @@ fun SleepHypnogram(
 ) {
     val density = LocalDensity.current
     val textDensity = remember(density) { Density(density.density, minOf(density.fontScale, MAX_CHART_FONT_SCALE)) }
-    val labelStyle = MaterialTheme.typography.labelSmall
+    val labelStyle = MaterialTheme.typography.labelSmall.withTabularFigures()
     val minHeight = with(textDensity) {
         val lineHeight = if (labelStyle.lineHeight.isSp) labelStyle.lineHeight.toDp() else 16.dp
         val rowHeight = maxOf(MinRowHeight, lineHeight + ColumnGap)
@@ -159,18 +161,19 @@ fun SleepHypnogram(
     }
     val stageNames = remember(resources) { HypnogramStage.entries.map { resources.getString(it.labelRes) } }
     val durationsMs = remember(data) { stageDurationsMs(data) }
-    val durationTexts = remember(durationsMs, resources) { durationsMs.map { formatDuration(resources, it) } }
+    val format = rememberTelemetryFormat()
+    val durationTexts = remember(durationsMs, format) { durationsMs.map(format::duration) }
     val description = remember(data, zone, stageNames, durationTexts, resources) {
         describe(resources, data.window, zone, stageNames, durationTexts)
     }
-    val selectionDescription = remember(selection, zone, resources) {
+    val selectionDescription = remember(selection, zone, resources, format) {
         selection?.let {
             val formatter = clockFormatter(data.window)
             resources.getString(
                 R.string.chart_a11y_selection,
                 formatClock(formatter, it.startMs, zone),
                 formatClock(formatter, it.endMs, zone),
-                formatDuration(resources, it.durationMs),
+                format.duration(it.durationMs),
             )
         }
     }
@@ -447,15 +450,6 @@ private fun clockFormatter(window: TimeRange): DateTimeFormatter =
 
 private fun formatClock(formatter: DateTimeFormatter, tMs: Long, zone: ZoneId): String =
     formatter.format(Instant.ofEpochMilli(tMs).atZone(zone))
-
-private fun formatDuration(resources: Resources, durationMs: Long): String {
-    val (hours, minutes) = hoursAndMinutes(durationMs)
-    return when {
-        hours > 0 && minutes > 0 -> resources.getString(R.string.chart_duration_hours_minutes, hours, minutes)
-        hours > 0 -> resources.getString(R.string.chart_duration_hours, hours)
-        else -> resources.getString(R.string.chart_duration_minutes, minutes)
-    }
-}
 
 private fun describe(
     resources: Resources,

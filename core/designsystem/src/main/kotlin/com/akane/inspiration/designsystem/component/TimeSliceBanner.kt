@@ -18,19 +18,82 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import com.akane.inspiration.designsystem.R
+import com.akane.inspiration.designsystem.chart.model.TimeRange
+import com.akane.inspiration.designsystem.component.format.NO_VALUE
+import com.akane.inspiration.designsystem.component.format.rememberTelemetryFormat
 import com.akane.inspiration.designsystem.theme.spacing
-import com.akane.inspiration.designsystem.theme.telemetryColors
+import com.akane.inspiration.designsystem.theme.statusColors
+import kotlinx.collections.immutable.ImmutableList
+import kotlinx.collections.immutable.toImmutableList
+import java.time.ZoneId
 
 private object BannerMetrics {
     val BorderWidth = 1.dp
 }
 
+/** Gaps shorter than this are rounding noise at the edges of a slice, not missing data worth a warning. */
+private const val MIN_GAP_MS = 60_000L
+
 /**
- * Tells the user that the figures below describe a slice of time: the [requested] range, the range [covered] by
- * data, and a [gapText] when the two differ (null when the data covers the whole request). [onClear] removes the
- * slice. Pass the ranges already formatted.
+ * The parts of [requested] that [covered] does not reach: before it starts and after it ends, ignoring gaps under a
+ * minute. A null [covered] (no data at all) leaves the whole request as one gap.
  */
-@OptIn(ExperimentalLayoutApi::class)
+internal fun sliceGaps(requested: TimeRange, covered: TimeRange?): List<TimeRange> {
+    val disjoint = covered == null || covered.endMs <= requested.startMs || covered.startMs >= requested.endMs
+    val gaps = if (covered == null || disjoint) {
+        listOf(requested)
+    } else {
+        listOf(
+            TimeRange.of(requested.startMs, covered.startMs.coerceAtLeast(requested.startMs)),
+            TimeRange.of(covered.endMs.coerceAtMost(requested.endMs), requested.endMs),
+        )
+    }
+    return gaps.filter { it.durationMs >= MIN_GAP_MS }
+}
+
+/**
+ * The one wording for missing data: "No data for 25 min at 2 Mar 08:00–08:25" (Turkish: "2 Mar 08:00–08:25
+ * arasında 25 dk veri yok"). Screens with their own gap data use this instead of phrasing it themselves.
+ */
+@Composable
+fun sliceGapText(gap: TimeRange, zone: ZoneId = ZoneId.systemDefault()): String {
+    val format = rememberTelemetryFormat()
+    return stringResource(
+        R.string.slice_gap,
+        format.duration(gap.durationMs),
+        format.range(gap.startMs, gap.endMs, zone),
+    )
+}
+
+/**
+ * Tells the user that the figures below describe a slice of time: the [requested] range and the range [covered] by
+ * data (null when there is none). The ranges and a "No data for 25 min at …" line per gap are formatted here, so
+ * every screen words them the same way. [onClear] removes the slice.
+ */
+@Composable
+fun TimeSliceBanner(
+    requested: TimeRange,
+    covered: TimeRange?,
+    onClear: () -> Unit,
+    modifier: Modifier = Modifier,
+    zone: ZoneId = ZoneId.systemDefault(),
+) {
+    val format = rememberTelemetryFormat()
+    val gaps = sliceGaps(requested, covered).map { sliceGapText(it, zone) }
+    TimeSliceBannerContent(
+        requested = format.range(requested.startMs, requested.endMs, zone),
+        covered = covered?.let { format.range(it.startMs, it.endMs, zone) } ?: NO_VALUE,
+        gapTexts = gaps.toImmutableList(),
+        onClear = onClear,
+        modifier = modifier,
+    )
+}
+
+/**
+ * Same banner for ranges the caller has already formatted: the [requested] range, the range [covered] by data, and
+ * a [gapText] when the two differ (null when the data covers the whole request). Prefer the [TimeRange] overload,
+ * which formats the ranges and words the gap consistently.
+ */
 @Composable
 fun TimeSliceBanner(
     requested: String,
@@ -38,6 +101,24 @@ fun TimeSliceBanner(
     gapText: String?,
     onClear: () -> Unit,
     modifier: Modifier = Modifier,
+) {
+    TimeSliceBannerContent(
+        requested = requested,
+        covered = covered,
+        gapTexts = listOfNotNull(gapText).toImmutableList(),
+        onClear = onClear,
+        modifier = modifier,
+    )
+}
+
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun TimeSliceBannerContent(
+    requested: String,
+    covered: String,
+    gapTexts: ImmutableList<String>,
+    onClear: () -> Unit,
+    modifier: Modifier,
 ) {
     val spacing = MaterialTheme.spacing
     Surface(
@@ -57,9 +138,9 @@ fun TimeSliceBanner(
             ) {
                 RangeLine(stringResource(R.string.slice_requested), requested)
                 RangeLine(stringResource(R.string.slice_covered), covered)
-                if (gapText != null) {
+                gapTexts.forEach { gapText ->
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        SemanticDot(color = MaterialTheme.telemetryColors.awake)
+                        SemanticDot(color = MaterialTheme.statusColors.warning)
                         Text(
                             text = gapText,
                             style = MaterialTheme.typography.bodySmall,

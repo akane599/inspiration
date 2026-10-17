@@ -19,6 +19,7 @@ data class TelemetryColors(
     val awake: Color,
     val critical: Color,
     val charging: Color,
+    val radios: Color,
     val batteryLine: Color,
     val temperatureLine: Color,
     val chartGrid: Color,
@@ -39,6 +40,7 @@ internal val DarkTelemetryColors = TelemetryColors(
     awake = Color(0xFFF59E0B),
     critical = Color(0xFFEF4444),
     charging = Color(0xFF22D3EE),
+    radios = Color(0xFFA78BFA),
     batteryLine = Color(0xFFE6EAF0),
     temperatureLine = Color(0xFF98A2B3),
     chartGrid = Color(0xFF1C222B),
@@ -58,6 +60,7 @@ internal val LightTelemetryColors = TelemetryColors(
     awake = Color(0xFFC2620A),
     critical = Color(0xFFDC2626),
     charging = Color(0xFF0891B2),
+    radios = Color(0xFF6D28D9),
     batteryLine = Color(0xFF0E1116),
     temperatureLine = Color(0xFF4A5463),
     chartGrid = Color(0xFFDDE2E8),
@@ -70,6 +73,44 @@ internal val LightTelemetryColors = TelemetryColors(
 )
 
 internal val LocalTelemetryColors = staticCompositionLocalOf { DarkTelemetryColors }
+
+/**
+ * Hues for the state of the app or of a setting ("Binder active", "Active profile", a caution). They are separate
+ * from [TelemetryColors] on purpose: deep-sleep green, awake amber and charging cyan mean data, so a status that
+ * borrowed them would read as data. Critical status stays [TelemetryColors.critical]. [ok] and [warning] pair
+ * with the `*Container` fills (the hue at 16 % alpha); [neutral] is for "off", "idle" and "unknown".
+ */
+@Immutable
+data class StatusColors(
+    val ok: Color,
+    val warning: Color,
+    val neutral: Color,
+    val okContainer: Color,
+    val warningContainer: Color,
+)
+
+internal val DarkStatusColors = StatusColors(
+    ok = Color(0xFF4ADE80),
+    warning = Color(0xFFFBBF24),
+    neutral = Color(0xFF98A2B3),
+    okContainer = Color(0xFF4ADE80).copy(alpha = CONTAINER_ALPHA),
+    warningContainer = Color(0xFFFBBF24).copy(alpha = CONTAINER_ALPHA),
+)
+
+/** Darkened where the light background (>= 3:1) needs it. */
+internal val LightStatusColors = StatusColors(
+    ok = Color(0xFF15803D),
+    warning = Color(0xFFB45309),
+    neutral = Color(0xFF4A5463),
+    okContainer = Color(0xFF15803D).copy(alpha = CONTAINER_ALPHA),
+    warningContainer = Color(0xFFB45309).copy(alpha = CONTAINER_ALPHA),
+)
+
+internal val LocalStatusColors = staticCompositionLocalOf { DarkStatusColors }
+
+val MaterialTheme.statusColors: StatusColors
+    @Composable @ReadOnlyComposable
+    get() = LocalStatusColors.current
 
 val MaterialTheme.telemetryColors: TelemetryColors
     @Composable @ReadOnlyComposable

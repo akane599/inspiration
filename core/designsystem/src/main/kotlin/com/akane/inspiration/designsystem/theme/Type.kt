@@ -38,8 +38,9 @@ private fun style(
 )
 
 /**
- * Full M3 scale. Tabular figures only on title* and label* (axis labels, chips, list values);
- * tnum hurts reading in prose, so body, headline and display keep proportional figures.
+ * Full M3 scale, all proportional. Tabular figures (tnum) also widen hyphens ("X - Ray", "wake - ups"), so
+ * prose styles never carry them; numbers that must align use [NumericTypography], or [withTabularFigures]
+ * for chart axis labels.
  * Body is >= 16 sp on phones with ~1.45x line height; bodySmall is the caption tier.
  */
 internal val InspirationTypography = Typography(
@@ -49,16 +50,19 @@ internal val InspirationTypography = Typography(
     headlineLarge = style(FontWeight.SemiBold, 32f, 40f, -0.5f),
     headlineMedium = style(FontWeight.SemiBold, 28f, 36f, -0.25f),
     headlineSmall = style(FontWeight.SemiBold, 24f, 32f, -0.1f),
-    titleLarge = style(FontWeight.SemiBold, 22f, 28f, 0f, TABULAR),
-    titleMedium = style(FontWeight.Medium, 16f, 24f, 0.1f, TABULAR),
-    titleSmall = style(FontWeight.Medium, 14f, 20f, 0.1f, TABULAR),
+    titleLarge = style(FontWeight.SemiBold, 22f, 28f, 0f),
+    titleMedium = style(FontWeight.Medium, 16f, 24f, 0.1f),
+    titleSmall = style(FontWeight.Medium, 14f, 20f, 0.1f),
     bodyLarge = style(FontWeight.Normal, 17f, 25f, 0f),
     bodyMedium = style(FontWeight.Normal, 16f, 23f, 0f),
     bodySmall = style(FontWeight.Normal, 14f, 20f, 0.1f),
-    labelLarge = style(FontWeight.Medium, 14f, 20f, 0.1f, TABULAR),
-    labelMedium = style(FontWeight.Medium, 12f, 16f, 0.3f, TABULAR),
-    labelSmall = style(FontWeight.Medium, 11f, 16f, 0.4f, TABULAR),
+    labelLarge = style(FontWeight.Medium, 14f, 20f, 0.1f),
+    labelMedium = style(FontWeight.Medium, 12f, 16f, 0.3f),
+    labelSmall = style(FontWeight.Medium, 11f, 16f, 0.4f),
 )
+
+/** [this] with tabular figures, for text that is all numbers (chart axis labels, durations in a column). */
+internal fun TextStyle.withTabularFigures(): TextStyle = copy(fontFeatureSettings = TABULAR)
 
 /** Styles for telemetry values (percentages, temperatures, durations). All use tabular figures. */
 @Immutable

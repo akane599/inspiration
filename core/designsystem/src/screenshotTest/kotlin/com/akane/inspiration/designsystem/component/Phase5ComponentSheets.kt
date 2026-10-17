@@ -18,10 +18,14 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalConfiguration
+import com.akane.inspiration.designsystem.chart.model.TimeRange
 import com.akane.inspiration.designsystem.component.format.rememberTelemetryFormat
 import com.akane.inspiration.designsystem.theme.spacing
+import com.akane.inspiration.designsystem.theme.statusColors
 import com.akane.inspiration.designsystem.theme.telemetryColors
 import kotlinx.collections.immutable.persistentListOf
+import java.time.Instant
+import java.time.ZoneId
 
 // Wide windows show the two halves of a sheet side by side, which also checks the components at 840 dp.
 private const val WIDE_SHEET_DP = 600
@@ -45,6 +49,12 @@ private fun SheetFrame(title: String, left: @Composable () -> Unit, right: @Comp
         }
     }
 }
+
+// A fixed zone, so the banner previews render the same on every machine.
+private val PreviewZone: ZoneId = ZoneId.of("UTC")
+
+private fun previewRange(startIso: String, endIso: String) =
+    TimeRange.of(Instant.parse(startIso).toEpochMilli(), Instant.parse(endIso).toEpochMilli())
 
 /** ReferencePill, SegmentedToggle, ShizukuPulse, StackedBar, TimeSliceBanner and EmptyState. */
 @OptIn(ExperimentalLayoutApi::class)
@@ -70,7 +80,7 @@ fun ControlsSheet() {
                 modifier = Modifier.fillMaxWidth(),
             )
             InspirationCard(modifier = Modifier.fillMaxWidth()) {
-                Text("Shizuku", style = MaterialTheme.typography.labelLarge)
+                CardTitle("Shizuku")
                 FlowRow(
                     horizontalArrangement = Arrangement.spacedBy(spacing.md),
                     verticalArrangement = Arrangement.spacedBy(spacing.xs),
@@ -82,12 +92,13 @@ fun ControlsSheet() {
                 }
             }
             InspirationCard(modifier = Modifier.fillMaxWidth()) {
-                Text("Screen time", style = MaterialTheme.typography.labelLarge)
+                CardTitle("Screen time")
                 StackedBar(
                     segments = persistentListOf(
                         BarSegment(0.30f, BarRole.SCREEN_ON, "Screen on", format.duration(135 * 60_000L)),
                         BarSegment(0.20f, BarRole.AWAKE, "Awake", format.duration(90 * 60_000L)),
                         BarSegment(0.35f, BarRole.DEEP_SLEEP, "Deep doze", format.duration(157 * 60_000L)),
+                        BarSegment(0.10f, BarRole.RADIOS, "Radios", format.duration(45 * 60_000L)),
                     ),
                     total = 1f,
                     modifier = Modifier.padding(vertical = spacing.sm),
@@ -97,24 +108,32 @@ fun ControlsSheet() {
                         LegendItem(telemetry.screenOn, "Screen on"),
                         LegendItem(telemetry.awake, "Awake"),
                         LegendItem(telemetry.deepSleep, "Deep doze"),
+                        LegendItem(BarRole.RADIOS.color(), "Radios"),
                     ),
                 )
             }
         },
         right = {
             TimeSliceBanner(
-                requested = "14:00 – 16:00",
-                covered = "14:20 – 16:00",
-                gapText = "No data 14:00 – 14:20",
+                requested = previewRange("2026-03-02T14:00:00Z", "2026-03-02T16:00:00Z"),
+                covered = previewRange("2026-03-02T14:25:00Z", "2026-03-02T16:00:00Z"),
                 onClear = {},
                 modifier = Modifier.fillMaxWidth(),
+                zone = PreviewZone,
             )
             TimeSliceBanner(
-                requested = "08:00 – 09:00",
-                covered = "08:00 – 09:00",
-                gapText = null,
+                requested = previewRange("2026-03-02T08:00:00Z", "2026-03-02T09:00:00Z"),
+                covered = previewRange("2026-03-02T08:00:00Z", "2026-03-02T09:00:00Z"),
                 onClear = {},
                 modifier = Modifier.fillMaxWidth(),
+                zone = PreviewZone,
+            )
+            TimeSliceBanner(
+                requested = previewRange("2026-03-02T22:00:00Z", "2026-03-03T06:00:00Z"),
+                covered = previewRange("2026-03-02T23:10:00Z", "2026-03-03T05:30:00Z"),
+                onClear = {},
+                modifier = Modifier.fillMaxWidth(),
+                zone = PreviewZone,
             )
             InspirationCard(modifier = Modifier.fillMaxWidth()) {
                 EmptyState(
@@ -167,6 +186,107 @@ fun TelemetrySheet() {
                 temperatureC = 38.2,
                 remaining = null,
                 isCharging = true,
+                modifier = Modifier.fillMaxWidth(),
+            )
+            // Nothing readable: dashes at body size, no units, and a status that never says "Discharging".
+            LiveGauge(
+                currentMa = null,
+                watts = null,
+                voltageMv = null,
+                temperatureC = null,
+                remaining = null,
+                isCharging = null,
+                modifier = Modifier.fillMaxWidth(),
+            )
+            LiveGauge(
+                currentMa = -312,
+                watts = null,
+                voltageMv = 3920,
+                temperatureC = null,
+                remaining = null,
+                isCharging = false,
+                modifier = Modifier.fillMaxWidth(),
+            )
+        },
+    )
+}
+
+/** ScreenHeader, CardTitle, MetricBar and the status colours: the shared chrome of a screen. */
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+fun ChromeSheet() {
+    val status = MaterialTheme.statusColors
+    val spacing = MaterialTheme.spacing
+    SheetFrame(
+        title = "Chrome",
+        left = {
+            ScreenHeader(
+                title = "Sleep Lab",
+                subtitle = "What kept the phone awake, last night",
+                actions = { ReferencePill(label = "Last night", onClick = {}) },
+            )
+            ScreenHeader(title = "Cockpit")
+            InspirationCard(modifier = Modifier.fillMaxWidth()) {
+                CardTitle("Screen-off drain, wake-ups, X-Ray")
+                Text(
+                    text = "Card titles share one style.",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        },
+        right = {
+            InspirationCard(modifier = Modifier.fillMaxWidth()) {
+                CardTitle("MetricBar")
+                Column(
+                    verticalArrangement = Arrangement.spacedBy(spacing.sm),
+                    modifier = Modifier.padding(top = spacing.sm),
+                ) {
+                    MetricBar(progress = 0f)
+                    MetricBar(progress = 0.35f)
+                    MetricBar(progress = 0.89f, color = MaterialTheme.telemetryColors.deepSleep)
+                    MetricBar(progress = 1f)
+                }
+            }
+            InspirationCard(modifier = Modifier.fillMaxWidth()) {
+                CardTitle("Status colours")
+                LegendRow(
+                    items = persistentListOf(
+                        LegendItem(status.ok, "Active"),
+                        LegendItem(status.warning, "Warning"),
+                        LegendItem(status.neutral, "Idle"),
+                    ),
+                    modifier = Modifier.padding(top = spacing.sm),
+                )
+            }
+        },
+    )
+}
+
+/** SegmentedToggle with the longest labels, for the narrow large-font Turkish preview. */
+@Composable
+fun ToggleSheet() {
+    SheetFrame(
+        title = "Toggle",
+        left = {
+            SegmentedToggle(
+                options = persistentListOf("Son 6 saat", "Son 24 saat", "Son 7 gün"),
+                selected = 1,
+                onSelect = {},
+                modifier = Modifier.fillMaxWidth(),
+            )
+            SegmentedToggle(
+                options = persistentListOf("Uygulamalar", "Alarmlar", "Çekirdek uyandırmaları"),
+                selected = 0,
+                onSelect = {},
+                modifier = Modifier.fillMaxWidth(),
+            )
+        },
+        right = {
+            SegmentedToggle(
+                options = persistentListOf("6 h", "24 h", "7 d"),
+                selected = 2,
+                onSelect = {},
                 modifier = Modifier.fillMaxWidth(),
             )
         },
