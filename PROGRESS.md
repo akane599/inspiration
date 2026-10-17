@@ -25,11 +25,12 @@ _Work items, stories and blockers live on the Sidequest board. This file keeps w
 - 2026-10-17: Dictionary matcher normalizes real subject shapes before lookup: alarm names "*walarm*:<tag>" / "*alarm*:<tag>" look up the tag first and fall back to the prefix entries (SQ-47 review → SQ-48); JobScheduler wakelocks "*job*<r|e|u>/…" are looked up as "*job*/…" (device run → SQ-49). Entry values stay in the documented unprefixed form. (US-3)
 - 2026-10-17: Rule engine accepted deviations from F4: R2 adds NotEvaluable "no_awake_time" when screenOffAwakeMs is null; ModemDrain.signalBinPct is 0–100. The story uses a minutes form under 1 h (SQ-49). (US-3)
 - 2026-10-17: Phase 3 device evidence on API 36/37 (after `pm clear`, via the device-probe skill): PROBE_INSIGHTS runs the full chain (diff → IntervalMetrics → rules → story → dictionary). With an unplug at 80% and ~160 s screen off, screen-off time and the 1% drop are attributed correctly (unknownMs 0, rates null below 15 min). R1/R3 evaluate and stay quiet on the emulator; R2/R4 report not-evaluable for a short, mixed interval. Unplugging at 100% resets batterystats, so that diff is battery_stats_invalid, as designed. Emulator deep sleep is 0% (emulator_wake_lock is always held), so the thresholds are unverified on hardware. (US-3)
+- 2026-10-17: Phase 4 plan rev 2 (docs/plans/phase-4.md, G1–G13) audited by SQ-51 (Opus): `:core:designsystem` leaf module exposing material3/BOM/immutable as `api`; `MaterialExpressiveTheme` with the default (expressive) motion scheme, because `MotionScheme.expressive()` is internal in material3 1.4.0; forced dark AMOLED including the window theme and system bars; Inter static TTFs with tnum on title/label and numeric styles only (a variable font was rejected for layoutlib risk); chart models use sanitizing factories, not constructor `require`; draw-phase cursor/brush state with an isolated readout child; T1 split into T1a tokens / T1b app migration. (US-4)
 
 ## Audit status
 | Area | Last run | Result | How |
 |---|---|---|---|
-| Plan audit | 2026-10-17 | Phase 3: approve with fixes (applied); Phase 1/2 likewise | SQ-37 + SQ-38 (Phase 2: SQ-18/19/20) |
+| Plan audit | 2026-10-17 | Phase 4: approve with fixes (3 blockers + fixes applied); Phase 1–3 likewise | SQ-51 (Phase 3: SQ-37/38; Phase 2: SQ-18/19/20) |
 | Bug hunt | — | — | `/bug-hunt` |
 | Security | — | — | `/claude-security` |
 | UI / design | — | — | `/ui-overhaul` phase review |
