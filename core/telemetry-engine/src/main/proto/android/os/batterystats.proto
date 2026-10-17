@@ -1,0 +1,142 @@
+// Copyright (C) 2026 The Android Open Source Project
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//      http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+//
+// Trimmed from AOSP frameworks/base/core/proto/android/os/batterystats.proto.
+
+syntax = "proto2";
+
+package android.os;
+
+option java_package = "com.akane.inspiration.telemetry.proto";
+option java_multiple_files = true;
+option java_outer_classname = "BatteryStatsProtoOuterClass";
+
+message BatteryStatsProto {
+  optional int32 report_version = 1;
+  optional int64 parcel_version = 2;
+  repeated UidProto uids = 5;
+  optional SystemProto system = 6;
+}
+
+message TimerProto {
+  optional int64 duration_ms = 1;
+  optional int64 count = 2;
+  optional int64 max_duration_ms = 3;
+  optional int64 current_duration_ms = 4;
+  optional int64 total_duration_ms = 5;
+}
+
+message SystemProto {
+  message Battery {
+    optional int64 start_clock_time_ms = 1;
+    optional int64 total_realtime_ms = 3;
+    optional int64 total_uptime_ms = 4;
+    optional int64 battery_realtime_ms = 5;
+    optional int64 battery_uptime_ms = 6;
+    optional int64 screen_off_realtime_ms = 7;
+    optional int64 screen_off_uptime_ms = 8;
+    optional int64 screen_doze_duration_ms = 9;
+  }
+  optional Battery battery = 1;
+
+  message BatteryDischarge {
+    optional int64 total_mah = 6;
+    optional int64 total_mah_screen_off = 7;
+  }
+  optional BatteryDischarge battery_discharge = 2;
+
+  oneof time_remaining {
+    int64 charge_time_remaining_ms = 3;
+    int64 discharge_time_remaining_ms = 4;
+  }
+
+  repeated int64 cpu_frequency = 7;
+
+  message KernelWakelock {
+    optional string name = 1;
+    optional TimerProto total = 2;
+  }
+  repeated KernelWakelock kernel_wakelock = 14;
+
+  message Misc {
+    optional int64 screen_on_duration_ms = 1;
+    optional int64 interactive_duration_ms = 9;
+    optional int64 deep_doze_enabled_duration_ms = 12;
+    optional int32 deep_doze_count = 13;
+    optional int64 light_doze_enabled_duration_ms = 17;
+  }
+  optional Misc misc = 15;
+
+  message WakeupReason {
+    optional string name = 1;
+    optional TimerProto total = 2;
+  }
+  repeated WakeupReason wakeup_reason = 22;
+}
+
+message UidProto {
+  optional int32 uid = 1;
+
+  message Cpu {
+    optional int64 user_duration_ms = 1;
+    optional int64 system_duration_ms = 2;
+
+    message ByFrequency {
+      optional int32 frequency_index = 1;
+      optional int64 total_duration_ms = 2;
+      optional int64 screen_off_duration_ms = 3;
+    }
+
+    message ByProcessState {
+      optional int32 process_state = 1;
+      repeated ByFrequency by_frequency = 2;
+    }
+    repeated ByProcessState by_process_state = 4;
+  }
+  optional Cpu cpu = 7;
+
+  optional TimerProto foreground_activity = 11;
+  optional TimerProto foreground_service = 12;
+
+  message JobCompletion {
+    optional string name = 1;
+    message ReasonCount {
+      optional int32 name = 1;
+      optional int32 count = 2;
+    }
+    repeated ReasonCount reason_count = 2;
+  }
+  repeated JobCompletion job_completion = 16;
+
+  message AggregatedWakelock {
+    optional int64 partial_duration_ms = 1;
+    optional int64 background_partial_duration_ms = 2;
+  }
+  optional AggregatedWakelock aggregated_wakelock = 24;
+
+  message Wakelock {
+    optional string name = 1;
+    optional TimerProto full = 2;
+    optional TimerProto partial = 3;
+    optional TimerProto background_partial = 4;
+    optional TimerProto window = 5;
+  }
+  repeated Wakelock wakelocks = 25;
+
+  message WakeupAlarm {
+    optional string name = 1;
+    optional int32 count = 2;
+  }
+  repeated WakeupAlarm wakeup_alarm = 26;
+}
