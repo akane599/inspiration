@@ -2,10 +2,10 @@ package com.akane.inspiration.xray
 
 import androidx.annotation.StringRes
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.remember
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
+import com.akane.inspiration.designsystem.component.format.NBSP
 import com.akane.inspiration.designsystem.component.format.NO_VALUE
 import com.akane.inspiration.designsystem.component.format.TelemetryFormat
 import com.akane.inspiration.designsystem.component.format.rememberTelemetryFormat
@@ -14,10 +14,7 @@ import com.akane.inspiration.ipc.toolkit.StandbyBucket
 import com.akane.inspiration.telemetry.toolkit.ToolkitRefusal
 import com.akane.inspiration.telemetry.toolkit.ToolkitUnavailable
 import com.akane.inspiration.telemetry.toolkit.ToolkitWarning
-import java.text.DateFormat
-import java.util.Date
 import java.util.Locale
-import java.util.TimeZone
 
 private const val MS_PER_MINUTE = 60_000L
 
@@ -38,22 +35,10 @@ internal fun shareText(pct: Double?): String = when {
 
 /** A duration for CPU and wakelock times: whole minutes, "<1 min" for anything shorter. */
 internal fun durationText(format: TelemetryFormat, durationMs: Long): String =
-    if (durationMs in 1 until MS_PER_MINUTE) "<1 ${format.units.minute}" else format.duration(durationMs)
-
-@Composable
-internal fun timeFormatter(timeZone: TimeZone): DateFormat {
-    val locale = currentLocale()
-    return remember(locale, timeZone) {
-        DateFormat.getDateTimeInstance(DateFormat.SHORT, DateFormat.SHORT, locale).apply { this.timeZone = timeZone }
-    }
-}
+    if (durationMs in 1 until MS_PER_MINUTE) "<1$NBSP${format.units.minute}" else format.duration(durationMs)
 
 @Composable
 internal fun currentLocale(): Locale = LocalConfiguration.current.locales[0] ?: Locale.getDefault()
-
-@Composable
-internal fun rangeText(formatter: DateFormat, fromMs: Long, toMs: Long): String =
-    stringResource(R.string.xray_range, formatter.format(Date(fromMs)), formatter.format(Date(toMs)))
 
 @Composable
 internal fun timesText(count: Long): String {

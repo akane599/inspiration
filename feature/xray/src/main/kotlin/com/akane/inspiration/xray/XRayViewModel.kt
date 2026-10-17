@@ -22,6 +22,7 @@ import kotlinx.collections.immutable.persistentListOf
 import kotlinx.collections.immutable.toImmutableList
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -49,6 +50,8 @@ class XRayViewModel(private val deps: XRayDependencies) : ViewModel() {
     private var refreshJob: Job? = null
     private var controlsJob: Job? = null
     private var overridesJob: Job? = null
+    private var planJob: Job? = null
+    private var visible = false
     private var pending: ActionRequest? = null
 
     fun onIntent(intent: XRayIntent) {
@@ -70,6 +73,7 @@ class XRayViewModel(private val deps: XRayDependencies) : ViewModel() {
     // ---- visibility ------------------------------------------------------------------------
 
     private fun onVisible() {
+        visible = true
         visibleJob?.cancel()
         visibleJob = viewModelScope.launch {
             launch {
@@ -83,12 +87,34 @@ class XRayViewModel(private val deps: XRayDependencies) : ViewModel() {
     }
 
     private fun onHidden() {
+        visible = false
         visibleJob?.cancel()
         controlsJob?.cancel()
         overridesJob?.cancel()
-        // A confirmation must not outlive the screen it was asked on. A write already running finishes.
+        // A confirmation must not outlive the screen it was asked on, and neither may one that is still being
+        // planned: that plan is dropped, so no dialog appears after the user left. A write already running finishes.
+        val planning = planJob?.isActive == true
+        cancelPlanning()
         pending = null
-        _state.update { it.copy(confirmation = null) }
+        _state.update { current ->
+            val detail = current.detail
+            current.copy(
+                confirmation = null,
+                detail = if (planning && detail != null) detail.copy(busy = false) else detail,
+            )
+        }
+        // Results of work done for a screen that is gone are not shown when it comes back.
+        while (_effects.tryReceive().isSuccess) Unit
+    }
+
+    private fun cancelPlanning() {
+        planJob?.cancel()
+        planJob = null
+    }
+
+    /** Effects are one-shot results for the visible screen: nothing is queued for a screen that is not there. */
+    private fun emit(effect: XRayEffect) {
+        if (visible) _effects.trySend(effect)
     }
 
     private fun startRefresh() {
@@ -100,7 +126,7 @@ class XRayViewModel(private val deps: XRayDependencies) : ViewModel() {
             } finally {
                 _state.update { it.copy(refreshing = false) }
             }
-            if (result is RefreshResult.Failed) _effects.trySend(XRayEffect.RefreshFailed)
+            if (result is RefreshResult.Failed) emit(XRayEffect.RefreshFailed)
         }
     }
 
@@ -152,6 +178,7 @@ class XRayViewModel(private val deps: XRayDependencies) : ViewModel() {
 
     private fun openApp(uid: Int) {
         val app = _state.value.apps.firstOrNull { it.uid == uid } ?: return
+        cancelPlanning()
         pending = null
         _state.update { it.copy(detail = AppDetail(app = app, actions = ActionsState.Loading), confirmation = null) }
         reloadDetail()
@@ -160,6 +187,7 @@ class XRayViewModel(private val deps: XRayDependencies) : ViewModel() {
     private fun closeApp() {
         controlsJob?.cancel()
         overridesJob?.cancel()
+        cancelPlanning()
         pending = null
         _state.update { it.copy(detail = null, confirmation = null) }
     }
@@ -238,9 +266,13 @@ class XRayViewModel(private val deps: XRayDependencies) : ViewModel() {
         if (request is ActionRequest.Restore && detail.overrides.none { it.actionId == request.actionId }) return
         val uid = detail.app.uid
         updateDetail(uid) { it.copy(busy = true, notice = null) }
-        viewModelScope.launch {
-            when (val plan = planOf(request, pkg)) {
-                ToolkitPlan.Ready -> execute(uid, request, pkg, confirmed = false)
+        planJob = viewModelScope.launch {
+            val plan = planOf(request, pkg)
+            // The plan is only a read: if the screen or the sheet went away while it ran, nothing follows from it.
+            ensureActive()
+            when (plan) {
+                // The write is its own job, so leaving cancels a plan but never a write already in flight.
+                ToolkitPlan.Ready -> viewModelScope.launch { execute(uid, request, pkg, confirmed = false) }
                 is ToolkitPlan.NeedsConfirmation -> {
                     pending = request
                     _state.update { current ->

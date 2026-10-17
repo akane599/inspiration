@@ -43,6 +43,7 @@ import com.akane.inspiration.telemetry.store.ToolkitActionStatus
 import com.akane.inspiration.telemetry.toolkit.ToolkitActions
 import com.akane.inspiration.telemetry.toolkit.ToolkitGateway
 import java.lang.reflect.Proxy
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 
@@ -174,6 +175,9 @@ internal class FakeDevice {
     val writes = mutableListOf<String>()
     val store = MemoryStore()
 
+    /** When set, every service call suspends until it completes: a slow Binder round trip a test can release. */
+    var gate: CompletableDeferred<Unit>? = null
+
     private fun refusal() = refuseWith?.let { ToolkitResult.refused(it) }
 
     private fun writeRefusal() = refuseWritesWith?.let { ToolkitResult.refused(it) } ?: refusal()
@@ -218,7 +222,8 @@ internal class FakeDevice {
     } as ITelemetryUserService
 }
 
-private class FakeShizuku(private val service: ITelemetryUserService) : ShizukuManager {
+private class FakeShizuku(private val device: FakeDevice) : ShizukuManager {
+    private val service = device.service
     override val state: StateFlow<ShizukuState> = MutableStateFlow(ShizukuState.Ready(2000, 13))
     override val telemetryService: StateFlow<ITelemetryUserService?> = MutableStateFlow(service)
 
@@ -226,7 +231,10 @@ private class FakeShizuku(private val service: ITelemetryUserService) : ShizukuM
 
     override fun start() = Unit
 
-    override suspend fun <T> withTelemetryService(timeoutMs: Long, block: suspend (ITelemetryUserService) -> T): T? = block(service)
+    override suspend fun <T> withTelemetryService(timeoutMs: Long, block: suspend (ITelemetryUserService) -> T): T? {
+        device.gate?.await()
+        return block(service)
+    }
 
     override fun holdBinding(): AutoCloseable = AutoCloseable {}
 
@@ -285,7 +293,7 @@ internal class FakeXRayDeps(
     override val analysis = MutableStateFlow<AnalysisState>(AnalysisState.Loading)
     override val selection = AnalysisSelection()
     override val shizukuState = MutableStateFlow(shizuku)
-    override val toolkit = ToolkitActions(ToolkitGateway(FakeShizuku(device.service)), device.store, holdBinding = { AutoCloseable {} })
+    override val toolkit = ToolkitActions(ToolkitGateway(FakeShizuku(device)), device.store, holdBinding = { AutoCloseable {} })
     override val appLabels: AppLabels = object : AppLabels {
         override suspend fun label(packageName: String) = "Label of $packageName"
         override suspend fun icon(packageName: String): Bitmap? = null
@@ -294,8 +302,12 @@ internal class FakeXRayDeps(
     var refreshResult: RefreshResult = RefreshResult.Refreshed(0L)
     var refreshCalls = 0
 
+    /** When set, a refresh suspends until it completes: a capture still running when the screen is left. */
+    var refreshGate: CompletableDeferred<Unit>? = null
+
     override suspend fun refresh(): RefreshResult {
         refreshCalls += 1
+        refreshGate?.await()
         return refreshResult
     }
 
