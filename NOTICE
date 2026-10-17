@@ -1,0 +1,7 @@
+Inspiration includes trimmed protocol buffer schemas derived from Android Open Source
+Project (AOSP) frameworks/base.
+
+Android Code, Copyright 2005-2008 The Android Open Source Project
+Licensed under the Apache License, Version 2.0.
+
+The derived schemas retain their Apache-2.0 headers and are marked as trimmed.
