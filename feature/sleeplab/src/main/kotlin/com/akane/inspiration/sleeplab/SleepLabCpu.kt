@@ -7,7 +7,6 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.HorizontalDivider
-import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -17,8 +16,8 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.semantics
 import com.akane.inspiration.designsystem.component.EmptyState
 import com.akane.inspiration.designsystem.component.InspirationCard
+import com.akane.inspiration.designsystem.component.MetricBar
 import com.akane.inspiration.designsystem.component.MetricValue
-import com.akane.inspiration.designsystem.component.format.NO_VALUE
 import com.akane.inspiration.designsystem.component.format.TelemetryFormat
 import com.akane.inspiration.designsystem.component.format.rememberTelemetryFormat
 import com.akane.inspiration.designsystem.theme.numericTypography
@@ -35,7 +34,7 @@ internal fun CpuCard(cpu: CpuUi, deepSleep: DeepSleepUi, modifier: Modifier = Mo
     val spacing = MaterialTheme.spacing
     val format = rememberTelemetryFormat()
     InspirationCard(modifier = modifier.fillMaxWidth()) {
-        CardTitle(title = stringResource(R.string.sleeplab_cpu_title), subtitle = stringResource(R.string.sleeplab_cpu_subtitle))
+        CardHeader(title = stringResource(R.string.sleeplab_cpu_title), subtitle = stringResource(R.string.sleeplab_cpu_subtitle))
         DeepSleepBlock(deepSleep, format, Modifier.padding(top = spacing.md))
         HorizontalDivider(modifier = Modifier.padding(vertical = spacing.md), color = MaterialTheme.colorScheme.outlineVariant)
         when (cpu) {
@@ -73,13 +72,15 @@ private fun DeepSleepBlock(deepSleep: DeepSleepUi, format: TelemetryFormat, modi
             style = MaterialTheme.numericTypography.title,
         )
         if (ratio != null) {
-            LinearProgressIndicator(progress = { ratio.toFloat().coerceIn(0f, 1f) }, modifier = Modifier.fillMaxWidth())
+            MetricBar(progress = ratio.toFloat())
         }
-        Text(
-            text = stringResource(R.string.sleeplab_deep_sleep_detail, deepSleep.suspendedMs?.let(format::duration) ?: NO_VALUE),
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurface,
-        )
+        if (deepSleep.suspendedMs != null) {
+            Text(
+                text = stringResource(R.string.sleeplab_deep_sleep_detail, format.duration(deepSleep.suspendedMs)),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurface,
+            )
+        }
         Text(
             text = stringResource(R.string.sleeplab_deep_sleep_note),
             style = MaterialTheme.typography.bodySmall,
@@ -135,10 +136,7 @@ private fun FreqLine(label: String, share: Float, timeMs: Long, format: Telemetr
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
-        LinearProgressIndicator(
-            progress = { share.coerceIn(0f, 1f) },
-            modifier = Modifier.fillMaxWidth().padding(top = MaterialTheme.spacing.xs),
-        )
+        MetricBar(progress = share, modifier = Modifier.padding(top = MaterialTheme.spacing.xs))
     }
 }
 

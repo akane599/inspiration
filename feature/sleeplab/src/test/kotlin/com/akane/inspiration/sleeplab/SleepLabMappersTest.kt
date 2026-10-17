@@ -14,6 +14,7 @@ import com.akane.inspiration.telemetry.dump.UidAlarm
 import com.akane.inspiration.telemetry.snapshot.CpuFreqDelta
 import com.akane.inspiration.telemetry.snapshot.SleepStats
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -157,6 +158,34 @@ class SleepLabMappersTest {
         assertTrue(data.segments.isEmpty())
     }
 
+    // --- Hatching ---
+
+    private fun hypnogram(window: TimeRange, vararg segments: Pair<Long, Long>) = HypnogramData.of(
+        window,
+        segments.map { StageSegment(it.first, it.second, HypnogramStage.LIGHT_IDLE) },
+        emptyList(),
+    )
+
+    @Test
+    fun `a window the segments cover end to end draws no hatching`() {
+        assertFalse(hasHatchedGaps(hypnogram(TimeRange.of(0, 10_000), 0L to 4_000L, 4_000L to 10_000L)))
+        assertFalse("overlapping segments still leave nothing uncovered", hasHatchedGaps(hypnogram(TimeRange.of(0, 10_000), 0L to 6_000L, 5_000L to 10_000L)))
+    }
+
+    @Test
+    fun `a visible hole before, between or after the segments is hatching`() {
+        assertTrue("before", hasHatchedGaps(hypnogram(TimeRange.of(0, 10_000), 1_000L to 10_000L)))
+        assertTrue("between", hasHatchedGaps(hypnogram(TimeRange.of(0, 10_000), 0L to 4_000L, 5_000L to 10_000L)))
+        assertTrue("after", hasHatchedGaps(hypnogram(TimeRange.of(0, 10_000), 0L to 9_000L)))
+    }
+
+    @Test
+    fun `a hole too small to draw is not hatching, and an empty window never is`() {
+        // 10 ms is under the 50 ms (0.5% of the window) the chart can show as a band.
+        assertFalse(hasHatchedGaps(hypnogram(TimeRange.of(0, 10_000), 0L to 4_990L, 5_000L to 10_000L)))
+        assertFalse(hasHatchedGaps(hypnogram(TimeRange.of(5, 5))))
+    }
+
     // --- Time slice ---
 
     @Test
@@ -170,18 +199,13 @@ class SleepLabMappersTest {
         val slice = sliceUi(kind, analysis)!!
         assertEquals(TimeRange.of(10 * HOUR_MS, 20 * HOUR_MS), slice.requested)
         assertEquals(TimeRange.of(10 * HOUR_MS + 8 * MIN_MS, 20 * HOUR_MS), slice.covered)
-        assertEquals(8 * MIN_MS, slice.gapMs)
     }
 
     @Test
-    fun `a gap under five minutes is not warned about and a stale analysis leaves coverage unknown`() {
+    fun `a stale analysis leaves coverage unknown`() {
         val kind = ReferenceKind.TimeSlice(10 * HOUR_MS, 20 * HOUR_MS)
-        val close = AnalysisState.Ready(
-            intervalAnalysis(resolved(boundaryFrom = 10 * HOUR_MS, boundaryTo = 20 * HOUR_MS, coveredFrom = 10 * HOUR_MS + 2 * MIN_MS, coveredTo = 20 * HOUR_MS)),
-        )
         val other = AnalysisState.Ready(intervalAnalysis(resolved(boundaryFrom = 1 * HOUR_MS, boundaryTo = 2 * HOUR_MS)))
 
-        assertNull(sliceUi(kind, close)!!.gapMs)
         assertNull("a different interval's analysis must not supply coverage", sliceUi(kind, other)!!.covered)
         assertNull(sliceUi(kind, AnalysisState.Loading)!!.covered)
     }
@@ -414,6 +438,15 @@ class SleepLabMappersTest {
             DeepSleepUi(null, null),
             deepSleepUi(snapshotDiff(sleep = SleepStats(5 * HOUR_MS, null, null, null, null, deepSleepRatio = null))),
         )
+    }
+
+    @Test
+    fun `deep sleep is withheld when the device restarted inside the interval, even if a ratio exists`() {
+        val reset = snapshotDiff(kernelCountersValid = false)
+
+        assertEquals("the fixture carries a ratio the reset must hide", 0.7, reset.sleep!!.deepSleepRatio!!, 0.0)
+        assertEquals(DeepSleepUi(null, null), deepSleepUi(reset))
+        assertEquals(DeepSleepUi(null, null), sleepLabAnalysis(intervalAnalysis(diff = reset), emptyMap()).deepSleep)
     }
 
     @Test

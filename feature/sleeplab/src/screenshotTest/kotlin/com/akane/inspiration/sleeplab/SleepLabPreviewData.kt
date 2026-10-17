@@ -185,6 +185,12 @@ internal object SleepLabPreviewData {
     val counterReset = apps.copy(analysis = ui(kernelValid = false), tab = SleepTab.KernelWakelocks)
 
     val hypnogramEmpty = apps.copy(hypnogram = HypnogramUi.Ready(hypnogramData(Timeline(emptyList(), emptyList(), emptyList(), emptyList(), dayStart, end))))
+    /** The 04:00 deep-doze stretch was never recorded: the chart hatches it, and only then does the caption explain hatching. */
+    val hypnogramGap = apps.copy(
+        hypnogram = HypnogramUi.Ready(
+            hypnogramData(timeline.copy(segments = timeline.segments.filterNot { it.kind == SegmentKind.DEEP_IDLE && it.startMs == at(4, 0, 1) })),
+        ),
+    )
     val hypnogramFailed = apps.copy(hypnogram = HypnogramUi.Failed)
     val hypnogramLoading = apps.copy(hypnogram = HypnogramUi.Loading)
 
@@ -192,7 +198,6 @@ internal object SleepLabPreviewData {
         slice = SliceUi(
             requested = TimeRange.of(at(23, 0), at(7, 30, 1)),
             covered = TimeRange.of(at(23, 8), at(7, 30, 1)),
-            gapMs = 8 * MIN,
         ),
     )
 

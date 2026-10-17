@@ -16,22 +16,21 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalInspectionMode
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.semantics.heading
-import androidx.compose.ui.semantics.semantics
 import com.akane.inspiration.designsystem.chart.hypnogram.SleepHypnogram
+import com.akane.inspiration.designsystem.component.CardTitle
 import com.akane.inspiration.designsystem.component.EmptyState
 import com.akane.inspiration.designsystem.component.EmptyStateAction
 import com.akane.inspiration.designsystem.component.InspirationCard
 import com.akane.inspiration.designsystem.component.LegendItem
 import com.akane.inspiration.designsystem.component.LegendRow
+import com.akane.inspiration.designsystem.component.ScreenHeader
 import com.akane.inspiration.designsystem.component.TimeSliceBanner
-import com.akane.inspiration.designsystem.component.format.NO_VALUE
 import com.akane.inspiration.designsystem.component.format.rememberTelemetryFormat
 import com.akane.inspiration.designsystem.theme.spacing
 import com.akane.inspiration.designsystem.theme.telemetryColors
@@ -39,7 +38,6 @@ import com.akane.inspiration.diagnostics.dictionary.EntryKind
 import com.akane.inspiration.diagnostics.dictionary.Explanation
 import kotlinx.collections.immutable.persistentListOf
 import java.time.ZoneId
-import java.util.Locale
 
 /**
  * Sleep Lab, stateless: the whole screen is a function of [state] and reports through [onIntent]. [explain]
@@ -68,12 +66,7 @@ internal fun SleepLabScreen(
                 modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(spacing.md),
                 verticalArrangement = Arrangement.spacedBy(spacing.md),
             ) {
-                Text(
-                    text = stringResource(R.string.sleeplab_title),
-                    style = MaterialTheme.typography.headlineSmall,
-                    color = MaterialTheme.colorScheme.onSurface,
-                    modifier = Modifier.semantics { heading() },
-                )
+                ScreenHeader(title = stringResource(R.string.sleeplab_title))
                 state.slice?.let { slice -> SliceBanner(slice = slice, onClear = { onIntent(SleepLabIntent.ClearSlice) }, zone = zone) }
                 when (val analysis = state.analysis) {
                     AnalysisUi.Loading, AnalysisUi.Empty, AnalysisUi.Error -> StatusCard(analysis, onIntent)
@@ -98,15 +91,12 @@ internal fun SleepLabScreen(
 /** The banner that tells the user every figure below describes a slice, with how well the data covers it. */
 @Composable
 private fun SliceBanner(slice: SliceUi, onClear: () -> Unit, zone: ZoneId, modifier: Modifier = Modifier) {
-    val locale: Locale = LocalConfiguration.current.locales[0] ?: Locale.getDefault()
-    val format = rememberTelemetryFormat()
-    val gap = slice.gapMs
     TimeSliceBanner(
-        requested = formatRange(slice.requested.startMs, slice.requested.endMs, locale, zone),
-        covered = slice.covered?.let { formatRange(it.startMs, it.endMs, locale, zone) } ?: NO_VALUE,
-        gapText = gap?.let { stringResource(R.string.sleeplab_slice_gap, format.duration(it)) },
+        requested = slice.requested,
+        covered = slice.covered,
         onClear = onClear,
         modifier = modifier.fillMaxWidth(),
+        zone = zone,
     )
 }
 
@@ -145,16 +135,11 @@ internal fun LoadingRow(text: String, modifier: Modifier = Modifier) {
     }
 }
 
-/** A card heading with the one line that says what the card shows. */
+/** A card heading, in the shared card-title style, with the one line that says what the card shows. */
 @Composable
-internal fun CardTitle(title: String, subtitle: String?, modifier: Modifier = Modifier) {
+internal fun CardHeader(title: String, subtitle: String?, modifier: Modifier = Modifier) {
     Column(modifier = modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(MaterialTheme.spacing.xs)) {
-        Text(
-            text = title,
-            style = MaterialTheme.typography.titleMedium,
-            color = MaterialTheme.colorScheme.onSurface,
-            modifier = Modifier.semantics { heading() },
-        )
+        CardTitle(text = title)
         if (subtitle != null) {
             Text(text = subtitle, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
@@ -166,7 +151,7 @@ internal fun CardTitle(title: String, subtitle: String?, modifier: Modifier = Mo
 private fun HypnogramCard(hypnogram: HypnogramUi, zone: ZoneId, onIntent: (SleepLabIntent) -> Unit) {
     val spacing = MaterialTheme.spacing
     InspirationCard(modifier = Modifier.fillMaxWidth()) {
-        CardTitle(
+        CardHeader(
             title = stringResource(R.string.sleeplab_hypnogram_title),
             subtitle = stringResource(R.string.sleeplab_hypnogram_subtitle),
         )
@@ -186,6 +171,7 @@ private fun HypnogramCard(hypnogram: HypnogramUi, zone: ZoneId, onIntent: (Sleep
             } else {
                 val format = rememberTelemetryFormat()
                 val wakeUps = hypnogram.data.wakePulsesMs.size
+                val hatched = remember(hypnogram.data) { hasHatchedGaps(hypnogram.data) }
                 SleepHypnogram(data = hypnogram.data, zone = zone, modifier = Modifier.padding(top = spacing.sm))
                 LegendRow(
                     items = persistentListOf(
@@ -197,7 +183,7 @@ private fun HypnogramCard(hypnogram: HypnogramUi, zone: ZoneId, onIntent: (Sleep
                     modifier = Modifier.padding(top = spacing.sm),
                 )
                 Text(
-                    text = stringResource(R.string.sleeplab_hypnogram_note),
+                    text = stringResource(if (hatched) R.string.sleeplab_hypnogram_note else R.string.sleeplab_hypnogram_note_wakeups),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.padding(top = spacing.sm),

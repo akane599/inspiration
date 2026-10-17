@@ -44,6 +44,9 @@ import com.android.tools.screenshot.PreviewTest
 @PreviewTest @Preview(name = "hypnogram-empty", showBackground = true, widthDp = 412, heightDp = 1800)
 @Composable fun SleepLabHypnogramEmpty() = SleepLabPreviewHost(darkTheme = true, state = SleepLabPreviewData.hypnogramEmpty)
 
+@PreviewTest @Preview(name = "hypnogram-gap", showBackground = true, widthDp = 412, heightDp = 1800)
+@Composable fun SleepLabHypnogramGap() = SleepLabPreviewHost(darkTheme = true, state = SleepLabPreviewData.hypnogramGap)
+
 @PreviewTest @Preview(name = "hypnogram-failed", showBackground = true, widthDp = 412, heightDp = 1800)
 @Composable fun SleepLabHypnogramFailed() = SleepLabPreviewHost(darkTheme = true, state = SleepLabPreviewData.hypnogramFailed)
 
