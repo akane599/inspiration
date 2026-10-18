@@ -7,11 +7,13 @@ import com.akane.inspiration.telemetry.snapshot.CaptureTrigger
  * Battery use since the device was last unplugged, derived from stored snapshots only (no Shizuku read).
  * Rates are `%/h` and [Discharging.deepSleepRatio] is suspended time over screen-off time; each is null
  * with under 15 min of screen-on (respectively screen-off) time in the interval.
- * [Discharging.anchorIsUnplug] is false when the device was never seen plugged in, so the interval
- * starts at the oldest snapshot instead of at an unplug.
+ * [Discharging.anchorIsUnplug] is false when the device was never seen plugged in nor unplugged, so the
+ * interval starts at the oldest snapshot instead of at an unplug.
  */
 sealed interface UnplugSummary {
-    data class Charging(val levelNow: Int?) : UnplugSummary
+    data class Charging(
+        val levelNow: Int?,
+    ) : UnplugSummary
 
     data class Discharging(
         val levelNow: Int?,
@@ -34,15 +36,22 @@ object UnplugSummaryCalculator {
      * read of the battery. The anchor is the first unplugged snapshot after the last plugged one, so a missing
      * POWER_DISCONNECTED capture does not move it.
      */
-    fun compute(snapshots: List<BatterySnapshot>, now: BatterySnapshot): UnplugSummary {
+    fun compute(
+        snapshots: List<BatterySnapshot>,
+        now: BatterySnapshot,
+    ): UnplugSummary {
         if (now.battery.plugged == true) return UnplugSummary.Charging(now.battery.levelPct)
         val points = snapshots.filter { it.clock.wallMs < now.clock.wallMs }.sortedBy { it.clock.wallMs } + now
         val lastPlugged = points.indexOfLast { it.battery.plugged == true }
-        val anchor = if (lastPlugged < 0) {
-            0
-        } else {
-            (lastPlugged + 1 until points.size).firstOrNull { points[it].battery.plugged == false } ?: points.lastIndex
-        }
+        // With no plugged snapshot stored (fresh install, pruned history) a disconnect capture still marks the unplug.
+        val lastDisconnect = points.indexOfLast { it.trigger == CaptureTrigger.POWER_DISCONNECTED }
+        val anchorIsUnplug = lastPlugged >= 0 || lastDisconnect >= 0
+        val anchor =
+            if (lastPlugged < 0) {
+                lastDisconnect.coerceAtLeast(0)
+            } else {
+                (lastPlugged + 1 until points.size).firstOrNull { points[it].battery.plugged == false } ?: points.lastIndex
+            }
         val tally = tally(points, anchor)
         val dropPct = tally.dropOn + tally.dropOff + tally.dropUnknown
         return UnplugSummary.Discharging(
@@ -51,20 +60,26 @@ object UnplugSummaryCalculator {
             elapsedMs = now.clock.wallMs - points[anchor].clock.wallMs,
             screenOnPctPerHour = rate(tally.dropOn, tally.onMs),
             screenOffPctPerHour = rate(tally.dropOff, tally.offMs),
-            deepSleepRatio = if (tally.offMs >= MIN_RATE_WINDOW_MS) {
-                (tally.suspendMs.toDouble() / tally.offMs).coerceIn(0.0, 1.0)
-            } else {
-                null
-            },
-            anchorIsUnplug = lastPlugged >= 0,
+            deepSleepRatio =
+                if (tally.offMs >= MIN_RATE_WINDOW_MS) {
+                    (tally.suspendMs.toDouble() / tally.offMs).coerceIn(0.0, 1.0)
+                } else {
+                    null
+                },
+            anchorIsUnplug = anchorIsUnplug,
             anchorWallMs = points[anchor].clock.wallMs,
         )
     }
 
-    private fun rate(drop: Int, stateMs: Long): Double? =
-        if (stateMs >= MIN_RATE_WINDOW_MS) drop / (stateMs / HOUR_MS) else null
+    private fun rate(
+        drop: Int,
+        stateMs: Long,
+    ): Double? = if (stateMs >= MIN_RATE_WINDOW_MS) drop / (stateMs / HOUR_MS) else null
 
-    private fun tally(points: List<BatterySnapshot>, anchor: Int): Tally {
+    private fun tally(
+        points: List<BatterySnapshot>,
+        anchor: Int,
+    ): Tally {
         var screen: Screen? = null
         for (i in 0..anchor) screen = screenAfter(screen, points[i])
         val tally = Tally()
@@ -75,11 +90,15 @@ object UnplugSummaryCalculator {
         return tally
     }
 
-    private fun screenAfter(current: Screen?, snapshot: BatterySnapshot): Screen? = when (snapshot.trigger) {
-        CaptureTrigger.SCREEN_ON -> Screen.ON
-        CaptureTrigger.SCREEN_OFF -> Screen.OFF
-        else -> current
-    }
+    private fun screenAfter(
+        current: Screen?,
+        snapshot: BatterySnapshot,
+    ): Screen? =
+        when (snapshot.trigger) {
+            CaptureTrigger.SCREEN_ON -> Screen.ON
+            CaptureTrigger.SCREEN_OFF -> Screen.OFF
+            else -> current
+        }
 
     private enum class Screen { ON, OFF }
 
@@ -92,7 +111,11 @@ object UnplugSummaryCalculator {
         var suspendMs = 0L
 
         /** Adds the segment [from] to [to], spent in [screen] state (null: unknown, only its drop is counted). */
-        fun add(from: BatterySnapshot, to: BatterySnapshot, screen: Screen?) {
+        fun add(
+            from: BatterySnapshot,
+            to: BatterySnapshot,
+            screen: Screen?,
+        ) {
             val wallMs = (to.clock.wallMs - from.clock.wallMs).coerceAtLeast(0L)
             val drop = drop(from, to)
             when (screen) {
@@ -100,6 +123,7 @@ object UnplugSummaryCalculator {
                     onMs += wallMs
                     dropOn += drop
                 }
+
                 Screen.OFF -> {
                     dropOff += drop
                     if (from.clock.bootCount == to.clock.bootCount) {
@@ -110,11 +134,17 @@ object UnplugSummaryCalculator {
                         offMs += wallMs
                     }
                 }
-                null -> dropUnknown += drop
+
+                null -> {
+                    dropUnknown += drop
+                }
             }
         }
 
-        private fun drop(from: BatterySnapshot, to: BatterySnapshot): Int {
+        private fun drop(
+            from: BatterySnapshot,
+            to: BatterySnapshot,
+        ): Int {
             val start = from.battery.levelPct ?: return 0
             val end = to.battery.levelPct ?: return 0
             return (start - end).coerceAtLeast(0)

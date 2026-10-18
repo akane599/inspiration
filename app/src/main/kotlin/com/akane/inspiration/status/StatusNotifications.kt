@@ -17,25 +17,27 @@ import com.akane.inspiration.designsystem.R as DesignSystemR
 internal object StatusNotifications {
     fun ensureChannel(context: Context) {
         val manager = context.getSystemService(NotificationManager::class.java)
-        val channel = NotificationChannel(
-            StatusChannel.ID,
-            context.getString(R.string.status_channel_name),
-            NotificationManager.IMPORTANCE_LOW,
-        ).apply {
-            description = context.getString(R.string.status_channel_description)
-            setShowBadge(false)
-        }
+        val channel =
+            NotificationChannel(
+                StatusChannel.ID,
+                context.getString(R.string.status_channel_name),
+                NotificationManager.IMPORTANCE_LOW,
+            ).apply {
+                description = context.getString(R.string.status_channel_description)
+                setShowBadge(false)
+            }
         manager.createNotificationChannel(channel)
     }
 
-    fun strings(context: Context) = StatusStrings(
-        percent = context.getString(R.string.status_percent),
-        titleSinceUnplug = context.getString(R.string.status_title_since_unplug),
-        titleSinceTime = context.getString(R.string.status_title_since_time),
-        detail = context.getString(R.string.status_detail),
-        charging = context.getString(R.string.status_charging),
-        chargingHint = context.getString(R.string.status_charging_hint),
-    )
+    fun strings(context: Context) =
+        StatusStrings(
+            percent = context.getString(R.string.status_percent),
+            titleSinceUnplug = context.getString(R.string.status_title_since_unplug),
+            titleSinceTime = context.getString(R.string.status_title_since_time),
+            detail = context.getString(R.string.status_detail),
+            charging = context.getString(R.string.status_charging),
+            chargingHint = context.getString(R.string.status_charging_hint),
+        )
 
     fun format(context: Context): TelemetryFormat {
         val locale = context.resources.configuration.locales[0]
@@ -56,14 +58,19 @@ internal object StatusNotifications {
 
     fun placeholder(context: Context) = StatusText(context.getString(R.string.status_reading), "")
 
-    fun build(context: Context, content: StatusText): Notification {
-        val open = PendingIntent.getActivity(
-            context,
-            0,
-            Intent(context, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP),
-            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
-        )
-        return NotificationCompat.Builder(context, StatusChannel.ID)
+    fun build(
+        context: Context,
+        content: StatusText,
+    ): Notification {
+        val open =
+            PendingIntent.getActivity(
+                context,
+                0,
+                Intent(context, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP),
+                PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
+            )
+        return NotificationCompat
+            .Builder(context, StatusChannel.ID)
             .setSmallIcon(R.drawable.ic_stat_status)
             .setContentTitle(content.title)
             .setContentText(content.text)
@@ -74,6 +81,8 @@ internal object StatusNotifications {
             .setOnlyAlertOnce(true)
             .setSilent(true)
             .setShowWhen(false)
+            // A deferred FGS notification is posted ~10 s late and overwrites the first redraw's content.
+            .setForegroundServiceBehavior(NotificationCompat.FOREGROUND_SERVICE_IMMEDIATE)
             .build()
     }
 }
