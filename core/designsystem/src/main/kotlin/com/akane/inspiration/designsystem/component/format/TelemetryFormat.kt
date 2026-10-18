@@ -3,7 +3,7 @@ package com.akane.inspiration.designsystem.component.format
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.remember
-import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.platform.LocalLocale
 import androidx.compose.ui.res.stringResource
 import com.akane.inspiration.designsystem.R
 import java.math.RoundingMode
@@ -170,7 +170,7 @@ private fun String.hasNonZeroDigit(): Boolean = any { it.isDigit() && Character.
 /** A [TelemetryFormat] for the current locale, with the unit strings from `strings_format.xml`. */
 @Composable
 fun rememberTelemetryFormat(): TelemetryFormat {
-    val locale = LocalConfiguration.current.locales[0] ?: Locale.getDefault()
+    val locale = LocalLocale.current.platformLocale
     val units = TelemetryUnits(
         milliamps = stringResource(R.string.telemetry_unit_ma),
         watts = stringResource(R.string.telemetry_unit_w),

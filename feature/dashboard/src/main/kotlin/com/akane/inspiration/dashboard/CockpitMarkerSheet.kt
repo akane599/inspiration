@@ -27,7 +27,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalResources
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.heading
@@ -64,7 +64,7 @@ internal fun MarkerSheetContent(
     val spacing = MaterialTheme.spacing
     val format = rememberTelemetryFormat()
     var label by rememberSaveable { mutableStateOf("") }
-    val context = LocalContext.current
+    val resources = LocalResources.current
     // No horizontal padding on the column: the list rows (ListItem) bring their own, so padding both indented them twice.
     Column(
         modifier = modifier.navigationBarsPadding().imePadding(),
@@ -99,7 +99,7 @@ internal fun MarkerSheetContent(
                     onClick = {
                         // The default label carries the time of the tap, not of the last recomposition.
                         val named = label.trim().ifEmpty {
-                            context.getString(R.string.cockpit_marker_default_label, format.time(System.currentTimeMillis(), zone))
+                            resources.getString(R.string.cockpit_marker_default_label, format.time(System.currentTimeMillis(), zone))
                         }
                         onIntent(CockpitIntent.MarkNow(named))
                         label = ""

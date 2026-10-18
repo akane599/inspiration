@@ -10,7 +10,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.platform.LocalLocale
 import androidx.compose.ui.res.stringResource
 import androidx.lifecycle.compose.LifecycleStartEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -36,7 +36,7 @@ fun SleepLabRoute(
         factory = remember(deps) { SleepLabViewModel.factory(deps) },
     )
     val state by viewModel.state.collectAsStateWithLifecycle()
-    val locale: Locale = LocalConfiguration.current.locales[0] ?: Locale.getDefault()
+    val locale: Locale = LocalLocale.current.platformLocale
     // The dictionary words its explanations in the current locale, so a locale change rebuilds the lookup.
     val explain: (EntryKind, String) -> Explanation? = remember(deps, locale) {
         { kind, name -> deps.dictionary().explain(kind, name, locale) }

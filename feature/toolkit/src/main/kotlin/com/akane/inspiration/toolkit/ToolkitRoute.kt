@@ -12,6 +12,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalResources
 import androidx.lifecycle.compose.LifecycleStartEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -38,16 +39,17 @@ fun ToolkitRoute(
     }
     val snackbarHostState = remember { SnackbarHostState() }
     val context = LocalContext.current
+    val resources = LocalResources.current
 
     LifecycleStartEffect(viewModel) {
         viewModel.onIntent(ToolkitIntent.Visible)
         onStopOrDispose { viewModel.onIntent(ToolkitIntent.Hidden) }
     }
-    LaunchedEffect(viewModel, context) {
+    LaunchedEffect(viewModel, context, resources) {
         viewModel.effects.collect { effect ->
             when (effect) {
                 is ToolkitEffect.ResetFinished ->
-                    snackbarHostState.showSnackbar(context.getString(R.string.toolkit_reset_finished, effect.restored, effect.total))
+                    snackbarHostState.showSnackbar(resources.getString(R.string.toolkit_reset_finished, effect.restored, effect.total))
                 ToolkitEffect.OpenNotificationSettings -> openNotificationSettings(context)
             }
         }

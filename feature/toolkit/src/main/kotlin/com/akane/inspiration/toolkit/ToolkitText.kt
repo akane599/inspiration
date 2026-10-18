@@ -2,7 +2,7 @@ package com.akane.inspiration.toolkit
 
 import androidx.annotation.StringRes
 import androidx.compose.runtime.Composable
-import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.platform.LocalLocale
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import com.akane.inspiration.designsystem.component.format.TelemetryFormat
@@ -22,7 +22,7 @@ private const val MS_PER_SECOND = 1_000L
 private const val MS_PER_MINUTE = 60_000L
 
 @Composable
-internal fun currentLocale(): Locale = LocalConfiguration.current.locales[0] ?: Locale.getDefault()
+internal fun currentLocale(): Locale = LocalLocale.current.platformLocale
 
 /** Whole minutes through the shared formatter, anything else in seconds (the doze timers go down to 15 s). */
 @Composable

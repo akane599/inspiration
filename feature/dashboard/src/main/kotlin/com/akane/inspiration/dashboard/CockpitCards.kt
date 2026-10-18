@@ -14,7 +14,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.platform.LocalLocale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.stringResource
@@ -91,7 +91,7 @@ private fun StoryLoading() {
 @Composable
 private fun StoryText(story: BatteryStory) {
     val context = LocalContext.current
-    val locale: Locale = LocalConfiguration.current.locales[0] ?: Locale.getDefault()
+    val locale: Locale = LocalLocale.current.platformLocale
     val text = remember(story, locale, context) { AndroidStoryWriter(context).render(story, locale) }
     StoryTitle()
     Text(
