@@ -122,9 +122,9 @@
 
     <!-- Overrides made by Inspiration -->
     <string name="xray_overrides_title">Changes made by Inspiration</string>
-    <string name="xray_override_run_any_in_background">Background activity restricted</string>
-    <string name="xray_override_run_in_background">Background running restricted</string>
-    <string name="xray_override_wake_lock">Wakelocks restricted</string>
+    <string name="xray_override_run_any_in_background">Background activity setting changed</string>
+    <string name="xray_override_run_in_background">Background running setting changed</string>
+    <string name="xray_override_wake_lock">Wakelock setting changed</string>
     <string name="xray_override_bucket">Standby bucket set to %1$s</string>
     <string name="xray_override_bucket_other">Standby bucket changed</string>
     <string name="xray_override_restore">Restore</string>

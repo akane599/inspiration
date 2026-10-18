@@ -140,6 +140,13 @@ fun XRayDetailLight() = InspirationTheme(darkTheme = false) { SheetBody(XRayPrev
 fun XRayDetailDark() = InspirationTheme(darkTheme = true) { SheetBody(XRayPreviewData.detailWithOverride) }
 
 @PreviewTest
+@Preview(name = "detail-allowed-override", showBackground = true, widthDp = 412, heightDp = 1640)
+@Composable
+fun XRayDetailAllowedOverride() = InspirationTheme(darkTheme = false) {
+    SheetBody(XRayPreviewData.detailWithOverride.copy(actions = XRayPreviewData.loaded, notice = null))
+}
+
+@PreviewTest
 @Preview(name = "detail-blocked", showBackground = true, widthDp = 360, heightDp = 1160)
 @Composable
 fun XRayDetailBlocked() = InspirationTheme(darkTheme = false) { SheetBody(XRayPreviewData.detailBlocked) }

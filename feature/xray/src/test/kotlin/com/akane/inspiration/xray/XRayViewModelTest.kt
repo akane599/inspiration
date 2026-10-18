@@ -395,6 +395,22 @@ class XRayViewModelTest {
     // ---- restore ----------------------------------------------------------------------------
 
     @Test
+    fun `allowing an externally restricted app keeps an override that restores the original block`() {
+        deps.device.runAnyInBackground = "ignore"
+        openChatty()
+        assertTrue(controls.restricted)
+        vm.onIntent(XRayIntent.Act(ActionRequest.SetRestricted(false)))
+        assertFalse(controls.restricted)
+        val override = detail.overrides.single()
+        assertTrue(override.restorable)
+        vm.onIntent(XRayIntent.Act(ActionRequest.Restore(override.actionId)))
+        vm.onIntent(XRayIntent.ConfirmPending)
+        assertEquals("ignore", deps.device.runAnyInBackground)
+        assertTrue(controls.restricted)
+        assertTrue(detail.overrides.isEmpty())
+    }
+
+    @Test
     fun `a change made here is listed for this app and can be restored`() {
         openChatty()
         vm.onIntent(XRayIntent.Act(ActionRequest.SetRestricted(true)))
