@@ -4,7 +4,6 @@ import android.app.Application
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
-import android.os.Build
 import android.util.Log
 import androidx.core.content.ContextCompat
 import com.akane.inspiration.capture.ChargingCaptureScheduler
@@ -19,12 +18,11 @@ class InspirationApplication : Application() {
 
     override fun attachBaseContext(base: Context) {
         super.attachBaseContext(base)
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
-            try {
-                HiddenApiBypass.addHiddenApiExemptions("L")
-            } catch (throwable: Throwable) {
-                Log.w(TAG, "Unable to add hidden API exemptions", throwable)
-            }
+        // minSdk 31 is always >= P, where the hidden-API restrictions start.
+        try {
+            HiddenApiBypass.addHiddenApiExemptions("L")
+        } catch (throwable: Throwable) {
+            Log.w(TAG, "Unable to add hidden API exemptions", throwable)
         }
     }
 

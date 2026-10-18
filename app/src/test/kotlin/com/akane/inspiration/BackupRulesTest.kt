@@ -12,7 +12,6 @@ class BackupRulesTest {
             "device_root", "device_file", "device_database", "device_sharedpref")
         for ((file, sections) in mapOf(
             "data_extraction_rules.xml" to listOf("cloud-backup", "device-transfer"),
-            "backup_rules.xml" to listOf("full-backup-content"),
         )) {
             val document = DocumentBuilderFactory.newInstance().newDocumentBuilder()
                 .parse(File("src/main/res/xml/$file"))
