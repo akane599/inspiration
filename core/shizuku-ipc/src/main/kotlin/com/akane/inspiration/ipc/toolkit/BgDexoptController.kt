@@ -20,7 +20,7 @@ internal val BG_DEXOPT_CANCEL_ARGV = listOf(CMD, "package", "bg-dexopt-job", "--
  * the process exits. And a freshly created controller starts UNKNOWN, not IDLE: an earlier service
  * instance may have died without cancelling, and there is no status query for the system job. It
  * stays UNKNOWN until a start (this controller then owns the guard) or a completed `--cancel`
- * ([noteCancelCompleted]) proves nothing is running. The cancel is deliberately not issued blindly at
+ * ([endUserCancel]) proves nothing is running. The cancel is deliberately not issued blindly at
  * creation, because it would also cancel the system's own scheduled dexopt job on every launch.
  * An unconfirmed cancellation also reports UNKNOWN; this instance refuses another start until
  * a successful cancel resolves it, and the client retains its pending row and cancellation action.
@@ -43,17 +43,28 @@ internal class BgDexoptController(
     private var reason = BgDexoptReason.NONE
     private var userCancelRequested = false
     private var cancelCompleted = false
+    private var cancelGeneration = 0L
+    private var cancellationsInFlight = 0
+    private var shuttingDown = false
 
     fun status(): BgDexoptStatus = synchronized(lock) {
         BgDexoptStatus(state, startedAtMs, endedAtMs, exitCode, reason)
     }
 
     fun tryStart(): ToolkitResult {
-        if (isRunning()) return ToolkitResult.refused(ToolkitCode.BUSY)
+        val generation = synchronized(lock) {
+            if (shuttingDown || cancellationsInFlight != 0 ||
+                state == BgDexoptState.RUNNING ||
+                (state == BgDexoptState.UNKNOWN && reason != BgDexoptReason.NONE)
+            ) return ToolkitResult.refused(ToolkitCode.BUSY)
+            cancelGeneration
+        }
         if (!plugged.isPlugged()) return ToolkitResult.refused(ToolkitCode.NOT_PLUGGED)
         val before = synchronized(lock) {
             // Atomic compare-and-set: a second start that raced past the check above loses here.
-            if (state == BgDexoptState.RUNNING || (state == BgDexoptState.UNKNOWN && reason != BgDexoptReason.NONE)) {
+            if (shuttingDown || cancellationsInFlight != 0 || generation != cancelGeneration ||
+                state == BgDexoptState.RUNNING || (state == BgDexoptState.UNKNOWN && reason != BgDexoptReason.NONE)
+            ) {
                 return ToolkitResult.refused(ToolkitCode.BUSY)
             }
             val previous = state
@@ -76,32 +87,40 @@ internal class BgDexoptController(
         return ToolkitResult.done(before = before.toString(), after = BgDexoptState.RUNNING.toString())
     }
 
-    /** A user cancel was issued; the worker reports CANCELLED(USER) when the job then exits. */
-    fun noteUserCancel() {
+    /** Fence probing starts and reject fresh admission until the cancellation command completes. */
+    fun beginUserCancel() {
         synchronized(lock) {
+            cancelGeneration += 1
+            cancellationsInFlight += 1
             if (state == BgDexoptState.RUNNING) userCancelRequested = true
         }
     }
 
-    /** A `--cancel` exited successfully: with no job tracked here, nothing is left running. */
-    fun noteCancelCompleted() {
+    fun endUserCancel(success: Boolean) {
         synchronized(lock) {
-            cancelCompleted = true
-            if (state == BgDexoptState.UNKNOWN) state = BgDexoptState.IDLE
+            cancellationsInFlight -= 1
+            if (success) {
+                cancelCompleted = true
+                if (state == BgDexoptState.UNKNOWN) state = BgDexoptState.IDLE
+            }
         }
     }
 
-    /** Destroy hook: cancel a job this controller is still supervising, within [SHUTDOWN_CANCEL_TIMEOUT_MS]. */
+    /** Close admission even if the worker is queued or the plugged probe has not returned yet. */
     fun cancelIfRunning() {
-        if (isRunning()) runner.run(BG_DEXOPT_CANCEL_ARGV, SHUTDOWN_CANCEL_TIMEOUT_MS)
+        val needsCancel = synchronized(lock) {
+            shuttingDown = true
+            cancelGeneration += 1
+            userCancelRequested = true
+            state == BgDexoptState.RUNNING
+        }
+        if (needsCancel) runner.run(BG_DEXOPT_CANCEL_ARGV, SHUTDOWN_CANCEL_TIMEOUT_MS)
     }
-
-    private fun isRunning(): Boolean = synchronized(lock) { state == BgDexoptState.RUNNING }
 
     private fun runJob() {
         val process = try {
             synchronized(lock) {
-                if (userCancelRequested) {
+                if (shuttingDown || userCancelRequested) {
                     finish(BgDexoptState.CANCELLED, exit = 0, why = BgDexoptReason.USER)
                     return
                 }

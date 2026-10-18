@@ -98,9 +98,9 @@ class BgDexoptControllerTest {
     fun `acknowledged cancellation prevents a queued worker from starting`() {
         val controller = controller()
         controller.tryStart()
-        controller.noteUserCancel()
+        cancel(controller, false)
         runner.run(BG_DEXOPT_CANCEL_ARGV)
-        controller.noteCancelCompleted()
+        cancel(controller, true)
         threads.single().run()
         assertEquals(listOf(BG_DEXOPT_CANCEL_ARGV), calls)
         assertEquals(BgDexoptState.CANCELLED, controller.status().state)
@@ -117,7 +117,7 @@ class BgDexoptControllerTest {
             threads.last().run()
             assertEquals(BgDexoptState.UNKNOWN, controller.status().state)
             assertEquals(ToolkitCode.BUSY, controller.tryStart().code)
-            controller.noteCancelCompleted()
+            cancel(controller, true)
             assertEquals(BgDexoptState.IDLE, controller.status().state)
             assertEquals(ToolkitStatus.DONE, controller.tryStart().status)
         }
@@ -127,12 +127,12 @@ class BgDexoptControllerTest {
     fun `unconfirmed user cancellation stays unknown instead of claiming success`() {
         cancelEndsJob = false
         val controller = controller()
-        userCancelNote = { controller.noteUserCancel() }
+        userCancelNote = { cancel(controller, false) }
         controller.tryStart()
         threads.single().run()
         assertEquals(BgDexoptState.UNKNOWN, controller.status().state)
         assertEquals(BgDexoptReason.USER, controller.status().reason)
-        controller.noteCancelCompleted()
+        cancel(controller, true)
         assertEquals(BgDexoptState.IDLE, controller.status().state)
     }
 
@@ -141,8 +141,8 @@ class BgDexoptControllerTest {
         cancelEndsJob = false
         val controller = controller()
         userCancelNote = {
-            controller.noteUserCancel()
-            controller.noteCancelCompleted()
+            cancel(controller, false)
+            cancel(controller, true)
         }
         controller.tryStart()
         threads.single().run()
@@ -238,7 +238,7 @@ class BgDexoptControllerTest {
         jobExitsAtMs = null
         cancelEndsJob = false
         userCancelNote = {
-            controller.noteUserCancel()
+            cancel(controller, false)
             jobExitsAtMs = clock.nowMs
         }
 
@@ -270,23 +270,23 @@ class BgDexoptControllerTest {
     fun `a completed cancel proves nothing is running and an unknown state becomes idle`() {
         val controller = controller()
 
-        controller.noteCancelCompleted()
+        cancel(controller, true)
 
         assertEquals(BgDexoptState.IDLE, controller.status().state)
     }
 
     @Test
-    fun `a completed cancel does not change a running or finished state`() {
+    fun `a completed cancel leaves the worker to settle its final state`() {
         val controller = controller()
         jobExitsAtMs = clock.nowMs + 5 * 60_000
         controller.tryStart()
 
-        controller.noteCancelCompleted()
+        cancel(controller, true)
         assertEquals(BgDexoptState.RUNNING, controller.status().state)
 
         threads.single().run()
-        controller.noteCancelCompleted()
-        assertEquals(BgDexoptState.FINISHED, controller.status().state)
+        cancel(controller, true)
+        assertEquals(BgDexoptState.CANCELLED, controller.status().state)
     }
 
     @Test
@@ -295,9 +295,42 @@ class BgDexoptControllerTest {
         controller.cancelIfRunning()
         assertTrue("unknown state: nothing to cancel", calls.isEmpty())
 
-        controller.tryStart()
-        controller.cancelIfRunning()
-
+        assertEquals(ToolkitCode.BUSY, controller.tryStart().code)
+        assertTrue(calls.isEmpty())
+        val running = controller()
+        running.tryStart()
+        running.cancelIfRunning()
+        threads.single().run()
         assertEquals(listOf(BG_DEXOPT_CANCEL_ARGV), calls)
+        assertEquals(BgDexoptState.CANCELLED, running.status().state)
+        assertEquals(ToolkitCode.BUSY, running.tryStart().code)
+    }
+
+    private fun cancel(controller: BgDexoptController, success: Boolean) {
+        controller.beginUserCancel()
+        controller.endUserCancel(success)
+    }
+
+    @Test
+    fun `cancel or shutdown during the probe invalidates admission`() {
+        for (shutdown in listOf(false, true)) {
+            val controller = controller()
+            plugged = {
+                if (shutdown) controller.cancelIfRunning() else cancel(controller, true)
+                true
+            }
+            assertEquals(ToolkitCode.BUSY, controller.tryStart().code)
+            assertTrue(threads.isEmpty())
+            assertTrue(calls.isEmpty())
+        }
+    }
+
+    @Test
+    fun `an in flight cancel refuses all starts until completion`() {
+        val controller = controller()
+        controller.beginUserCancel()
+        assertEquals(ToolkitCode.BUSY, controller.tryStart().code)
+        controller.endUserCancel(true)
+        assertEquals(ToolkitStatus.DONE, controller.tryStart().status)
     }
 }

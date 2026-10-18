@@ -559,8 +559,24 @@ class ToolkitExecutorTest {
 
         val start = executor.startBgDexopt()
 
-        assertEquals(ToolkitStatus.DONE, start.status)
+        assertEquals(ToolkitCode.BUSY, start.code)
         assertEquals("cancel finished while the probe was still running", ToolkitStatus.DONE, cancelResult?.status)
+    }
+
+    @Test
+    fun `cancel fences starts and releases admission even when the command throws`() {
+        val executor = executor()
+        runner.handler = {
+            assertEquals(ToolkitCode.BUSY, executor.startBgDexopt().code)
+            throw IllegalStateException("cancel failed")
+        }
+        try {
+            executor.cancelBgDexopt()
+            org.junit.Assert.fail("expected command failure")
+        } catch (_: IllegalStateException) {
+            // The finally block must release the in-flight cancellation fence.
+        }
+        assertEquals(ToolkitStatus.DONE, executor.startBgDexopt().status)
     }
 
     @Test

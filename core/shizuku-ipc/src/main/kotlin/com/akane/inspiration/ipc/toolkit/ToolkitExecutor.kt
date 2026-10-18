@@ -165,10 +165,15 @@ internal class ToolkitExecutor(
     fun bgDexoptStatus(): BgDexoptStatus = dexopt.status()
 
     fun cancelBgDexopt(): ToolkitResult = synchronized(writeLock) {
-        dexopt.noteUserCancel()
-        val out = runner.run(BG_DEXOPT_CANCEL_ARGV)
-        if (out.ok) dexopt.noteCancelCompleted()
-        if (out.ok) ToolkitResult.done() else ToolkitResult.failed(execCode(out))
+        dexopt.beginUserCancel()
+        var confirmed = false
+        try {
+            val out = runner.run(BG_DEXOPT_CANCEL_ARGV)
+            confirmed = out.ok
+            if (out.ok) ToolkitResult.done() else ToolkitResult.failed(execCode(out))
+        } finally {
+            dexopt.endUserCancel(confirmed)
+        }
     }
 
     /** Called by the service's destroy() before the process exits; never throws. */
