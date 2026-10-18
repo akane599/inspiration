@@ -4,6 +4,7 @@ import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import com.akane.inspiration.InspirationApplication
+import com.akane.inspiration.status.StatusNotificationController
 import com.akane.inspiration.telemetry.snapshot.CaptureTrigger
 import kotlinx.coroutines.launch
 
@@ -14,6 +15,8 @@ class BootCaptureReceiver : BroadcastReceiver() {
     ) {
         if (intent.action !in BOOT_ACTIONS) return
         val app = context.applicationContext as InspirationApplication
+        // Synchronous and before goAsync: a foreground service may start only inside the boot exemption window.
+        StatusNotificationController.sync(app)
         val pendingResult = goAsync()
         app.appContainer.applicationScope.launch {
             try {
