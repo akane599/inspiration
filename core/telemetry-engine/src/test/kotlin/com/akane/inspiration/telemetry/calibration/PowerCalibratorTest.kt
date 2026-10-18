@@ -50,14 +50,17 @@ class PowerCalibratorTest {
     }
 
     @Test
-    fun `dual cell pack voltage selects two cells`() {
-        val calibration = calibrator.calibrate(listOf(discharge(sysfsCurrent = -400_000, sysfsVoltage = 8_400_000)))
-
-        val reading = calibrator.toReading(discharge(sysfsCurrent = -400_000, sysfsVoltage = 8_400_000), calibration)
-
-        assertEquals(2, calibration.cellCount)
-        assertEquals(-800.0, reading!!.currentMa, 0.0)
-        assertEquals(8.4, reading.voltageV, 0.0)
+    fun `dual cell pack voltage preserves measured current in both directions`() {
+        for (current in listOf(-400_000, 400_000)) {
+            val input = discharge(sysfsCurrent = current.toLong(), bmCurrent = current, sysfsVoltage = 8_400_000)
+                .copy(isCharging = current > 0, plugged = current > 0)
+            val calibration = calibrator.calibrate(listOf(input))
+            val reading = calibrator.toReading(input, calibration)!!
+            assertEquals(2, calibration.cellCount)
+            assertEquals(current / 1000.0, reading.currentMa, 0.0)
+            assertEquals(8.4, reading.voltageV, 0.0)
+            assertEquals(current / 1000.0 * 8.4 / 1000, reading.watts, 1e-9)
+        }
     }
 
     @Test

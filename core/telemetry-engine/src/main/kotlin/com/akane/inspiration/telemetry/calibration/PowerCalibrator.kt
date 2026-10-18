@@ -59,7 +59,8 @@ class PowerCalibrator {
                 sample.hasHalfOfBatteryManagerCurrent(baseCurrentScale)
         }
         val cellCount = if (hasDualCellVoltage || hasHalfCurrentSingleCellVoltage) 2 else 1
-        val currentScale = baseCurrentScale * cellCount
+        // Series pack voltage already includes both cells; current needs independent evidence.
+        val currentScale = baseCurrentScale * if (hasHalfCurrentSingleCellVoltage) 2 else 1
 
         return PowerCalibration(
             currentScaleToMa = currentScale,
