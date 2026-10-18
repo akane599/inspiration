@@ -94,6 +94,30 @@ class RoomSnapshotStoreTest {
     }
 
     @Test
+    fun `round trips several uids without mixing their child rows`() = runBlocking {
+        val first = uidSnapshot()
+        val second = uidSnapshot().copy(
+            uid = 10_002,
+            packageName = "com.example.other",
+            componentsMah = linkedMapOf("gps" to 0.7),
+            partialWakelocks = listOf(UidWakelock("other", 1L, 2L, 3L)),
+            wakeupAlarms = listOf(UidAlarm("other_alarm", 4L)),
+            sensors = listOf(UidSensor(3, 5L, 6L, 7L)),
+        )
+        val bare = uidSnapshot().copy(
+            uid = 10_003,
+            componentsMah = emptyMap(),
+            partialWakelocks = emptyList(),
+            wakeupAlarms = emptyList(),
+        )
+        val snapshot = fullSnapshot(uids = listOf(first, second, bare))
+
+        val id = store.insert(snapshot)
+
+        assertEquals(snapshot.copy(id = id), store.byId(id))
+    }
+
+    @Test
     fun `round trips signal columns for empty and five bins and uid sensors`() = runBlocking {
         val emptyBins = fullSnapshot(system = timers().copy(signalScanningMs = 5L, mobileRadioActiveMs = 6L))
         val emptyId = store.insert(emptyBins)

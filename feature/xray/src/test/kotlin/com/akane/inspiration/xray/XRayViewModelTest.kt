@@ -76,6 +76,13 @@ class XRayViewModelTest {
     }
 
     @Test
+    fun `an analysis emission resolves labels but loads no icons`() {
+        assertEquals(XRayStatus.READY, state.status)
+        assertTrue(state.apps.all { it.label != null })
+        assertEquals("icons load per composed row, not per emission", 0, deps.iconLoads)
+    }
+
+    @Test
     fun `without per-app data the state says so and lists no apps while components stay`() {
         start(FakeXRayDeps(), readyOf(sampleDiff(), resolvedOf(perUidAvailable = false)))
 

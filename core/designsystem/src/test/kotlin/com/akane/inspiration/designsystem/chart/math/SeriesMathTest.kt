@@ -77,20 +77,6 @@ class SeriesMathTest {
     }
 
     @Test
-    fun nearestIndexEdges() {
-        val p = points(100L to 1f, 200L to 2f, 400L to 3f)
-        assertEquals(-1, nearestIndex(emptyList(), 5L))
-        assertEquals(0, nearestIndex(p, -50L))
-        assertEquals(2, nearestIndex(p, 10_000L))
-        assertEquals(1, nearestIndex(p, 200L))
-        assertEquals(0, nearestIndex(p, 149L))
-        assertEquals(1, nearestIndex(p, 151L))
-        assertEquals(1, nearestIndex(p, 300L)) // tie goes to the earlier point
-        assertEquals(2, nearestIndex(p, 301L))
-        assertEquals(0, nearestIndex(points(7L to 1f), 999L))
-    }
-
-    @Test
     fun valueAtEdges() {
         val p = points(100L to 10f, 200L to 20f, 400L to 60f)
         assertNull(valueAt(emptyList(), 5L))

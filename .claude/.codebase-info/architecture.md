@@ -1,5 +1,5 @@
 # Architecture
-*Last Updated: 2026-10-17*
+*Last Updated: 2026-10-18*
 
 ## Runtime shape
 
@@ -17,9 +17,9 @@ MainActivity.onStart → InspirationApplication.captureAppOpen() → AppContaine
                           │              └→ kernel/sysfs and CPU readers
                           └→ RoomSnapshotStore → InspirationDatabase (WAL)
 
-RuntimeCaptureReceiver ──light/full policy──┘
+RuntimeCaptureReceiver ──light/full policy (full misses fall back to light)──┘
 BootCaptureReceiver ──light snapshot + arm JobScheduler
-ChargingCaptureJobService ──full snapshot + history + prune
+ChargingCaptureJobService ──one full read (history ingest, reused for the snapshot) + prune; re-arms from finally
 ```
 
 `MainActivity` triggers an app-open refresh through `AppContainer.refresh()`, which is the one debounced, mutex-guarded entry point every screen shares. `InspirationApplication` registers the non-exported runtime receiver and creates `AppContainer`, which owns the application scope (SupervisorJob + IO) and creates `AndroidTelemetrySource`, `SnapshotCapturer`, the Room-backed `SnapshotStore`, `LiveTelemetry`, `AnalysisSession` and `ToolkitActions`.
@@ -68,9 +68,9 @@ AppContainer.timeline(from, to) = TimelineEvents.withSeeds(store.lastHistoryOfEa
                                   → TimelineBuilder.build → Cockpit chart / Sleep Lab hypnogram
 ```
 
-- **Visibility drives work (H13, zero observer effect).** Nothing polls except the visible Cockpit (1.5 s `liveReadings`) and Health (only while charging); a screen leaving composition stops its reads and releases `holdBinding()`. `ToolkitActions` polls dexopt status every 5 s only while a job is RUNNING and collected, and holds the binding itself for that job. Never `WhileSubscribed(5000)`.
+- **Visibility drives work (H13, zero observer effect).** Nothing polls except the visible Cockpit (1.5 s `liveReadings`) and Health (only while charging); a screen leaving composition stops its reads and releases `holdBinding()`. `ToolkitActions` polls dexopt status every 5 s only while a job is RUNNING and collected, and holds the binding itself for that job. `AnalysisSession` computes only while its `analysis` StateFlow has subscribers (it keeps the last state when they leave), so background process starts do no analysis. Never `WhileSubscribed(5000)`.
 - **Refresh.** Every screen's `refresh()` goes through `RefreshCoordinator`; a successful refresh advances `lastRefreshWallMs`, which re-runs the `AnalysisSession`. A transition of Shizuku to Ready clears the failure backoff and reconciles PENDING toolkit rows (`reconcileOnEachReady`).
-- **Threading.** `AppContainer.applicationScope` and `LiveTelemetry` run on IO; `ShizukuManagerImpl.withTelemetryService` runs the block on its IO dispatcher; the bundled dictionary loads once through `Preloaded` and never parses on the caller's thread.
+- **Threading.** `AppContainer.applicationScope` (`newApplicationScope()`: SupervisorJob + IO + a logging `CoroutineExceptionHandler`), `AndroidTelemetrySource.full()` and `LiveTelemetry` run on IO; `ShizukuManagerImpl.withTelemetryService` runs the block on its IO dispatcher; the bundled dictionary loads once through `Preloaded` and never parses on the caller's thread.
 - **Insets.** Each shell layout owns the system-bar and IME insets (see `modules.md`); screens receive an already-inset area.
 
 ## Privileged data flow

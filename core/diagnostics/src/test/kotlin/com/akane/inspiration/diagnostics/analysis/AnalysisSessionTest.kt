@@ -3,8 +3,19 @@ package com.akane.inspiration.diagnostics.analysis
 import com.akane.inspiration.ipc.model.HistoryKind
 import com.akane.inspiration.telemetry.diff.ReferenceKind
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withTimeout
+import kotlinx.coroutines.yield
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.runCurrent
@@ -30,7 +41,8 @@ class AnalysisSessionTest {
         val session: AnalysisSession,
     )
 
-    private fun TestScope.harness(store: FakeSnapshotStore = store()): Harness {
+    /** [subscribe] starts a collector, since the session only computes while its state is observed. */
+    private fun TestScope.harness(store: FakeSnapshotStore = store(), subscribe: Boolean = true): Harness {
         val selection = AnalysisSelection()
         val ticks = MutableSharedFlow<Long>()
         val session = AnalysisSession(
@@ -41,6 +53,7 @@ class AnalysisSessionTest {
             nowWallMs = { 6 * hour },
             dispatcher = StandardTestDispatcher(testScheduler),
         )
+        if (subscribe) backgroundScope.launch { session.state.collect {} }
         return Harness(store, selection, ticks, session)
     }
 
@@ -141,5 +154,110 @@ class AnalysisSessionTest {
         val ready = h.session.state.value as AnalysisState.Ready
         assertEquals(1 * hour, ready.analysis.resolved.boundaryFromWallMs)
         assertEquals(5 * hour, ready.analysis.resolved.boundaryToWallMs)
+    }
+
+    @Test
+    fun `computes only while the state is observed and keeps the last state in between`() = runTest {
+        val h = harness(subscribe = false)
+        runCurrent()
+        assertEquals(AnalysisState.Loading, h.session.state.value)
+        assertEquals(0, h.store.historyReads)
+
+        val first = backgroundScope.launch { h.session.state.collect {} }
+        runCurrent()
+        val ready = h.session.state.value as AnalysisState.Ready
+        val reads = h.store.historyReads
+        assertTrue(reads > 0)
+
+        first.cancel()
+        runCurrent()
+        h.ticks.emit(1)
+        runCurrent()
+        assertEquals(reads, h.store.historyReads)
+        assertSame(ready, h.session.state.value)
+
+        // A returning observer sees the kept state at once, not Loading, while the fresh compute runs.
+        val gate = CompletableDeferred<Unit>().also { h.store.gate = it }
+        backgroundScope.launch { h.session.state.collect {} }
+        runCurrent()
+        assertSame(ready, h.session.state.value)
+        gate.complete(Unit)
+        runCurrent()
+        assertTrue(h.store.historyReads > reads)
+        assertTrue(h.session.state.value is AnalysisState.Ready)
+    }
+
+    @Test
+    fun `a finished result for the old selection never replaces Loading for the new one`() = runTest {
+        // Sweep where B's selection lands relative to A's completion, so the case where A's result is
+        // already on its way to the state while B's Loading is written is covered deterministically.
+        repeat(40) { yields ->
+            val h = harness(store().apply { snapshots += lightSnapshot(wallMs = 3 * hour) })
+            runCurrent()
+
+            val gateA = CompletableDeferred<Unit>().also { h.store.gate = it }
+            h.selection.select(ReferenceKind.Last24h)
+            runCurrent()
+            assertEquals(AnalysisState.Loading, h.session.state.value)
+
+            gateA.complete(Unit)
+            backgroundScope.launch {
+                repeat(yields) { yield() }
+                // B's own read stays blocked, so Loading must hold whatever A did.
+                h.store.gate = CompletableDeferred()
+                h.selection.select(ReferenceKind.TimeSlice(fromWallMs = 1 * hour, toWallMs = 3 * hour))
+            }
+            runCurrent()
+
+            assertEquals("after $yields yields", AnalysisState.Loading, h.session.state.value)
+        }
+    }
+
+    @Test
+    fun `selection changes on real threads always land on Loading before the new result`() = runBlocking {
+        val store = store().apply { snapshots += lightSnapshot(wallMs = 3 * hour) }
+        val selection = AnalysisSelection()
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        try {
+            val session = AnalysisSession(
+                analyzer = IntervalAnalyzer(store, ruleEngine()),
+                selection = selection,
+                refreshTicks = MutableSharedFlow(),
+                scope = scope,
+                nowWallMs = { 6 * hour },
+                dispatcher = Dispatchers.IO,
+            )
+            scope.launch { session.state.collect {} }
+            val slices = listOf(3 * hour, 5 * hour).map { ReferenceKind.TimeSlice(fromWallMs = 1 * hour, toWallMs = it) }
+            repeat(200) { i ->
+                val target = slices[i % 2]
+                val gate = CompletableDeferred<Unit>()
+                // The previous selection is computing (ungated) right as the new one is chosen.
+                store.gate = null
+                selection.select(slices[(i + 1) % 2])
+                store.gate = gate
+                selection.select(target)
+                // While the target's read is blocked the state must settle on Loading; a stale Ready written
+                // after it would stay until the gate opens and time this out.
+                withTimeout(5_000) { session.state.awaitSettledLoading() }
+                gate.complete(Unit)
+                withTimeout(5_000) {
+                    session.state.first { (it as? AnalysisState.Ready)?.analysis?.resolved?.boundaryToWallMs == target.toWallMs }
+                }
+            }
+        } finally {
+            scope.cancel()
+        }
+    }
+
+    private suspend fun StateFlow<AnalysisState>.awaitSettledLoading() {
+        while (true) {
+            if (value == AnalysisState.Loading) {
+                delay(5)
+                if (value == AnalysisState.Loading) return
+            } else {
+                delay(1)
+            }
+        }
     }
 }

@@ -1,5 +1,5 @@
 # Patterns
-*Last Updated: 2026-10-17*
+*Last Updated: 2026-10-18*
 
 These patterns are established across the Phase 1 IPC boundary, the Phase 2 snapshot pipeline, the Phase 3 insight layer, the Phase 4 design-system charts, and the Phase 5 screens and toolkit.
 
@@ -49,7 +49,7 @@ Each feature has a `val`-only `State` (ImmutableList collections), a sealed `Int
 
 ## Toolkit writes: plan, confirm, audit, read back
 
-Writes go plan → (confirm when risky) → PENDING `toolkit_action` row → privileged call → settle from the service's own before/after → read-back `verify`. `restore`, `planRestore` and `resetAll` return a target to the original of its chain (`chainOriginal`), and `activeOverrides()` lists only changes that read-back shows are still in effect; a target already at its original is not an override and nothing is written. `reconcile()` finalizes crash-orphaned PENDING rows. The write is never taken from an Intent or URI; the UI names a package only from the in-app list. Warnings, refusals and unavailability are typed enums whose wording lives in the UI's strings.
+Writes go plan → (confirm when risky) → PENDING `toolkit_action` row → privileged call → settle from the service's own before/after → read-back `verify`. `restore`, `planRestore` and `resetAll` return a target to the original of its chain (`chainOriginal`), and `activeOverrides()` lists only changes that read-back shows are still in effect; a target already at its original is not an override and nothing is written. `reconcile()` finalizes crash-orphaned PENDING rows. Outcomes are not binary: a write that may have committed but could not be confirmed (`UNVERIFIED`) stays PENDING so it remains in the restore chain, and nothing is written on top of an unsettled row for the same target. The write is never taken from an Intent or URI; the UI names a package only from the in-app list. Warnings, refusals and unavailability are typed enums whose wording lives in the UI's strings.
 
 ## Design-system components over raw Material
 

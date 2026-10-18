@@ -42,22 +42,68 @@ data class CapacityEstimate(
 )
 
 object ChargeSegmentExtractor {
-    fun fromHistory(events: List<HistoryEvent>): List<ChargeSegment> {
-        val segments = ArrayList<ChargeSegment>()
-        var active = mutableListOf<HistoryEvent>()
+    /** Segments of one stats session's history. */
+    fun fromHistory(events: List<HistoryEvent>): List<ChargeSegment> =
+        walk(events.sortedBy(HistoryEvent::historyTimeMs).map { NO_EPOCH to it }).map { it.second }
 
-        for (event in events.sortedBy(HistoryEvent::historyTimeMs)) {
+    /**
+     * Segments over every stats session as one stream, each tagged with the `statsStartMs` its PLUGGED
+     * event was stored under. Android resets battery stats on unplug after a deep charge, so the charge's
+     * start lands in the old session and its end (the RESET, then maybe UNPLUGGED) in the new one; walking
+     * the sessions separately would lose every such charge. History clocks may restart per session, so
+     * sessions are ordered by their start and each by history time; START/SHUTDOWN still split boots.
+     */
+    fun fromSessions(sessions: Map<Long, List<HistoryEvent>>): List<Pair<Long, ChargeSegment>> =
+        walk(
+            sessions.entries.sortedBy { it.key }.flatMap { (statsStartMs, events) ->
+                events.sortedBy(HistoryEvent::historyTimeMs).map { statsStartMs to it }
+            },
+        )
+
+    private fun walk(stream: List<Pair<Long, HistoryEvent>>): List<Pair<Long, ChargeSegment>> {
+        val segments = ArrayList<Pair<Long, ChargeSegment>>()
+        var active = mutableListOf<HistoryEvent>()
+        var activeEpoch = NO_EPOCH
+        // A reset recorded while still plugged: only an unplug at this same instant may still close the charge.
+        var resetWhilePluggedAtWallMs: Long? = null
+
+        fun discard() {
+            active = mutableListOf()
+            resetWhilePluggedAtWallMs = null
+        }
+
+        fun close(end: HistoryEvent) {
+            active += end
+            active.toChargeSegment()?.let { segments += activeEpoch to it }
+            discard()
+        }
+
+        for ((epoch, event) in stream) {
             when (event.kind) {
-                HistoryKind.RESET, HistoryKind.START, HistoryKind.SHUTDOWN -> active.clear()
-                HistoryKind.PLUGGED -> active = mutableListOf(event)
-                HistoryKind.UNPLUGGED -> {
-                    if (active.isNotEmpty()) {
-                        active += event
-                        active.toChargeSegment()?.let(segments::add)
-                    }
-                    active = mutableListOf()
+                HistoryKind.START, HistoryKind.SHUTDOWN -> discard()
+                HistoryKind.RESET -> when {
+                    active.isEmpty() -> Unit
+                    // The reset record already carries the unplug: the charge ended here.
+                    event.plugType == UNPLUGGED_PLUG_TYPE -> close(event)
+                    else -> resetWhilePluggedAtWallMs = event.wallMs
                 }
-                else -> if (active.isNotEmpty()) active += event
+                HistoryKind.PLUGGED -> {
+                    discard()
+                    active += event
+                    activeEpoch = epoch
+                }
+                HistoryKind.UNPLUGGED -> {
+                    val resetAt = resetWhilePluggedAtWallMs
+                    if (active.isNotEmpty() && (resetAt == null || resetAt == event.wallMs)) close(event) else discard()
+                }
+                else -> when {
+                    active.isEmpty() -> Unit
+                    resetWhilePluggedAtWallMs == null -> active += event
+                    // Other transitions of the reset instant are not evidence that charging went on.
+                    event.wallMs == resetWhilePluggedAtWallMs -> Unit
+                    // Charging went on after a mid-charge reset, which still discards the segment.
+                    else -> discard()
+                }
             }
         }
         return segments
@@ -83,6 +129,8 @@ object ChargeSegmentExtractor {
     }
 
     private const val MINIMUM_SOC_RISE_PCT = 40
+    private const val UNPLUGGED_PLUG_TYPE = 0
+    private const val NO_EPOCH = 0L
 }
 
 object Integrator {

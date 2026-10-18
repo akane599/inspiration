@@ -205,6 +205,7 @@
     <string name="toolkit_unavailable_no_service">The Shizuku service can\'t be reached. Check that Shizuku is running.</string>
     <string name="toolkit_unavailable_stale_service">The Shizuku service is out of date. Restart Shizuku, then try again.</string>
     <string name="toolkit_unavailable_not_effective">The change didn\'t take effect and was rolled back.</string>
+    <string name="toolkit_unavailable_unverified">The change was sent, but it couldn\'t be confirmed. It will be checked again when the service answers.</string>
     <string name="toolkit_failed_code">The command failed (code %1$d).</string>
     <string name="toolkit_failed">The command failed.</string>
 </resources>

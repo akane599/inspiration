@@ -39,6 +39,9 @@ class SleepLabViewModel(private val deps: SleepLabDependencies) : ViewModel() {
 
     private val visible = MutableStateFlow(false)
     private var refreshJob: Job? = null
+
+    /** The user asked for the running refresh (main thread only, like every intent). */
+    private var userWaiting = false
     private val labelCache = HashMap<String, String>()
     private val uidPackageCache = HashMap<Int, String?>()
 
@@ -122,15 +125,21 @@ class SleepLabViewModel(private val deps: SleepLabDependencies) : ViewModel() {
     }
 
     private fun startRefresh(userInitiated: Boolean) {
+        // A user refresh during a running one (e.g. the on-enter refresh) joins it: it shows progress and
+        // reports that refresh's failure.
+        if (userInitiated) {
+            userWaiting = true
+            _state.update { it.copy(refreshing = true) }
+        }
         if (refreshJob?.isActive == true) return
         refreshJob = viewModelScope.launch {
-            if (userInitiated) _state.update { it.copy(refreshing = true) }
             try {
                 when (attempt { deps.refresh() }) {
                     is RefreshResult.Refreshed, is RefreshResult.Debounced -> Unit
-                    is RefreshResult.Failed, null -> if (userInitiated) effectChannel.trySend(SleepLabEffect.RefreshFailed)
+                    is RefreshResult.Failed, null -> if (userWaiting) effectChannel.trySend(SleepLabEffect.RefreshFailed)
                 }
             } finally {
+                userWaiting = false
                 _state.update { it.copy(refreshing = false) }
             }
         }

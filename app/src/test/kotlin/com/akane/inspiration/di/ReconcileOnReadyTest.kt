@@ -1,10 +1,12 @@
 package com.akane.inspiration.di
 
 import com.akane.inspiration.ipc.ShizukuState
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
+import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Test
@@ -42,6 +44,31 @@ class ReconcileOnReadyTest {
         val job = launch { reconcileOnEachReady(state) { runs += 1 } }
 
         assertEquals(1, runs)
+        job.cancel()
+    }
+
+    @Test
+    fun `a Ready flip that happens while reconcile is still running reconciles again`() = runTest {
+        val state = MutableStateFlow<ShizukuState>(ShizukuState.Ready(2000, 13))
+        var runs = 0
+        val gate = CompletableDeferred<Unit>()
+        val job = launch {
+            reconcileOnEachReady(state) {
+                runs += 1
+                if (runs == 1) gate.await() // the first read-back is still in flight
+            }
+        }
+        runCurrent()
+        assertEquals(1, runs)
+
+        state.value = ShizukuState.NotRunning // the binder dies mid-reconcile
+        runCurrent()
+        state.value = ShizukuState.Ready(2000, 13) // and comes back as an equal Ready
+        runCurrent()
+        gate.complete(Unit)
+        runCurrent()
+
+        assertEquals(2, runs)
         job.cancel()
     }
 }

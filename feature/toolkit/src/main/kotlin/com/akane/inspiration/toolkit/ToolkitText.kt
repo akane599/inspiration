@@ -131,6 +131,7 @@ internal fun unavailableRes(reason: ToolkitUnavailable): Int = when (reason) {
     ToolkitUnavailable.NO_SERVICE -> R.string.toolkit_unavailable_no_service
     ToolkitUnavailable.STALE_SERVICE -> R.string.toolkit_unavailable_stale_service
     ToolkitUnavailable.NOT_EFFECTIVE -> R.string.toolkit_unavailable_not_effective
+    ToolkitUnavailable.UNVERIFIED -> R.string.toolkit_unavailable_unverified
 }
 
 @Composable

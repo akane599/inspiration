@@ -9,6 +9,7 @@ import com.akane.inspiration.telemetry.snapshot.LiveReading
 import com.akane.inspiration.telemetry.store.ChargeSessionRecord
 import com.akane.inspiration.telemetry.store.HealthSample
 import com.akane.inspiration.telemetry.store.TelemetrySample
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
@@ -38,6 +39,9 @@ internal class FakeHealthDeps(
     var refreshResult: RefreshResult = RefreshResult.Refreshed(NOW_MS)
     var refreshCalls = 0
 
+    /** While set, refresh() suspends until it completes, so a test can act during a running refresh. */
+    var refreshGate: CompletableDeferred<Unit>? = null
+
     /** Readings the live flow produced, i.e. how many reads were requested of the device. */
     var readingsRequested = 0
     var liveCollections = 0
@@ -47,6 +51,7 @@ internal class FakeHealthDeps(
 
     override suspend fun refresh(): RefreshResult {
         refreshCalls++
+        refreshGate?.await()
         return refreshResult
     }
 

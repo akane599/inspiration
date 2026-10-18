@@ -30,9 +30,10 @@ class AndroidTelemetrySource(
     private val batteryManager = context.getSystemService(BatteryManager::class.java)
     private val powerManager = context.getSystemService(PowerManager::class.java)
 
-    override suspend fun full(trigger: CaptureTrigger, historyCursor: Pair<Long, Long>?): FullRead? {
+    // light() makes blocking binder calls and UI refreshes call this from Main, so the whole read runs on IO.
+    override suspend fun full(trigger: CaptureTrigger, historyCursor: Pair<Long, Long>?): FullRead? = withContext(ioDispatcher) {
         val light = light()
-        return shizuku.withTelemetryService(serviceTimeoutMs) { service ->
+        shizuku.withTelemetryService(serviceTimeoutMs) { service ->
             val usage = runCatching { service.readBatteryUsage(0L) }.getOrNull()
             val batteryStats = readBatteryStats(service)
             val power = readPower(service)

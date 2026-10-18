@@ -35,10 +35,6 @@ public final class BatteryUsageStats implements Closeable {
         throw new RuntimeException("Stub!");
     }
 
-    public int getDischargePercentage() {
-        throw new RuntimeException("Stub!");
-    }
-
     @Override
     public void close() {
         throw new RuntimeException("Stub!");

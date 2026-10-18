@@ -1,7 +1,6 @@
 package com.akane.inspiration.xray
 
 import androidx.compose.runtime.Immutable
-import androidx.compose.ui.graphics.ImageBitmap
 import com.akane.inspiration.ipc.ShizukuState
 import com.akane.inspiration.ipc.toolkit.AppOp
 import com.akane.inspiration.ipc.toolkit.StandbyBucket
@@ -48,15 +47,15 @@ data class ProcessStateMah(
 }
 
 /**
- * One ranked app. [label] and [icon] come from `AppLabels` and are null until resolved (and for entries
- * without a package). [packageName] is what the quick actions act on; it only ever comes from this list.
+ * One ranked app. [label] comes from `AppLabels` and is null until resolved (and for entries without a
+ * package); the icon is not part of the row but loaded by the screen for rows it composes.
+ * [packageName] is what the quick actions act on; it only ever comes from this list.
  */
 @Immutable
 data class AppRow(
     val uid: Int,
     val packageName: String?,
     val label: String?,
-    val icon: ImageBitmap?,
     val totalMah: Double,
     val sharePct: Double,
     val slices: ImmutableList<GroupSlice>,

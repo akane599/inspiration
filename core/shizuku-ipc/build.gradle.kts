@@ -19,7 +19,6 @@ android {
 dependencies {
     implementation(libs.shizuku.api)
     api(libs.shizuku.provider)
-    implementation(libs.hiddenapibypass)
     compileOnly("androidx.annotation:annotation:1.3.0")
     implementation(libs.kotlinx.coroutines.core)
     compileOnly(project(":core:hidden-api-stub"))

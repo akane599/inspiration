@@ -23,6 +23,7 @@ import com.akane.inspiration.telemetry.snapshot.SnapshotClock
 import com.akane.inspiration.telemetry.snapshot.SnapshotDiff
 import com.akane.inspiration.telemetry.snapshot.SnapshotKind
 import com.akane.inspiration.telemetry.store.Marker
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -49,6 +50,9 @@ internal class FakeCockpitDeps(
 
     var refreshResult: RefreshResult = RefreshResult.Refreshed(NOW_MS)
     var refreshCalls = 0
+
+    /** While set, refresh() suspends until it completes, so a test can act during a running refresh. */
+    var refreshGate: CompletableDeferred<Unit>? = null
     var permissionRequests = 0
 
     /** Readings the live flow produced, i.e. how many reads were requested of the device. */
@@ -65,6 +69,7 @@ internal class FakeCockpitDeps(
 
     override suspend fun refresh(): RefreshResult {
         refreshCalls++
+        refreshGate?.await()
         return refreshResult
     }
 

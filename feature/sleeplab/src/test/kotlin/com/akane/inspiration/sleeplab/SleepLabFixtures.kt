@@ -28,6 +28,7 @@ import com.akane.inspiration.telemetry.snapshot.SnapshotClock
 import com.akane.inspiration.telemetry.snapshot.SnapshotDiff
 import com.akane.inspiration.telemetry.snapshot.SnapshotKind
 import com.akane.inspiration.telemetry.snapshot.UidDelta
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.flow.MutableStateFlow
 
 internal const val HOUR_MS = 3_600_000L
@@ -42,12 +43,16 @@ internal class FakeSleepLabDeps : SleepLabDependencies {
 
     var refreshResult: RefreshResult = RefreshResult.Refreshed(NOW_MS)
     var refreshCalls = 0
+
+    /** While set, refresh() suspends until it completes, so a test can act during a running refresh. */
+    var refreshGate: CompletableDeferred<Unit>? = null
     val timelineCalls = mutableListOf<Pair<Long, Long>>()
     var timelineResult: Timeline? = emptyTimeline()
     var dictionary = DiagnosticDictionary(emptyList())
 
     override suspend fun refresh(): RefreshResult {
         refreshCalls++
+        refreshGate?.await()
         return refreshResult
     }
 

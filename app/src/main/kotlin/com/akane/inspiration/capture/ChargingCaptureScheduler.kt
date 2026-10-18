@@ -4,8 +4,14 @@ import android.app.job.JobInfo
 import android.app.job.JobScheduler
 import android.content.ComponentName
 import android.content.Context
+import java.util.concurrent.atomic.AtomicLong
 
 object ChargingCaptureScheduler {
+    /** Immediate (zero-latency) arms so far in this process; a running job compares it to see one replaced it. */
+    private val immediateArms = AtomicLong()
+
+    fun immediateArmCount(): Long = immediateArms.get()
+
     fun ensureScheduled(context: Context) {
         val scheduler = context.getSystemService(JobScheduler::class.java)
         if (scheduler.getPendingJob(JOB_ID) == null) arm(context)
@@ -19,6 +25,8 @@ object ChargingCaptureScheduler {
             .setRequiresCharging(true)
             .setPersisted(true)
         minimumLatencyMs(reArmFromJob)?.let(builder::setMinimumLatency)
+        // Counted before schedule(): the same-ID schedule stops a running job, whose re-arm must then see it.
+        if (!reArmFromJob) immediateArms.incrementAndGet()
         context.getSystemService(JobScheduler::class.java).schedule(builder.build())
     }
 

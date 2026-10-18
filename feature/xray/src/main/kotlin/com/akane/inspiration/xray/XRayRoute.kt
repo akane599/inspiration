@@ -6,6 +6,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.res.stringResource
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LifecycleStartEffect
@@ -34,6 +35,10 @@ fun XRayRoute(
         val explainer: Explainer = { kind, name -> dictionary.explain(kind, name, locale) }
         explainer
     }
+    val loadIcon = remember(deps) {
+        val loader: AppIconLoader = { packageName -> deps.appLabels.icon(packageName)?.asImageBitmap() }
+        loader
+    }
     val snackbarHostState = remember { SnackbarHostState() }
     val refreshFailed = stringResource(R.string.xray_refresh_failed)
 
@@ -58,6 +63,7 @@ fun XRayRoute(
         onIntent = viewModel::onIntent,
         explain = explain,
         modifier = modifier,
+        loadIcon = loadIcon,
         snackbarHostState = snackbarHostState,
     )
 }

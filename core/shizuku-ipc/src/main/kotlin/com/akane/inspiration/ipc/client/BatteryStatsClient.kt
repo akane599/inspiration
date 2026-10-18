@@ -12,6 +12,7 @@ import com.akane.inspiration.ipc.model.BatteryUsageSnapshot
 import com.akane.inspiration.ipc.model.Reasons
 import com.android.internal.app.IBatteryStats
 import com.android.internal.os.BatteryStatsHistoryIterator
+import java.lang.reflect.Field
 import java.lang.reflect.Method
 
 /** The `IBatteryStats` calls this client makes; faked in JVM tests. */
@@ -149,8 +150,9 @@ private class FrameworkQueryBuilder : BatteryUsageQueryBuilder {
 
 /**
  * History view over a `BatteryUsageStats` queried with `includeBatteryHistory()`. The iterator is
- * `Iterator<HistoryItem>` on API 34+ (android-35/36/37.0 sources); an older shape surfaces as a
- * [LinkageError], which the client maps to no_such_method.
+ * `Iterator<HistoryItem>` on API 34+ (android-35/36/37.0 sources, API 34 framework.jar); an older
+ * shape surfaces as a [LinkageError], which the client maps to no_such_method. Fields whose type
+ * differs between releases are read through [WideningIntField], never linked directly.
  */
 private class FrameworkBatteryHistory(private val stats: BatteryUsageStats) : BatteryHistoryAdapter {
     private var iterator: BatteryStatsHistoryIterator? = null
@@ -189,7 +191,7 @@ private class FrameworkBatteryHistory(private val stats: BatteryUsageStats) : Ba
         plugType = batteryPlugType.toInt(),
         chargeUah = batteryChargeUah,
         temperatureDeciC = batteryTemperature.toInt(),
-        voltageMv = batteryVoltage.toInt(),
+        voltageMv = VOLTAGE_MV.read(this),
     )
 
     /** Both are `AutoCloseable` on API 34+ only, so the check is at runtime. */
@@ -201,6 +203,27 @@ private class FrameworkBatteryHistory(private val stats: BatteryUsageStats) : Ba
         } catch (_: LinkageError) {
             // Same: an unexpected framework shape must not mask the read result.
         }
+    }
+
+    private companion object {
+        /**
+         * `batteryVoltage` is `char` on API 34 and `short` on 35+; ART links a direct field read by
+         * name and type, so a fixed-type read fails the whole page on the other releases.
+         */
+        val VOLTAGE_MV = WideningIntField.of(BatteryStats.HistoryItem::class.java, "batteryVoltage")
+    }
+}
+
+/**
+ * Reads a public instance field by name only, widening any integral type (`byte`, `char`,
+ * `short`, `int`) to `Int`. A missing or non-widenable field reads as 0 instead of throwing.
+ */
+internal class WideningIntField private constructor(private val field: Field?) {
+    fun read(target: Any): Int = field?.let { runCatching { it.getInt(target) }.getOrNull() } ?: 0
+
+    companion object {
+        fun of(type: Class<*>, name: String): WideningIntField =
+            WideningIntField(runCatching { type.getField(name) }.getOrNull())
     }
 }
 

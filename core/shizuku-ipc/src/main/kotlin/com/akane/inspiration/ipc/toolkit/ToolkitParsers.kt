@@ -24,8 +24,6 @@ internal object ToolkitParsers {
         return AppOpState(packageMode, uidMode)
     }
 
-    fun appOpMode(op: AppOp, output: String): String? = appOpState(op, output)?.effectiveMode
-
     /** `cmd activity get-standby-bucket`: a bare integer. */
     fun standbyBucket(output: String): Int? = output.trim().toIntOrNull()
 

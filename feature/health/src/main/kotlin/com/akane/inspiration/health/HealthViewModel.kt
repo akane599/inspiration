@@ -56,6 +56,9 @@ class HealthViewModel(private val deps: HealthDependencies) : ViewModel() {
     private var charging = false
     private var liveJob: Job? = null
     private var refreshJob: Job? = null
+
+    /** The user asked for the running refresh (main thread only, like every intent). */
+    private var userWaiting = false
     private var binding: AutoCloseable? = null
     private var inputs: HealthInputs? = null
 
@@ -128,17 +131,23 @@ class HealthViewModel(private val deps: HealthDependencies) : ViewModel() {
     }
 
     private fun startRefresh(userInitiated: Boolean) {
+        // A user refresh during a running one (e.g. the on-enter refresh) joins it: it shows progress and
+        // reports that refresh's failure.
+        if (userInitiated) {
+            userWaiting = true
+            _state.update { it.copy(refreshing = true) }
+        }
         if (refreshJob?.isActive == true) return
         refreshJob = viewModelScope.launch {
-            if (userInitiated) _state.update { it.copy(refreshing = true) }
             try {
                 load()
                 when (attempt { deps.refresh() }) {
                     is RefreshResult.Refreshed -> load()
                     is RefreshResult.Debounced -> Unit
-                    is RefreshResult.Failed, null -> if (userInitiated) effectChannel.trySend(HealthEffect.RefreshFailed)
+                    is RefreshResult.Failed, null -> if (userWaiting) effectChannel.trySend(HealthEffect.RefreshFailed)
                 }
             } finally {
+                userWaiting = false
                 _state.update { it.copy(refreshing = false) }
             }
         }

@@ -180,6 +180,40 @@ class ToolkitExecutorTest {
     }
 
     @Test
+    fun `a write that timed out after committing is unverified, not failed`() {
+        val executor = executor()
+        val base = runner.handler
+        runner.handler = { argv ->
+            val out = base(argv)
+            if ("set-standby-bucket" in argv) CommandOutput(exitCode = -1, text = "", timedOut = true) else out
+        }
+
+        val result = executor.setStandbyBucket(APP, StandbyBucket.RESTRICTED.code)
+
+        assertEquals(ToolkitResult.unavailable(ToolkitCode.UNVERIFIED, before = "10"), result)
+        assertEquals(StandbyBucket.RESTRICTED.rawValue, bucket)
+    }
+
+    @Test
+    fun `a committed write whose read back fails is unverified, not failed`() {
+        val executor = executor()
+        val base = runner.handler
+        var wrote = false
+        runner.handler = { argv ->
+            if (wrote && "get" in argv) {
+                failure()
+            } else {
+                base(argv).also { if ("set" in argv) wrote = true }
+            }
+        }
+
+        val result = executor.setAppOp(APP, AppOp.WAKE_LOCK.code, AppOpMode.IGNORE.code)
+
+        assertEquals(ToolkitResult.unavailable(ToolkitCode.UNVERIFIED, before = "default"), result)
+        assertEquals("ignore", appModes["WAKE_LOCK"])
+    }
+
+    @Test
     fun `invalid package names are refused before any lookup or process`() {
         val bad = listOf(
             null, "", "com.example.app\n", "-com.example", "com.example.-x", "singleword", "com..x",
@@ -369,6 +403,38 @@ class ToolkitExecutorTest {
 
         assertEquals(ToolkitResult.done(before = DozeProfile.BALANCED.constants, after = "inactive_to=1000"), result)
         assertEquals("inactive_to=1000", device.raw)
+    }
+
+    @Test
+    fun `a rollback that does not land is unverified because the profile may still be applied`() {
+        val prior = "light_after_inactive_to=5000"
+        val device = FakeDozeDevice(raw = prior, honorsConstants = false)
+        val executor = dozeExecutor(device)
+        runner.handler = { argv -> if (argv.lastOrNull() == prior) failure() else device.handle(argv) }
+
+        val result = executor.applyDozeProfile(DozeProfile.AGGRESSIVE_NIGHT.code, prior)
+
+        assertEquals(
+            ToolkitResult.unavailable(ToolkitCode.UNVERIFIED, before = prior, after = DozeProfile.AGGRESSIVE_NIGHT.constants),
+            result,
+        )
+        assertEquals(DozeProfile.AGGRESSIVE_NIGHT.constants, device.raw)
+    }
+
+    @Test
+    fun `a restoreDozeRaw write that timed out is unverified`() {
+        val device = FakeDozeDevice(raw = DozeProfile.BALANCED.constants)
+        val executor = dozeExecutor(device)
+        runner.handler = { argv ->
+            val out = device.handle(argv)
+            if ("delete" in argv) CommandOutput(exitCode = -1, text = "", timedOut = true) else out
+        }
+
+        val result = executor.restoreDozeRaw(null, DozeProfile.BALANCED.constants)
+
+        assertEquals(ToolkitStatus.UNAVAILABLE, result.status)
+        assertEquals(ToolkitCode.UNVERIFIED, result.code)
+        assertEquals(DozeProfile.BALANCED.constants, result.beforeRaw)
     }
 
     @Test

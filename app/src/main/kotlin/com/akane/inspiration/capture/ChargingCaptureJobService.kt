@@ -4,16 +4,12 @@ import android.app.job.JobParameters
 import android.app.job.JobService
 import android.util.Log
 import com.akane.inspiration.InspirationApplication
-import com.akane.inspiration.ipc.model.HistoryKind
 import com.akane.inspiration.telemetry.capacity.KernelCapacity
 import com.akane.inspiration.telemetry.live.KernelUnits
-import com.akane.inspiration.telemetry.snapshot.CaptureTrigger
 import com.akane.inspiration.telemetry.source.AndroidTelemetrySource
-import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.currentCoroutineContext
-import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 
 class ChargingCaptureJobService : JobService() {
@@ -22,63 +18,34 @@ class ChargingCaptureJobService : JobService() {
 
     override fun onStartJob(params: JobParameters): Boolean {
         val app = application as InspirationApplication
+        // An immediate arm (boot, package replaced) after this point replaces the pending job and stops this one.
+        val immediateArmsAtStart = ChargingCaptureScheduler.immediateArmCount()
         val job =
             app.appContainer.applicationScope.launch(start = CoroutineStart.LAZY) {
                 try {
-                    val container = app.appContainer
-                    val store = container.store
-                    val historyAvailable = container.capturer.ingestHistory(FULL_CAPTURE_DEADLINE_MS)
-                    val lastPluggedHistoryWallMs =
-                        if (historyAvailable) {
-                            store
-                                .historyBetween(0L, Long.MAX_VALUE)
-                                .lastOrNull { it.kind == HistoryKind.PLUGGED }
-                                ?.wallMs
-                        } else {
-                            null
-                        }
-                    val lastPowerConnectedWallMs = store.latestByTrigger(CaptureTrigger.POWER_CONNECTED)?.clock?.wallMs
-                    val lastChargeJob = store.latestByTrigger(CaptureTrigger.CHARGE_JOB)
-                    runner.run(
-                        shouldCapture =
-                            CapturePolicy.chargeJobShouldRun(
-                                lastPluggedHistoryWallMs = lastPluggedHistoryWallMs,
-                                lastPowerConnectedWallMs = lastPowerConnectedWallMs,
-                                lastChargeJobWallMs = lastChargeJob?.clock?.wallMs,
-                                lastChargeJobBootCount = lastChargeJob?.clock?.bootCount,
-                                currentBootCount = container.clocks.bootCount(),
-                                historyAvailable = historyAvailable,
-                            ),
-                        capture = {
-                            container.capturer.captureFull(
-                                trigger = CaptureTrigger.CHARGE_JOB,
+                    runChargeJob(
+                        work = {
+                            val container = app.appContainer
+                            runChargeJobCapture(
+                                capturer = container.capturer,
+                                store = container.store,
+                                clocks = container.clocks,
                                 deadlineMs = FULL_CAPTURE_DEADLINE_MS,
-                                ingestHistory = true,
+                                analyze = {
+                                    ChargeHealthPipeline(
+                                        store = container.store,
+                                        kernelCapacity = { readKernelCapacity(app) },
+                                        log = { message, error -> Log.w(TAG, message, error) },
+                                    ).run(container.clocks.wallMs())
+                                },
+                                runner = runner,
                             )
                         },
-                        analyze = {
-                            ChargeHealthPipeline(
-                                store = store,
-                                kernelCapacity = { readKernelCapacity(app) },
-                                log = { message, error -> Log.w(TAG, message, error) },
-                            ).run(container.clocks.wallMs())
-                        },
-                        prune = { store.prune(container.clocks.wallMs()) },
+                        finish = { jobFinished(params, false) },
+                        immediateArmSinceStart = { ChargingCaptureScheduler.immediateArmCount() != immediateArmsAtStart },
+                        reArm = { ChargingCaptureScheduler.arm(this@ChargingCaptureJobService, reArmFromJob = true) },
+                        log = { message, error -> Log.w(TAG, message, error) },
                     )
-                    if (isActive) {
-                        // A same-ID schedule cancels active work, so finish before re-arming the next attempt.
-                        jobFinished(params, false)
-                        ChargingCaptureScheduler.arm(this@ChargingCaptureJobService, reArmFromJob = true)
-                    }
-                } catch (_: CancellationException) {
-                    // onStopJob has already stopped this job; re-arm only after its coroutine is cancelled.
-                    ChargingCaptureScheduler.arm(this@ChargingCaptureJobService, reArmFromJob = true)
-                } catch (error: Exception) {
-                    // applicationScope has no exception handler, so a capture/store failure must not escape and
-                    // kill the process; finish and re-arm so the persisted job survives a bad run.
-                    Log.w(TAG, "charge job capture failed", error)
-                    jobFinished(params, false)
-                    ChargingCaptureScheduler.arm(this@ChargingCaptureJobService, reArmFromJob = true)
                 } finally {
                     val currentJob = currentCoroutineContext()[Job]
                     synchronized(runningJobs) {

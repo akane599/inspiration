@@ -12,6 +12,7 @@ import com.akane.inspiration.di.CachedAppLabels
 import com.akane.inspiration.di.PackageManagerAppLabelSource
 import com.akane.inspiration.di.Preloaded
 import com.akane.inspiration.di.RefreshCoordinator
+import com.akane.inspiration.di.newApplicationScope
 import com.akane.inspiration.di.TimelineEvents
 import com.akane.inspiration.di.reconcileOnEachReady
 import com.akane.inspiration.diagnostics.R as DiagnosticsR
@@ -58,7 +59,6 @@ import com.akane.inspiration.toolkit.ToolkitDependencies
 import com.akane.inspiration.xray.XRayDependencies
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -81,7 +81,7 @@ class AppContainer(context: Context) :
     ToolkitDependencies {
     private val appContext = context.applicationContext
 
-    val applicationScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    val applicationScope: CoroutineScope = newApplicationScope()
     override val clocks: Clocks = AndroidClocks(appContext)
     val shizukuManager: ShizukuManager = ShizukuManagerImpl(
         context = appContext,

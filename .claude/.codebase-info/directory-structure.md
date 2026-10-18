@@ -1,5 +1,5 @@
 # Directory Structure
-*Last Updated: 2026-10-17*
+*Last Updated: 2026-10-18*
 
 Generated `build/`, `.gradle/`, screenshot intermediates, Room generated sources, and other build output are intentionally omitted.
 
@@ -10,10 +10,11 @@ app/
     MainActivity.kt
     InspirationApplication.kt
     AppContainer.kt
-    capture/{BootCaptureReceiver,CapturePolicy,ChargingCaptureJobService,
-      ChargingCaptureRunner,ChargingCaptureScheduler,RuntimeCaptureReceiver}.kt
-    di/{AppEntries,CachedAppLabels,Preloaded,ReconcileOnReady,RefreshCoordinator,
-      TimelineEvents}.kt
+    capture/{BootCaptureReceiver,BroadcastCaptureRunner,CapturePolicy,ChargeJobRun,
+      ChargingCaptureJobService,ChargingCaptureRunner,ChargingCaptureScheduler,
+      RuntimeCaptureReceiver}.kt
+    di/{AppEntries,ApplicationScope,CachedAppLabels,Preloaded,ReconcileOnReady,
+      RefreshCoordinator,TimelineEvents}.kt
     shell/{AppShell,ShellIcons,ShellState}.kt
   src/main/res/xml/{backup_rules,data_extraction_rules}.xml
   src/debug/AndroidManifest.xml

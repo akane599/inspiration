@@ -55,7 +55,7 @@ internal class FakeSnapshotStore(
     var failure: Exception? = null
 
     /** While set, reads suspend until it completes, so a test can observe in-flight states. */
-    var gate: CompletableDeferred<Unit>? = null
+    @Volatile var gate: CompletableDeferred<Unit>? = null
 
     override suspend fun insert(snapshot: BatterySnapshot): Long = error("unused")
     override suspend fun byId(id: Long): BatterySnapshot? = snapshots.firstOrNull { it.id == id }

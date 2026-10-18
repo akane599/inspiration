@@ -1,10 +1,14 @@
 package com.akane.inspiration.capture
 
+import com.akane.inspiration.ipc.model.HistoryKind
 import com.akane.inspiration.telemetry.capacity.CapacityEstimator
 import com.akane.inspiration.telemetry.capacity.ChargeSegment
 import com.akane.inspiration.telemetry.capacity.ChargeSegmentExtractor
 import com.akane.inspiration.telemetry.capacity.Integrator
 import com.akane.inspiration.telemetry.capacity.KernelCapacity
+import com.akane.inspiration.telemetry.capture.SnapshotCapturer
+import com.akane.inspiration.telemetry.common.Clocks
+import com.akane.inspiration.telemetry.snapshot.CaptureTrigger
 import com.akane.inspiration.telemetry.store.HealthSample
 import com.akane.inspiration.telemetry.store.SnapshotStore
 import kotlinx.coroutines.CancellationException
@@ -21,6 +25,43 @@ class ChargingCaptureRunner {
         analyze()
         prune()
     }
+}
+
+/**
+ * One charge-job pass. A single full read ingests the history, the policy decides from it, and a due capture
+ * saves that same read: the job never dumps batterystats twice. The PLUGGED lookup reads one row per history
+ * kind, not the whole history table.
+ */
+internal suspend fun runChargeJobCapture(
+    capturer: SnapshotCapturer,
+    store: SnapshotStore,
+    clocks: Clocks,
+    deadlineMs: Long,
+    analyze: suspend () -> Unit,
+    runner: ChargingCaptureRunner = ChargingCaptureRunner(),
+) {
+    val ingest = capturer.ingestHistory(CaptureTrigger.CHARGE_JOB, deadlineMs)
+    val lastPluggedHistoryWallMs =
+        if (ingest.historyAvailable) {
+            store.lastHistoryOfEachKindBefore(Long.MAX_VALUE).lastOrNull { it.kind == HistoryKind.PLUGGED }?.wallMs
+        } else {
+            null
+        }
+    val lastPowerConnectedWallMs = store.latestByTrigger(CaptureTrigger.POWER_CONNECTED)?.clock?.wallMs
+    val lastChargeJob = store.latestByTrigger(CaptureTrigger.CHARGE_JOB)
+    runner.run(
+        shouldCapture = CapturePolicy.chargeJobShouldRun(
+            lastPluggedHistoryWallMs = lastPluggedHistoryWallMs,
+            lastPowerConnectedWallMs = lastPowerConnectedWallMs,
+            lastChargeJobWallMs = lastChargeJob?.clock?.wallMs,
+            lastChargeJobBootCount = lastChargeJob?.clock?.bootCount,
+            currentBootCount = clocks.bootCount(),
+            historyAvailable = ingest.historyAvailable,
+        ),
+        capture = { capturer.captureFull(ingest) },
+        analyze = analyze,
+        prune = { store.prune(clocks.wallMs()) },
+    )
 }
 
 /**
@@ -47,9 +88,8 @@ class ChargeHealthPipeline(
         val accepted = store.acceptedEstimatesChronological(ACCEPTED_LIMIT).toMutableList()
         var consecutiveRejections = known.takeLastWhile { !it.accepted }.size
 
-        val segments = store.historySessions().flatMap { (epoch, events) ->
-            ChargeSegmentExtractor.fromHistory(events).map { epoch to it }
-        }
+        // One stream across stats sessions: a charge that ends in a reset spans two of them.
+        val segments = ChargeSegmentExtractor.fromSessions(store.historySessions())
             // Wall times, not (statsStart, historyTime): a battery-stats reset changes the epoch key but not these.
             .filter { (_, segment) -> (segment.startWallMs to segment.endWallMs) !in knownKeys }
             .sortedBy { it.second.endWallMs }

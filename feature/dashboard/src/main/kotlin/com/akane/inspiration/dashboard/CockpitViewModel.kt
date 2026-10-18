@@ -47,6 +47,9 @@ class CockpitViewModel(private val deps: CockpitDependencies) : ViewModel() {
     private var visible = false
     private var liveJob: Job? = null
     private var refreshJob: Job? = null
+
+    /** The user asked for the running refresh (main thread only, like every intent). */
+    private var userWaiting = false
     private var binding: AutoCloseable? = null
 
     /** The system's discharge estimate from the newest analysed snapshot, with the wall time it was taken at. */
@@ -128,18 +131,24 @@ class CockpitViewModel(private val deps: CockpitDependencies) : ViewModel() {
     }
 
     private fun startRefresh(userInitiated: Boolean) {
+        // A user refresh during a running one (e.g. the on-enter refresh) joins it: it shows progress and
+        // reports that refresh's failure.
+        if (userInitiated) {
+            userWaiting = true
+            _state.update { it.copy(refreshing = true) }
+        }
         if (refreshJob?.isActive == true) return
         refreshJob = viewModelScope.launch {
-            if (userInitiated) _state.update { it.copy(refreshing = true) }
             try {
                 loadTimeline()
                 when (val result = attempt { deps.refresh() }) {
                     is RefreshResult.Refreshed -> loadTimeline()
                     is RefreshResult.Debounced -> Unit
                     is RefreshResult.Failed, null ->
-                        if (userInitiated) effectChannel.trySend(CockpitEffect.RefreshFailed)
+                        if (userWaiting) effectChannel.trySend(CockpitEffect.RefreshFailed)
                 }
             } finally {
+                userWaiting = false
                 _state.update { it.copy(refreshing = false) }
             }
         }

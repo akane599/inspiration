@@ -7,6 +7,7 @@ import com.akane.inspiration.diagnostics.analysis.Timeline
 import com.akane.inspiration.telemetry.app.RefreshResult
 import com.akane.inspiration.telemetry.diff.ReferenceKind
 import com.akane.inspiration.telemetry.dump.UidAlarm
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.launch
@@ -280,6 +281,27 @@ class SleepLabViewModelTest {
         vm.onIntent(SleepLabIntent.Refresh)
         runCurrent()
 
+        assertEquals(listOf<SleepLabEffect>(SleepLabEffect.RefreshFailed), effects)
+        assertFalse(vm.state.value.refreshing)
+    }
+
+    @Test
+    fun `a pull to refresh during the automatic one shows progress and reports its failure`() = runTest(dispatcher) {
+        deps.refreshResult = RefreshResult.Failed("deadline")
+        val gate = CompletableDeferred<Unit>().also { deps.refreshGate = it }
+        val vm = viewModel()
+        val effects = mutableListOf<SleepLabEffect>()
+        backgroundScope.launch { vm.effects.collect { effects += it } }
+
+        visible(vm)
+        vm.onIntent(SleepLabIntent.Refresh)
+        runCurrent()
+        assertTrue(vm.state.value.refreshing)
+
+        gate.complete(Unit)
+        runCurrent()
+
+        assertEquals("the running refresh is reused", 1, deps.refreshCalls)
         assertEquals(listOf<SleepLabEffect>(SleepLabEffect.RefreshFailed), effects)
         assertFalse(vm.state.value.refreshing)
     }

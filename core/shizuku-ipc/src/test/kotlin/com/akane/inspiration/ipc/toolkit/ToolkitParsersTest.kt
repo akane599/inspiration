@@ -6,31 +6,33 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class ToolkitParsersTest {
+    private fun effectiveMode(op: AppOp, output: String): String? = ToolkitParsers.appOpState(op, output)?.effectiveMode
+
     @Test
     fun `UID appop override wins over a package mode and is readable alone`() {
         assertEquals(
             "ignore",
-            ToolkitParsers.appOpMode(AppOp.RUN_ANY_IN_BACKGROUND, "Uid mode: RUN_ANY_IN_BACKGROUND: ignore\n"),
+            effectiveMode(AppOp.RUN_ANY_IN_BACKGROUND, "Uid mode: RUN_ANY_IN_BACKGROUND: ignore\n"),
         )
         assertEquals(
             "ignore",
-            ToolkitParsers.appOpMode(
+            effectiveMode(
                 AppOp.RUN_ANY_IN_BACKGROUND,
                 "Uid mode: RUN_ANY_IN_BACKGROUND: ignore\nRUN_ANY_IN_BACKGROUND: default",
             ),
         )
-        assertEquals("allow", ToolkitParsers.appOpMode(AppOp.WAKE_LOCK, "WAKE_LOCK: allow (running)"))
+        assertEquals("allow", effectiveMode(AppOp.WAKE_LOCK, "WAKE_LOCK: allow (running)"))
     }
 
     @Test
     fun `appops modes parse from get output`() {
-        assertEquals("ignore", ToolkitParsers.appOpMode(AppOp.WAKE_LOCK, "WAKE_LOCK: ignore\n"))
-        assertEquals("default", ToolkitParsers.appOpMode(AppOp.WAKE_LOCK, "WAKE_LOCK: default"))
-        assertEquals("allow", ToolkitParsers.appOpMode(AppOp.WAKE_LOCK, "WAKE_LOCK: allow; time=+1m ago"))
-        assertEquals("default", ToolkitParsers.appOpMode(AppOp.WAKE_LOCK, "No operations.\nDefault mode: allow"))
-        assertNull(ToolkitParsers.appOpMode(AppOp.WAKE_LOCK, "RUN_IN_BACKGROUND: ignore"))
-        assertNull(ToolkitParsers.appOpMode(AppOp.WAKE_LOCK, "Error: Unknown operation"))
-        assertNull(ToolkitParsers.appOpMode(AppOp.WAKE_LOCK, "WAKE_LOCK: ig nore!"))
+        assertEquals("ignore", effectiveMode(AppOp.WAKE_LOCK, "WAKE_LOCK: ignore\n"))
+        assertEquals("default", effectiveMode(AppOp.WAKE_LOCK, "WAKE_LOCK: default"))
+        assertEquals("allow", effectiveMode(AppOp.WAKE_LOCK, "WAKE_LOCK: allow; time=+1m ago"))
+        assertEquals("default", effectiveMode(AppOp.WAKE_LOCK, "No operations.\nDefault mode: allow"))
+        assertNull(effectiveMode(AppOp.WAKE_LOCK, "RUN_IN_BACKGROUND: ignore"))
+        assertNull(effectiveMode(AppOp.WAKE_LOCK, "Error: Unknown operation"))
+        assertNull(effectiveMode(AppOp.WAKE_LOCK, "WAKE_LOCK: ig nore!"))
     }
 
     @Test

@@ -68,6 +68,13 @@ object ToolkitCode {
     const val EXEC = 33
     const val TIMEOUT = 34
 
+    /**
+     * UNAVAILABLE: the write was issued but its outcome is unknown (the command timed out after it may have
+     * committed, the read-back failed, or a doze rollback did not land). The client keeps the audit row
+     * PENDING and reads the target back later instead of recording a failure.
+     */
+    const val UNVERIFIED = 35
+
     const val BUSY = 40
     const val NOT_PLUGGED = 41
 

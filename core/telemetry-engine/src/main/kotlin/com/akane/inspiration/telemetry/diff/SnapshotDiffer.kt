@@ -205,7 +205,13 @@ object SnapshotDiffer {
                     alarmDumpWakeups = previous?.alarmDumpWakeups?.map { it.copy(count = 0) }.orEmpty(),
                 )
             } else {
-                val packageChanged = uid >= FIRST_APPLICATION_UID && previous != null && previous.packageName != current.packageName
+                // packageName is the framework's "package with highest drain": often null when nothing was
+                // attributed, and may carry a ":process" suffix. Only two known, different packages mean the
+                // UID was reused; real reuse also shows up as negative deltas, which `valid` already gates.
+                val previousPackage = previous?.packageName?.substringBefore(':')
+                val currentPackage = current.packageName?.substringBefore(':')
+                val packageChanged = uid >= FIRST_APPLICATION_UID &&
+                    previousPackage != null && currentPackage != null && previousPackage != currentPackage
                 val baseline = if (packageChanged) null else previous
                 val delta = UidDelta(
                     uid = uid,

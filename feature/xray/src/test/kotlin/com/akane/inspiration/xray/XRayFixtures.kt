@@ -297,13 +297,19 @@ internal class FakeXRayDeps(
     override val toolkit = ToolkitActions(ToolkitGateway(FakeShizuku(device)), device.store, holdBinding = { AutoCloseable {} })
     override val appLabels: AppLabels = object : AppLabels {
         override suspend fun label(packageName: String) = "Label of $packageName"
-        override suspend fun icon(packageName: String): Bitmap? = null
+        override suspend fun icon(packageName: String): Bitmap? {
+            iconLoads++
+            return null
+        }
 
         override suspend fun packageForUid(uid: Int): String? = packagesByUid[uid]
     }
 
     /** What `PackageManager` would answer for a UID batterystats reported without a package. */
     val packagesByUid = mutableMapOf<Int, String>()
+
+    /** Icons the ViewModel asked for; rows load their own, so it should ask for none. */
+    var iconLoads = 0
 
     var refreshResult: RefreshResult = RefreshResult.Refreshed(0L)
     var refreshCalls = 0

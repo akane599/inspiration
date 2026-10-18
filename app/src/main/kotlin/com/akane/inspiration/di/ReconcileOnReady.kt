@@ -1,7 +1,9 @@
 package com.akane.inspiration.di
 
 import com.akane.inspiration.ipc.ShizukuState
+import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.buffer
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.flow.map
@@ -11,10 +13,15 @@ import kotlinx.coroutines.flow.map
  * needs goes through the service, so a run that found the service unreachable leaves rows PENDING until
  * the next time Shizuku becomes ready. Reconciling is idempotent, so repeating it is safe. Never returns
  * while [state] is collected.
+ *
+ * The transitions are observed in their own coroutine (the unlimited buffer): [state] conflates, so a
+ * Ready -> down -> Ready flip while [reconcile] is suspended would otherwise reach the collector as the
+ * same `true` and be dropped by [distinctUntilChanged].
  */
 suspend fun reconcileOnEachReady(state: Flow<ShizukuState>, reconcile: suspend () -> Unit) {
     state.map { it is ShizukuState.Ready }
         .distinctUntilChanged()
+        .buffer(Channel.UNLIMITED)
         .filter { it }
         .collect { reconcile() }
 }

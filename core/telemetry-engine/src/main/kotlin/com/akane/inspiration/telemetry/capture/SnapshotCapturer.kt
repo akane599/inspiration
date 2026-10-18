@@ -19,6 +19,8 @@ import com.akane.inspiration.telemetry.source.FullRead
 import com.akane.inspiration.telemetry.source.LightRead
 import com.akane.inspiration.telemetry.source.TelemetrySource
 import com.akane.inspiration.telemetry.store.SnapshotStore
+import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 import kotlin.math.abs
 
@@ -41,11 +43,22 @@ class SnapshotCapturer(
         return CaptureResult.Saved(id, SnapshotKind.FULL)
     }
 
-    suspend fun ingestHistory(deadlineMs: Long): Boolean {
+    /**
+     * Reads once and persists only the history. The returned [HistoryIngest] keeps that read, so a caller that
+     * then decides to capture saves it with [captureFull] instead of making a second full read.
+     */
+    suspend fun ingestHistory(trigger: CaptureTrigger, deadlineMs: Long): HistoryIngest {
         val cursor = store.historyCursor() ?: (0L to 0L)
-        val read = withTimeoutOrNull(deadlineMs) { source.full(CaptureTrigger.CHARGE_JOB, cursor) } ?: return false
-        persistHistory(read.history)
-        return read.history.any { it.available }
+        val read = withTimeoutOrNull(deadlineMs) { source.full(trigger, cursor) }
+        read?.let { persistHistory(it.history) }
+        return HistoryIngest(trigger, read)
+    }
+
+    /** Saves the snapshot of [ingest]'s read; a read that failed or timed out is recorded as a miss, not retried. */
+    suspend fun captureFull(ingest: HistoryIngest): CaptureResult {
+        val read = ingest.read ?: return missed(ingest.trigger, "deadline_or_service_unavailable")
+        val id = store.insert(mergeFull(ingest.trigger, read))
+        return CaptureResult.Saved(id, SnapshotKind.FULL)
     }
 
     suspend fun captureLight(trigger: CaptureTrigger): CaptureResult {
@@ -55,7 +68,8 @@ class SnapshotCapturer(
     }
 
     private suspend fun missed(trigger: CaptureTrigger, reason: String): CaptureResult.Missed {
-        store.recordMiss(clocks.wallMs(), trigger, reason)
+        // A caller's guard may share this deadline and fire first; the miss is still worth recording.
+        withContext(NonCancellable) { store.recordMiss(clocks.wallMs(), trigger, reason) }
         return CaptureResult.Missed(reason)
     }
 
@@ -76,13 +90,15 @@ class SnapshotCapturer(
             statsDurationMs = usage?.statsDurationMs,
         )
         val uidDump = usableDump?.uids?.associateBy { it.uid }.orEmpty()
+        // The first row wins for a repeated UID, as a per-UID linear search would pick it.
+        val uidUsage = usage?.uids.orEmpty().distinctBy { it.uid }.associateBy { it.uid }
         val alarms = mergeAlarms(uidDump.mapValues { it.value.wakeupAlarms })
         val alarmDumps = alarmDumpWakeups(read.alarm)
-        val uids = (usage?.uids.orEmpty().map { it.uid } + uidDump.keys + alarmDumps.keys)
+        val uids = (uidUsage.keys + uidDump.keys + alarmDumps.keys)
             .distinct()
             .sorted()
             .map { uid ->
-                val usageUid = usage?.uids?.firstOrNull { it.uid == uid }
+                val usageUid = uidUsage[uid]
                 val dumpUid = uidDump[uid]
                 val state = usageUid?.byProcessState
                 UidSnapshot(
@@ -198,6 +214,14 @@ class SnapshotCapturer(
         const val PROCESS_FOREGROUND_SERVICE = "FOREGROUND_SERVICE"
         const val PROCESS_CACHED = "CACHED"
     }
+}
+
+/** One full read whose history is already persisted; null [read] means it failed or missed its deadline. */
+class HistoryIngest internal constructor(
+    internal val trigger: CaptureTrigger,
+    internal val read: FullRead?,
+) {
+    val historyAvailable: Boolean get() = read?.history?.any { it.available } == true
 }
 
 sealed interface CaptureResult {

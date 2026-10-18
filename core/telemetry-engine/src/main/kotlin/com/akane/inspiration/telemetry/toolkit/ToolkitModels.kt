@@ -82,6 +82,12 @@ enum class ToolkitUnavailable {
 
     /** The service applied a doze profile, saw that it was not effective and rolled it back. */
     NOT_EFFECTIVE,
+
+    /**
+     * The write was issued but whether it took effect is unknown (a timeout, a failed read-back or a doze
+     * rollback that did not land). The audit row stays PENDING and is read back before the target is used again.
+     */
+    UNVERIFIED,
 }
 
 sealed interface ToolkitPlan {

@@ -211,13 +211,19 @@ class ToolkitActions internal constructor(
      * object changes something. When the service cannot be reached it emits an empty list (the UI shows
      * its blocked state for that).
      */
-    fun activeOverrides(): Flow<List<Override>> = changes.map { mutex.withLock { computeOverrides() } }
+    fun activeOverrides(): Flow<List<Override>> = changes.map {
+        mutex.withLock {
+            reconcileTargets(null)
+            computeOverrides()
+        }
+    }
 
     // ---- plan / execute --------------------------------------------------------------------
 
     suspend fun plan(action: ToolkitAction): ToolkitPlan = mutex.withLock { planLocked(action, null) }
 
     suspend fun planRestore(actionId: Long): ToolkitPlan = mutex.withLock {
+        reconcileTargets(null)
         when (val decoded = decodeRestore(actionId)) {
             is Decoded.No -> ToolkitPlan.Refused(decoded.reason)
             is Decoded.Ok -> planLocked(decoded.action, decoded.record)
@@ -229,7 +235,10 @@ class ToolkitActions internal constructor(
      * and no privileged write is issued (the attempt is still recorded as REFUSED).
      */
     suspend fun execute(action: ToolkitAction, confirmed: Boolean = false): ToolkitOutcome<ToolkitActionRecord> =
-        mutex.withLock { run(action, confirmed, null) }
+        mutex.withLock {
+            reconcileTargets(targetKey(specOf(action)))
+            run(action, confirmed, null)
+        }
 
     /**
      * Undoes audit row [actionId]: the stored values are decoded through the same enums and validation
@@ -240,6 +249,7 @@ class ToolkitActions internal constructor(
      */
     suspend fun restore(actionId: Long, confirmed: Boolean = false): ToolkitOutcome<ToolkitActionRecord> =
         mutex.withLock {
+            reconcileTargets(null)
             when (val decoded = decodeRestore(actionId)) {
                 is Decoded.No -> ToolkitOutcome.Refused(decoded.reason)
                 is Decoded.Ok -> run(decoded.action, confirmed, decoded.record)
@@ -256,6 +266,7 @@ class ToolkitActions internal constructor(
      * chains read here cannot change under it.
      */
     suspend fun resetAll(): List<ResetItem> = mutex.withLock {
+        reconcileTargets(null)
         val rows = overrideRows()
         computeOverrides(rows).map { override -> ResetItem(override, resetOne(override, rows)) }
     }
@@ -269,7 +280,8 @@ class ToolkitActions internal constructor(
     // ---- reconcile -------------------------------------------------------------------------
 
     /**
-     * Finalizes rows left PENDING by a crash or kill. The state is read back: DONE when it matches the
+     * Finalizes rows left PENDING by a crash or kill, a lost reply, or a write the service could not verify
+     * (those of an override target are also settled before that target is used again). The state is read back: DONE when it matches the
      * intended `after`, otherwise FAILED (a job whose status is gone is CANCELLED instead). A row whose
      * state cannot be read (service unreachable, or a dexopt status that is UNKNOWN or still RUNNING)
      * stays PENDING and is retried on the next call.
@@ -494,6 +506,11 @@ class ToolkitActions internal constructor(
         if (restoring == null && !confirmed && staticWarnings(action).isNotEmpty()) {
             return refuse(spec, restoresId, ToolkitRefusal.NOT_CONFIRMED, ToolkitClientCode.NOT_CONFIRMED)
         }
+        // A same-target row that could not be settled (see reconcileTargets) may have committed; writing on top of
+        // it would make it settle against this write's value later and drop out of the chain. Nothing is written.
+        if (spec.kind in OVERRIDE_KINDS && audit.pending().any { targetKey(it) == targetKey(spec) }) {
+            return ToolkitOutcome.Unavailable(ToolkitUnavailable.UNVERIFIED)
+        }
         val prep = when (val prepared = prepare(action, restoring)) {
             is Prep.Stop -> return stopOutcome(spec, restoresId, prepared.outcome)
             is Prep.Ok -> prepared
@@ -588,6 +605,13 @@ class ToolkitActions internal constructor(
             return ToolkitOutcome.Unavailable(unavailableFor(reply.reason))
         }
         val result = (reply as GatewayReply.Reply).value
+        if (result.status == ToolkitStatus.UNAVAILABLE && result.code == ToolkitCode.UNVERIFIED) {
+            // Issued, outcome unknown: like a lost reply, the row stays PENDING so a read-back settles it, and a
+            // committed change still joins its target's chain before anything else touches it (reconcileTargets).
+            val before = result.beforeRaw ?: pending.beforeRaw
+            audit.update(pending.copy(status = ToolkitActionStatus.PENDING, endedAt = null, code = result.code, beforeRaw = before))
+            return ToolkitOutcome.Unavailable(ToolkitUnavailable.UNVERIFIED, result.code)
+        }
         return when (result.status) {
             ToolkitStatus.DONE -> settleDone(pending, result, now, requireBefore, keepPendingOnDone)
             ToolkitStatus.REFUSED -> {
@@ -816,8 +840,12 @@ class ToolkitActions internal constructor(
         return if (sameState(row.kind, current, original)) null else overrideOf(row, current, original)
     }
 
-    private fun targetKey(row: ToolkitActionRecord): String =
-        if (row.kind == KIND_DOZE) KIND_DOZE else "${row.kind}|${row.pkg}|${if (row.kind == KIND_APPOP) row.op else ""}"
+    private fun targetKey(row: ToolkitActionRecord): String = targetKey(row.kind, row.pkg, row.op)
+
+    private fun targetKey(spec: Spec): String = targetKey(spec.kind, spec.pkg, spec.op)
+
+    private fun targetKey(kind: String, pkg: String?, op: String): String =
+        if (kind == KIND_DOZE) KIND_DOZE else "$kind|$pkg|${if (kind == KIND_APPOP) op else ""}"
 
     /** Still ours when the value read back equals what we wrote, and that differs from what was there. */
     private fun isActive(row: ToolkitActionRecord, current: String?): Boolean {
@@ -860,12 +888,27 @@ class ToolkitActions internal constructor(
         class Mismatch(val current: String?) : Verdict
     }
 
-    private suspend fun reconcileRow(row: ToolkitActionRecord) {
+    /**
+     * Settles the PENDING override rows of the target [key] (every target when null) before a chain is read
+     * or a new change is written on top of it. An uncertain write that did commit must join its chain first:
+     * otherwise a later change would take that row's `after` for the original, and Reset all would re-apply
+     * a restriction the user removed. Rows that cannot be read back yet stay PENDING.
+     */
+    private suspend fun reconcileTargets(key: String?) {
+        val rows = audit.pending().filter { it.kind in OVERRIDE_KINDS && (key == null || targetKey(it) == key) }
+        var settled = false
+        for (row in rows) settled = reconcileRow(row) || settled
+        // Only a real settlement bumps: activeOverrides re-runs on every bump, so an unreachable row must not.
+        if (settled) changes.value += 1
+    }
+
+    /** Returns false when the row could not be read back and stays PENDING. */
+    private suspend fun reconcileRow(row: ToolkitActionRecord): Boolean {
         val now = nowMs()
         val action = intendedAction(row)
         val verdict = if (action == null) Verdict.Mismatch(null) else verify(action)
         when (verdict) {
-            Verdict.Unreachable -> Unit
+            Verdict.Unreachable -> return false
             Verdict.Unverifiable ->
                 audit.update(row.copy(status = ToolkitActionStatus.FAILED, endedAt = now, code = ToolkitClientCode.UNVERIFIED))
             is Verdict.Matched -> {
@@ -887,6 +930,7 @@ class ToolkitActions internal constructor(
                     ),
                 )
         }
+        return true
     }
 
     private suspend fun verify(action: ToolkitAction): Verdict = when (action) {
@@ -896,7 +940,7 @@ class ToolkitActions internal constructor(
                 is ToolkitOutcome.Done -> read.value.modes[action.op].let { current ->
                     if (current != null && modeOf(current) == action.mode) Verdict.Matched(current) else Verdict.Mismatch(current)
                 }
-                is ToolkitOutcome.Refused -> Verdict.Mismatch(null)
+                is ToolkitOutcome.Refused -> refusedVerdict(read)
                 else -> Verdict.Unreachable
             }
         }
@@ -904,13 +948,21 @@ class ToolkitActions internal constructor(
             is ToolkitOutcome.Done -> read.value.raw?.toString().let { current ->
                 if (current == action.bucket.rawValue.toString()) Verdict.Matched(current) else Verdict.Mismatch(current)
             }
-            is ToolkitOutcome.Refused -> Verdict.Mismatch(null)
+            is ToolkitOutcome.Refused -> refusedVerdict(read)
             else -> Verdict.Unreachable
         }
         is ToolkitAction.ApplyDoze -> verifyDoze(norm(action.profile.constants))
         is ToolkitAction.RestoreDoze -> verifyDoze(norm(action.rawOrNull))
         is ToolkitAction.ForceStop -> Verdict.Unverifiable
     }
+
+    /**
+     * Only a refusal that says the target can never be read back again settles a row as a mismatch. A read the
+     * service could not parse, an undecidable protection check, a caller or stale refusal are inconclusive: the
+     * write may have committed, so the row stays PENDING rather than leaving its chain as FAILED.
+     */
+    private fun refusedVerdict(read: ToolkitOutcome.Refused): Verdict =
+        if (read.code in CONCLUSIVE_REFUSALS) Verdict.Mismatch(null) else Verdict.Unreachable
 
     private suspend fun verifyDoze(expected: String?): Verdict = when (val read = readDoze()) {
         is ToolkitOutcome.Done ->
@@ -935,7 +987,7 @@ class ToolkitActions internal constructor(
         val status = if (service.state == BgDexoptState.UNKNOWN && pending.isEmpty()) BgDexoptStatus.Idle else statusOf(service)
         syncHold(running = status is BgDexoptStatus.Running, startedAtMs = (status as? BgDexoptStatus.Running)?.startedAtMs ?: 0L)
         if (pending.isNotEmpty()) {
-            when (status) {
+            val settled = when (status) {
                 is BgDexoptStatus.Finished -> finalizeDexoptRows(
                     if (status.exitCode == 0) ToolkitActionStatus.DONE else ToolkitActionStatus.FAILED,
                     status.exitCode,
@@ -950,9 +1002,11 @@ class ToolkitActions internal constructor(
                 )
                 // Proven nothing is running (a completed cancel, or a job that no longer exists).
                 BgDexoptStatus.Idle -> finalizeDexoptRows(ToolkitActionStatus.CANCELLED, BgDexoptReason.NONE, afterRaw = "idle")
-                is BgDexoptStatus.Running, BgDexoptStatus.Unknown -> Unit
+                is BgDexoptStatus.Running, BgDexoptStatus.Unknown -> 0
             }
-            changes.value += 1
+            // Only a settled row is a change: a bump re-runs the privileged override recompute, and this runs on
+            // every RUNNING poll.
+            if (settled > 0) changes.value += 1
         }
         return status
     }
@@ -972,16 +1026,19 @@ class ToolkitActions internal constructor(
         else -> BgDexoptCancelReason.OTHER
     }
 
+    /** Returns the number of rows settled. */
     private suspend fun finalizeDexoptRows(
         status: ToolkitActionStatus,
         code: Int,
         afterRaw: String,
         now: Long? = null,
-    ) {
+    ): Int {
         val ended = now ?: nowMs()
-        for (row in audit.pending().filter { it.kind == KIND_DEXOPT }) {
+        val rows = audit.pending().filter { it.kind == KIND_DEXOPT }
+        for (row in rows) {
             audit.update(row.copy(status = status, endedAt = ended, code = code, afterRaw = afterRaw))
         }
+        return rows.size
     }
 
     private suspend fun supersedeOtherDexoptRows(keepId: Long) {
@@ -1147,6 +1204,17 @@ class ToolkitActions internal constructor(
         const val OP_BG_DEXOPT = "bg_dexopt"
 
         val OVERRIDE_KINDS = setOf(KIND_APPOP, KIND_BUCKET, KIND_DOZE)
+
+        /** Read refusals that prove the target is gone or off limits for good (see [refusedVerdict]). */
+        val CONCLUSIVE_REFUSALS = setOf(
+            ToolkitCode.NOT_INSTALLED,
+            ToolkitCode.ARG_PACKAGE,
+            ToolkitCode.DENY_APP_ID,
+            ToolkitCode.DENY_PERSISTENT,
+            ToolkitCode.DENY_SYSTEM,
+            ToolkitCode.DENY_PROTECTED,
+            ToolkitCode.DENY_OWN,
+        )
 
         /** Unset and empty are the same `device_idle_constants` state. */
         fun norm(raw: String?): String? = raw?.takeIf { it.isNotEmpty() }

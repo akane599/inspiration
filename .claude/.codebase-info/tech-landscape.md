@@ -1,5 +1,5 @@
 # Tech Landscape
-*Last Updated: 2026-10-17*
+*Last Updated: 2026-10-18*
 
 Source of truth: [`gradle/libs.versions.toml`](../../gradle/libs.versions.toml), module build files, and the convention plugins under [`build-logic/convention`](../../build-logic/convention).
 
@@ -23,7 +23,7 @@ Source of truth: [`gradle/libs.versions.toml`](../../gradle/libs.versions.toml),
 | Catalog entry | Version | Current use |
 |---|---:|---|
 | `dev.rikka.shizuku:api` / `provider` | 13.1.5 | Shizuku lifecycle, binder wrapper, and provider integration in `:app`/`:core:shizuku-ipc` |
-| `org.lsposed.hiddenapibypass:hiddenapibypass` | 6.1 | Hidden API exemption in `InspirationApplication` and IPC module |
+| `org.lsposed.hiddenapibypass:hiddenapibypass` | 6.1 | Hidden API exemption in `InspirationApplication` (`:app` only) |
 | `com.google.protobuf:protobuf-javalite` / `protobuf-kotlin-lite` / `protoc` | 4.36.2 | Lite runtime and protoc for trimmed vendored batterystats, alarm, and power schemas in `:core:telemetry-engine` (Phase 3 adds signal-strength, scanning, radio-active and UID sensor fields, numbered per AOSP android-15.0.0_r36) |
 | `com.google.devtools.ksp` | 2.3.12 | Room compiler integration in `:core:database` |
 | `com.google.protobuf` Gradle plugin | 0.10.0 | Lite Java code generation for telemetry proto sources |

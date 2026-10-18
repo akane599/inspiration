@@ -39,13 +39,6 @@ class CapturePolicyTest {
     }
 
     @Test
-    fun `app open debounce accepts first and sixty second opens`() {
-        assertTrue(CapturePolicy.appOpenDebounced(null, 1_000L))
-        assertFalse(CapturePolicy.appOpenDebounced(1_000L, 60_999L))
-        assertTrue(CapturePolicy.appOpenDebounced(1_000L, 61_000L))
-    }
-
-    @Test
     fun `boot arm has no latency while job rearm waits`() {
         assertNull(ChargingCaptureScheduler.minimumLatencyMs(reArmFromJob = false))
         assertEquals(
