@@ -122,6 +122,7 @@ class ToolkitViewModel(private val deps: ToolkitDependencies) : ViewModel() {
     private fun onHidden() {
         visible = false
         visibleJob?.cancel()
+        detailJob?.cancel()
         // A confirmation must not outlive the screen it was asked on, and one still being planned is dropped
         // when it arrives ([ask]). A write already running finishes.
         invalidatePlanning()
@@ -165,9 +166,10 @@ class ToolkitViewModel(private val deps: ToolkitDependencies) : ViewModel() {
     }
 
     private fun reload() {
+        if (!visible) return
         val status = _state.value.status
         if (status != ToolkitPhase.FAILED && status != ToolkitPhase.READY) return
-        viewModelScope.launch { load() }
+        onVisible()
     }
 
     // ---- reading ---------------------------------------------------------------------------

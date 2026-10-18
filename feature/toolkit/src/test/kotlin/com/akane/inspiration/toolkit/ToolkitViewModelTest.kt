@@ -138,6 +138,19 @@ class ToolkitViewModelTest {
     }
 
     @Test
+    fun `inflight retry cannot overwrite blocked access state`() {
+        start { appsFailure = true }
+        val gate = CompletableDeferred<Unit>()
+        device.gate = gate
+        vm.onIntent(ToolkitIntent.Reload)
+        deps.shizukuState.value = ShizukuState.NotRunning
+        device.serviceUp = false
+        gate.complete(Unit)
+        assertEquals(ToolkitPhase.BLOCKED, state.status)
+        assertEquals(BlockedReason.NOT_RUNNING, state.blocked)
+    }
+
+    @Test
     fun `an unreachable service shows the error state and Reload recovers`() {
         start { device.serviceUp = false }
 
