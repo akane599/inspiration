@@ -79,13 +79,15 @@ class SnapshotCapturer(
             statsDurationMs = usage?.statsDurationMs,
         )
         val uidDump = usableDump?.uids?.associateBy { it.uid }.orEmpty()
+        // The first row wins for a repeated UID, as a per-UID linear search would pick it.
+        val uidUsage = usage?.uids.orEmpty().distinctBy { it.uid }.associateBy { it.uid }
         val alarms = mergeAlarms(uidDump.mapValues { it.value.wakeupAlarms })
         val alarmDumps = alarmDumpWakeups(read.alarm)
-        val uids = (usage?.uids.orEmpty().map { it.uid } + uidDump.keys + alarmDumps.keys)
+        val uids = (uidUsage.keys + uidDump.keys + alarmDumps.keys)
             .distinct()
             .sorted()
             .map { uid ->
-                val usageUid = usage?.uids?.firstOrNull { it.uid == uid }
+                val usageUid = uidUsage[uid]
                 val dumpUid = uidDump[uid]
                 val state = usageUid?.byProcessState
                 UidSnapshot(
