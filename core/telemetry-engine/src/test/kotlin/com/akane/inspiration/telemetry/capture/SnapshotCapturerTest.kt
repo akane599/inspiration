@@ -29,6 +29,8 @@ import com.akane.inspiration.telemetry.store.TelemetrySample
 import com.akane.inspiration.telemetry.store.ToolkitActionRecord
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.test.runTest
+import kotlinx.coroutines.withTimeoutOrNull
+import kotlinx.coroutines.yield
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -213,6 +215,27 @@ class SnapshotCapturerTest {
     }
 
     @Test
+    fun `a miss is recorded even when the caller's guard with the same deadline already fired`() = runTest {
+        val store = FakeStore()
+        val source = object : FakeSource() {
+            override suspend fun full(trigger: CaptureTrigger, historyCursor: Pair<Long, Long>?): FullRead {
+                delay(5_000)
+                return super.full(trigger, historyCursor)
+            }
+        }
+
+        withTimeoutOrNull(2_000) {
+            SnapshotCapturer(source, store, TestClocks()).captureFull(
+                CaptureTrigger.POWER_CONNECTED,
+                deadlineMs = 2_000,
+                ingestHistory = false,
+            )
+        }
+
+        assertEquals(CaptureTrigger.POWER_CONNECTED, store.misses.single().first)
+    }
+
+    @Test
     fun `history ingest persists history without saving a capture snapshot`() = runTest {
         val store = FakeStore()
         val capturer = SnapshotCapturer(
@@ -296,7 +319,10 @@ class SnapshotCapturerTest {
         override suspend fun insertSamples(samples: List<LiveReading>) = Unit
         override suspend fun upsertChargeSession(statsStartMs: Long, segment: com.akane.inspiration.telemetry.capacity.ChargeSegment, verdict: com.akane.inspiration.telemetry.capacity.SegmentVerdict) = Unit
         override suspend fun acceptedEstimatesChronological(limit: Int): List<Double> = emptyList()
-        override suspend fun recordMiss(wallMs: Long, trigger: CaptureTrigger, reason: String) { misses += trigger to reason }
+        override suspend fun recordMiss(wallMs: Long, trigger: CaptureTrigger, reason: String) {
+            yield() // A Room write is a cancellation point.
+            misses += trigger to reason
+        }
         override suspend fun prune(nowWallMs: Long) = Unit
         override suspend fun markers(): List<Marker> = emptyList()
         override suspend fun samplesBetween(from: Long, to: Long): List<TelemetrySample> = emptyList()

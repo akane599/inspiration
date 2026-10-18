@@ -1,6 +1,8 @@
 package com.akane.inspiration.capture
 
 import android.content.Intent
+import com.akane.inspiration.telemetry.capture.CaptureResult
+import com.akane.inspiration.telemetry.capture.SnapshotCapturer
 import com.akane.inspiration.telemetry.snapshot.CaptureTrigger
 
 sealed interface CapturePlan {
@@ -31,6 +33,16 @@ object CapturePolicy {
         }
     }
 
+    /**
+     * The receiver's outer guard. A full plan's own read deadline must not be the whole budget: the guard
+     * would cancel a read that finished just in time mid-insert, or the miss and light fallback after a late
+     * one. Read deadline plus [BROADCAST_PERSIST_BUDGET_MS] stays well inside the 10 s receiver limit.
+     */
+    fun broadcastGuardMs(plan: CapturePlan): Long = when (plan) {
+        is CapturePlan.Full -> plan.deadlineMs + BROADCAST_PERSIST_BUDGET_MS
+        is CapturePlan.Light -> BROADCAST_FULL_DEADLINE_MS
+    }
+
     fun chargeJobShouldRun(
         lastPluggedHistoryWallMs: Long?,
         lastPowerConnectedWallMs: Long?,
@@ -51,6 +63,7 @@ object CapturePolicy {
 
     const val APP_OPEN_DEBOUNCE_MS = 60_000L
     const val BROADCAST_FULL_DEADLINE_MS = 2_000L
+    const val BROADCAST_PERSIST_BUDGET_MS = 1_500L
 
     private val broadcastTriggers = mapOf(
         Intent.ACTION_SCREEN_ON to CaptureTrigger.SCREEN_ON,
@@ -60,4 +73,14 @@ object CapturePolicy {
         Intent.ACTION_BATTERY_LOW to CaptureTrigger.BATTERY_LOW,
         Intent.ACTION_BATTERY_OKAY to CaptureTrigger.BATTERY_OKAY,
     )
+}
+
+/**
+ * Captures one broadcast [plan]. A full capture that misses its deadline (the miss is recorded) falls back to a
+ * light snapshot, so the trigger still has a row: the "since unplug" anchor and the charge job read it.
+ */
+internal suspend fun SnapshotCapturer.captureFor(plan: CapturePlan): CaptureResult = when (plan) {
+    is CapturePlan.Light -> captureLight(plan.trigger)
+    is CapturePlan.Full -> captureFull(trigger = plan.trigger, deadlineMs = plan.deadlineMs, ingestHistory = false)
+        .let { result -> if (result is CaptureResult.Missed) captureLight(plan.trigger) else result }
 }

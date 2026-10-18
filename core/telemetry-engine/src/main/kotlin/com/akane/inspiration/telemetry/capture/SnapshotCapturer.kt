@@ -19,6 +19,8 @@ import com.akane.inspiration.telemetry.source.FullRead
 import com.akane.inspiration.telemetry.source.LightRead
 import com.akane.inspiration.telemetry.source.TelemetrySource
 import com.akane.inspiration.telemetry.store.SnapshotStore
+import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 import kotlin.math.abs
 
@@ -55,7 +57,8 @@ class SnapshotCapturer(
     }
 
     private suspend fun missed(trigger: CaptureTrigger, reason: String): CaptureResult.Missed {
-        store.recordMiss(clocks.wallMs(), trigger, reason)
+        // A caller's guard may share this deadline and fire first; the miss is still worth recording.
+        withContext(NonCancellable) { store.recordMiss(clocks.wallMs(), trigger, reason) }
         return CaptureResult.Missed(reason)
     }
 
