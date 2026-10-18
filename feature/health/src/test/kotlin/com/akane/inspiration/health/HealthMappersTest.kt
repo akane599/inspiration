@@ -9,6 +9,18 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class HealthMappersTest {
+    @Test
+    fun `history after and between foreground observations remains available`() {
+        val history = (0..12).map { point(it * 5 * MIN_MS, fromHistory = true) }
+        val samples = listOf(10 * MIN_MS, 10 * MIN_MS + 10 * SEC_MS, 40 * MIN_MS, 40 * MIN_MS + 10 * SEC_MS)
+            .map { point(it) }
+        val result = chargeSession(ChargeSpan(0, 60 * MIN_MS), samples, history, false)
+        assertTrue(result.any { it.wallMs == 25 * MIN_MS && it.fromHistory })
+        assertTrue(result.any { it.wallMs == 60 * MIN_MS && it.fromHistory })
+        assertEquals(1, result.count { it.wallMs == 10 * MIN_MS })
+        assertFalse(result.single { it.wallMs == 10 * MIN_MS }.fromHistory)
+    }
+
 
     // ---- charge curve ---------------------------------------------------------------------------
 
@@ -223,7 +235,7 @@ class HealthMappersTest {
 
         val session = chargeSession(span, samples, history, hasLive = false)
 
-        assertEquals(listOf(true, true, true, false, false, false), session.map { it.fromHistory })
+        assertEquals(listOf(true, true, true, false, false, false, true), session.map { it.fromHistory })
         assertEquals(listOf(0L, MIN_MS, 2 * MIN_MS), session.take(3).map { it.wallMs })
     }
 

@@ -154,7 +154,7 @@ internal fun effectiveChargeSpan(span: ChargeSpan?, samples: List<CurvePoint>, h
     }
 
 /**
- * The points of the charge to draw and analyse: history points up to where recorded samples begin, then the recorded
+ * The points of the charge to draw and analyse: history outside continuous observed sample runs, merged with recorded
  * samples. Samples win where both exist because they carry power and current as well.
  *
  * [span] is the history's view of the charge. While a live reading is flowing the history may not have ingested the
@@ -173,14 +173,23 @@ internal fun chargeSession(
     } else {
         samples.filter { it.wallMs >= effective.startMs && (effective.endMs == null || it.wallMs <= effective.endMs) }
     }.sortedBy { it.wallMs }
-    val firstSample = sampleSession.firstOrNull()?.wallMs
     val historySession = if (effective == null) {
         emptyList()
     } else {
-        history.filter {
-            it.wallMs >= effective.startMs &&
-                (effective.endMs == null || it.wallMs <= effective.endMs) &&
-                (firstSample == null || it.wallMs < firstSample)
+        history.filter { point ->
+            if (point.wallMs < effective.startMs || (effective.endMs != null && point.wallMs > effective.endMs)) {
+                false
+            } else {
+                val match = sampleSession.binarySearchBy(point.wallMs) { it.wallMs }
+                if (match >= 0) {
+                    false
+                } else {
+                    val next = -match - 1
+                    val covered = next > 0 && next < sampleSession.size &&
+                        sampleSession[next].wallMs - sampleSession[next - 1].wallMs <= SAMPLE_MAX_GAP_MS
+                    !covered
+                }
+            }
         }
     }
     return (historySession + sampleSession).sortedBy { it.wallMs }
