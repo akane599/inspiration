@@ -383,6 +383,7 @@ class TelemetryUserService private constructor(
                     runner = runner,
                     plugged = NoContextPluggedProbe,
                     clockMs = System::currentTimeMillis,
+                    elapsedMs = SystemClock::elapsedRealtime,
                     startThread = { },
                 ),
                 ownPackage = "",
@@ -395,6 +396,7 @@ class TelemetryUserService private constructor(
                 runner = runner,
                 plugged = AndroidPluggedProbe(context, runner),
                 clockMs = System::currentTimeMillis,
+                elapsedMs = SystemClock::elapsedRealtime,
                 startThread = { job -> Thread(job, "bg-dexopt").apply { isDaemon = true }.start() },
             )
             return ToolkitExecutor(

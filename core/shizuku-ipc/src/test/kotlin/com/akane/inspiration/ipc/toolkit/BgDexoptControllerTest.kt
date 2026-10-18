@@ -14,6 +14,7 @@ class BgDexoptControllerTest {
     private val threads = mutableListOf<Runnable>()
     private val calls = mutableListOf<List<String>>()
     private var plugged = { true }
+    private var monotonicMs = 1_000L
     private var jobExitsAtMs: Long? = null
     private var jobExit = 0
     private var cancelEndsJob = true
@@ -34,6 +35,7 @@ class BgDexoptControllerTest {
                 return true
             }
             clock.nowMs = deadline
+            monotonicMs += timeoutMs
             userCancelNote?.invoke()
             return false
         }
@@ -69,6 +71,28 @@ class BgDexoptControllerTest {
         clockMs = clock::now,
         startThread = { threads += it },
     )
+
+    @Test
+    fun `backward wall correction does not postpone unplug supervision`() = assertWallCorrection(-3_600_000L)
+
+    @Test
+    fun `forward wall correction does not prematurely hit the cap`() = assertWallCorrection(3_600_000L)
+
+    private fun assertWallCorrection(delta: Long) {
+        var corrected = false
+        userCancelNote = {
+            if (!corrected) {
+                clock.nowMs += delta
+                corrected = true
+            }
+        }
+        val controller = BgDexoptController(runner, { monotonicMs < 2_000 }, clock::now,
+            { threads += it }, elapsedMs = { monotonicMs })
+        controller.tryStart()
+        threads.single().run()
+        assertEquals(BgDexoptReason.UNPLUGGED, controller.status().reason)
+        assertTrue(monotonicMs <= 32_000)
+    }
 
     @Test
     fun `acknowledged cancellation prevents a queued worker from starting`() {

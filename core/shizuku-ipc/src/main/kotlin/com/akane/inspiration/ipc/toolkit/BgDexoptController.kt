@@ -13,7 +13,7 @@ internal val BG_DEXOPT_CANCEL_ARGV = listOf(CMD, "package", "bg-dexopt-job", "--
 /**
  * One user-initiated bg-dexopt job at a time. While it runs, a worker re-checks the plugged state
  * every [recheckMs] (bounded, user-initiated; not resident polling), cancels on unplug, and cancels
- * at [capMs]. [clockMs] drives both the cap and the reported timestamps.
+ * at [capMs]. [elapsedMs] drives supervision; [clockMs] supplies display timestamps.
  *
  * The unplug/cap guard lives only in this process, so two things keep it honest across service
  * restarts. [cancelIfRunning] is the destroy hook: a job still RUNNING is cancelled (bounded) before
@@ -32,10 +32,12 @@ internal class BgDexoptController(
     private val startThread: (Runnable) -> Unit,
     private val recheckMs: Long = RECHECK_MS,
     private val capMs: Long = CAP_MS,
+    private val elapsedMs: () -> Long = clockMs,
 ) {
     private val lock = Any()
     private var state = BgDexoptState.UNKNOWN
     private var startedAtMs = 0L
+    private var startedElapsedMs = 0L
     private var endedAtMs = 0L
     private var exitCode = 0
     private var reason = BgDexoptReason.NONE
@@ -57,6 +59,7 @@ internal class BgDexoptController(
             val previous = state
             state = BgDexoptState.RUNNING
             startedAtMs = clockMs()
+            startedElapsedMs = elapsedMs()
             endedAtMs = 0L
             exitCode = 0
             reason = BgDexoptReason.NONE
@@ -118,16 +121,16 @@ internal class BgDexoptController(
     }
 
     private fun supervise(process: CommandProcess) {
-        val deadline = synchronized(lock) { startedAtMs } + capMs
-        var lastCheckMs = clockMs()
+        val deadline = synchronized(lock) { startedElapsedMs } + capMs
+        var lastCheckMs = elapsedMs()
         var cancelReason = BgDexoptReason.NONE
         while (cancelReason == BgDexoptReason.NONE) {
             // Short waits so a user cancel is noticed promptly; the plugged re-check stays at recheckMs.
-            if (process.awaitExit(minOf(WAIT_SLICE_MS, maxOf(deadline - clockMs(), 1L)))) {
+            if (process.awaitExit(minOf(WAIT_SLICE_MS, maxOf(deadline - elapsedMs(), 1L)))) {
                 finishFromExit(process)
                 return
             }
-            val now = clockMs()
+            val now = elapsedMs()
             when {
                 synchronized(lock) { userCancelRequested } -> {
                     // `--cancel` was already issued; give the job a bounded time to wind down.
