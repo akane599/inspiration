@@ -384,6 +384,26 @@ class SnapshotDifferTest {
         assertTrue(sliced.perUidAvailable)
     }
 
+    @Test
+    fun `resolver falls back to LIGHT when the first FULL is after the interval`() = runTest {
+        val off = snapshot(id = 1, wall = 2_000, elapsed = 2_000, kind = SnapshotKind.LIGHT, trigger = CaptureTrigger.SCREEN_OFF)
+        val on = snapshot(id = 2, wall = 3_000, elapsed = 3_000, kind = SnapshotKind.LIGHT, trigger = CaptureTrigger.SCREEN_ON)
+        val later = snapshot(id = 3, wall = 5_000, elapsed = 5_000)
+        val resolver = ReferenceResolver(FakeStore(
+            snapshots = listOf(off, on, later),
+            history = listOf(history(2_000, HistoryKind.SCREEN_OFF), history(3_000, HistoryKind.SCREEN_ON)),
+            markers = emptyMap(),
+        ))
+
+        for (kind in listOf(ReferenceKind.SinceScreenOff, ReferenceKind.TimeSlice(2_000, 3_000))) {
+            val resolved = resolver.resolve(kind, 5_000)!!
+            assertEquals(off, resolved.ref)
+            assertEquals(on, resolved.now)
+            assertEquals(0L, resolved.gapMs)
+            assertFalse(resolved.perUidAvailable)
+        }
+    }
+
     private fun snapshot(
         id: Long = 0,
         kind: SnapshotKind = SnapshotKind.FULL,

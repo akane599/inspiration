@@ -46,7 +46,7 @@ class SnapshotCapturerTest {
                 dischargedPowerMah = 1.0,
                 batteryTimeRemainingMs = 0,
                 chargeTimeRemainingMs = 0,
-                uids = listOf(UidUsage(12345, "pkg", 2.0, mapOf("cpu" to 1.5), mapOf("foreground" to 1.0, "cached" to 0.5))),
+                uids = listOf(UidUsage(12345, "pkg", 2.0, mapOf("cpu" to 1.5), mapOf("FOREGROUND" to 1.0, "BACKGROUND" to 0.2, "FOREGROUND_SERVICE" to 0.3, "CACHED" to 0.5))),
             ),
         )
         val capturer = SnapshotCapturer(source, store, TestClocks())
@@ -55,6 +55,8 @@ class SnapshotCapturerTest {
 
         val saved = store.snapshots.single()
         assertEquals(1.0, saved.uids.single().fgMah!!, 0.0)
+        assertEquals(0.2, saved.uids.single().bgMah!!, 0.0)
+        assertEquals(0.3, saved.uids.single().fgsMah!!, 0.0)
         assertEquals(0.5, saved.uids.single().cachedMah!!, 0.0)
         assertEquals(1.5, saved.deviceComponentsMah.getValue("cpu"), 0.0)
         assertEquals("device_from_uid_sum", saved.availability.getValue("usage").reason)

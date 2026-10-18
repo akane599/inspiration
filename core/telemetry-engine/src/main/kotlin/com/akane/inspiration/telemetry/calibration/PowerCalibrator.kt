@@ -100,6 +100,7 @@ class PowerCalibrator {
 
         val ratio = sysfs.toDouble() / batteryManager
         return when {
+            ratio.isApproximately(1.0) -> MICRO_TO_MILLI
             ratio.isApproximately(1_000.0) -> MICRO_TO_MILLI
             ratio.isApproximately(0.001) -> 1.0
             else -> currentScaleFromMagnitude(sysfsCurrentRaw)
@@ -109,8 +110,7 @@ class PowerCalibrator {
     private fun CalibrationInput.dischargeNegativeEvidence(): Boolean? {
         val current = sysfsCurrentRaw ?: bmCurrentNowUa?.toLong() ?: return null
         if (current == 0L) return null
-        val charging = isCharging || plugged
-        return if (charging) current > 0L else current < 0L
+        return if (isCharging) current > 0L else current < 0L
     }
 
     private fun CalibrationInput.voltageMv(voltageScale: Double): Double {

@@ -209,6 +209,30 @@ class IntervalMetricsCalculatorTest {
         }
     }
 
+    @Test
+    fun `shutdown clears charging and screen state and startup seeds the plug state`() {
+        for (startupPlug in listOf(0, 1)) {
+            val metrics = IntervalMetricsCalculator.compute(
+                listOf(
+                    event(0, HistoryKind.PLUGGED, 80),
+                    event(0, HistoryKind.SCREEN_ON, 80),
+                    event(10, HistoryKind.SHUTDOWN, 80),
+                    event(20, HistoryKind.START, 79).copy(plugType = startupPlug),
+                    event(25, HistoryKind.SCREEN_OFF, 79),
+                    event(30, HistoryKind.LEVEL, 78),
+                ),
+                fromWallMs = 0,
+                toWallMs = minutes(40),
+            )
+
+            assertEquals(minutes(if (startupPlug == 0) 10 else 30), metrics.chargingMs)
+            assertEquals(minutes(if (startupPlug == 0) 15 else 10), metrics.unknownMs)
+            assertEquals(0L, metrics.screenOnMs)
+            assertEquals(if (startupPlug == 0) 1 else 0, metrics.levelDropScreenOff)
+            assertEquals(listOf(minutes(10), minutes(20)), metrics.discontinuities)
+        }
+    }
+
     private fun minutes(value: Long): Long = value * 60_000L
 
     private fun event(minute: Long, kind: Int, levelPct: Int) = HistoryEvent(

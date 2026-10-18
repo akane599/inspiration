@@ -191,10 +191,10 @@ class SnapshotCapturer(
         const val SOURCE_CPU = "cpu"
         const val SOURCE_HISTORY = "history"
         const val SOURCE_LIGHT = "light"
-        const val PROCESS_FOREGROUND = "foreground"
-        const val PROCESS_BACKGROUND = "background"
-        const val PROCESS_FOREGROUND_SERVICE = "foreground_service"
-        const val PROCESS_CACHED = "cached"
+        const val PROCESS_FOREGROUND = "FOREGROUND"
+        const val PROCESS_BACKGROUND = "BACKGROUND"
+        const val PROCESS_FOREGROUND_SERVICE = "FOREGROUND_SERVICE"
+        const val PROCESS_CACHED = "CACHED"
     }
 }
 

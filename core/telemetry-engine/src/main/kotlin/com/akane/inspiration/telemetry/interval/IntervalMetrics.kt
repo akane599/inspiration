@@ -71,14 +71,22 @@ object IntervalMetricsCalculator {
                 HistoryKind.PLUGGED -> plugged = true
                 HistoryKind.UNPLUGGED -> plugged = false
                 HistoryKind.LEVEL -> onLevel(event.levelPct, inside)
+                HistoryKind.SHUTDOWN -> {
+                    screenOn = null
+                    plugged = false
+                    prevLevel = null
+                    if (inside) discontinuities += event.wallMs
+                }
                 HistoryKind.RESET, HistoryKind.START -> {
+                    if (event.kind == HistoryKind.START) screenOn = null
+                    plugged = event.plugType != 0
                     prevLevel = event.levelPct
                     if (inside) discontinuities += event.wallMs
                 }
             }
             // Only LEVEL moves the drop baseline: other events in the same history record already
             // carry the new level, and the LEVEL that follows them must still see the old one.
-            if (prevLevel == null) prevLevel = event.levelPct
+            if (prevLevel == null && event.kind != HistoryKind.SHUTDOWN) prevLevel = event.levelPct
             if (!inside) startLevel = event.levelPct
             endLevel = event.levelPct
         }

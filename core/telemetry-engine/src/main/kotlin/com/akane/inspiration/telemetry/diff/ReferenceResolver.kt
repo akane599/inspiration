@@ -100,12 +100,12 @@ class ReferenceResolver(
             kind = SnapshotKind.FULL,
             statsStartMs = end.clock.statsStartMs,
             bootCount = end.clock.bootCount,
-        ) ?: store.firstAtOrAfter(
+        )?.takeIf { it.clock.wallMs <= end.clock.wallMs } ?: store.firstAtOrAfter(
             wallMs = boundaryWallMs,
             kind = null,
             statsStartMs = null,
             bootCount = end.clock.bootCount,
-        )
+        )?.takeIf { it.clock.wallMs <= end.clock.wallMs }
 
     private fun completedScreenOff(events: List<HistoryEvent>): Boundary? {
         var candidate: Boundary? = null

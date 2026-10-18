@@ -141,6 +141,29 @@ class PowerCalibratorTest {
         assertNull(calibrator.toReading(charging(sysfsCurrent = 100_000), calibration))
     }
 
+    @Test
+    fun `matching low microamp readings retain documented units during taper`() {
+        for (current in listOf(-10_000, 10_000)) {
+            val input = discharge(sysfsCurrent = current.toLong(), bmCurrent = current, sysfsVoltage = 4_000)
+                .copy(isCharging = current > 0, plugged = true)
+            val calibration = calibrator.calibrate(listOf(input))
+            val reading = calibrator.toReading(input, calibration)!!
+
+            assertEquals(0.001, calibration.currentScaleToMa, 0.0)
+            assertEquals(current / 1_000.0, reading.currentMa, 0.0)
+        }
+    }
+
+    @Test
+    fun `plugged discharge keeps a negative current and power`() {
+        val input = discharge(sysfsCurrent = -100_000, bmCurrent = -100_000, sysfsVoltage = 4_000)
+            .copy(plugged = true)
+        val reading = calibrator.toReading(input, calibrator.calibrate(listOf(input)))!!
+
+        assertEquals(-100.0, reading.currentMa, 0.0)
+        assertEquals(-0.4, reading.watts, 0.0)
+    }
+
     private fun charging(
         sysfsCurrent: Long? = null,
         sysfsVoltage: Long? = null,

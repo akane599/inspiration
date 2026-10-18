@@ -105,23 +105,23 @@ class AndroidTelemetrySource(
         KernelRead(kernel, calibration, light)
     }
 
-    private fun readBatteryStats(service: com.akane.inspiration.ipc.ITelemetryUserService): DumpParse<com.akane.inspiration.telemetry.dump.DumpSnapshot> =
+    private suspend fun readBatteryStats(service: com.akane.inspiration.ipc.ITelemetryUserService): DumpParse<com.akane.inspiration.telemetry.dump.DumpSnapshot> =
         readDump(service, DumpTarget.BATTERYSTATS_PROTO, DumpParser::parseBatteryStats)
 
-    private fun readPower(service: com.akane.inspiration.ipc.ITelemetryUserService): DumpParse<com.akane.inspiration.telemetry.dump.PowerDump> =
+    private suspend fun readPower(service: com.akane.inspiration.ipc.ITelemetryUserService): DumpParse<com.akane.inspiration.telemetry.dump.PowerDump> =
         readDump(service, DumpTarget.POWER_PROTO, DumpParser::parsePower)
 
-    private fun readAlarm(service: com.akane.inspiration.ipc.ITelemetryUserService): DumpParse<com.akane.inspiration.telemetry.dump.AlarmDump> =
+    private suspend fun readAlarm(service: com.akane.inspiration.ipc.ITelemetryUserService): DumpParse<com.akane.inspiration.telemetry.dump.AlarmDump> =
         readDump(service, DumpTarget.ALARM_PROTO, DumpParser::parseAlarm)
 
-    private fun <T> readDump(
+    private suspend fun <T> readDump(
         service: com.akane.inspiration.ipc.ITelemetryUserService,
         target: Int,
         parser: (ByteArray) -> DumpParse<T>,
     ): DumpParse<T> {
         val dump = runCatching { service.openDump(target) }.getOrElse { return DumpParse.Unavailable("remote") }
         if (!dump.available) return DumpParse.Unavailable(dump.reason ?: "unavailable")
-        val bytes = dump.fd?.let(DumpReader::readAll) ?: return DumpParse.Unavailable("io")
+        val bytes = dump.fd?.let { DumpReader.readAll(it, timeoutMs = serviceTimeoutMs) } ?: return DumpParse.Unavailable("io")
         return parser(bytes)
     }
 
