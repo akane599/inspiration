@@ -7,6 +7,8 @@ import com.akane.inspiration.ipc.model.HistoryEvent
 import com.akane.inspiration.ipc.model.HistoryKind
 import com.akane.inspiration.telemetry.capacity.ChargeSegment
 import com.akane.inspiration.telemetry.capacity.SegmentVerdict
+import com.akane.inspiration.telemetry.diff.ReferenceKind
+import com.akane.inspiration.telemetry.diff.ReferenceResolver
 import com.akane.inspiration.telemetry.dump.KernelWakelock
 import com.akane.inspiration.telemetry.dump.SystemTimers
 import com.akane.inspiration.telemetry.dump.UidAlarm
@@ -227,6 +229,23 @@ class RoomSnapshotStoreTest {
         assertEquals(4L, rows.single { it.tag == "sync" }.alarmDumpWakeups)
         assertEquals(0L, rows.single { it.tag == "dump-only" }.count)
         assertEquals(2L, rows.single { it.tag == "dump-only" }.alarmDumpWakeups)
+    }
+
+    @Test
+    fun `marker resolves its stored wall time and rejects future markers`() = runBlocking {
+        val snapshot = fullSnapshot()
+        val snapshotId = store.insert(snapshot)
+        val wallMs = snapshot.clock.wallMs
+        val markerId = store.addMarker(snapshotId, "now", wallMs)
+        val futureId = store.addMarker(snapshotId, "future", wallMs + 1)
+
+        assertEquals(wallMs, store.marker(markerId)!!.first)
+        assertEquals(snapshotId, store.marker(markerId)!!.second.id)
+        val resolver = ReferenceResolver(store)
+        val resolved = resolver.resolve(ReferenceKind.CustomMarker(markerId), wallMs)!!
+        assertEquals(wallMs, resolved.boundaryFromWallMs)
+        assertEquals(0L, resolved.gapMs)
+        assertNull(resolver.resolve(ReferenceKind.CustomMarker(futureId), wallMs))
     }
 
     @Test

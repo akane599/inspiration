@@ -274,8 +274,11 @@ interface MaintenanceDao {
     @Transaction
     suspend fun prune(nowWallMs: Long) {
         val cutoffWallMs = nowWallMs - RETENTION_MS
-        downsampleSamples(cutoffWallMs)
-        deleteSamplesBefore(cutoffWallMs)
+        // Keep the partial cutoff hour intact so later prunes never replace an aggregate
+        // with only the samples that expired since the previous prune.
+        val sampleCutoffWallMs = Math.floorDiv(cutoffWallMs, HOUR_MS) * HOUR_MS
+        downsampleSamples(sampleCutoffWallMs)
+        deleteSamplesBefore(sampleCutoffWallMs)
         deleteUnmarkedSnapshotsBefore(cutoffWallMs)
         deleteHistoryBefore(cutoffWallMs)
         deleteMissesBefore(cutoffWallMs)

@@ -159,6 +159,30 @@ class InspirationDatabaseTest {
         assertEquals(60, aggregate.maxLevelPct)
     }
 
+    @Test
+    fun `successive prunes within one hour preserve all samples in the final aggregate`() = runBlocking {
+        val hour = 12L * MaintenanceDao.HOUR_MS
+        database.telemetryDao().insertSamples(listOf(
+            TelemetrySampleEntity(wallMs = hour + 5, elapsedRealtimeMs = 5, bootCount = 1, currentMa = 10, voltageMv = 4_000),
+            TelemetrySampleEntity(wallMs = hour + 15, elapsedRealtimeMs = 15, bootCount = 1, currentMa = 30, voltageMv = 4_200),
+        ))
+        val maintenance = database.maintenanceDao()
+        maintenance.prune(MaintenanceDao.RETENTION_MS + hour + 10)
+        maintenance.prune(MaintenanceDao.RETENTION_MS + hour + 20)
+        assertNull(database.telemetryDao().hourly(hour))
+        assertEquals(2, database.telemetryDao().between(hour, hour + MaintenanceDao.HOUR_MS).size)
+
+        maintenance.prune(MaintenanceDao.RETENTION_MS + hour + MaintenanceDao.HOUR_MS)
+        val aggregate = database.telemetryDao().hourly(hour)!!
+        assertEquals(2L, aggregate.sampleCount)
+        assertEquals(20.0, aggregate.avgCurrentMa!!, 0.0)
+        assertEquals(10, aggregate.minCurrentMa)
+        assertEquals(30, aggregate.maxCurrentMa)
+        assertTrue(database.telemetryDao().between(hour, hour + MaintenanceDao.HOUR_MS).isEmpty())
+        maintenance.prune(MaintenanceDao.RETENTION_MS + hour + MaintenanceDao.HOUR_MS + 10)
+        assertEquals(aggregate, database.telemetryDao().hourly(hour))
+    }
+
     private fun snapshot(wallMs: Long) = SnapshotEntity(
         kind = "FULL",
         trigger = "APP_OPEN",

@@ -146,7 +146,7 @@ class RoomSnapshotStore(
 
     override suspend fun marker(id: Long): Pair<Long, BatterySnapshot>? = database.withTransaction {
         database.markerDao().byId(id)?.let { marker ->
-            database.snapshotDao().byId(marker.snapshotId)?.let { marker.snapshotId to readSnapshot(it) }
+            database.snapshotDao().byId(marker.snapshotId)?.let { marker.wallMs to readSnapshot(it) }
         }
     }
 
