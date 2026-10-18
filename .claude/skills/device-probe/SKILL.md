@@ -5,7 +5,7 @@ description: Run Inspiration's debug ProbeReceiver probes (PROBE, PROBE_CAPTURE,
 
 # Device probe
 
-Device evidence in this project means the JSON lines the debug `ProbeReceiver` logs under the `InspirationProbe` tag. Before this skill, every device run re-typed the same boot / install / Shizuku / broadcast / logcat sequence by hand, and the evidence lived only in scrollback. The script makes the run repeatable and leaves a file you can cite in PROGRESS.md.
+Device evidence in this project means the JSON lines the debug `ProbeReceiver` logs under the `InspirationProbe` tag. The script runs the boot / install / Shizuku / broadcast / logcat sequence repeatably and leaves a file you can cite in PROGRESS.md.
 
 ## Run
 
@@ -23,7 +23,7 @@ Output: `build/device-evidence/api<SDK>-<PROBE>.jsonl`, one JSON object per line
 
 Exit codes: `0` finished, `2` setup failed (boot, installDebug, Shizuku missing/not started), `3` no terminal line before `--timeout` (or probe-side timeout). Treat the exit code as the oracle, not a grep of the output.
 
-## Process rules that still apply
+## Process rules
 
 - Only the orchestrator boots emulators, and only one emulator/adb run happens at a time. Gradle (`installDebug`) counts toward the two-concurrent-Gradle budget.
 - Run API levels sequentially: stop the emulator (`adb emu kill`) before switching `--avd`, otherwise the script reuses whichever device is attached.

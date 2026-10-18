@@ -43,7 +43,7 @@ Calibration — current generated-Compose defaults to avoid unless the brief ask
 
 ## 5. Seeing the result (Ubuntu, no Android Studio)
 Pick the first available:
-- **Compose Preview Screenshot Testing** (AGP ≥ 8.5, JVM, no emulator): plugin `com.android.compose.screenshot`; previews in `src/screenshotTest/` (or existing `@Preview`s). `./gradlew :app:updateDebugScreenshotTest -q` writes PNGs under `app/src/debug/screenshotTest/reference/`; `validateDebugScreenshotTest` diffs against them — a free visual regression suite for the overhaul. Add previews per screen for: light, dark (`uiMode = UI_MODE_NIGHT_YES`), `fontScale = 1.5f`, and `widthDp = 360` / `840`.
+- **Compose Preview Screenshot Testing** (AGP ≥ 8.5, JVM, no emulator): plugin `com.android.compose.screenshot`; previews in `src/screenshotTest/` (or existing `@Preview`s). `./gradlew :<module>:updateDebugScreenshotTest -q` writes PNGs under `<module>/src/screenshotTestDebug/reference/`; `validateDebugScreenshotTest` diffs against them — a free visual regression suite for the overhaul. Add previews per screen for: light, dark (`uiMode = UI_MODE_NIGHT_YES`), `fontScale = 1.5f`, and `widthDp = 360` / `840`.
 - **Emulator:** boot headless, `installDebug`, then the `android-emulator-qa` skill's screenshot step (`adb exec-out screencap -p > shot.png`) per screen. Slower, but exercises real navigation/insets.
 Read the PNGs with the Read tool and critique them concretely (spacing rhythm, hierarchy, contrast, alignment to the grid, what dominates the eye first). A screenshot is worth more than another paragraph of reasoning.
 

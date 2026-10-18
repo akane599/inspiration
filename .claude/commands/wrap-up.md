@@ -4,7 +4,7 @@ description: End of a session or story. Turns what was corrected and decided int
 
 Wrap up this session. Nothing is written without the user's yes.
 
-1. **Collect** from this session only (the conversation, board activity, and `.claude/compact-checkpoint.md` if it was compacted):
+1. **Collect** from this session only (the conversation, board activity, and this session's file in `.claude/compact-checkpoints/` if it was compacted):
    - corrections the user gave you or an executor, and anything they had to say twice;
    - build, SDK or tooling quirks you hit, and what fixed them;
    - decisions with a reason (why X over Y);
