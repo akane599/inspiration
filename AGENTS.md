@@ -5,7 +5,7 @@ For Android code/build work, read `.codex/android-kit/rules/android-code.md` and
 Use project skills under `.agents/skills/`; start normal implementation with `$android-bootstrap`. Do not bootstrap, refresh maps or run kit maintenance during a blind audit.
 Use `$android-board` for requested multi-step work. Prefer one focused pass and targeted specialists; batch finding validation.
 Use the current Codex model and permissions. Do not add Model Gateway, provider aliases or nested agent CLIs.
-Do not modify the parallel Claude setup or Sidequest state. No automatic Claude hooks are installed.
+Do not modify the parallel Claude setup or Sidequest state. The Claude hooks in `.claude/` do not run under Codex.
 Record actual build/test/device evidence; never turn an unavailable check into a pass.
 
 Use $android-bug-hunt for targeted investigations during implementation. Use $full-repo-audit and $audit-remediate for standalone audits and fixes; follow their native coordination protocol without a board dependency.

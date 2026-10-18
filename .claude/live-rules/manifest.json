@@ -3,7 +3,7 @@
   "rules": [
     {
       "path": "rules/android-build.md",
-      "hash": "4e64d25d651892b6cb9e9b50b2a9284af132bd9a2b7554a97edc1fbc5df60aaa",
+      "hash": "2584a4f2ab4503e08133df92c8e54c69d9cf9f00abb1c69c1cebe9536c6373dd",
       "description": "Android build, test and dependency rules",
       "globs": [],
       "dirs": [],
@@ -25,7 +25,7 @@
     },
     {
       "path": "rules/android-orchestration.md",
-      "hash": "a583dbcfa2729ada2302d0c758fc5cadc169e1aba4f26894529aea6abb191777",
+      "hash": "6117c64501d82818ddfc861982e9649aab2afacf03bd17d31e58acf69ad17e9f",
       "description": "Android ticket ownership, verification and mixed Claude/GPT routing through Sidequest profile android-kit-hybrid",
       "globs": [],
       "dirs": [],

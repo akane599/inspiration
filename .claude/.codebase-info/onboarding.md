@@ -32,7 +32,8 @@ Diagnostics tests run under Robolectric (org.json and resources are needed by th
 The documented AVDs are `batstats-api36`, `screenoff-api37`, and `pixel-api35`. The normal launch flow is:
 
 ```sh
-emulator -avd batstats-api36 -no-window -no-audio &
+./gradlew --stop   # free daemon memory first: 15 GiB RAM, only 512 MiB swap
+emulator -avd batstats-api36 -memory 2048 -no-window -no-audio &
 adb wait-for-device shell 'while [[ -z $(getprop sys.boot_completed) ]]; do sleep 1; done'
 ./gradlew :app:installDebug -q
 adb shell am start -n com.akane.inspiration/.MainActivity

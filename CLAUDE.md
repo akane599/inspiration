@@ -2,7 +2,7 @@
 # CLAUDE.md — Inspiration
 
 Shizuku-powered battery analytics, diagnostics and optimization for Android power users: real Binder/kernel telemetry, plain-language insights, zero observer effect. Product spec: `TEMPLATE.md` (Turkish).
-Android, developed on Ubuntu from the CLI.
+Android, developed on Ubuntu from the CLI. Host: Ryzen 7 5800X3D (8C/16T, KVM) · 15 GiB RAM · 512 MiB swap · `/tmp` is RAM-backed tmpfs.
 
 <!-- STACK:BEGIN (filled by /bootstrap) -->
 - Origin: new · Integration branch: main
@@ -30,4 +30,4 @@ Android, developed on Ubuntu from the CLI.
 - Screenshots: `:app:updateDebugScreenshotTest` (write refs) · `:app:validateDebugScreenshotTest` (diff)
 - IPC probe (debug): `adb shell am broadcast -a com.akane.inspiration.debug.PROBE -n com.akane.inspiration/.debug.ProbeReceiver` → `adb logcat -d -s 'InspirationProbe:*'` (Shizuku must be running + permitted; `…debug.PROBE_REQUEST_PERMISSION` shows the dialog)
 - Device: `./gradlew :app:installDebug -q && adb shell am start -n com.akane.inspiration/.MainActivity` · logs: `adb logcat -d --pid=$(adb shell pidof -s com.akane.inspiration) | tail -80`
-- Emulator: `emulator -avd batstats-api36 -no-window -no-audio &` then `adb wait-for-device shell 'while [[ -z $(getprop sys.boot_completed) ]]; do sleep 1; done'`
+- Emulator: `./gradlew --stop && emulator -avd batstats-api36 -memory 2048 -no-window -no-audio &` then `adb wait-for-device shell 'while [[ -z $(getprop sys.boot_completed) ]]; do sleep 1; done'`

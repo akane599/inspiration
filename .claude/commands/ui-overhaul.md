@@ -21,7 +21,7 @@ Following compose-design §4 steps 1–3: palette hexes with roles, type pairing
 - **Review tickets**, `depends-on` all screen tickets, same wave:
   - `visual-evaluation`: the after-screenshots and the brief attached; a designer's critique against compose-design §3 and the calibration list.
   - `review-audit`: the story's diff; Compose stability, Modifier order, accessibility, token discipline.
-- Follow android-orchestration: default to 2 concurrently running Gradle invocations, including hosts with 16 GB RAM or less. This limits only the verification command, never ticket dispatch or the whole wave. Dispatch independent UI/logic work within normal Sidequest worker and file-ownership limits; queue only Gradle verification when both slots are occupied.
+- Follow android-orchestration: default to 2 concurrently running Gradle invocations, 1 while an emulator is running. This limits only the verification command, never ticket dispatch or the whole wave. Dispatch independent UI/logic work within normal Sidequest worker and file-ownership limits; queue only Gradle verification when both slots are occupied.
 
 ## 4. Run the waves
 Dispatch per the Sidequest skill: theme → screens → reviews. Integrate each wave once. Issues raised by both reviews come first. Each fix becomes a follow-up ticket (`ui.tweak` when mechanical, else `interaction-design-implementation`); no inline patching. UI and review tickets follow their named hybrid categories and explicit fallbacks; logic changes it uncovers go to separate `coding.*` tickets.
@@ -30,6 +30,6 @@ Dispatch per the Sidequest skill: theme → screens → reviews. Integrate each 
 - `rg -n "Color\(0x|[0-9]+\.(dp|sp)\b" <ui dir> --glob '!**/theme/**'` → near-empty; justify survivors.
 - `rg -n "List<|Map<|Set<" <ui dir> --glob '*.kt' | rg -v "Immutable|Persistent"` in composable params and state → empty.
 - `./gradlew :app:assembleDebug :app:validateDebugScreenshotTest --console=plain -q` on the integrated tree. Copy the refs to `design/after/`.
-- PROGRESS.md: decision-log lines (tokens chosen, ideas rejected) and the audit-table UI row. Summary in ≤10 lines: what changed visually, screenshot paths, open tickets.
+- PROGRESS.md: decision-log lines (tokens chosen, ideas rejected) and the audit-table UI row. A short summary: what changed visually, screenshot paths, open tickets.
 
 For adopted projects, discover the actual module, build variant and test framework first. The `:app`/`Debug`/Compose screenshot commands above are examples for the generated scaffold, not universal commands. Keep existing Paparazzi, Roborazzi, XML or device-based checks; report unavailable visual validation explicitly.

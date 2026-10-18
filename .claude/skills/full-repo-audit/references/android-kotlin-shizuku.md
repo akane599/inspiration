@@ -29,7 +29,7 @@ When auditing an Android or privileged system repository, check every subsystem 
 - **Shell Injection in Privileged Commands:**
   - Trace every string interpolated into `sh -c ...` or root/Shizuku commands (e.g., package names, file paths, UIDs, user labels). Even package names or file paths from untrusted directories must be validated against strict regex or escaped via `ShellQuote` before running with `adb`/`shell`/`root` privileges.
 
-## 3. Android Component Lifecycles, Memory & OS Restrictions (API 33–36)
+## 3. Android Component Lifecycles, Memory & OS Restrictions (API 31+)
 - **Context & View Leaks:**
   - Singletons, companion objects, or `UserService` instances holding Activity/View `Context` instead of `applicationContext`.
 - **BroadcastReceiver & Service Registration Parity:**

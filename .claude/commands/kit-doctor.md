@@ -10,12 +10,14 @@ Run inline. No installation, enablement changes, imported hooks or inference.
 3. Inspect installed project-scope plugins and competing namespace masks. Local kit registrations
    are migration conflicts. Model Gateway may remain installed for other projects; its enablement
    must match this project's selected policy. Run the manager for installation/migration repairs.
-4. Use sidequest-defaults.py check for stock, routing-profile.py check for other variants.
+4. For stock run sidequest-defaults.py <SIDEQUEST_CLI> check; for other variants run
+   routing-profile.py <SIDEQUEST_CLI> <KIT_ROOT>/lib/routing-profile.json check.
    Compare actual routes, fallbacks and effects of board/ticket overrides. Preserve active work.
    Stock follows upstream coding defaults without kit category edits; other sets use their exact
    routing-profile.json. Never infer provider participation from a model alias alone.
-5. Audit hook overlap metadata with merge-settings.py --audit-hooks; inspect /hooks for plugin
-   sources. Distinguish four separate hook events from duplicate execution.
+5. Audit hook overlap metadata with merge-settings.py --audit-hooks <KIT_ROOT>/template/.claude/settings.json
+   followed by the user, project and local settings paths; inspect /hooks for plugin sources.
+   Distinguish four separate hook events from duplicate execution.
 6. Check full-repo-audit and audit-remediate project skill discovery and ensure superseded review plugins are disabled.
    Report loaded-state checks as pending when unavailable. Use /kit-refresh after kit merges.
 7. Return PASS/WARN/BLOCKED with specific actions. Gateway-backed sets need gateway readiness;

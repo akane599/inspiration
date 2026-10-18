@@ -26,6 +26,7 @@ app/
   src/screenshotTestDebug/reference/.../*.png
 
 build-logic/
+  gradle.properties   (Kotlin daemon -Xmx2g; included builds don't read the root file)
   convention/build.gradle.kts
   convention/src/main/kotlin/com/akane/inspiration/convention/
     AndroidLibraryConventionPlugin.kt

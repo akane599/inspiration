@@ -23,4 +23,4 @@ Wrap up this session. Nothing is written without the user's yes.
 
 4. **Apply** only the picked items. If integrated code changed this session, run the codebase-mapper `update-codebase-map` skill (inline, or through its shared-tree Sidequest handoff exactly as written; a map ticket in any other shape spawns read-only).
 
-5. **Report** what changed in up to 3 lines. If CLAUDE.md or the rules haven't been audited in a few weeks, suggest `/doctor prompt-audit` (Claude Code 2.1.283+), which finds stale or contradicting instructions.
+5. **Report** what changed, briefly. If CLAUDE.md or the rules haven't been audited in a few weeks, suggest `/doctor prompt-audit` (Claude Code 2.1.283+), which finds stale or contradicting instructions.

@@ -15,9 +15,9 @@ You are conducting a **complete, ground-up audit of the entire repository**—no
 Use tools permitted by the user, project policy and current environment: shell execution, compilers, typecheckers, linters, `rg` (ripgrep), `fd`/`find`, `git` history analysis, AST search, and parallel sub-agents.
 
 ## Core Anti-Slop Rules (Read First)
-1. **No Lazy Skimming:** Never read 3 files and guess how the rest of the app works. Map the full repository topology first, then audit every subsystem systematically.
-2. **Never Act Like a Human Linter:** Do not report formatting, naming nitpicks, or missing comments. Run actual static analysis tools for syntax/style, and spend 100% of your reasoning budget on **logic bugs, broken invariants, race conditions, resource leaks, architectural coupling, and security flaws**.
-3. **Verify Before Reporting (Zero Hallucinations):** Never report a "potential" issue without tracing its callers and callees across the codebase using `rg` or LSP/AST tools. If a function looks unsafe, check whether upstream callers already sanitize input or hold a lock.
+1. **Map before judging:** Map the full repository topology first, then audit every subsystem systematically rather than inferring the rest of the app from a few files.
+2. **Never Act Like a Human Linter:** Do not report formatting, naming nitpicks, or missing comments. Run actual static analysis tools for syntax/style, and focus the audit on **logic bugs, broken invariants, race conditions, resource leaks, architectural coupling, and security flaws**.
+3. **Verify Before Reporting:** Never report a "potential" issue without tracing its callers and callees across the codebase using `rg` or LSP/AST tools. If a function looks unsafe, check whether upstream callers already sanitize input or hold a lock.
 4. **Prove Every Finding:** Every reported issue MUST include:
    - Exact `path/to/file.ext:line_start-line_end`
    - The full cross-file execution/call trace that triggers the bug
