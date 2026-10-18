@@ -71,6 +71,19 @@ class BgDexoptControllerTest {
     )
 
     @Test
+    fun `acknowledged cancellation prevents a queued worker from starting`() {
+        val controller = controller()
+        controller.tryStart()
+        controller.noteUserCancel()
+        runner.run(BG_DEXOPT_CANCEL_ARGV)
+        controller.noteCancelCompleted()
+        threads.single().run()
+        assertEquals(listOf(BG_DEXOPT_CANCEL_ARGV), calls)
+        assertEquals(BgDexoptState.CANCELLED, controller.status().state)
+        assertEquals(BgDexoptReason.USER, controller.status().reason)
+    }
+
+    @Test
     fun `failed automatic cancellation remains unknown and can be retried`() {
         for (out in listOf(failure(), CommandOutput(-1, "", timedOut = true))) {
             cancelOutput = out

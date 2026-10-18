@@ -97,7 +97,13 @@ internal class BgDexoptController(
 
     private fun runJob() {
         val process = try {
-            runner.start(BG_DEXOPT_ARGV)
+            synchronized(lock) {
+                if (userCancelRequested) {
+                    finish(BgDexoptState.CANCELLED, exit = 0, why = BgDexoptReason.USER)
+                    return
+                }
+                runner.start(BG_DEXOPT_ARGV)
+            }
         } catch (_: IOException) {
             finish(BgDexoptState.FINISHED, exit = -1, why = BgDexoptReason.NONE)
             return
