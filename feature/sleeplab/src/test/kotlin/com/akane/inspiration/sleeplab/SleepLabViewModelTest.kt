@@ -83,6 +83,34 @@ class SleepLabViewModelTest {
     }
 
     @Test
+    fun `rows without a reported package resolve the owner through packageForUid`() = runTest(dispatcher) {
+        deps.appLabels.uidOwners[10_003] = "com.news"
+        deps.appLabels.labels["com.news"] = "News"
+        deps.analysis.value = AnalysisState.Ready(
+            intervalAnalysis(
+                diff = snapshotDiff(
+                    uids = listOf(
+                        uidDelta(10_003, packageName = null, wakelocks = listOf(wakelock("sync", 7_000, 1)), alarms = listOf(UidAlarm("t", 2))),
+                        uidDelta(1_000, packageName = null, wakelocks = listOf(wakelock("sys", 1_000, 1))),
+                    ),
+                ),
+            ),
+        )
+        val vm = viewModel()
+
+        visible(vm)
+
+        val analysis = vm.state.value.analysis as AnalysisUi.Ready
+        val wake = (analysis.appWakelocks as ListUi.Rows).rows.first { it.uid == 10_003 }
+        assertEquals("com.news", wake.packageName)
+        assertEquals("News", wake.appLabel)
+        val alarm = (analysis.alarms as ListUi.Rows).rows.single()
+        assertEquals("News", alarm.appLabel)
+        val unowned = (analysis.appWakelocks as ListUi.Rows).rows.first { it.uid == 1_000 }
+        assertEquals(null, unowned.appLabel)
+    }
+
+    @Test
     fun `visible refreshes once and shapes the ready analysis with owner labels`() = runTest(dispatcher) {
         deps.appLabels.labels["com.chat"] = "Chat"
         deps.analysis.value = AnalysisState.Ready(withWakelocks)

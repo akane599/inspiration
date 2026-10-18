@@ -148,10 +148,36 @@ private fun <T> RankedList(
 }
 
 @Composable
+private fun ownerTitle(appLabel: String?, uid: Int): String =
+    appLabel
+        ?: systemUidLabelRes(uid)?.let { stringResource(it) }
+        ?: stringResource(R.string.sleeplab_owner_uid, uid)
+
+private const val PER_USER_UID_RANGE = 100_000
+
+/** A readable name for a well-known shared platform UID (in any user), or null for everything else. */
+@StringRes
+internal fun systemUidLabelRes(uid: Int): Int? = when (uid % PER_USER_UID_RANGE) {
+    0 -> R.string.sleeplab_uid_root
+    1_000 -> R.string.sleeplab_uid_system
+    1_001 -> R.string.sleeplab_uid_phone
+    1_002 -> R.string.sleeplab_uid_bluetooth
+    1_010 -> R.string.sleeplab_uid_wifi
+    1_013 -> R.string.sleeplab_uid_media
+    1_017 -> R.string.sleeplab_uid_keystore
+    1_021 -> R.string.sleeplab_uid_gps
+    1_027 -> R.string.sleeplab_uid_nfc
+    1_041 -> R.string.sleeplab_uid_audio
+    1_047 -> R.string.sleeplab_uid_camera
+    2_000 -> R.string.sleeplab_uid_shell
+    else -> null
+}
+
+@Composable
 private fun AppWakelockItem(row: AppWakelockRow, explain: (EntryKind, String) -> Explanation?) {
     val format = rememberTelemetryFormat()
     WakeItem(
-        title = row.appLabel ?: stringResource(R.string.sleeplab_owner_uid, row.uid),
+        title = ownerTitle(row.appLabel, row.uid),
         subtitle = row.name,
         primary = formatSpan(format, row.durationMs, stringResource(R.string.sleeplab_unit_second)),
         secondary = timesText(format, row.count),
@@ -176,7 +202,7 @@ private fun KernelWakelockItem(row: KernelWakelockRow, explain: (EntryKind, Stri
 private fun AlarmItem(row: AlarmRow, explanation: Explanation?) {
     val format = rememberTelemetryFormat()
     WakeItem(
-        title = row.appLabel ?: stringResource(R.string.sleeplab_owner_uid, row.uid),
+        title = ownerTitle(row.appLabel, row.uid),
         subtitle = null,
         primary = pluralStringResource(R.plurals.sleeplab_wakeups, row.wakeups.asQuantity(), format.number(row.wakeups.toDouble())),
         secondary = null,
