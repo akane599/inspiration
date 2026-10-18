@@ -779,7 +779,7 @@ class ToolkitActions internal constructor(
             (it.status == ToolkitActionStatus.DONE || it.status == ToolkitActionStatus.RESTORED) &&
                 it.kind in OVERRIDE_KINDS
         }
-        .sortedWith(compareByDescending<ToolkitActionRecord> { it.startedAt }.thenByDescending { it.id })
+        .sortedByDescending { it.id }
 
     private suspend fun computeOverrides(): List<Override> = computeOverrides(overrideRows())
 

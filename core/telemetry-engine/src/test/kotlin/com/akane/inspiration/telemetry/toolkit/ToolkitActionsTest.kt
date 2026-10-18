@@ -438,6 +438,21 @@ class ToolkitActionsTest {
         assertTrue(backend.writes.isEmpty())
     }
 
+    @Test
+    fun rollbackUsesDurableOrderForListingRestoreAndReset() = runTest {
+        for (reset in listOf(false, true)) {
+            actions.execute(ToolkitAction.SetBucket(PKG, StandbyBucket.RARE))
+            clock -= 5_000
+            val latest = (actions.execute(
+                ToolkitAction.SetBucket(PKG, StandbyBucket.RESTRICTED), confirmed = true,
+            ) as ToolkitOutcome.Done).value
+            assertEquals(latest.id, actions.activeOverrides().first().single().actionId)
+            if (reset) actions.resetAll() else actions.restore(latest.id)
+            assertEquals(StandbyBucket.ACTIVE.rawValue, backend.buckets[PKG])
+            assertTrue(actions.activeOverrides().first().isEmpty())
+        }
+    }
+
     // ---- active overrides / resetAll -------------------------------------------------------
 
     @Test
