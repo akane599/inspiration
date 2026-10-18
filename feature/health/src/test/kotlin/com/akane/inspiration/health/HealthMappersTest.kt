@@ -10,6 +10,32 @@ import org.junit.Test
 
 class HealthMappersTest {
     @Test
+    fun `shutdown and unplugged boot exclude postboot discharge from charge history`() {
+        val events = listOf(
+            event(MIN_MS, HistoryKind.PLUGGED), event(2 * MIN_MS, HistoryKind.SHUTDOWN),
+            event(3 * MIN_MS, HistoryKind.START).copy(plugType = 0),
+            event(4 * MIN_MS, level = 80), event(5 * MIN_MS, level = 79),
+        )
+        val span = lastChargeSpan(events)
+        assertEquals(ChargeSpan(MIN_MS, 2 * MIN_MS), span)
+        assertTrue(chargeSession(span, emptyList(), events.mapNotNull { it.toCurvePoint() }, false).isEmpty())
+    }
+
+    @Test
+    fun `boot and reset use the plug baseline and never infer a charge across a known boundary`() {
+        for (kind in listOf(HistoryKind.START, HistoryKind.RESET)) {
+            val plugged = listOf(event(MIN_MS, kind), event(2 * MIN_MS, level = 50), event(3 * MIN_MS, level = 51))
+            val span = lastChargeSpan(plugged)
+            assertEquals(ChargeSpan(MIN_MS, null), span)
+            assertEquals(2, chargeSession(span, emptyList(), plugged.mapNotNull { it.toCurvePoint() }, false).size)
+            val unplugged = listOf(event(MIN_MS, kind).copy(plugType = 0), event(2 * MIN_MS, HistoryKind.UNPLUGGED))
+            assertNull(lastChargeSpan(unplugged))
+            // A plugged baseline without a graceful shutdown must replace the previous open charge.
+            assertEquals(ChargeSpan(MIN_MS, null), lastChargeSpan(listOf(event(0, HistoryKind.PLUGGED)) + plugged))
+        }
+    }
+
+    @Test
     fun `retained live buffer does not reopen a completed charge`() {
         val span = ChargeSpan(0, 60 * MIN_MS)
         val buffered = listOf(point(55 * MIN_MS), point(59 * MIN_MS))

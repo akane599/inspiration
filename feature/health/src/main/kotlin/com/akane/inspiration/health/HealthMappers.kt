@@ -121,15 +121,31 @@ internal data class ChargeSpan(val startMs: Long, val endMs: Long?)
  */
 internal fun lastChargeSpan(events: List<HistoryEvent>): ChargeSpan? {
     val sorted = events.sortedBy { it.wallMs }
-    val firstPlugEvent = sorted.firstOrNull { it.kind == HistoryKind.PLUGGED || it.kind == HistoryKind.UNPLUGGED }
-    var open: Long? = if (firstPlugEvent?.kind == HistoryKind.UNPLUGGED) sorted.first().wallMs else null
+    var open: Long? = null
     var last: ChargeSpan? = null
+    var baselineKnown = false
     for (event in sorted) {
         when (event.kind) {
-            HistoryKind.PLUGGED -> open = event.wallMs
-            HistoryKind.UNPLUGGED -> open?.let {
-                last = ChargeSpan(it, event.wallMs)
+            HistoryKind.RESET, HistoryKind.START -> {
+                open = event.wallMs.takeIf { event.plugType != 0 }
+                baselineKnown = true
+            }
+            HistoryKind.SHUTDOWN -> {
+                open?.let { start ->
+                    if (event.wallMs > start) last = ChargeSpan(start, event.wallMs)
+                }
                 open = null
+                baselineKnown = true
+            }
+            HistoryKind.PLUGGED -> {
+                if (open == null) open = event.wallMs
+                baselineKnown = true
+            }
+            HistoryKind.UNPLUGGED -> {
+                val start = open ?: sorted.firstOrNull()?.wallMs?.takeIf { !baselineKnown }
+                if (start != null && event.wallMs > start) last = ChargeSpan(start, event.wallMs)
+                open = null
+                baselineKnown = true
             }
         }
     }
