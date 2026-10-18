@@ -161,8 +161,10 @@ object CapacityEstimator {
     private fun ChargeSegment.capacityMah(): Double? {
         val deltaPct = endPct - startPct
         if (deltaPct <= 0) return null
-        return deltaChargeUah?.let { it / MICROAMP_HOURS_PER_MILLIAMP_HOUR / (deltaPct / PERCENT) }
+        val chargeMah = deltaChargeUah?.let { it / MICROAMP_HOURS_PER_MILLIAMP_HOUR }
             ?: integratedMah?.takeIf(Double::isFinite)
+            ?: return null
+        return chargeMah / (deltaPct / PERCENT)
     }
 
     private fun Double?.isIndependentOf(kernelChargeFullMah: Double?): Boolean {

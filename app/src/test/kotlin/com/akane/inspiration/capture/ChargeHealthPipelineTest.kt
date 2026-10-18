@@ -111,6 +111,71 @@ class ChargeHealthPipelineTest {
         assertEquals(listOf("capture", "analyze", "prune"), order)
     }
 
+    @Test
+    fun `complete recorded current supplies capacity when charge counters are absent`() = runTest {
+        store.history += charge(0).map { it.copy(chargeUah = -1) }
+        store.samples += listOf(sample(0), sample(1_000), sample(2_000).copy(plugged = false))
+
+        pipeline().run(100_000)
+
+        val session = store.sessions.single()
+        assertNull(session.deltaChargeUah)
+        assertEquals(1_000.0, session.integratedMah!!, 1e-6)
+        assertEquals(2_500.0, session.estimateMah!!, 1e-6)
+        assertTrue(session.accepted)
+    }
+
+    @Test
+    fun `partial recording missing current and boot gaps do not supply capacity`() = runTest {
+        val cases = listOf(
+            listOf(sample(1_000)),
+            listOf(sample(0), sample(1_000).copy(currentMa = null), sample(2_000)),
+            listOf(sample(0), sample(1_000).copy(bootCount = 2), sample(2_000)),
+            listOf(sample(0), sample(1_000).copy(elapsedRealtimeMs = 0), sample(2_000)),
+            listOf(sample(0), sample(1_000).copy(plugged = false), sample(2_000)),
+        )
+        for (samples in cases) {
+            store.sessions.clear()
+            store.history.clear()
+            store.samples.clear()
+            store.history += charge(0).map { it.copy(chargeUah = -1) }
+            store.samples += samples
+            pipeline().run(100_000)
+            assertEquals("missing_capacity", store.sessions.single().rejectReason)
+            assertNull(store.sessions.single().integratedMah)
+        }
+    }
+
+    @Test
+    fun `recordings that miss a session boundary or contain long gaps are rejected`() = runTest {
+        val cases = listOf(
+            listOf(sample(6_000), sample(10_000)),
+            listOf(sample(0), sample(4_000)),
+            listOf(sample(0), sample(10_000)),
+        )
+        for (samples in cases) {
+            store.sessions.clear()
+            store.history.clear()
+            store.samples.clear()
+            store.history += listOf(event(0, HistoryKind.PLUGGED, 40, -1), event(10_000, HistoryKind.UNPLUGGED, 80, -1))
+            store.samples += samples
+            pipeline().run(100_000)
+            assertEquals("missing_capacity", store.sessions.single().rejectReason)
+        }
+    }
+
+    @Test
+    fun `recorded temperature participates in current based capacity evaluation`() = runTest {
+        store.history += charge(0).map { it.copy(chargeUah = -1) }
+        store.samples += listOf(sample(0), sample(1_000).copy(temperatureDeciC = 460), sample(2_000))
+        pipeline().run(100_000)
+        assertEquals("temperature_too_high", store.sessions.single().rejectReason)
+    }
+
+    private fun sample(wallMs: Long) = TelemetrySample(
+        wallMs, wallMs, 1, 1_800_000, 4_000, 7_200.0, 300, 60, true,
+    )
+
     // PLUGGED 40% -> UNPLUGGED 80% with 1_000_000 uAh of charge counter delta: a 2_500 mAh pack.
     private fun charge(startMs: Long) = listOf(
         event(startMs, HistoryKind.PLUGGED, 40, 1_000_000L),
@@ -124,6 +189,7 @@ class ChargeHealthPipelineTest {
     private class FakeStore : SnapshotStore {
         var cursor: Pair<Long, Long>? = null
         val history = mutableListOf<HistoryEvent>()
+        val samples = mutableListOf<TelemetrySample>()
         val sessions = mutableListOf<ChargeSessionRecord>()
         val health = mutableListOf<HealthSample>()
         var upsertCalls = 0
@@ -178,7 +244,7 @@ class ChargeHealthPipelineTest {
         override suspend fun marker(id: Long): Pair<Long, BatterySnapshot>? = null
         override suspend fun markers(): List<Marker> = emptyList()
         override suspend fun insertSamples(samples: List<LiveReading>) = Unit
-        override suspend fun samplesBetween(from: Long, to: Long): List<TelemetrySample> = emptyList()
+        override suspend fun samplesBetween(from: Long, to: Long): List<TelemetrySample> = samples.filter { it.wallMs in from..to }
         override suspend fun insertToolkitAction(record: ToolkitActionRecord): Long = 0
         override suspend fun updateToolkitAction(record: ToolkitActionRecord) = Unit
         override suspend fun toolkitActions(limit: Int): List<ToolkitActionRecord> = emptyList()

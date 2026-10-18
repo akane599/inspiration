@@ -6,6 +6,11 @@ import android.content.ComponentName
 import android.content.Context
 
 object ChargingCaptureScheduler {
+    fun ensureScheduled(context: Context) {
+        val scheduler = context.getSystemService(JobScheduler::class.java)
+        if (scheduler.getPendingJob(JOB_ID) == null) arm(context)
+    }
+
     fun arm(
         context: Context,
         reArmFromJob: Boolean = false,

@@ -7,6 +7,7 @@ import android.content.IntentFilter
 import android.os.Build
 import android.util.Log
 import androidx.core.content.ContextCompat
+import com.akane.inspiration.capture.ChargingCaptureScheduler
 import com.akane.inspiration.capture.RuntimeCaptureReceiver
 import com.akane.inspiration.status.StatusNotificationController
 import kotlinx.coroutines.launch
@@ -50,6 +51,7 @@ class InspirationApplication : Application() {
 
     /** Delegates to the container's one debounced, mutex-guarded refresh (H7). */
     fun captureAppOpen() {
+        ChargingCaptureScheduler.ensureScheduled(this)
         appContainer.applicationScope.launch { appContainer.refresh() }
     }
 

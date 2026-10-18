@@ -1,7 +1,9 @@
 package com.akane.inspiration.capture
 
 import com.akane.inspiration.telemetry.capacity.CapacityEstimator
+import com.akane.inspiration.telemetry.capacity.ChargeSegment
 import com.akane.inspiration.telemetry.capacity.ChargeSegmentExtractor
+import com.akane.inspiration.telemetry.capacity.Integrator
 import com.akane.inspiration.telemetry.capacity.KernelCapacity
 import com.akane.inspiration.telemetry.store.HealthSample
 import com.akane.inspiration.telemetry.store.SnapshotStore
@@ -52,8 +54,9 @@ class ChargeHealthPipeline(
             .sortedBy { it.endWallMs }
         for (segment in segments) {
             val verdict = guarded("charge segment ${segment.startHistoryTimeMs} failed") {
-                CapacityEstimator.evaluate(segment, kernel, accepted.takeLast(MEDIAN_WINDOW), consecutiveRejections)
-                    .also { store.upsertChargeSession(statsStartMs, segment, it) }
+                val enriched = withRecordedCurrent(segment)
+                CapacityEstimator.evaluate(enriched, kernel, accepted.takeLast(MEDIAN_WINDOW), consecutiveRejections)
+                    .also { store.upsertChargeSession(statsStartMs, enriched, it) }
             } ?: continue
             if (verdict.accepted) {
                 verdict.estimateMah?.let(accepted::add)
@@ -62,6 +65,36 @@ class ChargeHealthPipeline(
                 consecutiveRejections++
             }
         }
+    }
+
+    private suspend fun withRecordedCurrent(segment: ChargeSegment): ChargeSegment {
+        if (segment.deltaChargeUah != null || segment.integratedMah != null) return segment
+        val samples = store.samplesBetween(segment.startWallMs, segment.endWallMs).sortedBy { it.wallMs }
+        if (samples.size < 2) return segment
+        val first = samples.first()
+        val last = samples.last()
+        val startGap = first.wallMs - segment.startWallMs
+        val endGap = segment.endWallMs - last.wallMs
+        if (startGap !in 0L..MAX_SAMPLE_GAP_MS || endGap !in 0L..MAX_SAMPLE_GAP_MS ||
+            samples.any { it.bootCount != first.bootCount || it.currentMa == null ||
+                (it.plugged != true && it.wallMs != segment.endWallMs) } ||
+            samples.zipWithNext().any { (a, b) ->
+                b.wallMs - a.wallMs !in 1L..MAX_SAMPLE_GAP_MS ||
+                    b.elapsedRealtimeMs - a.elapsedRealtimeMs !in 1L..MAX_SAMPLE_GAP_MS
+            }
+        ) return segment
+
+        // Use monotonic times and extend only the short gaps at the session boundaries.
+        val points = buildList {
+            if (startGap > 0) add(first.elapsedRealtimeMs - startGap to first.currentMa!!.toDouble())
+            samples.forEach { add(it.elapsedRealtimeMs to it.currentMa!!.toDouble()) }
+            if (endGap > 0) add(last.elapsedRealtimeMs + endGap to last.currentMa!!.toDouble())
+        }
+        return segment.copy(
+            integratedMah = Integrator.trapezoidMah(points),
+            maxTemperatureDeciC = (samples.mapNotNull { it.temperatureDeciC } +
+                listOfNotNull(segment.maxTemperatureDeciC)).maxOrNull(),
+        )
     }
 
     private suspend fun recordHealth(kernel: KernelCapacity, nowWallMs: Long) {
@@ -86,5 +119,6 @@ class ChargeHealthPipeline(
     private companion object {
         const val ACCEPTED_LIMIT = 1_000
         const val MEDIAN_WINDOW = 10
+        const val MAX_SAMPLE_GAP_MS = 5_000L
     }
 }

@@ -129,6 +129,15 @@ class CapacityEstimatorTest {
         assertNull(result)
     }
 
+    @Test
+    fun `integrated charge is normalized by the fraction of battery charged`() {
+        val segment = validSegment().copy(startPct = 40, endPct = 80, deltaChargeUah = null, integratedMah = 1_000.0)
+        val verdict = CapacityEstimator.evaluate(segment, kernel(designMah = 2_500.0), emptyList(), 0)
+
+        assertTrue(verdict.accepted)
+        assertEquals(2_500.0, verdict.estimateMah!!, 0.0)
+    }
+
     private fun validSegment(
         deltaChargeUah: Long = 1_000_000,
         maxTemperatureDeciC: Int? = 250,
