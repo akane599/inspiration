@@ -5,6 +5,7 @@ import androidx.lifecycle.ViewModelStore
 import com.akane.inspiration.ipc.model.HistoryKind
 import com.akane.inspiration.telemetry.app.RefreshResult
 import com.akane.inspiration.telemetry.snapshot.LiveReading
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.Flow
@@ -316,6 +317,33 @@ class HealthViewModelTest {
         assertEquals(listOf<HealthEffect>(HealthEffect.RefreshFailed), effects)
         assertFalse(vm.state.value.refreshing)
         vm.onIntent(HealthIntent.Hidden)
+    }
+
+    @Test
+    fun `a pull to refresh during the automatic one shows progress and reports its failure`() = runTest(dispatcher) {
+        deps.refreshResult = RefreshResult.Failed("deadline")
+        val gate = CompletableDeferred<Unit>().also { deps.refreshGate = it }
+        val vm = viewModel()
+        val effects = mutableListOf<HealthEffect>()
+        backgroundScope.launch { vm.effects.collect { effects += it } }
+
+        vm.onIntent(HealthIntent.Visible)
+        try {
+            runCurrent()
+            vm.onIntent(HealthIntent.Refresh)
+            runCurrent()
+            assertTrue(vm.state.value.refreshing)
+
+            gate.complete(Unit)
+            runCurrent()
+
+            assertEquals("the running refresh is reused", 1, deps.refreshCalls)
+            assertEquals(listOf<HealthEffect>(HealthEffect.RefreshFailed), effects)
+            assertFalse(vm.state.value.refreshing)
+        } finally {
+            // Stops the live loop even when an assertion fails, so the test cannot spin forever.
+            vm.onIntent(HealthIntent.Hidden)
+        }
     }
 
     @Test

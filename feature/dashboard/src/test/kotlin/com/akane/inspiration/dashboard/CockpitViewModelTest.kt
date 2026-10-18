@@ -6,6 +6,7 @@ import com.akane.inspiration.ipc.ShizukuState
 import com.akane.inspiration.telemetry.app.RefreshResult
 import com.akane.inspiration.telemetry.diff.ReferenceKind
 import com.akane.inspiration.telemetry.store.Marker
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.launch
@@ -148,6 +149,33 @@ class CockpitViewModelTest {
 
         assertEquals(listOf<CockpitEffect>(CockpitEffect.RefreshFailed), effects)
         assertFalse(vm.state.value.refreshing)
+    }
+
+    @Test
+    fun `a pull to refresh during the automatic one shows progress and reports its failure`() = runTest(dispatcher) {
+        deps.refreshResult = RefreshResult.Failed("deadline")
+        val gate = CompletableDeferred<Unit>().also { deps.refreshGate = it }
+        val vm = viewModel()
+        val effects = mutableListOf<CockpitEffect>()
+        backgroundScope.launch { vm.effects.collect { effects += it } }
+
+        vm.onIntent(CockpitIntent.Visible)
+        try {
+            runCurrent()
+            vm.onIntent(CockpitIntent.Refresh)
+            runCurrent()
+            assertTrue(vm.state.value.refreshing)
+
+            gate.complete(Unit)
+            runCurrent()
+
+            assertEquals("the running refresh is reused", 1, deps.refreshCalls)
+            assertEquals(listOf<CockpitEffect>(CockpitEffect.RefreshFailed), effects)
+            assertFalse(vm.state.value.refreshing)
+        } finally {
+            // Stops the live loop even when an assertion fails, so the test cannot spin forever.
+            vm.onIntent(CockpitIntent.Hidden)
+        }
     }
 
     @Test
