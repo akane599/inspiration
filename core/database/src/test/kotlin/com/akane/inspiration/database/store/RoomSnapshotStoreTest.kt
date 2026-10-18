@@ -415,6 +415,24 @@ class RoomSnapshotStoreTest {
         assertTrue(database.telemetryDao().hourly(((now - 31L * DAY_MS) / HOUR_MS) * HOUR_MS) != null)
     }
 
+    @Test
+    fun `snapshotsBetween returns both kinds oldest first within inclusive bounds without per-uid data`() = runBlocking {
+        store.insert(fullSnapshot(wallMs = 900L))
+        val late = store.insert(fullSnapshot(kind = SnapshotKind.LIGHT, trigger = CaptureTrigger.SCREEN_ON, wallMs = 3_000L, system = null))
+        val first = store.insert(fullSnapshot(wallMs = 1_000L))
+        val tie = store.insert(fullSnapshot(kind = SnapshotKind.LIGHT, trigger = CaptureTrigger.SCREEN_OFF, wallMs = 1_000L, system = null))
+        store.insert(fullSnapshot(wallMs = 3_001L))
+
+        val read = store.snapshotsBetween(1_000L, 3_000L)
+
+        assertEquals(listOf(first, tie, late), read.map { it.id })
+        assertEquals(listOf(SnapshotKind.FULL, SnapshotKind.LIGHT, SnapshotKind.LIGHT), read.map { it.kind })
+        assertTrue(read.all { it.system == null && it.uids.isEmpty() && it.kernelWakelocks.isEmpty() && it.cpuFreq.isEmpty() })
+        assertEquals(store.byId(first)!!.battery, read.first().battery)
+        assertEquals(store.byId(first)!!.clock, read.first().clock)
+        assertEquals(emptyList<BatterySnapshot>(), store.snapshotsBetween(5_000L, 6_000L))
+    }
+
     private fun fullSnapshot(
         kind: SnapshotKind = SnapshotKind.FULL,
         trigger: CaptureTrigger = CaptureTrigger.APP_OPEN,

@@ -26,6 +26,12 @@ interface SnapshotStore {
 
     suspend fun latestByTrigger(trigger: CaptureTrigger): BatterySnapshot?
 
+    /**
+     * Snapshots of both kinds with `from <= wallMs <= to`, oldest first. Only the snapshot and battery columns
+     * are filled: the system timers are null and every per-UID, wakelock and cpu list is empty.
+     */
+    suspend fun snapshotsBetween(fromWallMs: Long, toWallMs: Long): List<BatterySnapshot>
+
     suspend fun insertHistory(events: List<HistoryEvent>, statsStartMs: Long)
 
     suspend fun historyBetween(fromWallMs: Long, toWallMs: Long): List<HistoryEvent>

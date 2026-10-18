@@ -89,6 +89,9 @@ interface SnapshotDao {
     @Query("SELECT * FROM snapshot WHERE trigger = :trigger ORDER BY wallMs DESC, id DESC LIMIT 1")
     suspend fun latestByTrigger(trigger: String): SnapshotEntity?
 
+    @Query("SELECT * FROM snapshot WHERE wallMs BETWEEN :fromWallMs AND :toWallMs ORDER BY wallMs ASC, id ASC")
+    suspend fun between(fromWallMs: Long, toWallMs: Long): List<SnapshotEntity>
+
     @Query("SELECT * FROM snapshot_system WHERE snapshotId = :snapshotId")
     suspend fun systemForSnapshot(snapshotId: Long): SnapshotSystemEntity?
 

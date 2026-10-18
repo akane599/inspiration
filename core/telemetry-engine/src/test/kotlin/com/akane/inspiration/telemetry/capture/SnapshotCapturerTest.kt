@@ -278,6 +278,7 @@ class SnapshotCapturerTest {
         override suspend fun firstAtOrAfter(wallMs: Long, kind: SnapshotKind?, statsStartMs: Long?, bootCount: Int?): BatterySnapshot? = null
         override suspend fun lastAtOrBefore(wallMs: Long, kind: SnapshotKind?): BatterySnapshot? = null
         override suspend fun latestByTrigger(trigger: CaptureTrigger): BatterySnapshot? = null
+        override suspend fun snapshotsBetween(fromWallMs: Long, toWallMs: Long): List<BatterySnapshot> = emptyList()
         override suspend fun insertHistory(events: List<HistoryEvent>, statsStartMs: Long) {
             events.forEach { event ->
                 if (historyKeys.add(Triple(event.historyTimeMs, event.kind, event.wallMs))) {

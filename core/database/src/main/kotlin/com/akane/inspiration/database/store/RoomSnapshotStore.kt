@@ -110,6 +110,9 @@ class RoomSnapshotStore(
         database.snapshotDao().latestByTrigger(trigger.name)?.let { readSnapshot(it) }
     }
 
+    override suspend fun snapshotsBetween(fromWallMs: Long, toWallMs: Long): List<BatterySnapshot> =
+        database.snapshotDao().between(fromWallMs, toWallMs).map { it.toBareSnapshot() }
+
     override suspend fun insertHistory(events: List<HistoryEvent>, statsStartMs: Long) {
         database.withTransaction {
             database.historyDao().insertIgnore(events.map { it.toEntity(statsStartMs) })
@@ -283,6 +286,32 @@ class RoomSnapshotStore(
             truncatedUids = snapshot.truncatedUids,
         )
     }
+
+    /** The snapshot and battery columns only; system timers and every per-UID or kernel list stay empty. */
+    private fun SnapshotEntity.toBareSnapshot() = BatterySnapshot(
+        id = id,
+        kind = SnapshotKind.valueOf(kind),
+        trigger = CaptureTrigger.valueOf(trigger),
+        clock = SnapshotClock(wallMs, elapsedRealtimeMs, uptimeMs, bootCount, statsStartMs, statsDurationMs),
+        battery = BatteryState(
+            levelPct = levelPct,
+            plugged = plugged,
+            status = statusText,
+            temperatureDeciC = temperatureDeciC,
+            voltageMv = voltageMv,
+            currentMa = currentMa,
+            chargeCounterUah = chargeCounterUah,
+            dischargedMah = dischargedMah,
+        ),
+        system = null,
+        uids = emptyList(),
+        deviceComponentsMah = emptyMap(),
+        kernelWakelocks = emptyList(),
+        wakeupReasons = emptyList(),
+        cpuFreq = emptyList(),
+        availability = emptyMap(),
+        truncatedUids = truncatedUids,
+    )
 
     private fun BatterySnapshot.toEntity() = SnapshotEntity(
         kind = kind.name,
