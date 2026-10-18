@@ -9,6 +9,24 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class TimelineEventsTest {
+    @Test
+    fun `plugged reset and start baselines survive pre-window seeding`() {
+        for (kind in listOf(HistoryKind.RESET, HistoryKind.START)) {
+            val baseline = event(kind, 50).copy(plugType = 1)
+            val seeded = TimelineEvents.withSeeds(listOf(baseline), listOf(event(HistoryKind.UNPLUGGED, 200)))
+            val charging = TimelineBuilder.build(seeded, 100, 300).segments.filter { it.kind == SegmentKind.CHARGING }
+            assertEquals(listOf(100L to 200L), charging.map { it.startMs to it.endMs })
+        }
+    }
+
+    @Test
+    fun `unplugged baseline closes an old plugged state`() {
+        val seeded = TimelineEvents.withSeeds(
+            listOf(event(HistoryKind.PLUGGED, 10), event(HistoryKind.RESET, 50)), emptyList(),
+        )
+        assertTrue(TimelineBuilder.build(seeded, 100, 300).segments.none { it.kind == SegmentKind.CHARGING })
+    }
+
     private fun event(kind: Int, wallMs: Long) = HistoryEvent(
         historyTimeMs = wallMs,
         wallMs = wallMs,

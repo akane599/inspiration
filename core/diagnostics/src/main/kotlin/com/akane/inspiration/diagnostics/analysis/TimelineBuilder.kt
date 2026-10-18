@@ -143,6 +143,9 @@ private class Spans(
                     HistoryKind.SCREEN_OFF -> screen.close(t)
                     HistoryKind.PLUGGED -> plug.open(t)
                     HistoryKind.UNPLUGGED -> plug.close(t)
+                    HistoryKind.RESET, HistoryKind.START -> {
+                        if (event.plugType != 0) plug.open(t) else plug.close(t)
+                    }
                     HistoryKind.DEEP_IDLE_ON -> {
                         light.close(t)
                         deep.open(t)

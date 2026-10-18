@@ -32,6 +32,8 @@ object TimelineEvents {
         val ordered = before.sortedBy { it.wallMs }
         val seeds = (screen + plug).mapNotNull { kind -> ordered.lastOrNull { it.kind == kind } } + listOfNotNull(
             ordered.lastOrNull { it.kind == HistoryKind.SHUTDOWN },
+            ordered.lastOrNull { it.kind == HistoryKind.RESET },
+            ordered.lastOrNull { it.kind == HistoryKind.START },
         ) + ordered.filter { it.kind in idle }.takeLast(IDLE_SEEDS)
         return seeds.sortedBy { it.wallMs } + inWindow
     }
