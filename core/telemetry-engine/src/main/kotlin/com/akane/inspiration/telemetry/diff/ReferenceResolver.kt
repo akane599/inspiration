@@ -35,11 +35,15 @@ data class ResolvedReference(
 class ReferenceResolver(
     private val store: SnapshotStore,
 ) {
-    suspend fun resolve(kind: ReferenceKind, nowWallMs: Long): ResolvedReference? {
-        val latest = store.lastAtOrBefore(nowWallMs, null) ?: return null
-        val events = store.historyBetween(0, nowWallMs)
-            .filter { it.wallMs in 0..nowWallMs }
-            .sortedBy(HistoryEvent::wallMs)
+    suspend fun resolve(kind: ReferenceKind, nowWallMs: Long): ResolvedReference? =
+        resolve(kind, nowWallMs, historyUpTo(nowWallMs))
+
+    /**
+     * Resolves against [events], the stored history up to [nowWallMs] oldest first as [historyUpTo] returns it,
+     * so a caller that needs that history too loads it once.
+     */
+    suspend fun resolve(kind: ReferenceKind, nowWallMs: Long, events: List<HistoryEvent>): ResolvedReference? {
+        store.lastAtOrBefore(nowWallMs, null) ?: return null
         val boundary = boundaryFor(kind, nowWallMs, events) ?: return null
         if (boundary.fromWallMs > boundary.toWallMs) return null
 
@@ -61,6 +65,12 @@ class ReferenceResolver(
             perUidAvailable = ref.kind == SnapshotKind.FULL && end.kind == SnapshotKind.FULL,
         )
     }
+
+    /** The stored history with `0 <= wallMs <= nowWallMs`, oldest first. */
+    suspend fun historyUpTo(nowWallMs: Long): List<HistoryEvent> =
+        store.historyBetween(0, nowWallMs)
+            .filter { it.wallMs in 0..nowWallMs }
+            .sortedBy(HistoryEvent::wallMs)
 
     private suspend fun boundaryFor(
         kind: ReferenceKind,

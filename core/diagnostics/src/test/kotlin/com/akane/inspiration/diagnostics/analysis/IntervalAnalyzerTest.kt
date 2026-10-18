@@ -45,6 +45,15 @@ class IntervalAnalyzerTest {
     }
 
     @Test
+    fun `one analysis loads the stored history once for resolution and metrics`() = runTest {
+        val store = store()
+
+        assertNotNull(IntervalAnalyzer(store, ruleEngine()).analyze(ReferenceKind.SinceUnplugged, nowWallMs = 6 * hour))
+
+        assertEquals(1, store.historyReads)
+    }
+
+    @Test
     fun `returns null when the store has no snapshots`() = runTest {
         val analysis = IntervalAnalyzer(FakeSnapshotStore(), ruleEngine()).analyze(ReferenceKind.Last24h, nowWallMs = 6 * hour)
 

@@ -33,12 +33,13 @@ class IntervalAnalyzer(
 
     /** Null when [kind] has no resolvable interval at [nowWallMs]. */
     suspend fun analyze(kind: ReferenceKind, nowWallMs: Long): IntervalAnalysis? {
-        val resolved = resolver.resolve(kind, nowWallMs) ?: return null
+        // One history load serves both the boundary resolution and the interval metrics.
+        val events = resolver.historyUpTo(nowWallMs)
+        val resolved = resolver.resolve(kind, nowWallMs, events) ?: return null
         // IntervalMetricsCalculator.compute requires to >= from.
         if (resolved.coveredToWallMs < resolved.coveredFromWallMs) return null
 
         val diff = SnapshotDiffer.diff(resolved.ref, resolved.now)
-        val events = store.historyBetween(0, nowWallMs).sortedBy { it.wallMs }
         val metrics = IntervalMetricsCalculator.compute(events, resolved.coveredFromWallMs, resolved.coveredToWallMs)
         val report = ruleEngine.evaluate(DiagnosticInput(diff, metrics, resolved.perUidAvailable))
         val story = storyBuilder.build(metrics, diff.sleep, report)

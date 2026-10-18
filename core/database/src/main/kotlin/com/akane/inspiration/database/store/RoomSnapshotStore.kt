@@ -244,6 +244,11 @@ class RoomSnapshotStore(
         val wakelocks = snapshotDao.wakelocksForSnapshot(snapshot.id)
         val alarms = snapshotDao.alarmsForSnapshot(snapshot.id)
         val sensors = snapshotDao.uidSensorsForSnapshot(snapshot.id)
+        // One pass per child table, then a map lookup per UID: filtering each table per UID is O(UIDs x rows).
+        val componentsByUid = components.groupBy { it.uid }
+        val partialWakelocksByUid = wakelocks.filter { it.kind == PARTIAL_WAKELOCK }.groupBy { it.uid }
+        val alarmsByUid = alarms.groupBy { it.uid }
+        val sensorsByUid = sensors.groupBy { it.uid }
         return BatterySnapshot(
             id = snapshot.id,
             kind = SnapshotKind.valueOf(snapshot.kind),
@@ -269,13 +274,13 @@ class RoomSnapshotStore(
             system = snapshotDao.systemForSnapshot(snapshot.id)?.toDomain(),
             uids = snapshotDao.uidsForSnapshot(snapshot.id).map { uid ->
                 uid.toDomain(
-                    components = components.filter { it.uid == uid.uid },
-                    wakelocks = wakelocks.filter { it.uid == uid.uid && it.kind == PARTIAL_WAKELOCK },
-                    alarms = alarms.filter { it.uid == uid.uid },
-                    sensors = sensors.filter { it.uid == uid.uid },
+                    components = componentsByUid[uid.uid].orEmpty(),
+                    wakelocks = partialWakelocksByUid[uid.uid].orEmpty(),
+                    alarms = alarmsByUid[uid.uid].orEmpty(),
+                    sensors = sensorsByUid[uid.uid].orEmpty(),
                 )
             },
-            deviceComponentsMah = components.filter { it.uid == DEVICE_UID }.associate { it.component to it.mah },
+            deviceComponentsMah = componentsByUid[DEVICE_UID].orEmpty().associate { it.component to it.mah },
             kernelWakelocks = wakelocks
                 .filter { it.kind == KERNEL_WAKELOCK }
                 .map { KernelWakelock(it.name, it.durationMs, it.count) },

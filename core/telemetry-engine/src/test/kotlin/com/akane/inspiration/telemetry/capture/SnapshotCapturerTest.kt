@@ -244,9 +244,46 @@ class SnapshotCapturerTest {
             TestClocks(),
         )
 
-        capturer.ingestHistory(deadlineMs = 100)
+        val ingest = capturer.ingestHistory(CaptureTrigger.CHARGE_JOB, deadlineMs = 100)
 
         assertEquals(listOf(historyEvent(9)), store.history)
+        assertTrue(ingest.historyAvailable)
+        assertTrue(store.snapshots.isEmpty())
+    }
+
+    @Test
+    fun `capturing an ingested read saves its snapshot without a second source read`() = runTest {
+        val store = FakeStore()
+        val source = FakeSource(history = listOf(page(truncated = false, historyEvent(9))))
+        val capturer = SnapshotCapturer(source, store, TestClocks())
+
+        val result = capturer.captureFull(capturer.ingestHistory(CaptureTrigger.CHARGE_JOB, deadlineMs = 100))
+
+        assertEquals(1, source.receivedCursors.size)
+        assertEquals(CaptureResult.Saved(1, SnapshotKind.FULL), result)
+        assertEquals(CaptureTrigger.CHARGE_JOB, store.snapshots.single().trigger)
+        assertEquals(listOf(historyEvent(9)), store.history)
+    }
+
+    @Test
+    fun `capturing an ingest whose read timed out records a miss without retrying`() = runTest {
+        val store = FakeStore()
+        val source = object : FakeSource() {
+            override suspend fun full(trigger: CaptureTrigger, historyCursor: Pair<Long, Long>?): FullRead {
+                receivedCursors += historyCursor
+                delay(1_000)
+                return super.full(trigger, historyCursor)
+            }
+        }
+        val capturer = SnapshotCapturer(source, store, TestClocks())
+
+        val ingest = capturer.ingestHistory(CaptureTrigger.CHARGE_JOB, deadlineMs = 100)
+        val result = capturer.captureFull(ingest)
+
+        assertEquals(false, ingest.historyAvailable)
+        assertEquals(CaptureResult.Missed("deadline_or_service_unavailable"), result)
+        assertEquals(1, source.receivedCursors.size)
+        assertEquals(listOf(CaptureTrigger.CHARGE_JOB to "deadline_or_service_unavailable"), store.misses)
         assertTrue(store.snapshots.isEmpty())
     }
 

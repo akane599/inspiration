@@ -4,10 +4,8 @@ import android.app.job.JobParameters
 import android.app.job.JobService
 import android.util.Log
 import com.akane.inspiration.InspirationApplication
-import com.akane.inspiration.ipc.model.HistoryKind
 import com.akane.inspiration.telemetry.capacity.KernelCapacity
 import com.akane.inspiration.telemetry.live.KernelUnits
-import com.akane.inspiration.telemetry.snapshot.CaptureTrigger
 import com.akane.inspiration.telemetry.source.AndroidTelemetrySource
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Job
@@ -28,44 +26,19 @@ class ChargingCaptureJobService : JobService() {
                     runChargeJob(
                         work = {
                             val container = app.appContainer
-                            val store = container.store
-                            val historyAvailable = container.capturer.ingestHistory(FULL_CAPTURE_DEADLINE_MS)
-                            val lastPluggedHistoryWallMs =
-                                if (historyAvailable) {
-                                    store
-                                        .historyBetween(0L, Long.MAX_VALUE)
-                                        .lastOrNull { it.kind == HistoryKind.PLUGGED }
-                                        ?.wallMs
-                                } else {
-                                    null
-                                }
-                            val lastPowerConnectedWallMs = store.latestByTrigger(CaptureTrigger.POWER_CONNECTED)?.clock?.wallMs
-                            val lastChargeJob = store.latestByTrigger(CaptureTrigger.CHARGE_JOB)
-                            runner.run(
-                                shouldCapture =
-                                    CapturePolicy.chargeJobShouldRun(
-                                        lastPluggedHistoryWallMs = lastPluggedHistoryWallMs,
-                                        lastPowerConnectedWallMs = lastPowerConnectedWallMs,
-                                        lastChargeJobWallMs = lastChargeJob?.clock?.wallMs,
-                                        lastChargeJobBootCount = lastChargeJob?.clock?.bootCount,
-                                        currentBootCount = container.clocks.bootCount(),
-                                        historyAvailable = historyAvailable,
-                                    ),
-                                capture = {
-                                    container.capturer.captureFull(
-                                        trigger = CaptureTrigger.CHARGE_JOB,
-                                        deadlineMs = FULL_CAPTURE_DEADLINE_MS,
-                                        ingestHistory = true,
-                                    )
-                                },
+                            runChargeJobCapture(
+                                capturer = container.capturer,
+                                store = container.store,
+                                clocks = container.clocks,
+                                deadlineMs = FULL_CAPTURE_DEADLINE_MS,
                                 analyze = {
                                     ChargeHealthPipeline(
-                                        store = store,
+                                        store = container.store,
                                         kernelCapacity = { readKernelCapacity(app) },
                                         log = { message, error -> Log.w(TAG, message, error) },
                                     ).run(container.clocks.wallMs())
                                 },
-                                prune = { store.prune(container.clocks.wallMs()) },
+                                runner = runner,
                             )
                         },
                         finish = { jobFinished(params, false) },
