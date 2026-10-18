@@ -312,6 +312,23 @@ internal class FakeToolkitDeps(
         return apps
     }
 
+    override val statusNotificationEnabled = MutableStateFlow(false)
+
+    /** What `notificationsBlocked()` answers; a test flips it between visits. */
+    var notificationsBlocked = false
+    var notificationsBlockedReads = 0
+    val statusNotificationRequests = mutableListOf<Boolean>()
+
+    override fun setStatusNotificationEnabled(enabled: Boolean) {
+        statusNotificationRequests += enabled
+        statusNotificationEnabled.value = enabled
+    }
+
+    override fun notificationsBlocked(): Boolean {
+        notificationsBlockedReads += 1
+        return notificationsBlocked
+    }
+
     override fun holdBinding(): AutoCloseable {
         screenHolds += 1
         return AutoCloseable {}

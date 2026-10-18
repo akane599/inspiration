@@ -1,5 +1,9 @@
 package com.akane.inspiration.toolkit
 
+import android.content.ActivityNotFoundException
+import android.content.Context
+import android.content.Intent
+import android.provider.Settings
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -44,6 +48,7 @@ fun ToolkitRoute(
             when (effect) {
                 is ToolkitEffect.ResetFinished ->
                     snackbarHostState.showSnackbar(context.getString(R.string.toolkit_reset_finished, effect.restored, effect.total))
+                ToolkitEffect.OpenNotificationSettings -> openNotificationSettings(context)
             }
         }
     }
@@ -55,4 +60,16 @@ fun ToolkitRoute(
         modifier = modifier,
         snackbarHostState = snackbarHostState,
     )
+}
+
+/** The system page where the user re-allows this app's notifications. Always our own package, never one from outside. */
+private fun openNotificationSettings(context: Context) {
+    val intent = Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS)
+        .putExtra(Settings.EXTRA_APP_PACKAGE, context.packageName)
+        .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+    try {
+        context.startActivity(intent)
+    } catch (_: ActivityNotFoundException) {
+        // No settings app to open: the card stays as it is.
+    }
 }

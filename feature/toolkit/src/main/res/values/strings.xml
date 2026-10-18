@@ -5,6 +5,10 @@
     <string name="toolkit_subtitle">Tune doze and background work. Every change is listed below so you can undo it.</string>
     <string name="toolkit_persist_title">Changes stay until you undo them</string>
     <string name="toolkit_persist_body">Changes made here persist across reboots and even after Inspiration is uninstalled. Restore them from this screen before you remove the app.</string>
+    <string name="toolkit_status_notification_title">Status notification</string>
+    <string name="toolkit_status_notification_body">Shows drain since unplug and deep sleep. Updates only on screen and charger events.</string>
+    <string name="toolkit_status_notification_blocked">Notifications are blocked</string>
+    <string name="toolkit_status_notification_allow">Allow in settings</string>
     <string name="toolkit_reset_all">Reset all</string>
     <string name="toolkit_reset_finished">Restored %1$d of %2$d changes.</string>
     <string name="toolkit_seconds">%1$s s</string>
