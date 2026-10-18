@@ -1,6 +1,5 @@
 package com.akane.inspiration.xray
 
-import androidx.compose.ui.graphics.asImageBitmap
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
@@ -172,7 +171,8 @@ class XRayViewModel(private val deps: XRayDependencies) : ViewModel() {
     private suspend fun withIdentities(rows: List<AppRow>): List<AppRow> = rows.map { row ->
         // batterystats often reports an app UID without a package; PackageManager knows which one owns it.
         val pkg = row.packageName ?: deps.appLabels.packageForUid(row.uid) ?: return@map row
-        row.copy(packageName = pkg, label = deps.appLabels.label(pkg), icon = deps.appLabels.icon(pkg)?.asImageBitmap())
+        // Icons are not loaded here: rows load their own when composed, so an emission costs no bitmaps.
+        row.copy(packageName = pkg, label = deps.appLabels.label(pkg))
     }
 
     // ---- detail sheet ----------------------------------------------------------------------

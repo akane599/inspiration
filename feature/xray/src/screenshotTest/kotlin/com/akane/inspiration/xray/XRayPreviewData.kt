@@ -39,7 +39,6 @@ internal object XRayPreviewData {
         uid = uid,
         packageName = pkg,
         label = label,
-        icon = null,
         totalMah = total,
         sharePct = share,
         slices = ComponentGroup.entries

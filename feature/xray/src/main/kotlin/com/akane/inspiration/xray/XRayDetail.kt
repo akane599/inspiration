@@ -61,10 +61,10 @@ import kotlinx.collections.immutable.toImmutableList
 /** The app detail sheet. Closing it (scrim, swipe, back) only closes it; nothing is applied by dismissing. */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-internal fun AppDetailSheet(detail: AppDetail, onIntent: (XRayIntent) -> Unit, explain: Explainer) {
+internal fun AppDetailSheet(detail: AppDetail, onIntent: (XRayIntent) -> Unit, explain: Explainer, loadIcon: AppIconLoader) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     ModalBottomSheet(onDismissRequest = { onIntent(XRayIntent.CloseApp) }, sheetState = sheetState) {
-        AppDetailContent(detail = detail, onIntent = onIntent, explain = explain)
+        AppDetailContent(detail = detail, onIntent = onIntent, explain = explain, loadIcon = loadIcon)
     }
 }
 
@@ -75,6 +75,7 @@ fun AppDetailContent(
     onIntent: (XRayIntent) -> Unit,
     explain: Explainer,
     modifier: Modifier = Modifier,
+    loadIcon: AppIconLoader = NoAppIcons,
 ) {
     val spacing = MaterialTheme.spacing
     val app = detail.app
@@ -85,7 +86,7 @@ fun AppDetailContent(
             .padding(start = spacing.md, end = spacing.md, bottom = spacing.lg),
         verticalArrangement = Arrangement.spacedBy(spacing.lg),
     ) {
-        DetailHeader(app)
+        DetailHeader(app, loadIcon)
         ComponentSection(app)
         ProcessStateSection(app.processStates)
         ActivitySection(app)
@@ -96,12 +97,12 @@ fun AppDetailContent(
 }
 
 @Composable
-private fun DetailHeader(app: AppRow) {
+private fun DetailHeader(app: AppRow, loadIcon: AppIconLoader) {
     val spacing = MaterialTheme.spacing
     val name = displayName(app)
     Column(verticalArrangement = Arrangement.spacedBy(spacing.ms)) {
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(spacing.ms)) {
-            AppIcon(app = app, name = name)
+            AppIcon(app = app, name = name, loadIcon = loadIcon)
             Column(modifier = Modifier.weight(1f)) {
                 SectionHeading(name)
             }

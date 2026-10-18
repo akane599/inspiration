@@ -47,7 +47,7 @@ object XRayMapper {
     /**
      * Apps ranked by energy, biggest first. Empty when the interval has no per-app data ([perUidAvailable]
      * false, H14) or the statistics are invalid. A UID whose package changed inside the interval is left out:
-     * its total would count the new package from zero. Labels and icons are filled in by the caller.
+     * its total would count the new package from zero. Labels are filled in by the caller; icons load per visible row.
      */
     fun apps(diff: SnapshotDiff, perUidAvailable: Boolean): List<AppRow> {
         if (!perUidAvailable || !diff.validity.batteryStats) return emptyList()
@@ -91,7 +91,6 @@ object XRayMapper {
             uid = delta.uid,
             packageName = delta.packageName,
             label = null,
-            icon = null,
             totalMah = delta.totalMah,
             sharePct = if (appsTotal > 0.0) delta.totalMah / appsTotal * PERCENT else 0.0,
             slices = slices.toImmutableList(),
