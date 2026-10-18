@@ -11,13 +11,74 @@ import org.junit.Test
 
 class CapacityEstimatorTest {
     @Test
-    fun `charge sessions never span a lifecycle boundary`() {
+    fun `charge sessions never span a boot or a mid-charge reset`() {
         for (boundary in listOf(HistoryKind.RESET, HistoryKind.START, HistoryKind.SHUTDOWN)) {
+            // The RESET here is recorded while still plugged and charging goes on afterwards.
             assertTrue(ChargeSegmentExtractor.fromHistory(listOf(
                 historyEvent(0, HistoryKind.PLUGGED, 20, 1_000_000),
                 historyEvent(500, boundary, 40, 2_000_000),
+                historyEvent(700, HistoryKind.LEVEL, 60, 2_800_000),
                 historyEvent(1_000, HistoryKind.UNPLUGGED, 80, 3_700_000),
             )).isEmpty())
+        }
+    }
+
+    @Test
+    fun `a reset record that carries the unplug ends the charge`() {
+        // Walker shape: PLUGGED, LEVEL, RESET(unplugged), LEVEL - no UNPLUGGED is ever emitted.
+        val segment = ChargeSegmentExtractor.fromHistory(listOf(
+            historyEvent(0, HistoryKind.PLUGGED, 30, 1_000_000),
+            historyEvent(500, HistoryKind.LEVEL, 95, 3_600_000),
+            historyEvent(1_000, HistoryKind.RESET, 95, 3_600_000, plugType = 0),
+            historyEvent(1_500, HistoryKind.LEVEL, 94, 3_560_000, plugType = 0),
+        )).single()
+
+        assertEquals(30, segment.startPct)
+        assertEquals(95, segment.endPct)
+        assertEquals(11_000L, segment.endWallMs)
+        assertEquals(2_600_000L, segment.deltaChargeUah)
+    }
+
+    @Test
+    fun `a plugged reset followed by an unplug at the same instant ends the charge`() {
+        // Walker shape: PLUGGED, LEVEL, RESET(plugged), UNPLUGGED, all closing at one timestamp.
+        val segment = ChargeSegmentExtractor.fromHistory(listOf(
+            historyEvent(0, HistoryKind.PLUGGED, 30, 1_000_000),
+            historyEvent(500, HistoryKind.LEVEL, 95, 3_600_000),
+            historyEvent(1_000, HistoryKind.RESET, 95, 3_600_000),
+            historyEvent(1_000, HistoryKind.SCREEN_ON, 95, 3_600_000),
+            historyEvent(1_000, HistoryKind.UNPLUGGED, 95, 3_600_000),
+        )).single()
+
+        assertEquals(95, segment.endPct)
+        assertEquals(11_000L, segment.endWallMs)
+    }
+
+    @Test
+    fun `a charge split across stats sessions is extracted once under its starting session`() {
+        val oldSession = listOf(
+            historyEvent(0, HistoryKind.PLUGGED, 30, 1_000_000),
+            historyEvent(500, HistoryKind.LEVEL, 95, 3_600_000),
+        )
+        // The new session's history clock restarts below the old one's.
+        val resetCarriesUnplug = listOf(
+            historyEvent(100, HistoryKind.RESET, 95, 3_600_000, plugType = 0, wallMs = 20_000),
+            historyEvent(200, HistoryKind.LEVEL, 94, 3_560_000, plugType = 0, wallMs = 20_100),
+        )
+        val resetThenUnplug = listOf(
+            historyEvent(100, HistoryKind.RESET, 95, 3_600_000, wallMs = 20_000),
+            historyEvent(100, HistoryKind.UNPLUGGED, 95, 3_600_000, wallMs = 20_000),
+        )
+
+        for (newSession in listOf(resetCarriesUnplug, resetThenUnplug)) {
+            val (statsStartMs, segment) = ChargeSegmentExtractor.fromSessions(
+                mapOf(2_000L to newSession, 1_000L to oldSession),
+            ).single()
+
+            assertEquals(1_000L, statsStartMs)
+            assertEquals(10_000L, segment.startWallMs)
+            assertEquals(20_000L, segment.endWallMs)
+            assertEquals(65, segment.endPct - segment.startPct)
         }
     }
 
@@ -177,14 +238,16 @@ class CapacityEstimatorTest {
         kind: Int,
         levelPct: Int,
         chargeUah: Long,
+        plugType: Int = if (kind == HistoryKind.UNPLUGGED) 0 else 1,
+        wallMs: Long = timeMs + 10_000L,
     ) = HistoryEvent(
         historyTimeMs = timeMs,
-        wallMs = timeMs + 10_000L,
+        wallMs = wallMs,
         kind = kind,
         levelPct = levelPct,
         chargeUah = chargeUah,
         temperatureDeciC = 250,
         voltageMv = 4_000,
-        plugType = if (kind == HistoryKind.UNPLUGGED) 0 else 1,
+        plugType = plugType,
     )
 }

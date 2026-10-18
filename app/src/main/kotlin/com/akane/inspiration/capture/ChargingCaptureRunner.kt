@@ -47,9 +47,8 @@ class ChargeHealthPipeline(
         val accepted = store.acceptedEstimatesChronological(ACCEPTED_LIMIT).toMutableList()
         var consecutiveRejections = known.takeLastWhile { !it.accepted }.size
 
-        val segments = store.historySessions().flatMap { (epoch, events) ->
-            ChargeSegmentExtractor.fromHistory(events).map { epoch to it }
-        }
+        // One stream across stats sessions: a charge that ends in a reset spans two of them.
+        val segments = ChargeSegmentExtractor.fromSessions(store.historySessions())
             // Wall times, not (statsStart, historyTime): a battery-stats reset changes the epoch key but not these.
             .filter { (_, segment) -> (segment.startWallMs to segment.endWallMs) !in knownKeys }
             .sortedBy { it.second.endWallMs }

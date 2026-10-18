@@ -41,6 +41,24 @@ class ChargeHealthPipelineTest {
     }
 
     @Test
+    fun `a charge ending in a stats reset is stored once under the epoch it started in`() = runTest {
+        // Battery stats reset at unplug: PLUGGED/LEVEL stay under epoch 1, the RESET (already unplugged) opens 2.
+        store.cursor = 2L to 50L
+        store.epochs = mapOf(
+            1L to charge(0L).dropLast(1),
+            2L to listOf(event(2_000L, HistoryKind.RESET, 80, 2_000_000L).copy(historyTimeMs = 0L)),
+        )
+
+        pipeline().run(100_000L)
+        pipeline().run(200_000L)
+
+        val session = store.sessions.single()
+        assertEquals(1L, session.statsStartMs)
+        assertEquals(0L to 2_000L, session.startWallMs to session.endWallMs)
+        assertEquals(2_500.0, session.estimateMah!!, 1e-6)
+    }
+
+    @Test
     fun `a completed charge segment is evaluated and upserted with the current stats epoch`() = runTest {
         store.cursor = 77L to 12_000L
         store.history += charge(startMs = 0L)
