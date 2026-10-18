@@ -5,4 +5,15 @@
     <string name="nav_sleep_lab">Sleep Lab</string>
     <string name="nav_health">Health</string>
     <string name="nav_toolkit">Toolkit</string>
+
+    <!-- Status notification. The templates are filled by StatusNotificationContent (String.format), not by Android. -->
+    <string name="status_channel_name">Battery status</string>
+    <string name="status_channel_description">Shows battery drain since unplug and deep sleep. Updates only on screen and charger events.</string>
+    <string name="status_reading">Reading battery…</string>
+    <string name="status_percent" formatted="false">%1$s%%</string>
+    <string name="status_title_since_unplug" formatted="false">%1$s since unplug · %2$s</string>
+    <string name="status_title_since_time" formatted="false">%1$s since %2$s · %3$s</string>
+    <string name="status_detail" formatted="false">Screen on %1$s · off %2$s · Deep sleep %3$s</string>
+    <string name="status_charging" formatted="false">Charging · %1$s</string>
+    <string name="status_charging_hint">Drain stats start when you unplug</string>
 </resources>
