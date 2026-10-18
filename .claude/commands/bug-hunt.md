@@ -1,5 +1,5 @@
 ---
-description: Hunt for bugs in existing code. Read-only Terra/medium reviews with the configured Sonnet fallback by area with the Android bug checklist, then one fix ticket per bug you pick, each starting from a test that reproduces it
+description: Hunt for bugs in existing code. Read-only Sonnet/medium reviews by area with the Android bug checklist, then one fix ticket per bug you pick, each starting from a test that reproduces it
 argument-hint: "[scope: path, module or feature | blank = the riskiest areas from the codebase map]"
 ---
 
@@ -12,7 +12,7 @@ Find bugs in code that already exists. For a diff you're about to push, `/pr-rev
    - description: the area's paths; the absolute path of `$CLAUDE_PROJECT_DIR/.claude/kit/android-bug-checklist.md`; "Hunt for real bugs in this area with that checklist and report in its format as your closing body. Run no Gradle task and edit nothing."
    - They don't run Gradle, so they can all go in one wave.
 
-3. **Dispatch and wait.** Inspect the fresh effective routes first: report each reviewer's actual Claude/GPT route and any availability fallback. Use the exact returned Sidequest spawn; preserve its model field when present, and omit it when absent/null. Give each reviewer only raw source scope and the checklist. Do not hunt yourself or share findings between reviewers in the meantime.
+3. **Dispatch and wait.** Inspect the fresh effective routes first: report each reviewer's actual Claude route and any availability fallback. Use the exact returned Sidequest spawn; preserve its model field when present, and omit it when absent/null. Give each reviewer only raw source scope and the checklist. Do not hunt yourself or share findings between reviewers in the meantime.
 
 4. **Triage once.** Merge the reports and drop duplicates before reading candidate evidence. For each finding, read the cited lines and necessary callers yourself; keep it only if the scenario holds. Reuse shared evidence across findings; do not repeat the full area hunt or dispatch an extra validator for a claim you can directly resolve. Show the user a numbered list (severity, one line, `file:line`) and let them pick what gets fixed. The rest goes on the board only if they say so.
 

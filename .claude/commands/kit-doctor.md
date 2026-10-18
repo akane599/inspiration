@@ -1,14 +1,23 @@
 ---
-description: Inspect hybrid kit health, hook overlaps, pending merges, mixed routes and loaded review agents without changing configuration
+description: Read-only inspection of the selected kit, project scope, gateway choice and model routing
 ---
-Run this inspection inline. Do not install/update plugins, execute imported hooks or dispatch inference.
+Run inline. No installation, enablement changes, imported hooks or inference.
 
-1. Read .claude/kit/state.json and conflicts.json. Report pending incoming template merges and the recorded kit_home/variant. Resolve ANDROID_KIT_HOME, then recorded kit_home, then $HOME/.local/share/android-kit-hybrid. Do not silently replace customized files.
-2. Run bash .claude/kit/detect-stack.sh. Ground modules, variants, verification tasks and screenshot support in build files. Do not open secrets or local.properties.
-3. Read effective user/shared/local settings without printing credentials or environment values. Use installed lib/merge-settings.py --audit-hooks <kit-settings> <user-settings> <shared-settings> <local-settings> for overlap metadata. Distinguish exact duplicates, differing options and actual execution evidence. Inspect /hooks for plugin/managed sources when relevant; four different kit events are not four duplicates.
-4. Inspect claude plugin list --json, installed roots and versions. Hybrid review IDs are pr-review-toolkit@android-hybrid and code-review@android-hybrid, version 1.3.0-hybrid or newer. Matching android-local/official review copies must be masked locally. Active copies of the same namespace are a conflict; do not uninstall another project's plugins.
-5. Run sidequest models --full --json, board-config and the installed routing-profile.py check. Expected profile is android-kit-hybrid. Compare every configured primary/fallback with lib/routing-profile.json; native Claude aliases and codex-gpt-* are both valid. Report custom board and per-ticket routes, availability fallbacks, unusable executors and disabled legacy aliases. Preserve active dispatch evidence; profile changes do not retarget running attempts.
-6. Current defaults: Luna/high bounded work; Terra/high routine code/UI; Terra/medium code review and mechanical edits; Opus/medium debugging/hard coding/spikes/visual review, Opus/high experiments; Sonnet research. Main Opus/medium, plan audit Opus/medium; final recovery Opus/high then Fable/high. These are configuration checks, not proof of account entitlement, quota or authenticated inference.
-7. Separate Gateway catalog/readiness, agent files and the current session's registered Agent types. Native review frontmatter should select Terra/medium reviewers, Terra/high explicit simplification, Luna metadata, Sonnet comments and Opus/medium validators. If loaded registration is unavailable, mark pending and check /agents after a full restart. /kit-refresh updates discovery; --update-toolshed explicitly upgrades across projects and may restart the shared Gateway.
-8. Check git ls-files for settings.local.json, plugin config, local.properties and signing files; report tracked sensitive paths without opening them. Compare the integration branch with the intended branch. Report JDK/ANDROID_HOME/LSP availability, shell/session overrides and OPUS/SONNET model-alias redirection to GPT or another provider. Do not claim Claude participation from the opus/sonnet alias alone.
-9. Return a short PASS/WARN/BLOCKED table with specific next actions. Gateway failure can block GPT routes or leave explicit Claude fallbacks usable; do not claim every route automatically converts to Claude. Keep Gateway enabled when wired Claude transport uses it, including during native review sessions with Sidequest disabled. Report coverage and inference limits; infer no quota-saving percentage.
+1. Read .claude/kit/state.json, conflicts.json and installed kit.json. Report variant, project
+   scope, gateway choice and pending template merges. Detect stack using the project kit helper.
+2. Run project-settings.py check "$PWD" <KIT_ROOT>. Do not print credentials/environment values.
+   Inspect user/project/local precedence and managed/shell overrides; do not silently edit them.
+3. Inspect installed project-scope plugins and competing namespace masks. Local kit registrations
+   are migration conflicts. Model Gateway may remain installed for other projects; its enablement
+   must match this project's selected policy. Run the manager for installation/migration repairs.
+4. Use sidequest-defaults.py check for stock, routing-profile.py check for other variants.
+   Compare actual routes, fallbacks and effects of board/ticket overrides. Preserve active work.
+   Stock follows upstream coding defaults without kit category edits; other sets use their exact
+   routing-profile.json. Never infer provider participation from a model alias alone.
+5. Audit hook overlap metadata with merge-settings.py --audit-hooks; inspect /hooks for plugin
+   sources. Distinguish four separate hook events from duplicate execution.
+6. Compare bundled review definitions and installed/registered agents; stock uses official roles.
+   Report loaded-state checks as pending when unavailable. Use /kit-refresh after kit merges.
+7. Return PASS/WARN/BLOCKED with specific actions. Gateway-backed sets need gateway readiness;
+   gateway-off sets must not start it. Remote Control still requires compatible native transport,
+   account login and runtime eligibility. No account/quota/inference guarantee follows from files.

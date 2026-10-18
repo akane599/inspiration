@@ -3,7 +3,7 @@
   "rules": [
     {
       "path": "rules/android-build.md",
-      "hash": "78c9c93fe47923f3b06fa26a92a0c574773c0227704311fb21ea8ead0f2f2777",
+      "hash": "cb6039b187ad35fdfa713cba96163bf228c0f0f30696957a46de453580787938",
       "description": "Android build, test and dependency rules",
       "globs": [],
       "dirs": [],
@@ -25,12 +25,23 @@
     },
     {
       "path": "rules/android-orchestration.md",
-      "hash": "195022730b47b186a6af101ed9a566446ec81993a3ce11905b19ebe1a3d229c2",
-      "description": "Android ticket ownership, verification and mixed Claude/GPT routing through Sidequest profile android-kit-hybrid",
+      "hash": "527c532ed42e6a18d8f1bcc712b2073b15d915518338767a52c4dae4a24944b9",
+      "description": "Android ticket ownership, verification and native Claude routing through Sidequest profile android-kit-claude",
       "globs": [],
       "dirs": [],
       "prompt": [],
       "priority": 15,
+      "enabled": true,
+      "include": []
+    },
+    {
+      "path": "rules/file-writes.md",
+      "hash": "5606a7d43d93722852603b19f383babbd933ae5a1b11866530a6dd5a0e45e4ba",
+      "description": "File writes go through Write/Edit",
+      "globs": [],
+      "dirs": [],
+      "prompt": [],
+      "priority": 20,
       "enabled": true,
       "include": []
     }
