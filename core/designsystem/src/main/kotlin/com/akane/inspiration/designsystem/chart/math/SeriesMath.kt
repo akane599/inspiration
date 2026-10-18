@@ -40,16 +40,6 @@ fun decimateMinMax(points: List<TimePoint>, scale: TimeScale, buckets: Int): Lis
     return out
 }
 
-/** Index of the point closest in time to [tMs] in time-sorted [points] (earlier on ties), -1 when empty. */
-fun nearestIndex(points: List<TimePoint>, tMs: Long): Int {
-    if (points.isEmpty()) return -1
-    val after = lowerBound(points, tMs)
-    if (after == 0) return 0
-    if (after == points.size) return points.lastIndex
-    val before = after - 1
-    return if (tMs - points[before].tMs <= points[after].tMs - tMs) before else after
-}
-
 /** Linear interpolation of time-sorted [points] at [tMs]; null when empty or outside the data's time span. */
 fun valueAt(points: List<TimePoint>, tMs: Long): Float? {
     if (points.isEmpty() || tMs < points.first().tMs || tMs > points.last().tMs) return null

@@ -56,11 +56,6 @@ object CapturePolicy {
         return sessionStartWallMs != null && lastChargeJobWallMs < sessionStartWallMs
     }
 
-    fun appOpenDebounced(
-        lastAppOpenWallMs: Long?,
-        nowWallMs: Long,
-    ): Boolean = lastAppOpenWallMs == null || nowWallMs - lastAppOpenWallMs >= APP_OPEN_DEBOUNCE_MS
-
     const val APP_OPEN_DEBOUNCE_MS = 60_000L
     const val BROADCAST_FULL_DEADLINE_MS = 2_000L
     const val BROADCAST_PERSIST_BUDGET_MS = 1_500L
