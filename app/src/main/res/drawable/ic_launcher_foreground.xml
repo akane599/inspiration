@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Battery cell with a telemetry trace passing through its walls; kept inside the 66dp safe zone. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <!-- Cell walls, open where the trace passes through. -->
+    <path
+        android:pathData="M35,53.5V42A8,8 0,0 1,43 34H65A8,8 0,0 1,73 42V53.5M73,64.5V71A8,8 0,0 1,65 79H43A8,8 0,0 1,35 71V64.5"
+        android:strokeWidth="4.5"
+        android:strokeColor="#FFDCE4EE"
+        android:strokeLineCap="round" />
+    <!-- Terminal cap. -->
+    <path
+        android:pathData="M49,27.5H59A2,2 0,0 1,61 29.5V30.5A2,2 0,0 1,59 32.5H49A2,2 0,0 1,47 30.5V29.5A2,2 0,0 1,49 27.5Z"
+        android:fillColor="#FFDCE4EE" />
+    <!-- Telemetry trace. -->
+    <path
+        android:pathData="M25,59H42L47.5,47L53.5,70L59,53L62,59H83"
+        android:strokeWidth="4.5"
+        android:strokeColor="#FF22D3EE"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round" />
+</vector>
