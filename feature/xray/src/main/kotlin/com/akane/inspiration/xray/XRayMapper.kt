@@ -55,7 +55,7 @@ object XRayMapper {
         val sum = usable.sumOf { it.totalMah }
         return usable
             .sortedWith(compareByDescending<UidDelta> { it.totalMah }.thenBy { it.uid })
-            .map { toRow(it, sum) }
+            .map { toRow(it, sum, diff) }
     }
 
     /** The slice banner's data; null unless the selection is a time slice. [resolved] is null while no interval resolves. */
@@ -77,7 +77,7 @@ object XRayMapper {
         else -> ComponentGroup.OTHER
     }
 
-    private fun toRow(delta: UidDelta, appsTotal: Double): AppRow {
+    private fun toRow(delta: UidDelta, appsTotal: Double, diff: SnapshotDiff): AppRow {
         val positive = delta.componentsMah.filter { it.value.isFinite() && it.value > 0.0 }
         val slices = ComponentGroup.entries
             .map { group -> GroupSlice(group, positive.filterKeys { groupOf(it) == group }.values.sum()) }
@@ -85,7 +85,8 @@ object XRayMapper {
         val components = positive.entries
             .sortedWith(compareByDescending<Map.Entry<String, Double>> { it.value }.thenBy { it.key })
             .map { ComponentRow(it.key, it.value, it.value / delta.totalMah * PERCENT) }
-        val alarms = delta.wakeupAlarms.ifEmpty { delta.alarmDumpWakeups }
+        val alarms = delta.wakeupAlarms.takeIf { diff.validity.dumpCounters }.orEmpty()
+            .ifEmpty { delta.alarmDumpWakeups.takeIf { diff.validity.alarmDumpCounters }.orEmpty() }
         return AppRow(
             uid = delta.uid,
             packageName = delta.packageName,
@@ -101,9 +102,11 @@ object XRayMapper {
                 foregroundService = delta.fgsMah?.takeIf { it.isFinite() },
                 cached = delta.cachedMah?.takeIf { it.isFinite() },
             ),
+            dumpCountersAvailable = diff.validity.dumpCounters,
+            alarmsAvailable = diff.validity.dumpCounters || diff.validity.alarmDumpCounters,
             cpuMs = delta.cpuUserMs + delta.cpuSystemMs,
             foregroundMs = delta.fgActivityMs,
-            wakelocks = delta.partialWakelocks
+            wakelocks = delta.partialWakelocks.takeIf { diff.validity.dumpCounters }.orEmpty()
                 .filter { it.durationMs > 0 || it.count > 0 }
                 .sortedWith(compareByDescending<UidWakelock> { it.durationMs }.thenBy { it.name })
                 .take(MAX_LISTED)

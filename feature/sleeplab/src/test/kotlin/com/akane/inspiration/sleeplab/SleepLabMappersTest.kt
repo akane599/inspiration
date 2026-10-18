@@ -21,6 +21,18 @@ import org.junit.Test
 
 class SleepLabMappersTest {
 
+    @Test
+    fun `missing counter sources render unavailable rather than empty or cumulative rows`() {
+        val base = snapshotDiff(kernel = listOf(KernelWakelock("wlan", 1_000, 1)), cpu = listOf(CpuFreqDelta(0, 1_000, 10)))
+        val diff = base.copy(validity = base.validity.copy(
+            dumpCounters = false, kernelWakelocks = false, cpuFreq = false, alarmDumpCounters = false,
+        ))
+        assertEquals(ListUi.Unavailable, appWakelockRows(diff, true, emptyMap()))
+        assertEquals(ListUi.Unavailable, kernelWakelockRows(diff))
+        assertEquals(ListUi.Unavailable, alarmRows(diff, true, emptyMap()))
+        assertEquals(CpuUi.Unavailable, cpuUi(diff))
+    }
+
     // --- Timeline -> HypnogramData ---
 
     private fun timeline(

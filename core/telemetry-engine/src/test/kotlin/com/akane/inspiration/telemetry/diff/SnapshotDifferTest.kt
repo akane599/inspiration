@@ -32,6 +32,71 @@ import org.junit.Test
 
 class SnapshotDifferTest {
     @Test
+    fun `dump outage on either endpoint preserves energy but omits incomparable counters`() {
+        val observed = uid(totalMah = 10.0).copy(
+            cpuUserMs = 7_200_000,
+            fgActivityMs = 600_000,
+            partialWakelocks = listOf(com.akane.inspiration.telemetry.dump.UidWakelock("held", 3_600_000, 0, 10)),
+            sensors = listOf(UidSensor(1, 300_000, 0, 2)),
+        )
+        val sources = mapOf("dump" to com.akane.inspiration.telemetry.snapshot.SourceAvailability(true, null))
+        for (missingReference in listOf(true, false)) {
+            val ref = snapshot(elapsed = 1_000, uids = listOf(if (missingReference) uid(totalMah = 10.0) else observed)).copy(
+                availability = sources.mapValues { it.value.copy(available = !missingReference) },
+            )
+            val now = snapshot(elapsed = 61_000, duration = 61_000,
+                uids = listOf(if (missingReference) observed.copy(totalMah = 11.0) else uid(totalMah = 11.0))).copy(
+                availability = sources.mapValues { it.value.copy(available = missingReference) },
+            )
+            val diff = SnapshotDiffer.diff(ref, now)
+            assertTrue(diff.validity.batteryStats)
+            assertFalse(diff.validity.dumpCounters)
+            assertFalse(diff.validity.kernelWakelocks)
+            assertTrue(diff.uids.single().valid)
+            assertEquals(1.0, diff.uids.single().totalMah, 0.0)
+            assertEquals(0L, diff.uids.single().cpuUserMs)
+            assertTrue(diff.uids.single().partialWakelocks.isEmpty())
+            assertTrue(diff.uids.single().sensors.isEmpty())
+        }
+    }
+
+    @Test
+    fun `stats reset omits even positive kernel wakelock deltas but retains boot CPU counters`() {
+        val ref = snapshot(elapsed = 1_000, kernelWakelocks = listOf(KernelWakelock("wlan", 1_000, 1)))
+            .copy(cpuFreq = listOf(CpuFreqTime(0, 1_000, 10)))
+        for (newTime in listOf(500L, 3_000L)) {
+            val now = snapshot(elapsed = 2_000, statsStart = 200_000,
+                kernelWakelocks = listOf(KernelWakelock("wlan", newTime, 3)))
+                .copy(cpuFreq = listOf(CpuFreqTime(0, 1_000, 20)))
+            val diff = SnapshotDiffer.diff(ref, now)
+            assertFalse(diff.validity.kernelWakelocks)
+            assertTrue(diff.kernelWakelocks.isEmpty())
+            assertTrue(diff.validity.kernelCounters)
+            assertTrue(diff.validity.cpuFreq)
+            assertEquals(10L, diff.cpuFreqDelta.single().timeMs)
+        }
+    }
+
+    @Test
+    fun `CPU and alarm dump recovery cannot use missing observations as zero baselines`() {
+        val ref = snapshot(elapsed = 1_000, uids = listOf(uid(totalMah = 1.0))).copy(
+            availability = mapOf("cpu" to com.akane.inspiration.telemetry.snapshot.SourceAvailability(false, "timeout"),
+                "alarm" to com.akane.inspiration.telemetry.snapshot.SourceAvailability(false, "timeout")),
+        )
+        val now = snapshot(elapsed = 2_000, duration = 2_000,
+            uids = listOf(uid(totalMah = 2.0).copy(alarmDumpWakeups = listOf(UidAlarm("alarm", 100))))).copy(
+            cpuFreq = listOf(CpuFreqTime(0, 1_000, 50_000)),
+            availability = ref.availability.mapValues { it.value.copy(available = true) },
+        )
+        val diff = SnapshotDiffer.diff(ref, now)
+        assertFalse(diff.validity.cpuFreq)
+        assertFalse(diff.validity.alarmDumpCounters)
+        assertTrue(diff.cpuFreqDelta.isEmpty())
+        assertTrue(diff.uids.single().alarmDumpWakeups.isEmpty())
+        assertEquals(1.0, diff.uids.single().totalMah, 0.0)
+    }
+
+    @Test
     fun `same session computes device and uid deltas`() {
         val diff = SnapshotDiffer.diff(
             snapshot(

@@ -130,6 +130,7 @@ private fun SnapshotDiff.perUidState(perUidAvailable: Boolean): ListUi<Nothing>?
  */
 internal fun appWakelockRows(diff: SnapshotDiff, perUidAvailable: Boolean, labels: Map<String, String>): ListUi<AppWakelockRow> {
     diff.perUidState(perUidAvailable)?.let { return it }
+    if (!diff.validity.dumpCounters) return ListUi.Unavailable
     val rows = diff.uids.filter { it.valid }.flatMap { uid ->
         uid.partialWakelocks.filter { it.durationMs > 0 || it.count > 0 }.map {
             AppWakelockRow(
@@ -156,7 +157,7 @@ internal fun appWakelockRows(diff: SnapshotDiff, perUidAvailable: Boolean, label
  * compared across the interval; names whose delta went negative are dropped. `/sys/class/wakeup` is not read.
  */
 internal fun kernelWakelockRows(diff: SnapshotDiff): ListUi<KernelWakelockRow> {
-    if (!diff.validity.kernelCounters) return ListUi.Unavailable
+    if (!diff.validity.kernelWakelocks) return ListUi.Unavailable
     val rows = diff.kernelWakelocks
         .filter { it.name !in diff.validity.invalidKernelWakelocks && (it.durationMs > 0 || it.count > 0) }
         .map { KernelWakelockRow(it.name, it.durationMs, it.count) }
@@ -169,6 +170,7 @@ internal fun kernelWakelockRows(diff: SnapshotDiff): ListUi<KernelWakelockRow> {
  */
 internal fun alarmRows(diff: SnapshotDiff, perUidAvailable: Boolean, labels: Map<String, String>): ListUi<AlarmRow> {
     diff.perUidState(perUidAvailable)?.let { return it }
+    if (!diff.validity.dumpCounters && !diff.validity.alarmDumpCounters) return ListUi.Unavailable
     val rows = diff.uids.filter { it.valid }.mapNotNull { uid ->
         val tags = uid.wakeupAlarms.positive().ifEmpty { uid.alarmDumpWakeups.positive() }
         if (tags.isEmpty()) {
@@ -209,7 +211,7 @@ internal fun <T> ListUi<T>.rowsOrEmpty(): List<T> = if (this is ListUi.Rows<T>) 
  * by policy order, which is how SoCs number them; any other count stays generic.
  */
 internal fun cpuUi(diff: SnapshotDiff): CpuUi {
-    if (!diff.validity.kernelCounters) return CpuUi.Unavailable
+    if (!diff.validity.cpuFreq) return CpuUi.Unavailable
     val byPolicy = diff.cpuFreqDelta.filter { it.timeMs > 0 }.groupBy { it.policy }.toSortedMap()
     if (byPolicy.isEmpty()) return CpuUi.NoData
     val roles = clusterRoles(byPolicy.size)

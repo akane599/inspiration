@@ -167,8 +167,8 @@ private fun ProcessStateSection(states: ProcessStateMah) {
 private fun ActivitySection(app: AppRow) {
     val format = rememberTelemetryFormat()
     Section(title = stringResource(R.string.xray_detail_activity)) {
-        ValueRow(stringResource(R.string.xray_detail_cpu_time), durationText(format, app.cpuMs))
-        ValueRow(stringResource(R.string.xray_detail_foreground_time), durationText(format, app.foregroundMs))
+        ValueRow(stringResource(R.string.xray_detail_cpu_time), if (app.dumpCountersAvailable) durationText(format, app.cpuMs) else stringResource(R.string.xray_value_unavailable))
+        ValueRow(stringResource(R.string.xray_detail_foreground_time), if (app.dumpCountersAvailable) durationText(format, app.foregroundMs) else stringResource(R.string.xray_value_unavailable))
     }
 }
 
@@ -176,7 +176,8 @@ private fun ActivitySection(app: AppRow) {
 private fun WakelockSection(app: AppRow, explain: Explainer) {
     val format = rememberTelemetryFormat()
     Section(title = stringResource(R.string.xray_detail_wakelocks)) {
-        if (app.wakelocks.isEmpty()) NoneRecorded()
+        if (!app.dumpCountersAvailable) Text(stringResource(R.string.xray_value_unavailable))
+        else if (app.wakelocks.isEmpty()) NoneRecorded()
         app.wakelocks.forEach { wakelock ->
             val explanation = remember(wakelock.name, explain) { explain(EntryKind.PARTIAL, wakelock.name) }
             NamedEntry(
@@ -193,7 +194,8 @@ private fun WakelockSection(app: AppRow, explain: Explainer) {
 @Composable
 private fun AlarmSection(app: AppRow, explain: Explainer) {
     Section(title = stringResource(R.string.xray_detail_alarms)) {
-        if (app.alarms.isEmpty()) NoneRecorded()
+        if (!app.alarmsAvailable) Text(stringResource(R.string.xray_value_unavailable))
+        else if (app.alarms.isEmpty()) NoneRecorded()
         app.alarms.forEach { alarm ->
             val explanation = remember(alarm.tag, explain) { explain(EntryKind.ALARM, alarm.tag) }
             NamedEntry(

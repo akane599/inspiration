@@ -87,6 +87,25 @@ class HealthViewModelTest {
     }
 
     @Test
+    fun `new live charge duration excludes the previous completed history charge`() = runTest(dispatcher) {
+        deps.history = listOf(
+            event(NOW_MS - 5 * HOUR_MS, HistoryKind.PLUGGED),
+            event(NOW_MS - 4 * HOUR_MS, HistoryKind.UNPLUGGED),
+        )
+        val vm = viewModel()
+        vm.onIntent(HealthIntent.Visible)
+        runCurrent()
+        vm.onIntent(HealthIntent.PlugChanged(true))
+        runCurrent()
+        advanceTimeBy(CURVE_PERIOD_MS)
+        runCurrent()
+
+        assertTrue(vm.state.value.curve is CurveUi.Ready)
+        assertEquals(CURVE_PERIOD_MS, vm.state.value.analysis?.chargeMs)
+        vm.onIntent(HealthIntent.Hidden)
+    }
+
+    @Test
     fun `a second charging signal does not start a second collection`() = runTest(dispatcher) {
         val vm = viewModel()
         vm.onIntent(HealthIntent.Visible)

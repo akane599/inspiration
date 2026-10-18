@@ -27,11 +27,17 @@ object SnapshotDiffer {
         val kernelCounterSessionValid = sameBootWithIncreasingElapsed(ref, now)
         val batteryStatsValid = batteryStatsSessionValid
         val kernelCountersValid = kernelCounterSessionValid
+        val dumpCountersValid = batteryStatsSessionValid && !sessionSkew &&
+            ref.sourceAvailable("dump") && now.sourceAvailable("dump")
+        val kernelWakelocksValid = kernelCounterSessionValid && dumpCountersValid
+        val cpuFreqValid = kernelCounterSessionValid && ref.sourceAvailable("cpu") && now.sourceAvailable("cpu")
+        val alarmDumpValid = batteryStatsSessionValid && kernelCounterSessionValid &&
+            ref.sourceAvailable("alarm") && now.sourceAvailable("alarm")
         if (!batteryStatsSessionValid) problems += "battery_stats_session"
         if (!kernelCounterSessionValid) problems += "kernel_clock_session"
 
         val uids = if (batteryStatsSessionValid) {
-            diffUids(ref, now, problems)
+            diffUids(ref, now, problems, dumpCountersValid, alarmDumpValid)
         } else {
             emptyList()
         }
@@ -40,14 +46,14 @@ object SnapshotDiffer {
         } else {
             emptyMap()
         }
-        val kernelWakelocks = if (kernelCounterSessionValid) {
+        val kernelWakelocks = if (kernelWakelocksValid) {
             diffKernelWakelocks(ref.kernelWakelocks, now.kernelWakelocks, problems)
         } else {
             emptyList()
         }
 
-        val refSystem = ref.system.takeIf { batteryStatsSessionValid }
-        val nowSystem = now.system.takeIf { batteryStatsSessionValid }
+        val refSystem = ref.system.takeIf { dumpCountersValid }
+        val nowSystem = now.system.takeIf { dumpCountersValid }
         val signalStrength = diffSignalBins(
             refSystem?.signalStrengthMs.orEmpty(),
             nowSystem?.signalStrengthMs.orEmpty(),
@@ -72,6 +78,10 @@ object SnapshotDiffer {
             validity = DiffValidity(
                 batteryStats = batteryStatsValid,
                 kernelCounters = kernelCountersValid,
+                dumpCounters = dumpCountersValid,
+                kernelWakelocks = kernelWakelocksValid,
+                cpuFreq = cpuFreqValid,
+                alarmDumpCounters = alarmDumpValid,
                 problems = problems,
                 invalidDeviceComponents = components.filterValues { it < 0.0 }.keys,
                 invalidKernelWakelocks = kernelWakelocks
@@ -82,7 +92,7 @@ object SnapshotDiffer {
             uids = uids,
             deviceComponentsMah = components,
             kernelWakelocks = kernelWakelocks,
-            sleep = sleepStats(ref, now, batteryStatsSessionValid && !sessionSkew, kernelCounterSessionValid),
+            sleep = sleepStats(ref, now, dumpCountersValid, kernelCounterSessionValid),
             levelDropPct = ref.battery.levelPct?.let { previous ->
                 now.battery.levelPct?.let { current -> previous - current }
             },
@@ -92,11 +102,16 @@ object SnapshotDiffer {
             signalStrengthMs = signalStrength,
             signalScanningMs = signalScanning,
             mobileRadioActiveMs = mobileRadioActive,
-            dischargeMah = dischargeDelta(ref, now) { it.dischargeTotalMah },
-            dischargeScreenOffMah = dischargeDelta(ref, now) { it.dischargeScreenOffMah },
-            cpuFreqDelta = if (kernelCounterSessionValid) diffCpuFreq(ref.cpuFreq, now.cpuFreq, problems) else emptyList(),
+            dischargeMah = if (dumpCountersValid) dischargeDelta(ref, now) { it.dischargeTotalMah } else null,
+            dischargeScreenOffMah = if (dumpCountersValid) dischargeDelta(ref, now) { it.dischargeScreenOffMah } else null,
+            cpuFreqDelta = if (cpuFreqValid) diffCpuFreq(ref.cpuFreq, now.cpuFreq, problems) else emptyList(),
         )
     }
+
+    // Empty maps predate explicit source availability (and are used by legacy fixtures).
+    // Once metadata exists, a missing source is unknown rather than an observed zero.
+    private fun BatterySnapshot.sourceAvailable(source: String): Boolean =
+        availability[source]?.available ?: availability.isEmpty()
 
     /** Null unless both sides carry system timers from the same battery-stats session (equal, known statsStartMs). */
     private fun dischargeDelta(ref: BatterySnapshot, now: BatterySnapshot, field: (SystemTimers) -> Double): Double? {
@@ -148,9 +163,23 @@ object SnapshotDiffer {
         ref: BatterySnapshot,
         now: BatterySnapshot,
         problems: MutableList<String>,
+        dumpCountersValid: Boolean,
+        alarmDumpValid: Boolean,
     ): List<UidDelta> {
-        val refByUid = ref.uids.associateBy(UidSnapshot::uid)
-        val nowByUid = now.uids.associateBy(UidSnapshot::uid)
+        // Missing observations are not zero baselines. Keep independently measured usage energy,
+        // but omit incomparable dump counters and expose their availability on DiffValidity.
+        fun UidSnapshot.comparable() = copy(
+            cpuUserMs = if (dumpCountersValid) cpuUserMs else 0L,
+            cpuSystemMs = if (dumpCountersValid) cpuSystemMs else 0L,
+            fgActivityMs = if (dumpCountersValid) fgActivityMs else 0L,
+            fgServiceMs = if (dumpCountersValid) fgServiceMs else 0L,
+            partialWakelocks = if (dumpCountersValid) partialWakelocks else emptyList(),
+            wakeupAlarms = if (dumpCountersValid) wakeupAlarms else emptyList(),
+            sensors = if (dumpCountersValid) sensors else emptyList(),
+            alarmDumpWakeups = if (alarmDumpValid) alarmDumpWakeups else emptyList(),
+        )
+        val refByUid = ref.uids.map { it.comparable() }.associateBy(UidSnapshot::uid)
+        val nowByUid = now.uids.map { it.comparable() }.associateBy(UidSnapshot::uid)
         return (refByUid.keys + nowByUid.keys).sorted().map { uid ->
             val previous = refByUid[uid]
             val current = nowByUid[uid]

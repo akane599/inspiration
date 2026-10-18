@@ -122,6 +122,11 @@ data class DiffValidity(
     val problems: List<String>,
     val invalidDeviceComponents: Set<String> = emptySet(),
     val invalidKernelWakelocks: Set<String> = emptySet(),
+    // Source-specific availability; defaults preserve manually constructed/legacy diffs.
+    val dumpCounters: Boolean = batteryStats,
+    val kernelWakelocks: Boolean = kernelCounters,
+    val cpuFreq: Boolean = kernelCounters,
+    val alarmDumpCounters: Boolean = batteryStats,
 )
 
 data class SleepStats(

@@ -180,7 +180,7 @@ class HealthViewModel(private val deps: HealthDependencies) : ViewModel() {
             .distinctBy { it.wallMs }
             .sortedBy { it.wallMs }
         val historyPoints = loaded.history.orEmpty().mapNotNull { it.toCurvePoint() }
-        val span = loaded.history?.let(::lastChargeSpan)
+        val span = effectiveChargeSpan(loaded.history?.let(::lastChargeSpan), sampled, hasLive = live.isNotEmpty())
         val session = chargeSession(span, sampled, historyPoints, hasLive = live.isNotEmpty())
         val curve = curveUi(session, liveActive)
         val card = healthCard(loaded.kernel, loaded.healthSamples.orEmpty(), loaded.sessions.orEmpty())

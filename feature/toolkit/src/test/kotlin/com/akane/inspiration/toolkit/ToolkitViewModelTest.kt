@@ -355,6 +355,8 @@ class ToolkitViewModelTest {
     @Test
     fun `the picker lists restricted apps first and searches label and package`() {
         start()
+        // The picker fixture includes Mail, but only an active override makes it restricted.
+        restrict(MAIL)
 
         assertEquals(listOf(MAIL, CALC, CHATTY, MAPS), state.apps.items.map { it.packageName })
         assertTrue(state.apps.items.first().restricted)
@@ -520,6 +522,24 @@ class ToolkitViewModelTest {
         assertTrue(state.overrides.isEmpty())
         assertEquals(ToolkitNotice.Applied(Change.Restored), state.overridesNotice)
         assertEquals(ToolkitActionStatus.RESTORED, device.store.rows.first { it.id == override.actionId }.status)
+    }
+
+    @Test
+    fun `restriction changes update picker badges ordering and active search`() {
+        start()
+        restrict(MAPS)
+        assertEquals(MAPS, state.apps.items.first().packageName)
+        assertTrue(state.apps.items.first().restricted)
+
+        vm.onIntent(ToolkitIntent.SetQuery("Maps"))
+        val override = state.overrides.single()
+        act(ToolkitRequest.Restore(override.actionId))
+        assertEquals(listOf(MAPS), state.apps.items.map { it.packageName })
+        assertFalse(state.apps.items.single().restricted)
+
+        vm.onIntent(ToolkitIntent.SetQuery(""))
+        assertEquals(CALC, state.apps.items.first().packageName)
+        assertFalse(state.apps.items.first { it.packageName == MAPS }.restricted)
     }
 
     @Test

@@ -52,6 +52,25 @@ class ToolkitExecutorTest {
     }
 
     @Test
+    fun `UID overrides are shown but package writes are refused without mutation`() {
+        val executor = executor()
+        runner.handler = { argv ->
+            if (argv[1] == "appops" && argv[2] == "get") {
+                val op = argv[6]
+                ok("Uid mode: $op: ignore\n$op: default")
+            } else error("Unexpected write: $argv")
+        }
+        val read = executor.getAppOps(APP)
+        assertEquals(ToolkitStatus.DONE, read.status)
+        assertTrue(read.afterRaw.orEmpty().contains("RUN_ANY_IN_BACKGROUND=ignore"))
+        val result = executor.setAppOp(APP, AppOp.RUN_ANY_IN_BACKGROUND.code, AppOpMode.DEFAULT.code)
+        assertEquals(ToolkitStatus.REFUSED, result.status)
+        assertEquals(ToolkitCode.NOT_EFFECTIVE, result.code)
+        assertEquals("ignore", result.beforeRaw)
+        assertTrue(runner.calls.none { it[2] == "set" })
+    }
+
+    @Test
     fun `setAppOp issues the exact argv for every op and mode row`() {
         for (op in AppOp.entries) {
             for (mode in AppOpMode.entries) {

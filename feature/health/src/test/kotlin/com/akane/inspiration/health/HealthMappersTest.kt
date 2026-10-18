@@ -442,6 +442,20 @@ class HealthMappersTest {
     // ---- wear chart -----------------------------------------------------------------------------
 
     @Test
+    fun `wear chart accepts capacity samples without cycle counts`() {
+        val wear = wearUi(
+            listOf(
+                healthSample(10, fcc = 4_300.0).copy(cycleCount = null),
+                healthSample(20, fcc = 4_200.0).copy(cycleCount = null),
+            ),
+        )
+
+        assertTrue(wear is WearUi.Ready)
+        assertEquals(2, (wear as WearUi.Ready).points.size)
+        assertEquals(84f, wear.latestPct, 0f)
+    }
+
+    @Test
     fun `fewer than two usable health records is the empty state`() {
         assertEquals(WearUi.NotEnough(0), wearUi(emptyList()))
         assertEquals(WearUi.NotEnough(1), wearUi(listOf(healthSample(10))))

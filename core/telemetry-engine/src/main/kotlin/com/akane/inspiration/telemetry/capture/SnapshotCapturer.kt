@@ -110,6 +110,7 @@ class SnapshotCapturer(
             SOURCE_USAGE to SourceAvailability(usage != null, usage?.reason ?: if (usage == null) read.usage?.reason ?: "unavailable" else null),
             SOURCE_DUMP to SourceAvailability(usableDump != null, if (sessionSkew) "session_skew" else (read.batteryStats as? DumpParse.Unavailable)?.reason),
             SOURCE_KERNEL to SourceAvailability(read.kernel?.available == true, read.kernel?.reason),
+            SOURCE_ALARM to SourceAvailability(read.alarm is DumpParse.Ok, (read.alarm as? DumpParse.Unavailable)?.reason),
             SOURCE_CPU to SourceAvailability(read.cpuTimes.isNotEmpty(), if (read.cpuTimes.isEmpty()) "unavailable" else null),
             SOURCE_HISTORY to SourceAvailability(read.history.any { it.available }, read.history.firstOrNull { !it.available }?.reason),
         )
@@ -189,6 +190,7 @@ class SnapshotCapturer(
         const val SOURCE_DUMP = "dump"
         const val SOURCE_KERNEL = "kernel"
         const val SOURCE_CPU = "cpu"
+        const val SOURCE_ALARM = "alarm"
         const val SOURCE_HISTORY = "history"
         const val SOURCE_LIGHT = "light"
         const val PROCESS_FOREGROUND = "FOREGROUND"

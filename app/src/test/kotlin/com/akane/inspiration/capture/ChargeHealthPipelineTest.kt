@@ -54,6 +54,16 @@ class ChargeHealthPipelineTest {
     }
 
     @Test
+    fun `capacity history is retained when cycle count is unavailable`() = runTest {
+        kernel = kernel!!.copy(cycleCount = null)
+        pipeline().run(100_000L)
+        kernel = kernel!!.copy(chargeFullMah = 2_350.0)
+        pipeline().run(200_000L)
+        assertEquals(listOf(2_400.0, 2_350.0), store.health.map { it.fccMah })
+        assertTrue(store.health.all { it.cycleCount == null })
+    }
+
+    @Test
     fun `a changed cycle count writes a new health sample`() = runTest {
         pipeline().run(nowWallMs = 100_000L)
         kernel = kernel!!.copy(cycleCount = 101)

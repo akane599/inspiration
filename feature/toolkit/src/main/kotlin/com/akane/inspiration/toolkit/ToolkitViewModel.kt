@@ -242,6 +242,10 @@ class ToolkitViewModel(private val deps: ToolkitDependencies) : ViewModel() {
     private suspend fun showOverrides(all: List<Override>) {
         val items = all.map { override -> overrideItem(override) }
         _state.update { it.copy(overrides = items.toImmutableList()) }
+        val restrictedPackages = all.mapNotNull { it.pkg }.toSet()
+        allApps = allApps.map { it.copy(restricted = it.packageName in restrictedPackages) }
+            .sortedWith(compareByDescending<AppItem> { it.restricted }.thenBy(String.CASE_INSENSITIVE_ORDER) { it.label }.thenBy { it.packageName })
+        applyQuery()
     }
 
     private suspend fun overrideItem(override: Override): OverrideItem =

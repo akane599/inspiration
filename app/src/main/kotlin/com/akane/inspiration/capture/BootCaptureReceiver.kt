@@ -3,6 +3,7 @@ package com.akane.inspiration.capture
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
+import android.util.Log
 import com.akane.inspiration.InspirationApplication
 import com.akane.inspiration.status.StatusNotificationController
 import com.akane.inspiration.telemetry.snapshot.CaptureTrigger
@@ -19,12 +20,11 @@ class BootCaptureReceiver : BroadcastReceiver() {
         StatusNotificationController.sync(app)
         val pendingResult = goAsync()
         app.appContainer.applicationScope.launch {
-            try {
-                app.appContainer.capturer.captureLight(CaptureTrigger.BOOT)
-                ChargingCaptureScheduler.arm(app)
-            } finally {
-                pendingResult.finish()
-            }
+            BroadcastCaptureRunner { Log.w("BootCaptureReceiver", "Boot capture or scheduling failed", it) }.run(
+                capture = { app.appContainer.capturer.captureLight(CaptureTrigger.BOOT) },
+                afterCapture = { ChargingCaptureScheduler.arm(app) },
+                finish = { pendingResult.finish() },
+            )
         }
     }
 

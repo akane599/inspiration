@@ -101,7 +101,7 @@ private data class Span(val startMs: Long, val endMs: Long) {
     fun overlaps(other: Span): Boolean = startMs < other.endMs && other.startMs < endMs
 }
 
-/** One state's spans: [open] is idempotent, [close] emits the span, [discard] drops the open one. */
+/** One state's spans: [open] is idempotent, [close] emits the span, closing an unopened lane is a no-op. */
 private class StateLane {
     private val closed = ArrayList<Span>()
     private var openAt: Long? = null
@@ -119,9 +119,6 @@ private class StateLane {
         openAt = null
     }
 
-    fun discard() {
-        openAt = null
-    }
 }
 
 /** Every lane's spans for one event list; open spans end at the window end. */
@@ -166,7 +163,7 @@ private class Spans(
                     }
                     HistoryKind.SHUTDOWN -> {
                         listOf(screen, plug, deep, light).forEach { it.close(t) }
-                        gaps.discard() // a shutdown is not an idle exit
+                        gaps.close(t) // Preserve the observed gap, without opening a new one.
                     }
                 }
             }

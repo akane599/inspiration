@@ -7,6 +7,22 @@ import org.junit.Test
 
 class ToolkitParsersTest {
     @Test
+    fun `UID appop override wins over a package mode and is readable alone`() {
+        assertEquals(
+            "ignore",
+            ToolkitParsers.appOpMode(AppOp.RUN_ANY_IN_BACKGROUND, "Uid mode: RUN_ANY_IN_BACKGROUND: ignore\n"),
+        )
+        assertEquals(
+            "ignore",
+            ToolkitParsers.appOpMode(
+                AppOp.RUN_ANY_IN_BACKGROUND,
+                "Uid mode: RUN_ANY_IN_BACKGROUND: ignore\nRUN_ANY_IN_BACKGROUND: default",
+            ),
+        )
+        assertEquals("allow", ToolkitParsers.appOpMode(AppOp.WAKE_LOCK, "WAKE_LOCK: allow (running)"))
+    }
+
+    @Test
     fun `appops modes parse from get output`() {
         assertEquals("ignore", ToolkitParsers.appOpMode(AppOp.WAKE_LOCK, "WAKE_LOCK: ignore\n"))
         assertEquals("default", ToolkitParsers.appOpMode(AppOp.WAKE_LOCK, "WAKE_LOCK: default"))

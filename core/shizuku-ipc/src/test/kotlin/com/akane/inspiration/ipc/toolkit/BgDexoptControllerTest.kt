@@ -18,6 +18,7 @@ class BgDexoptControllerTest {
     private var jobExit = 0
     private var cancelEndsJob = true
     private var cancelled = false
+    private var cancelOutput = ok()
     private var userCancelNote: (() -> Unit)? = null
     private lateinit var job: FakeJob
 
@@ -51,9 +52,9 @@ class BgDexoptControllerTest {
             BG_DEXOPT_CANCEL_ARGV -> {
                 cancelled = true
                 object : CommandProcess {
-                    override fun awaitExit(timeoutMs: Long) = true
+                    override fun awaitExit(timeoutMs: Long) = !cancelOutput.timedOut
 
-                    override fun output(timedOut: Boolean) = ok()
+                    override fun output(timedOut: Boolean) = cancelOutput
 
                     override fun destroy() = Unit
                 }
@@ -68,6 +69,48 @@ class BgDexoptControllerTest {
         clockMs = clock::now,
         startThread = { threads += it },
     )
+
+    @Test
+    fun `failed automatic cancellation remains unknown and can be retried`() {
+        for (out in listOf(failure(), CommandOutput(-1, "", timedOut = true))) {
+            cancelOutput = out
+            cancelEndsJob = false
+            val controller = controller()
+            controller.tryStart()
+            threads.last().run()
+            assertEquals(BgDexoptState.UNKNOWN, controller.status().state)
+            assertEquals(ToolkitCode.BUSY, controller.tryStart().code)
+            controller.noteCancelCompleted()
+            assertEquals(BgDexoptState.IDLE, controller.status().state)
+            assertEquals(ToolkitStatus.DONE, controller.tryStart().status)
+        }
+    }
+
+    @Test
+    fun `unconfirmed user cancellation stays unknown instead of claiming success`() {
+        cancelEndsJob = false
+        val controller = controller()
+        userCancelNote = { controller.noteUserCancel() }
+        controller.tryStart()
+        threads.single().run()
+        assertEquals(BgDexoptState.UNKNOWN, controller.status().state)
+        assertEquals(BgDexoptReason.USER, controller.status().reason)
+        controller.noteCancelCompleted()
+        assertEquals(BgDexoptState.IDLE, controller.status().state)
+    }
+
+    @Test
+    fun `successful user cancellation confirms cancellation even before client exit`() {
+        cancelEndsJob = false
+        val controller = controller()
+        userCancelNote = {
+            controller.noteUserCancel()
+            controller.noteCancelCompleted()
+        }
+        controller.tryStart()
+        threads.single().run()
+        assertEquals(BgDexoptState.CANCELLED, controller.status().state)
+    }
 
     @Test
     fun `a second start while the job is running is refused`() {

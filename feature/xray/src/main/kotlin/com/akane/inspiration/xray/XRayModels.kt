@@ -66,6 +66,8 @@ data class AppRow(
     val foregroundMs: Long,
     val wakelocks: ImmutableList<WakelockRow>,
     val alarms: ImmutableList<AlarmRow>,
+    val dumpCountersAvailable: Boolean = true,
+    val alarmsAvailable: Boolean = true,
 )
 
 /**

@@ -61,6 +61,7 @@ class DiagnosticRuleEngine(private val sensors: SensorCatalog) {
     // R1 Night Vampire: an app burning power in the background (foreground services excluded).
     private fun nightVampire(input: DiagnosticInput, validUids: List<UidDelta>): Outcome {
         gate(input.diff, input.perUidAvailable)?.let { return it }
+        if (!input.diff.validity.dumpCounters) return Outcome.NotEvaluable("source_absent")
         val minMah = maxOf(MIN_VAMPIRE_MAH, VAMPIRE_DISCHARGE_FRACTION * (input.diff.dischargedMah ?: 0.0))
         val items = validUids.mapNotNull { uid ->
             if (uid.uid < FIRST_APP_UID || (uid.bgMah == null && uid.cachedMah == null)) return@mapNotNull null
@@ -92,17 +93,17 @@ class DiagnosticRuleEngine(private val sensors: SensorCatalog) {
     }
 
     private fun culprits(diff: SnapshotDiff, validUids: List<UidDelta>): List<Culprit> {
-        val partial = validUids.flatMap { uid ->
+        val partial = validUids.takeIf { diff.validity.dumpCounters }.orEmpty().flatMap { uid ->
             uid.partialWakelocks.map { Culprit(EntryKind.PARTIAL, it.name, uid.uid, it.durationMs, it.count) }
         }
-        val kernel = if (diff.validity.kernelCounters) {
+        val kernel = if (diff.validity.kernelWakelocks) {
             diff.kernelWakelocks
                 .filter { it.name !in diff.validity.invalidKernelWakelocks }
                 .map { Culprit(EntryKind.KERNEL, it.name, null, it.durationMs, it.count) }
         } else {
             emptyList()
         }
-        val alarms = validUids.flatMap { uid ->
+        val alarms = validUids.takeIf { diff.validity.dumpCounters }.orEmpty().flatMap { uid ->
             uid.wakeupAlarms.map { Culprit(EntryKind.ALARM, it.tag, uid.uid, null, it.count) }
         }
         return listOfNotNull(
@@ -150,6 +151,7 @@ class DiagnosticRuleEngine(private val sensors: SensorCatalog) {
     // R4 Sensor Leak: a sensor held for a long time across a screen-off-only interval.
     private fun sensorLeak(input: DiagnosticInput, validUids: List<UidDelta>, screenOffOnly: Boolean): Outcome {
         gate(input.diff, input.perUidAvailable)?.let { return it }
+        if (!input.diff.validity.dumpCounters) return Outcome.NotEvaluable("source_absent")
         val metrics = input.metrics
         if (!screenOffOnly || metrics == null) return Outcome.NotEvaluable("not_screen_off_interval")
         if (input.diff.uids.none { it.sensors.isNotEmpty() }) return Outcome.NotEvaluable("source_absent")

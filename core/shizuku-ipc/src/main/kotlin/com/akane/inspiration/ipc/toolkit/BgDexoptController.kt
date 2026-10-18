@@ -22,6 +22,8 @@ internal val BG_DEXOPT_CANCEL_ARGV = listOf(CMD, "package", "bg-dexopt-job", "--
  * stays UNKNOWN until a start (this controller then owns the guard) or a completed `--cancel`
  * ([noteCancelCompleted]) proves nothing is running. The cancel is deliberately not issued blindly at
  * creation, because it would also cancel the system's own scheduled dexopt job on every launch.
+ * An unconfirmed cancellation also reports UNKNOWN; this instance refuses another start until
+ * a successful cancel resolves it, and the client retains its pending row and cancellation action.
  */
 internal class BgDexoptController(
     private val runner: CommandRunner,
@@ -38,6 +40,7 @@ internal class BgDexoptController(
     private var exitCode = 0
     private var reason = BgDexoptReason.NONE
     private var userCancelRequested = false
+    private var cancelCompleted = false
 
     fun status(): BgDexoptStatus = synchronized(lock) {
         BgDexoptStatus(state, startedAtMs, endedAtMs, exitCode, reason)
@@ -48,7 +51,9 @@ internal class BgDexoptController(
         if (!plugged.isPlugged()) return ToolkitResult.refused(ToolkitCode.NOT_PLUGGED)
         val before = synchronized(lock) {
             // Atomic compare-and-set: a second start that raced past the check above loses here.
-            if (state == BgDexoptState.RUNNING) return ToolkitResult.refused(ToolkitCode.BUSY)
+            if (state == BgDexoptState.RUNNING || (state == BgDexoptState.UNKNOWN && reason != BgDexoptReason.NONE)) {
+                return ToolkitResult.refused(ToolkitCode.BUSY)
+            }
             val previous = state
             state = BgDexoptState.RUNNING
             startedAtMs = clockMs()
@@ -56,6 +61,7 @@ internal class BgDexoptController(
             exitCode = 0
             reason = BgDexoptReason.NONE
             userCancelRequested = false
+            cancelCompleted = false
             previous
         }
         try {
@@ -77,6 +83,7 @@ internal class BgDexoptController(
     /** A `--cancel` exited successfully: with no job tracked here, nothing is left running. */
     fun noteCancelCompleted() {
         synchronized(lock) {
+            cancelCompleted = true
             if (state == BgDexoptState.UNKNOWN) state = BgDexoptState.IDLE
         }
     }
@@ -119,8 +126,13 @@ internal class BgDexoptController(
                 synchronized(lock) { userCancelRequested } -> {
                     // `--cancel` was already issued; give the job a bounded time to wind down.
                     val exited = process.awaitExit(DEFAULT_COMMAND_TIMEOUT_MS)
-                    val exit = if (exited) process.output(timedOut = false).exitCode else 0
-                    finish(BgDexoptState.CANCELLED, exit = exit, why = BgDexoptReason.USER)
+                    val confirmed = exited || synchronized(lock) { cancelCompleted }
+                    val exit = if (exited) process.output(timedOut = false).exitCode else -1
+                    finish(
+                        if (confirmed) BgDexoptState.CANCELLED else BgDexoptState.UNKNOWN,
+                        exit = exit,
+                        why = BgDexoptReason.USER,
+                    )
                     return
                 }
                 now >= deadline -> cancelReason = BgDexoptReason.TIMEOUT
@@ -130,9 +142,15 @@ internal class BgDexoptController(
                 }
             }
         }
-        runner.run(BG_DEXOPT_CANCEL_ARGV)
-        process.awaitExit(DEFAULT_COMMAND_TIMEOUT_MS)
-        finish(BgDexoptState.CANCELLED, exit = 0, why = cancelReason)
+        val cancel = runner.run(BG_DEXOPT_CANCEL_ARGV)
+        val exited = process.awaitExit(DEFAULT_COMMAND_TIMEOUT_MS)
+        // Killing the cmd client does not prove system-server stopped dexopt. UNKNOWN preserves
+        // the client's pending audit row and Cancel action when neither operation confirms it.
+        finish(
+            if (cancel.ok || exited) BgDexoptState.CANCELLED else BgDexoptState.UNKNOWN,
+            exit = if (exited) process.output(timedOut = false).exitCode else -1,
+            why = cancelReason,
+        )
     }
 
     private fun finishFromExit(process: CommandProcess) {
@@ -147,7 +165,7 @@ internal class BgDexoptController(
 
     private fun finish(newState: Int, exit: Int, why: Int) {
         synchronized(lock) {
-            state = newState
+            state = if (newState == BgDexoptState.UNKNOWN && cancelCompleted) BgDexoptState.CANCELLED else newState
             exitCode = exit
             reason = why
             endedAtMs = clockMs()

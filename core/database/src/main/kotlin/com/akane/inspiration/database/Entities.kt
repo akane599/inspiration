@@ -327,7 +327,7 @@ data class HealthSampleEntity(
     @PrimaryKey val wallMs: Long,
     val fccMah: Double,
     val designMah: Double,
-    val cycleCount: Int,
+    val cycleCount: Int?,
     val measuredMah: Double? = null,
 )
 

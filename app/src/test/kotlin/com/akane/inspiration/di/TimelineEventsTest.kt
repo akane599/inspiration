@@ -5,6 +5,7 @@ import com.akane.inspiration.diagnostics.analysis.TimelineBuilder
 import com.akane.inspiration.ipc.model.HistoryEvent
 import com.akane.inspiration.ipc.model.HistoryKind
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class TimelineEventsTest {
@@ -34,10 +35,10 @@ class TimelineEventsTest {
         val result = TimelineEvents.withSeeds(before, inWindow)
 
         assertEquals(
-            listOf(HistoryKind.SHUTDOWN, HistoryKind.PLUGGED, HistoryKind.SCREEN_ON, HistoryKind.LEVEL),
+            listOf(HistoryKind.SHUTDOWN, HistoryKind.PLUGGED, HistoryKind.SCREEN_OFF, HistoryKind.SCREEN_ON, HistoryKind.LEVEL),
             result.map { it.kind },
         )
-        assertEquals("the screen seed is the newest screen event", 300L, result[2].wallMs)
+        assertEquals("the screen-on seed is the newest screen-on event", 300L, result[3].wallMs)
         assertEquals("the window's own events follow the seeds untouched", inWindow.single(), result.last())
     }
 
@@ -86,6 +87,8 @@ class TimelineEventsTest {
         assertEquals("same screen, plug and idle seeds", fromFull.map { it.kind to it.wallMs }, fromLast.map { it.kind to it.wallMs })
         assertEquals(
             listOf(
+                HistoryKind.PLUGGED,
+                HistoryKind.SCREEN_OFF,
                 HistoryKind.DEEP_IDLE_OFF,
                 HistoryKind.UNPLUGGED,
                 HistoryKind.SCREEN_ON,
@@ -93,6 +96,33 @@ class TimelineEventsTest {
                 HistoryKind.LEVEL,
             ),
             fromLast.map { it.kind },
+        )
+    }
+
+    @Test
+    fun `screen activity before the window keeps an overlapping idle exit gap awake`() {
+        assertGapIsAwake(HistoryKind.SCREEN_ON, HistoryKind.SCREEN_OFF)
+    }
+
+    @Test
+    fun `charging before the window keeps an overlapping idle exit gap awake`() {
+        assertGapIsAwake(HistoryKind.PLUGGED, HistoryKind.UNPLUGGED)
+    }
+
+    private fun assertGapIsAwake(on: Int, off: Int) {
+        val before = listOf(
+            event(HistoryKind.DEEP_IDLE_ON, 0),
+            event(HistoryKind.DEEP_IDLE_OFF, 100_000),
+            event(on, 150_000),
+            event(off, 200_000),
+        )
+        val inWindow = listOf(event(HistoryKind.DEEP_IDLE_ON, 300_000))
+        val timeline = TimelineBuilder.build(TimelineEvents.withSeeds(before, inWindow), 250_000, 350_000)
+
+        assertTrue(timeline.segments.none { it.kind == SegmentKind.MAINTENANCE })
+        assertEquals(
+            listOf(250_000L to 300_000L),
+            timeline.segments.filter { it.kind == SegmentKind.AWAKE }.map { it.startMs to it.endMs },
         )
     }
 

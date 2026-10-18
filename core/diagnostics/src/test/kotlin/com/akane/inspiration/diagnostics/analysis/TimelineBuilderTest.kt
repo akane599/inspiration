@@ -224,6 +224,16 @@ class TimelineBuilderTest {
     }
 
     @Test
+    fun `shutdown preserves an already observed awake gap`() {
+        val timeline = build(listOf(
+            at(0, HistoryKind.DEEP_IDLE_ON),
+            at(1 * min, HistoryKind.DEEP_IDLE_OFF),
+            at(20 * min, HistoryKind.SHUTDOWN),
+        ))
+        assertEquals(listOf(seg(AWAKE, 1 * min, 20 * min)), timeline.of(AWAKE))
+    }
+
+    @Test
     fun `a shutdown ends open states and starts no gap`() {
         val timeline = build(
             listOf(

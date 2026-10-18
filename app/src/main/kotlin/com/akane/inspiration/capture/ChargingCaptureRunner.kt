@@ -100,7 +100,7 @@ class ChargeHealthPipeline(
     private suspend fun recordHealth(kernel: KernelCapacity, nowWallMs: Long) {
         val fcc = kernel.chargeFullMah ?: return
         val design = kernel.designMah ?: return
-        val cycles = kernel.cycleCount ?: return
+        val cycles = kernel.cycleCount
         val estimate = CapacityEstimator.combine(store.acceptedEstimatesChronological(ACCEPTED_LIMIT), kernel)
         val sample = HealthSample(nowWallMs, fcc, design, cycles, estimate.measuredMah)
         val latest = store.healthSamples().lastOrNull()

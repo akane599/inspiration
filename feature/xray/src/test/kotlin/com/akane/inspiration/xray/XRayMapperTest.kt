@@ -10,6 +10,19 @@ import org.junit.Test
 
 class XRayMapperTest {
     @Test
+    fun `missing dump leaves energy visible and detail counters unavailable`() {
+        val base = diffOf(uids = listOf(uidDelta(10_001, "app", 3.0,
+            wakelocks = listOf(UidWakelock("held", 1_000, 0, 1)), alarms = listOf(UidAlarm("alarm", 1)))))
+        val rows = XRayMapper.apps(base.copy(validity = base.validity.copy(dumpCounters = false, alarmDumpCounters = false)), true)
+        val app = rows.single()
+        assertEquals(3.0, app.totalMah, 0.0)
+        org.junit.Assert.assertFalse(app.dumpCountersAvailable)
+        org.junit.Assert.assertFalse(app.alarmsAvailable)
+        assertTrue(app.wakelocks.isEmpty())
+        assertTrue(app.alarms.isEmpty())
+    }
+
+    @Test
     fun `components are ranked by energy with a share of the listed total`() {
         val rows = XRayMapper.components(
             diffOf(components = mapOf("SCREEN" to 50.0, "CPU" to 30.0, "MOBILE_RADIO" to 15.0, "WIFI" to 5.0)),

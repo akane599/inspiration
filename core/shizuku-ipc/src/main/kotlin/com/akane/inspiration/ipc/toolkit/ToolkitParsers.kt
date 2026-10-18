@@ -7,16 +7,24 @@ internal object ToolkitParsers {
     private val SETTING_LINE = Regex("    ([a-z_]+)=(\\S+)")
     private val ADMIN_LINE = Regex("    ([A-Za-z][A-Za-z0-9_.]*)/\\S+:")
 
-    /** `cmd appops get`: "OP: mode[; ...]" or "No operations." (the op has no override). */
-    fun appOpMode(op: AppOp, output: String): String? {
-        val lines = output.lines().map { it.trim() }
-        val entry = lines.firstOrNull { it.startsWith(op.argv + ":") }
-        if (entry != null) {
-            val mode = entry.substringAfter(':').substringBefore(';').trim()
-            return mode.takeIf { OP_MODE.matches(it) }
-        }
-        return if (lines.any { it == "No operations." }) AppOpMode.DEFAULT.argv else null
+    data class AppOpState(val packageMode: String?, val uidMode: String?) {
+        val effectiveMode: String get() = uidMode ?: packageMode ?: AppOpMode.DEFAULT.argv
     }
+
+    /** UID overrides take precedence over package modes in AppOpsService. */
+    fun appOpState(op: AppOp, output: String): AppOpState? {
+        val lines = output.lines().map { it.trim() }
+        fun mode(prefix: String): String? = lines.firstOrNull { it.startsWith(prefix) }
+            ?.removePrefix(prefix)?.substringBefore(';')?.substringBefore(" (running)")?.trim()
+        val packageMode = mode(op.argv + ":")
+        val uidMode = mode("Uid mode: " + op.argv + ":")
+        if (packageMode != null && !OP_MODE.matches(packageMode)) return null
+        if (uidMode != null && !OP_MODE.matches(uidMode)) return null
+        if (packageMode == null && uidMode == null && lines.none { it == "No operations." }) return null
+        return AppOpState(packageMode, uidMode)
+    }
+
+    fun appOpMode(op: AppOp, output: String): String? = appOpState(op, output)?.effectiveMode
 
     /** `cmd activity get-standby-bucket`: a bare integer. */
     fun standbyBucket(output: String): Int? = output.trim().toIntOrNull()

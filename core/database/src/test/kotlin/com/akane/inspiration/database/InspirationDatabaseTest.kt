@@ -34,6 +34,35 @@ class InspirationDatabaseTest {
     }
 
     @Test
+    fun `version one health samples survive migration and accept missing cycle counts`() = runBlocking {
+        database.close()
+        val schema = org.json.JSONObject(java.io.File(
+            "schemas/com.akane.inspiration.database.InspirationDatabase/1.json",
+        ).readText()).getJSONObject("database")
+        context.openOrCreateDatabase(databaseName, 0, null).use { old ->
+            val entities = schema.getJSONArray("entities")
+            for (i in 0 until entities.length()) {
+                val entity = entities.getJSONObject(i)
+                old.execSQL(entity.getString("createSql").replace("\${TABLE_NAME}", entity.getString("tableName")))
+                val indices = entity.optJSONArray("indices") ?: org.json.JSONArray()
+                for (j in 0 until indices.length()) {
+                    old.execSQL(indices.getJSONObject(j).getString("createSql").replace("\${TABLE_NAME}", entity.getString("tableName")))
+                }
+            }
+            val setup = schema.getJSONArray("setupQueries")
+            for (i in 0 until setup.length()) old.execSQL(setup.getString(i))
+            old.execSQL("INSERT INTO battery_health_sample VALUES (1, 4800, 5000, 123, 4700)")
+            old.version = 1
+        }
+        database = InspirationDatabase.create(context, databaseName)
+        val original = HealthSampleEntity(1, 4800.0, 5000.0, 123, 4700.0)
+        assertEquals(listOf(original), database.healthDao().all())
+        val missingCycles = HealthSampleEntity(2, 4750.0, 5000.0, null)
+        database.healthDao().insert(missingCycles)
+        assertEquals(listOf(original, missingCycles), database.healthDao().all())
+    }
+
+    @Test
     fun `opens with write ahead logging enabled`() {
         database.openHelper.writableDatabase.query("PRAGMA journal_mode").use { cursor ->
             assertTrue(cursor.moveToFirst())

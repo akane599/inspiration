@@ -15,6 +15,19 @@ class DiagnosticRuleEngineTest {
     private val engine = DiagnosticRuleEngine(fakeCatalog)
 
     @Test
+    fun missingDumpDoesNotInventForegroundInactivityOrSuppressValidEnergyRules() {
+        val base = diffOf(
+            uids = listOf(uidDelta(10_001, totalMah = 10.0, bgMah = 9.0)),
+            components = mapOf("SCREEN" to 10.0, "MOBILE_RADIO" to 20.0),
+        )
+        val report = engine.evaluate(inputOf(base.copy(validity = base.validity.copy(dumpCounters = false))))
+        assertEquals("source_absent", report.notEvaluable[RuleId.NIGHT_VAMPIRE])
+        assertEquals("source_absent", report.notEvaluable[RuleId.SENSOR_LEAK])
+        assertTrue(report.insights.none { it is NightVampire || it is SensorLeak })
+        assertTrue(report.insights.any { it is ModemDrain })
+    }
+
+    @Test
     fun emptyDiffEvaluatesEveryRuleWithTheExpectedReasons() {
         val report = engine.evaluate(inputOf(diffOf()))
         assertTrue(report.insights.isEmpty())

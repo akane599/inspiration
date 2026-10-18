@@ -44,7 +44,10 @@ internal class ToolkitExecutor(
             is Gate.Denied -> return gate.result
             is Gate.Allowed -> gate
         }
-        val before = readAppOp(pkg.orEmpty(), op) ?: return ToolkitResult.refused(ToolkitCode.PARSE)
+        val beforeState = readAppOpState(pkg.orEmpty(), op) ?: return ToolkitResult.refused(ToolkitCode.PARSE)
+        val before = beforeState.effectiveMode
+        // Package writes cannot change a UID override, and changing the UID would affect shared-UID apps.
+        if (beforeState.uidMode != null) return ToolkitResult.refused(ToolkitCode.NOT_EFFECTIVE, before = before)
         val write = runner.run(listOf(CMD, "appops", "set", "--user", USER, pkg.orEmpty(), op.argv, mode.argv))
         if (!write.ok) return ToolkitResult.failed(execCode(write), before = before)
         val after = readAppOp(pkg.orEmpty(), op) ?: return ToolkitResult.failed(ToolkitCode.PARSE, before = before)
@@ -210,9 +213,11 @@ internal class ToolkitExecutor(
 
     private fun deny(code: Int): Gate = Gate.Denied(ToolkitResult.refused(code))
 
-    private fun readAppOp(pkg: String, op: AppOp): String? {
+    private fun readAppOp(pkg: String, op: AppOp): String? = readAppOpState(pkg, op)?.effectiveMode
+
+    private fun readAppOpState(pkg: String, op: AppOp): ToolkitParsers.AppOpState? {
         val out = runner.run(listOf(CMD, "appops", "get", "--user", USER, pkg, op.argv))
-        return if (out.ok) ToolkitParsers.appOpMode(op, out.text) else null
+        return if (out.ok && !out.truncated) ToolkitParsers.appOpState(op, out.text) else null
     }
 
     private fun readBucket(pkg: String): String? {

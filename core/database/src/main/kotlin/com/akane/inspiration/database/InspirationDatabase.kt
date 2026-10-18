@@ -4,6 +4,8 @@ import android.content.Context
 import androidx.room.Database
 import androidx.room.Room
 import androidx.room.RoomDatabase
+import androidx.room.migration.Migration
+import androidx.sqlite.db.SupportSQLiteDatabase
 
 @Database(
     entities = [
@@ -26,7 +28,7 @@ import androidx.room.RoomDatabase
         HealthSampleEntity::class,
         ToolkitActionEntity::class,
     ],
-    version = 1,
+    version = 2,
     exportSchema = true,
 )
 abstract class InspirationDatabase : RoomDatabase() {
@@ -47,7 +49,17 @@ abstract class InspirationDatabase : RoomDatabase() {
                 InspirationDatabase::class.java,
                 name,
             ).setJournalMode(JournalMode.WRITE_AHEAD_LOGGING)
+                .addMigrations(MIGRATION_1_2)
                 .build()
+
+        val MIGRATION_1_2: Migration = object : Migration(1, 2) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("CREATE TABLE battery_health_sample_new (wallMs INTEGER NOT NULL PRIMARY KEY, fccMah REAL NOT NULL, designMah REAL NOT NULL, cycleCount INTEGER, measuredMah REAL)")
+                db.execSQL("INSERT INTO battery_health_sample_new SELECT wallMs, fccMah, designMah, cycleCount, measuredMah FROM battery_health_sample")
+                db.execSQL("DROP TABLE battery_health_sample")
+                db.execSQL("ALTER TABLE battery_health_sample_new RENAME TO battery_health_sample")
+            }
+        }
 
         const val DATABASE_NAME = "inspiration.db"
     }
