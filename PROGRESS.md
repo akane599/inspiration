@@ -53,6 +53,7 @@ _Work items, stories and blockers live on the Sidequest board. This file keeps w
   - Library residual: after a swallowed death, a later death of the new service isn't delivered, and calls return null until the next unbind.
   (US-5)
 - 2026-10-17: Release signing comes from ~/.gradle/gradle.properties (INSPIRATION_RELEASE_*), with the keystore at ~/.android-keystores/inspiration-release.jks, outside the repo. Without the properties the release builds unsigned. The ShizukuProvider artifact is `api` in :core:shizuku-ipc so :app lint resolves the manifest provider (SQ-109). Gates run with --max-workers=4: with no swap, 16 workers plus the Kotlin daemon got OOM-killed (SQ-111). (US-5)
+- 2026-10-18: v0.1.0 shipped as a GitHub release on the private akane599/inspiration repo (signed APK + .sha256 asset) over a Play track, because the goal was a sideloadable signed build with no store listing.
 - 2026-10-18: Phase 5 device evidence, API 36 emulator, signed release build. Earlier run: SQ-113 at ddcf82d. Re-test: SQ-119 at 2bf40d3.
   - R8 release launches cold in 530 ms with no missing classes. ShizukuProvider is merged at runtime (authority com.akane.inspiration.shizuku). Grant → Cockpit Ready with a live gauge.
   - All 5 tabs render. Rail sits below the system bars at 1280x800, and the IME keeps the search field visible in both rail and bar modes.

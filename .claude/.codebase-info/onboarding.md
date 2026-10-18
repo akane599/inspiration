@@ -23,6 +23,8 @@ From the repository root:
 
 The documented helper form is `bash .claude/kit/gradle-check.sh :app:assembleDebug :app:testDebugUnitTest`. Screenshot references are validated with `:app:validateDebugScreenshotTest`; update references only for an intentional UI ticket with `:app:updateDebugScreenshotTest`. The design-system module has its own references: `:core:designsystem:validateDebugScreenshotTest` and, for an intentional change, `:core:designsystem:updateDebugScreenshotTest` (every preview needs an explicit `heightDp`).
 
+Release: `bash .claude/kit/gradle-check.sh :app:assembleRelease`. It is signed only when `~/.gradle/gradle.properties` has the `INSPIRATION_RELEASE_*` entries (otherwise unsigned); check with `apksigner verify --print-certs` (certificate SHA-256 `1d344dd2…3de60`).
+
 Diagnostics tests run under Robolectric (org.json and resources are needed by the dictionary loader and story writer). Room tests use Robolectric and cover WAL, cascades, history deduplication, snapshot round trips, and 30-day maintenance behavior. Protobuf tests use committed API 35/36/37 fixtures under [`core/telemetry-engine/src/test/resources/proto`](../../core/telemetry-engine/src/test/resources/proto).
 
 ## Emulator and app launch
