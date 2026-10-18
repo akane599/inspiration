@@ -9,11 +9,9 @@ import com.akane.inspiration.telemetry.capacity.KernelCapacity
 import com.akane.inspiration.telemetry.live.KernelUnits
 import com.akane.inspiration.telemetry.snapshot.CaptureTrigger
 import com.akane.inspiration.telemetry.source.AndroidTelemetrySource
-import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.currentCoroutineContext
-import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 
 class ChargingCaptureJobService : JobService() {
@@ -22,63 +20,59 @@ class ChargingCaptureJobService : JobService() {
 
     override fun onStartJob(params: JobParameters): Boolean {
         val app = application as InspirationApplication
+        // An immediate arm (boot, package replaced) after this point replaces the pending job and stops this one.
+        val immediateArmsAtStart = ChargingCaptureScheduler.immediateArmCount()
         val job =
             app.appContainer.applicationScope.launch(start = CoroutineStart.LAZY) {
                 try {
-                    val container = app.appContainer
-                    val store = container.store
-                    val historyAvailable = container.capturer.ingestHistory(FULL_CAPTURE_DEADLINE_MS)
-                    val lastPluggedHistoryWallMs =
-                        if (historyAvailable) {
-                            store
-                                .historyBetween(0L, Long.MAX_VALUE)
-                                .lastOrNull { it.kind == HistoryKind.PLUGGED }
-                                ?.wallMs
-                        } else {
-                            null
-                        }
-                    val lastPowerConnectedWallMs = store.latestByTrigger(CaptureTrigger.POWER_CONNECTED)?.clock?.wallMs
-                    val lastChargeJob = store.latestByTrigger(CaptureTrigger.CHARGE_JOB)
-                    runner.run(
-                        shouldCapture =
-                            CapturePolicy.chargeJobShouldRun(
-                                lastPluggedHistoryWallMs = lastPluggedHistoryWallMs,
-                                lastPowerConnectedWallMs = lastPowerConnectedWallMs,
-                                lastChargeJobWallMs = lastChargeJob?.clock?.wallMs,
-                                lastChargeJobBootCount = lastChargeJob?.clock?.bootCount,
-                                currentBootCount = container.clocks.bootCount(),
-                                historyAvailable = historyAvailable,
-                            ),
-                        capture = {
-                            container.capturer.captureFull(
-                                trigger = CaptureTrigger.CHARGE_JOB,
-                                deadlineMs = FULL_CAPTURE_DEADLINE_MS,
-                                ingestHistory = true,
+                    runChargeJob(
+                        work = {
+                            val container = app.appContainer
+                            val store = container.store
+                            val historyAvailable = container.capturer.ingestHistory(FULL_CAPTURE_DEADLINE_MS)
+                            val lastPluggedHistoryWallMs =
+                                if (historyAvailable) {
+                                    store
+                                        .historyBetween(0L, Long.MAX_VALUE)
+                                        .lastOrNull { it.kind == HistoryKind.PLUGGED }
+                                        ?.wallMs
+                                } else {
+                                    null
+                                }
+                            val lastPowerConnectedWallMs = store.latestByTrigger(CaptureTrigger.POWER_CONNECTED)?.clock?.wallMs
+                            val lastChargeJob = store.latestByTrigger(CaptureTrigger.CHARGE_JOB)
+                            runner.run(
+                                shouldCapture =
+                                    CapturePolicy.chargeJobShouldRun(
+                                        lastPluggedHistoryWallMs = lastPluggedHistoryWallMs,
+                                        lastPowerConnectedWallMs = lastPowerConnectedWallMs,
+                                        lastChargeJobWallMs = lastChargeJob?.clock?.wallMs,
+                                        lastChargeJobBootCount = lastChargeJob?.clock?.bootCount,
+                                        currentBootCount = container.clocks.bootCount(),
+                                        historyAvailable = historyAvailable,
+                                    ),
+                                capture = {
+                                    container.capturer.captureFull(
+                                        trigger = CaptureTrigger.CHARGE_JOB,
+                                        deadlineMs = FULL_CAPTURE_DEADLINE_MS,
+                                        ingestHistory = true,
+                                    )
+                                },
+                                analyze = {
+                                    ChargeHealthPipeline(
+                                        store = store,
+                                        kernelCapacity = { readKernelCapacity(app) },
+                                        log = { message, error -> Log.w(TAG, message, error) },
+                                    ).run(container.clocks.wallMs())
+                                },
+                                prune = { store.prune(container.clocks.wallMs()) },
                             )
                         },
-                        analyze = {
-                            ChargeHealthPipeline(
-                                store = store,
-                                kernelCapacity = { readKernelCapacity(app) },
-                                log = { message, error -> Log.w(TAG, message, error) },
-                            ).run(container.clocks.wallMs())
-                        },
-                        prune = { store.prune(container.clocks.wallMs()) },
+                        finish = { jobFinished(params, false) },
+                        immediateArmSinceStart = { ChargingCaptureScheduler.immediateArmCount() != immediateArmsAtStart },
+                        reArm = { ChargingCaptureScheduler.arm(this@ChargingCaptureJobService, reArmFromJob = true) },
+                        log = { message, error -> Log.w(TAG, message, error) },
                     )
-                    if (isActive) {
-                        // A same-ID schedule cancels active work, so finish before re-arming the next attempt.
-                        jobFinished(params, false)
-                        ChargingCaptureScheduler.arm(this@ChargingCaptureJobService, reArmFromJob = true)
-                    }
-                } catch (_: CancellationException) {
-                    // onStopJob has already stopped this job; re-arm only after its coroutine is cancelled.
-                    reArm()
-                } catch (error: Exception) {
-                    // Finish and re-arm so the persisted job survives a bad run; the re-arm itself must not throw
-                    // out of this catch block.
-                    Log.w(TAG, "charge job capture failed", error)
-                    jobFinished(params, false)
-                    reArm()
                 } finally {
                     val currentJob = currentCoroutineContext()[Job]
                     synchronized(runningJobs) {
@@ -101,15 +95,6 @@ class ChargingCaptureJobService : JobService() {
             runningJobs.remove(params.jobId)?.cancel()
         }
         return false
-    }
-
-    private fun reArm() {
-        try {
-            ChargingCaptureScheduler.arm(this, reArmFromJob = true)
-        } catch (error: RuntimeException) {
-            // JobScheduler can refuse (job limit, IllegalStateException); the next app open or boot re-arms.
-            Log.w(TAG, "charge job re-arm failed", error)
-        }
     }
 
     // One bounded kernel read through the existing telemetry source; null (no Shizuku, no sysfs node) skips analysis.
