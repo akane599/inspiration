@@ -15,6 +15,27 @@ class DiagnosticRuleEngineTest {
     private val engine = DiagnosticRuleEngine(fakeCatalog)
 
     @Test
+    fun changedPackageCountersNeverBecomeAnomaliesOrAwakeCulprits() {
+        val uid = uidDelta(
+            10_001, totalMah = 10.0, bgMah = 9.0,
+            sensors = listOf(sensor(GPS_SENSOR_HANDLE, 6 * MIN)),
+            wakelocks = listOf(wakelock("old identity", HOUR)),
+        )
+        fun evaluate(changed: Boolean) = engine.evaluate(inputOf(
+            diffOf(uids = listOf(uid.copy(packageChanged = changed)), sleep = sleepStats(2 * HOUR, HOUR)),
+            metricsOf(),
+        ))
+        val comparable = evaluate(false)
+        assertTrue(comparable.insights.any { it is NightVampire })
+        assertTrue(comparable.insights.any { it is SensorLeak })
+        assertTrue(comparable.insights.filterIsInstance<AwakeViolation>().single().culprits.isNotEmpty())
+        val changed = evaluate(true)
+        assertEquals(1, changed.skippedInvalidUids)
+        assertTrue(changed.insights.none { it is NightVampire || it is SensorLeak })
+        assertTrue(changed.insights.filterIsInstance<AwakeViolation>().single().culprits.isEmpty())
+    }
+
+    @Test
     fun missingDumpDoesNotInventForegroundInactivityOrSuppressValidEnergyRules() {
         val base = diffOf(
             uids = listOf(uidDelta(10_001, totalMah = 10.0, bgMah = 9.0)),

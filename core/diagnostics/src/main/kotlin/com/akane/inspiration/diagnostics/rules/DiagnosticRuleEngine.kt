@@ -26,7 +26,7 @@ class DiagnosticRuleEngine(private val sensors: SensorCatalog) {
 
     fun evaluate(input: DiagnosticInput): DiagnosticReport {
         val diff = input.diff
-        val validUids = diff.uids.filter { it.valid }
+        val validUids = diff.uids.filter { it.valid && !it.packageChanged }
         val screenOffOnly = isScreenOffOnly(input)
 
         val outcomes = listOf(
@@ -42,7 +42,7 @@ class DiagnosticRuleEngine(private val sensors: SensorCatalog) {
         return DiagnosticReport(
             insights = insights.sortedWith(insightOrder),
             notEvaluable = notEvaluable,
-            skippedInvalidUids = diff.uids.count { !it.valid },
+            skippedInvalidUids = diff.uids.count { !it.valid || it.packageChanged },
         )
     }
 
