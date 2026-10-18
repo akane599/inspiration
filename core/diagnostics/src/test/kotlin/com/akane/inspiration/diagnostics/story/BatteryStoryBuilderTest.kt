@@ -1,11 +1,27 @@
 package com.akane.inspiration.diagnostics.story
 
 import com.akane.inspiration.diagnostics.model.RuleId
+import com.akane.inspiration.diagnostics.model.DiagnosticReport
+import com.akane.inspiration.telemetry.interval.IntervalMetricsCalculator
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertEquals
 import org.junit.Test
 
 class BatteryStoryBuilderTest {
     private val builder = BatteryStoryBuilder()
+
+    @Test
+    fun absentHistoryAndUnevaluatedRulesDoNotInventZeroUsageOrAllClear() {
+        val empty = IntervalMetricsCalculator.compute(emptyList(), 0, HOUR_MS)
+        val unavailable = DiagnosticReport(emptyList(), RuleId.entries.associateWith { "missing history" }, 0)
+        assertEquals(emptyList<StorySentence>(), builder.build(empty, null, unavailable).sentences)
+    }
+
+    @Test
+    fun partialHistoryOmitsWholeIntervalSummaryButMeasuredZeroIsRetained() {
+        assertFalse(builder.build(metrics().copy(unknownMs = 1), null, null).sentences.any { it is StorySentence.Summary })
+        assertEquals(StorySentence.Summary(14.0, 0), builder.build(metrics(levelUsedPct = 0), null, null).sentences.first())
+    }
 
     @Test
     fun allInputsProduceEverySentenceInOrder() {

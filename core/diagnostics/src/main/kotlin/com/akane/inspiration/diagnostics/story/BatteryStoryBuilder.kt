@@ -9,12 +9,18 @@ class BatteryStoryBuilder {
     fun build(metrics: IntervalMetrics?, sleep: SleepStats?, report: DiagnosticReport?): BatteryStory {
         val sentences = buildList {
             if (metrics != null) {
-                add(StorySentence.Summary((metrics.toWallMs - metrics.fromWallMs) / MS_PER_HOUR, metrics.levelUsedPct))
+                val duration = metrics.toWallMs - metrics.fromWallMs
+                val measured = metrics.screenOnMs + metrics.screenOffMs + metrics.chargingMs
+                if (duration > 0 && metrics.startLevel != null && metrics.endLevel != null &&
+                    metrics.unknownMs == 0L && metrics.discontinuities.isEmpty() && measured == duration
+                ) {
+                    add(StorySentence.Summary(duration / MS_PER_HOUR, metrics.levelUsedPct))
+                }
                 metrics.screenOnPctPerHour?.let { add(StorySentence.ScreenOnRate(it, screenOnRating(it))) }
                 metrics.screenOffPctPerHour?.let { add(StorySentence.ScreenOffRate(it, screenOffRating(it))) }
             }
             sleep?.deepSleepRatio?.let { add(StorySentence.DeepSleep(it)) }
-            if (report != null) {
+            if (report != null && (report.insights.isNotEmpty() || report.notEvaluable.isEmpty())) {
                 add(StorySentence.Anomalies(report.insights.size, report.insights.firstOrNull()?.rule))
             }
         }
