@@ -11,10 +11,14 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.emptyFlow
+import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.launchIn
-import kotlinx.coroutines.flow.mapLatest
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.flow.onStart
+import kotlinx.coroutines.flow.transformLatest
 import kotlinx.coroutines.withContext
 
 sealed interface AnalysisState {
@@ -32,7 +36,8 @@ sealed interface AnalysisState {
  * Keeps one [AnalysisState] for the shared [selection]. Recomputes when the selection or [refreshTicks]
  * changes, off the caller's thread on [dispatcher]. A refresh keeps the previous state until the new one
  * is ready; only a changed selection (or the first run) goes through [AnalysisState.Loading]. One instance
- * per process, so the resolver's history read runs once per change rather than once per screen.
+ * per process, so the resolver's history read runs once per change rather than once per screen. Nothing is
+ * computed while [state] has no collector (e.g. a background-only process start).
  */
 @OptIn(ExperimentalCoroutinesApi::class)
 class AnalysisSession(
@@ -48,15 +53,23 @@ class AnalysisSession(
 
     init {
         var shown: ReferenceKind? = null
-        // onStart lets the first computation run before any tick has been emitted.
-        combine(selection.selected, refreshTicks.onStart { emit(INITIAL_TICK) }) { kind, _ -> kind }
-            .onEach { kind ->
+        // onStart lets the first computation run before any tick has been emitted. Loading and the result
+        // go through one ordered stream, so a finished result for the old selection cannot land after the
+        // new selection's Loading.
+        val pipeline = combine(selection.selected, refreshTicks.onStart { emit(INITIAL_TICK) }) { kind, _ -> kind }
+            .transformLatest { kind ->
                 if (kind != shown) {
                     shown = kind
-                    _state.value = AnalysisState.Loading
+                    emit(AnalysisState.Loading)
                 }
+                emit(compute(kind))
             }
-            .mapLatest { kind -> compute(kind) }
+        // Visibility drives work (H13): compute only while someone observes the state. The last state is
+        // kept in between, so a returning screen shows it at once and the restart recomputes it.
+        _state.subscriptionCount
+            .map { it > 0 }
+            .distinctUntilChanged()
+            .flatMapLatest { observed -> if (observed) pipeline else emptyFlow() }
             .onEach { _state.value = it }
             .launchIn(scope)
     }
