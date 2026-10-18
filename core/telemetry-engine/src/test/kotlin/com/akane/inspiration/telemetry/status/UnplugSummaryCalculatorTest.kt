@@ -7,6 +7,19 @@ import org.junit.Test
 
 class UnplugSummaryCalculatorTest {
     @Test
+    fun `latest explicit disconnect supersedes an older inferred session when connect was missed`() {
+        val summary = UnplugSummaryCalculator.compute(listOf(
+            statusSnapshot(minutes(0), level = 100, plugged = true),
+            statusSnapshot(minutes(10), level = 100, trigger = CaptureTrigger.POWER_DISCONNECTED),
+            statusSnapshot(minutes(40), level = 90),
+            statusSnapshot(minutes(70), level = 100, trigger = CaptureTrigger.POWER_DISCONNECTED),
+        ), statusSnapshot(minutes(100), level = 95)) as UnplugSummary.Discharging
+        assertEquals(minutes(70), summary.anchorWallMs)
+        assertEquals(minutes(30), summary.elapsedMs)
+        assertEquals(5, summary.dropPct)
+    }
+
+    @Test
     fun `plain unplug splits screen on and off rates and deep sleep`() {
         val summary =
             UnplugSummaryCalculator.compute(

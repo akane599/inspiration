@@ -46,12 +46,13 @@ object UnplugSummaryCalculator {
         // With no plugged snapshot stored (fresh install, pruned history) a disconnect capture still marks the unplug.
         val lastDisconnect = points.indexOfLast { it.trigger == CaptureTrigger.POWER_DISCONNECTED }
         val anchorIsUnplug = lastPlugged >= 0 || lastDisconnect >= 0
-        val anchor =
+        val inferredAnchor =
             if (lastPlugged < 0) {
                 lastDisconnect.coerceAtLeast(0)
             } else {
                 (lastPlugged + 1 until points.size).firstOrNull { points[it].battery.plugged == false } ?: points.lastIndex
             }
+        val anchor = maxOf(inferredAnchor, lastDisconnect)
         val tally = tally(points, anchor)
         val dropPct = tally.dropOn + tally.dropOff + tally.dropUnknown
         return UnplugSummary.Discharging(
