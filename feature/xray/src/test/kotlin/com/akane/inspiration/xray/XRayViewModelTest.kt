@@ -179,6 +179,40 @@ class XRayViewModelTest {
     }
 
     @Test
+    fun `an app uid reported without a package resolves its package, label and actions from the uid`() {
+        val fake = FakeXRayDeps().apply { packagesByUid[CHATTY_UID] = CHATTY }
+        start(fake, readyOf(diffOf(uids = listOf(uidDelta(CHATTY_UID, null, 60.0)))))
+
+        val row = state.apps.single()
+        assertEquals(CHATTY, row.packageName)
+        assertEquals("Label of $CHATTY", row.label)
+
+        openChatty()
+        assertTrue(detail.actions is ActionsState.Loaded)
+    }
+
+    @Test
+    fun `a uid that resolves to no package keeps no label and no actions`() {
+        start(FakeXRayDeps(), readyOf(diffOf(uids = listOf(uidDelta(1_000, null, 4.0)))))
+
+        assertNull(state.apps.single().packageName)
+        assertNull(state.apps.single().label)
+    }
+
+    @Test
+    fun `well-known system uids have readable names, in every user, and app uids do not`() {
+        assertEquals(R.string.xray_uid_root, systemUidLabelRes(0))
+        assertEquals(R.string.xray_uid_system, systemUidLabelRes(1_000))
+        assertEquals(R.string.xray_uid_phone, systemUidLabelRes(1_001))
+        assertEquals(R.string.xray_uid_bluetooth, systemUidLabelRes(1_002))
+        assertEquals(R.string.xray_uid_wifi, systemUidLabelRes(1_010))
+        assertEquals(R.string.xray_uid_media, systemUidLabelRes(1_013))
+        assertEquals(R.string.xray_uid_system, systemUidLabelRes(1_001_000))
+        assertNull(systemUidLabelRes(CHATTY_UID))
+        assertNull(systemUidLabelRes(1_999))
+    }
+
+    @Test
     fun `an app that is not in the list cannot be opened`() {
         vm.onIntent(XRayIntent.OpenApp(99_999))
 

@@ -68,4 +68,12 @@ interface AppLabels {
     suspend fun label(packageName: String): String
 
     suspend fun icon(packageName: String): Bitmap?
+
+    /**
+     * The installed package behind an app [uid], for the per-UID rows batterystats reports without one
+     * (`UidBatteryConsumer.getPackageWithHighestDrain()` is often null). Null for system and shared
+     * platform UIDs (app id below 10000) and for UIDs no visible package owns. When several packages share
+     * the UID, the alphabetically first is returned so the answer is stable between calls.
+     */
+    suspend fun packageForUid(uid: Int): String? = null
 }

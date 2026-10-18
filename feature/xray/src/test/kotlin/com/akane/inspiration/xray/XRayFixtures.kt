@@ -297,7 +297,12 @@ internal class FakeXRayDeps(
     override val appLabels: AppLabels = object : AppLabels {
         override suspend fun label(packageName: String) = "Label of $packageName"
         override suspend fun icon(packageName: String): Bitmap? = null
+
+        override suspend fun packageForUid(uid: Int): String? = packagesByUid[uid]
     }
+
+    /** What `PackageManager` would answer for a UID batterystats reported without a package. */
+    val packagesByUid = mutableMapOf<Int, String>()
 
     var refreshResult: RefreshResult = RefreshResult.Refreshed(0L)
     var refreshCalls = 0
