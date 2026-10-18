@@ -53,7 +53,25 @@ class ToolkitViewModel(private val deps: ToolkitDependencies) : ViewModel() {
     private var visibleJob: Job? = null
     private var detailJob: Job? = null
     private var allApps: List<AppItem> = emptyList()
-    private var pending: ToolkitRequest? = null
+    private data class PreparedRequest(
+        val request: ToolkitRequest,
+        val action: ToolkitAction?,
+        val target: String?,
+        val generation: Long,
+    )
+
+    private var pending: PreparedRequest? = null
+    private var generation = 0L
+    private var planning = false
+
+    private fun invalidatePlanning() {
+        generation++
+        pending = null
+        if (planning) {
+            planning = false
+            _state.update { it.copy(busy = false) }
+        }
+    }
 
     /** True between Visible and Hidden. Anything that finishes while hidden is kept off the screen (confirmations, effects). */
     private var visible = false
@@ -106,7 +124,7 @@ class ToolkitViewModel(private val deps: ToolkitDependencies) : ViewModel() {
         visibleJob?.cancel()
         // A confirmation must not outlive the screen it was asked on, and one still being planned is dropped
         // when it arrives ([ask]). A write already running finishes.
-        pending = null
+        invalidatePlanning()
         _state.update { it.copy(confirmation = null) }
     }
 
@@ -124,7 +142,7 @@ class ToolkitViewModel(private val deps: ToolkitDependencies) : ViewModel() {
     }
 
     private fun block(reason: BlockedReason) {
-        pending = null
+        invalidatePlanning()
         detailJob?.cancel()
         allApps = emptyList()
         _state.update {
@@ -234,14 +252,14 @@ class ToolkitViewModel(private val deps: ToolkitDependencies) : ViewModel() {
     private fun openApp(packageName: String) {
         if (_state.value.status != ToolkitPhase.READY) return
         val app = allApps.firstOrNull { it.packageName == packageName } ?: return
-        pending = null
+        invalidatePlanning()
         _state.update { it.copy(detail = AppDetail(app = app, controls = ControlsState.Loading), confirmation = null) }
         loadDetail()
     }
 
     private fun closeApp() {
         detailJob?.cancel()
-        pending = null
+        invalidatePlanning()
         _state.update { it.copy(detail = null, confirmation = null) }
     }
 
@@ -270,21 +288,26 @@ class ToolkitViewModel(private val deps: ToolkitDependencies) : ViewModel() {
         val current = _state.value
         if (current.status != ToolkitPhase.READY || current.busy || current.confirmation != null) return
         if (!accepts(request, current)) return
+        val prepared = PreparedRequest(request, actionOf(request), targetOf(request), generation)
         if (request == ToolkitRequest.ResetAll) {
             // Reset all has no single plan: the user always confirms it, with the number of changes it restores.
-            ask(Confirmation(request = request, target = null, warnings = persistentListOf(), count = current.overrides.size), request)
+            ask(Confirmation(request = request, target = null, warnings = persistentListOf(), count = current.overrides.size), prepared)
             return
         }
+        planning = true
         _state.update { it.copy(busy = true) }
         showNotice(request, null)
         viewModelScope.launch {
-            when (val plan = planOf(request)) {
-                ToolkitPlan.Ready -> execute(request, confirmed = false)
+            val plan = planOf(prepared)
+            if (prepared.generation != generation) return@launch
+            planning = false
+            when (plan) {
+                ToolkitPlan.Ready -> execute(prepared, confirmed = false)
                 is ToolkitPlan.NeedsConfirmation -> {
-                    ask(confirmationOf(request, listOf(plan.warning) + plan.others), request)
+                    ask(confirmationOf(prepared, listOf(plan.warning) + plan.others), prepared)
                     _state.update { it.copy(busy = false) }
                 }
-                is ToolkitPlan.Refused -> finish(request, ToolkitNotice.Rejected(Problem.Refused(plan.reason)))
+                is ToolkitPlan.Refused -> finish(prepared, ToolkitNotice.Rejected(Problem.Refused(plan.reason)))
             }
         }
     }
@@ -310,14 +333,14 @@ class ToolkitViewModel(private val deps: ToolkitDependencies) : ViewModel() {
         }
     }
 
-    private suspend fun planOf(request: ToolkitRequest): ToolkitPlan = when (request) {
+    private suspend fun planOf(prepared: PreparedRequest): ToolkitPlan = when (val request = prepared.request) {
         is ToolkitRequest.Restore -> deps.toolkit.planRestore(request.actionId)
         ToolkitRequest.ResetAll -> ToolkitPlan.Ready
-        else -> actionOf(request)?.let { deps.toolkit.plan(it) } ?: ToolkitPlan.Refused(ToolkitRefusal.INVALID_ARGUMENT)
+        else -> prepared.action?.let { deps.toolkit.plan(it) } ?: ToolkitPlan.Refused(ToolkitRefusal.INVALID_ARGUMENT)
     }
 
-    private fun confirmationOf(request: ToolkitRequest, warnings: List<ToolkitWarning>, stale: Boolean = false) =
-        Confirmation(request = request, target = targetOf(request), warnings = warnings.distinct().toImmutableList(), stale = stale)
+    private fun confirmationOf(prepared: PreparedRequest, warnings: List<ToolkitWarning>, stale: Boolean = false) =
+        Confirmation(request = prepared.request, target = prepared.target, warnings = warnings.distinct().toImmutableList(), stale = stale)
 
     private fun targetOf(request: ToolkitRequest): String? = when (request) {
         is ToolkitRequest.SetAppOp, is ToolkitRequest.SetBucket, ToolkitRequest.ForceStop -> _state.value.detail?.app?.label
@@ -325,18 +348,18 @@ class ToolkitViewModel(private val deps: ToolkitDependencies) : ViewModel() {
         is ToolkitRequest.ApplyDoze, ToolkitRequest.ResetAll -> null
     }
 
-    private fun ask(confirmation: Confirmation, request: ToolkitRequest) {
-        if (!visible) return
-        pending = request
+    private fun ask(confirmation: Confirmation, prepared: PreparedRequest) {
+        if (!visible || prepared.generation != generation) return
+        pending = prepared
         _state.update { it.copy(confirmation = confirmation) }
     }
 
     private fun confirmPending() {
-        val request = pending ?: return
+        val prepared = pending ?: return
         if (_state.value.busy) return
         pending = null
         _state.update { it.copy(confirmation = null, busy = true) }
-        viewModelScope.launch { execute(request, confirmed = true) }
+        viewModelScope.launch { execute(prepared, confirmed = true) }
     }
 
     private fun dismissConfirmation() {
@@ -344,7 +367,8 @@ class ToolkitViewModel(private val deps: ToolkitDependencies) : ViewModel() {
         _state.update { it.copy(confirmation = null) }
     }
 
-    private suspend fun execute(request: ToolkitRequest, confirmed: Boolean) {
+    private suspend fun execute(prepared: PreparedRequest, confirmed: Boolean) {
+        val request = prepared.request
         if (request == ToolkitRequest.ResetAll) {
             resetAll()
             return
@@ -352,23 +376,37 @@ class ToolkitViewModel(private val deps: ToolkitDependencies) : ViewModel() {
         val outcome: ToolkitOutcome<*> = when (request) {
             is ToolkitRequest.Restore -> deps.toolkit.restore(request.actionId, confirmed)
             else -> {
-                val action = actionOf(request) ?: return finish(request, ToolkitNotice.Rejected(Problem.Refused(ToolkitRefusal.INVALID_ARGUMENT)))
+                val action = prepared.action ?: return finish(prepared, ToolkitNotice.Rejected(Problem.Refused(ToolkitRefusal.INVALID_ARGUMENT)))
                 deps.toolkit.execute(action, confirmed)
             }
         }
         if (outcome is ToolkitOutcome.Refused && outcome.reason == ToolkitRefusal.STALE) {
-            askAgain(request)
+            askAgain(prepared)
             return
         }
-        finish(request, if (outcome is ToolkitOutcome.Done<*>) ToolkitNotice.Applied(changeOf(request)) else ToolkitNotice.Rejected(ToolkitMapper.problem(outcome)))
+        if (prepared.generation == generation) {
+            finish(prepared, if (outcome is ToolkitOutcome.Done<*>) ToolkitNotice.Applied(changeOf(request)) else ToolkitNotice.Rejected(ToolkitMapper.problem(outcome)))
+        } else {
+            _state.update { it.copy(busy = false) }
+        }
     }
 
     /** The setting moved between plan and write: read it again and let the user decide with the value that is there now. */
-    private suspend fun askAgain(request: ToolkitRequest) {
+    private suspend fun askAgain(prepared: PreparedRequest) {
+        val request = prepared.request
+        if (prepared.generation != generation) {
+            _state.update { it.copy(busy = false) }
+            return
+        }
         refresh(request)
-        when (val plan = planOf(request)) {
-            ToolkitPlan.Ready -> ask(confirmationOf(request, emptyList(), stale = true), request)
-            is ToolkitPlan.NeedsConfirmation -> ask(confirmationOf(request, listOf(plan.warning) + plan.others, stale = true), request)
+        val plan = planOf(prepared)
+        if (prepared.generation != generation) {
+            _state.update { it.copy(busy = false) }
+            return
+        }
+        when (plan) {
+            ToolkitPlan.Ready -> ask(confirmationOf(prepared, emptyList(), stale = true), prepared)
+            is ToolkitPlan.NeedsConfirmation -> ask(confirmationOf(prepared, listOf(plan.warning) + plan.others, stale = true), prepared)
             is ToolkitPlan.Refused -> {
                 showNotice(request, ToolkitNotice.Rejected(Problem.Refused(plan.reason)))
             }
@@ -385,9 +423,9 @@ class ToolkitViewModel(private val deps: ToolkitDependencies) : ViewModel() {
     }
 
     /** Whatever happened, the screen then shows what the system reports now. */
-    private suspend fun finish(request: ToolkitRequest, notice: ToolkitNotice) {
-        refresh(request)
-        showNotice(request, notice)
+    private suspend fun finish(prepared: PreparedRequest, notice: ToolkitNotice) {
+        refresh(prepared.request)
+        if (prepared.generation == generation) showNotice(prepared.request, notice)
         _state.update { it.copy(busy = false) }
     }
 

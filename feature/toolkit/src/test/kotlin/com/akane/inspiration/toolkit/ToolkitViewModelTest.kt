@@ -203,6 +203,43 @@ class ToolkitViewModelTest {
         assertTrue(device.writes.isEmpty())
     }
 
+    @Test
+    fun `switching apps invalidates a suspended non-confirming plan`() {
+        start()
+        open(CHATTY)
+        val gate = CompletableDeferred<Unit>()
+        device.gate = gate
+        act(ToolkitRequest.SetBucket(StandbyBucket.WORKING_SET))
+        assertTrue(state.busy)
+
+        vm.onIntent(ToolkitIntent.CloseApp)
+        open(MAPS)
+        gate.complete(Unit)
+
+        assertEquals(MAPS, detail.app.packageName)
+        assertFalse(state.busy)
+        assertNull(state.confirmation)
+        assertTrue(device.writes.isEmpty())
+        assertEquals(StandbyBucket.ACTIVE.rawValue, device.app(CHATTY).bucket)
+        assertEquals(StandbyBucket.ACTIVE.rawValue, device.app(MAPS).bucket)
+    }
+
+    @Test
+    fun `opening another sheet drops a suspended confirming plan`() {
+        start()
+        open(CHATTY)
+        val gate = CompletableDeferred<Unit>()
+        device.gate = gate
+        act(ToolkitRequest.ForceStop)
+
+        open(MAPS)
+        gate.complete(Unit)
+        confirm()
+
+        assertNull(state.confirmation)
+        assertTrue(device.writes.isEmpty())
+    }
+
     // ---- doze -------------------------------------------------------------------------------
 
     @Test
