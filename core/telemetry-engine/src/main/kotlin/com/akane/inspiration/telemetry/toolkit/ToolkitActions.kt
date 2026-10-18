@@ -974,7 +974,7 @@ class ToolkitActions internal constructor(
         val status = if (service.state == BgDexoptState.UNKNOWN && pending.isEmpty()) BgDexoptStatus.Idle else statusOf(service)
         syncHold(running = status is BgDexoptStatus.Running, startedAtMs = (status as? BgDexoptStatus.Running)?.startedAtMs ?: 0L)
         if (pending.isNotEmpty()) {
-            when (status) {
+            val settled = when (status) {
                 is BgDexoptStatus.Finished -> finalizeDexoptRows(
                     if (status.exitCode == 0) ToolkitActionStatus.DONE else ToolkitActionStatus.FAILED,
                     status.exitCode,
@@ -989,9 +989,11 @@ class ToolkitActions internal constructor(
                 )
                 // Proven nothing is running (a completed cancel, or a job that no longer exists).
                 BgDexoptStatus.Idle -> finalizeDexoptRows(ToolkitActionStatus.CANCELLED, BgDexoptReason.NONE, afterRaw = "idle")
-                is BgDexoptStatus.Running, BgDexoptStatus.Unknown -> Unit
+                is BgDexoptStatus.Running, BgDexoptStatus.Unknown -> 0
             }
-            changes.value += 1
+            // Only a settled row is a change: a bump re-runs the privileged override recompute, and this runs on
+            // every RUNNING poll.
+            if (settled > 0) changes.value += 1
         }
         return status
     }
@@ -1011,16 +1013,19 @@ class ToolkitActions internal constructor(
         else -> BgDexoptCancelReason.OTHER
     }
 
+    /** Returns the number of rows settled. */
     private suspend fun finalizeDexoptRows(
         status: ToolkitActionStatus,
         code: Int,
         afterRaw: String,
         now: Long? = null,
-    ) {
+    ): Int {
         val ended = now ?: nowMs()
-        for (row in audit.pending().filter { it.kind == KIND_DEXOPT }) {
+        val rows = audit.pending().filter { it.kind == KIND_DEXOPT }
+        for (row in rows) {
             audit.update(row.copy(status = status, endedAt = ended, code = code, afterRaw = afterRaw))
         }
+        return rows.size
     }
 
     private suspend fun supersedeOtherDexoptRows(keepId: Long) {

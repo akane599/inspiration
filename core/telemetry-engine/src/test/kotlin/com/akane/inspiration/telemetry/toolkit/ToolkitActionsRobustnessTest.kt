@@ -275,4 +275,37 @@ class ToolkitActionsRobustnessTest {
         val row = (actions.execute(ToolkitAction.SetAppOp(PKG, AppOp.RUN_IN_BACKGROUND, AppOpMode.IGNORE)) as ToolkitOutcome.Done).value
         assertEquals(ToolkitActionStatus.DONE, row.status)
     }
+
+    @Test
+    fun runningDexoptPollsDoNotRecomputeOverridesWhileNothingChanges() = runTest {
+        val actions = actionsOnVirtualTime()
+        actions.execute(ToolkitAction.SetAppOp(PKG, AppOp.RUN_ANY_IN_BACKGROUND, AppOpMode.IGNORE), confirmed = true)
+        actions.execute(ToolkitAction.SetBucket(PKG, StandbyBucket.RARE))
+        actions.startBgDexopt()
+        backend.dexoptStatuses.clear()
+        backend.dexoptStatuses.add(serviceStatus(BgDexoptState.RUNNING))
+        var emissions = 0
+        val overrides = launch { actions.activeOverrides().collect { emissions++ } }
+        val status = launch { actions.bgDexoptStatus().collect { } }
+        runCurrent()
+        backend.reads.clear()
+        val before = emissions
+        val polls = backend.dexoptReads
+
+        advanceTimeBy(30_000)
+        runCurrent()
+
+        assertTrue("the status was polled", backend.dexoptReads > polls)
+        assertEquals(before, emissions)
+        assertTrue("no privileged override read: ${backend.reads}", backend.reads.isEmpty())
+
+        // A real settlement still refreshes the overrides.
+        backend.dexoptStatuses.clear()
+        backend.dexoptStatuses.add(serviceStatus(BgDexoptState.FINISHED))
+        advanceTimeBy(6_000)
+        runCurrent()
+        assertTrue(emissions > before)
+        overrides.cancel()
+        status.cancel()
+    }
 }
