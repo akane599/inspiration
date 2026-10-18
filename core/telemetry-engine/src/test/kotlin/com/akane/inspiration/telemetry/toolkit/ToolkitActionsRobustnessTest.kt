@@ -6,6 +6,7 @@ import com.akane.inspiration.ipc.toolkit.AppOp
 import com.akane.inspiration.ipc.toolkit.AppOpMode
 import com.akane.inspiration.ipc.toolkit.StandbyBucket
 import com.akane.inspiration.telemetry.store.ToolkitActionStatus
+import com.akane.inspiration.telemetry.store.ToolkitActionRecord
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.Job
@@ -63,6 +64,20 @@ class ToolkitActionsRobustnessTest {
         actions.reconcile()
         assertEquals(ToolkitActionStatus.DONE, audit.rows.single().status)
         actions.resetAll()
+        assertEquals(StandbyBucket.ACTIVE.rawValue, backend.buckets[PKG])
+    }
+
+    @Test
+    fun restoreStillFindsOriginalAfterMoreThanFiveHundredUnrelatedActions() = runTest {
+        val actions = actionsOnVirtualTime()
+        actions.execute(ToolkitAction.SetBucket(PKG, StandbyBucket.RARE))
+        repeat(510) { n ->
+            audit.insert(ToolkitActionRecord(
+                startedAt = n.toLong(), kind = "force_stop", op = "force_stop", status = ToolkitActionStatus.REFUSED,
+            ))
+        }
+        actions.execute(ToolkitAction.SetBucket(PKG, StandbyBucket.RESTRICTED), confirmed = true)
+        assertEquals(1, actions.resetAll().size)
         assertEquals(StandbyBucket.ACTIVE.rawValue, backend.buckets[PKG])
     }
 

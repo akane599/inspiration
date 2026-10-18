@@ -194,8 +194,12 @@ interface ToolkitActionDao {
     @Query("SELECT * FROM toolkit_action WHERE status = :status ORDER BY id")
     suspend fun withStatus(status: String): List<ToolkitActionEntity>
 
-    /** Deletes everything but the newest [keep] rows. */
-    @Query("DELETE FROM toolkit_action WHERE id NOT IN (SELECT id FROM toolkit_action ORDER BY id DESC LIMIT :keep)")
+    /** Display history may expire; pending writes and successful restore chains must remain recoverable. */
+    @Query(
+        "DELETE FROM toolkit_action WHERE status != 'pending' " +
+            "AND NOT (status IN ('done', 'restored') AND kind IN ('appop', 'bucket', 'doze')) " +
+            "AND id NOT IN (SELECT id FROM toolkit_action ORDER BY id DESC LIMIT :keep)",
+    )
     suspend fun pruneTo(keep: Int): Int
 
     @Transaction

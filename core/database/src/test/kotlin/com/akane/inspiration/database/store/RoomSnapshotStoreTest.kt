@@ -400,6 +400,25 @@ class RoomSnapshotStoreTest {
     }
 
     @Test
+    fun `display pruning preserves pending writes and original restore chain`() = runBlocking {
+        val ids = listOf(ToolkitActionStatus.RESTORED, ToolkitActionStatus.DONE, ToolkitActionStatus.PENDING).mapIndexed { i, status ->
+            store.insertToolkitAction(ToolkitActionRecord(
+                startedAt = i.toLong(), kind = "bucket", pkg = "a.b", op = "bucket", status = status,
+                beforeRaw = if (i == 0) "10" else "30", afterRaw = "40",
+            ))
+        }
+        repeat(510) { n ->
+            store.insertToolkitAction(ToolkitActionRecord(
+                startedAt = 100L + n, kind = "force_stop", op = "force_stop", status = ToolkitActionStatus.REFUSED,
+            ))
+        }
+        val retained = store.toolkitActions(Int.MAX_VALUE)
+        assertTrue(retained.map { it.id }.containsAll(ids))
+        assertEquals(500, retained.count { it.kind == "force_stop" })
+        assertEquals(listOf(ids.last()), store.pendingToolkitActions().map { it.id })
+    }
+
+    @Test
     fun `toolkit actions are pruned to the newest 500 rows on insert`() = runBlocking {
         val ids = (1..502).map { n ->
             store.insertToolkitAction(

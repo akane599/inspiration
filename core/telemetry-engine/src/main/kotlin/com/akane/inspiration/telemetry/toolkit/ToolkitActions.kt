@@ -1131,7 +1131,8 @@ class ToolkitActions internal constructor(
         const val DEXOPT_CAP_MARGIN_MS = 2L * 60_000L
 
         fun defaultSupervisorScope(): CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
-        const val MAX_ROWS = 500
+        // Recovery must not truncate the retained original/restore chain. history(limit) stays bounded.
+        const val MAX_ROWS = Int.MAX_VALUE
 
         const val KIND_APPOP = "appop"
         const val KIND_BUCKET = "bucket"

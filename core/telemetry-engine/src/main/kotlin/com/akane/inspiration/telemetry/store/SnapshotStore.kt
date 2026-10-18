@@ -80,7 +80,7 @@ interface SnapshotStore {
 
     suspend fun insertHealthSample(sample: HealthSample)
 
-    /** Inserts [record] (its id is ignored), prunes the table to the newest 500 rows and returns the new id. */
+    /** Inserts [record] (its id is ignored), prunes old display-only rows while preserving pending operations and successful override chains and returns the new id. */
     suspend fun insertToolkitAction(record: ToolkitActionRecord): Long
 
     /** Overwrites the row with `record.id`; a missing row is left missing. */
