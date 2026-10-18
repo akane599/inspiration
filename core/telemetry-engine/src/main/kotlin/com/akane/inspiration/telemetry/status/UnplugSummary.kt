@@ -82,11 +82,16 @@ object UnplugSummaryCalculator {
         anchor: Int,
     ): Tally {
         var screen: Screen? = null
-        for (i in 0..anchor) screen = screenAfter(screen, points[i])
         val tally = Tally()
-        for (i in anchor until points.lastIndex) {
-            tally.add(points[i], points[i + 1], screen)
-            screen = screenAfter(screen, points[i + 1])
+        for (i in points.indices) {
+            val point = points[i]
+            if (point.trigger == CaptureTrigger.BOOT ||
+                (i > 0 && points[i - 1].clock.bootCount != point.clock.bootCount)
+            ) {
+                screen = null
+            }
+            screen = screenAfter(screen, point)
+            if (i >= anchor && i < points.lastIndex) tally.add(point, points[i + 1], screen)
         }
         return tally
     }
@@ -119,7 +124,8 @@ object UnplugSummaryCalculator {
         ) {
             val wallMs = (to.clock.wallMs - from.clock.wallMs).coerceAtLeast(0L)
             val drop = drop(from, to)
-            when (screen) {
+            // A different boot cannot establish the screen state of this segment.
+            when (screen.takeIf { from.clock.bootCount == to.clock.bootCount }) {
                 Screen.ON -> {
                     onMs += wallMs
                     dropOn += drop
@@ -131,8 +137,6 @@ object UnplugSummaryCalculator {
                         val elapsedMs = to.clock.elapsedRealtimeMs - from.clock.elapsedRealtimeMs
                         offMs += elapsedMs.coerceAtLeast(0L)
                         suspendMs += (elapsedMs - (to.clock.uptimeMs - from.clock.uptimeMs)).coerceAtLeast(0L)
-                    } else {
-                        offMs += wallMs
                     }
                 }
 

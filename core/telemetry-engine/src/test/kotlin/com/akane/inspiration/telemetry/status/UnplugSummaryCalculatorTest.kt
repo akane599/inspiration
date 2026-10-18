@@ -142,8 +142,31 @@ class UnplugSummaryCalculatorTest {
             ) as UnplugSummary.Discharging
 
         assertEquals(5, summary.dropPct)
-        assertEquals(5 / 3.0, summary.screenOffPctPerHour!!, 1e-9)
-        assertEquals(80.0 / 180.0, summary.deepSleepRatio!!, 1e-9)
+        assertEquals(2.0, summary.screenOffPctPerHour!!, 1e-9)
+        assertEquals(40.0 / 60.0, summary.deepSleepRatio!!, 1e-9)
+    }
+
+    @Test
+    fun `boot invalidates screen inference until a new screen event`() {
+        for (trigger in listOf(CaptureTrigger.BOOT, CaptureTrigger.APP_OPEN)) {
+            val history = listOf(
+                statusSnapshot(minutes(0), level = 90, trigger = CaptureTrigger.SCREEN_OFF),
+                statusSnapshot(minutes(1), level = 89, bootCount = 2, trigger = trigger),
+            )
+            val now = statusSnapshot(minutes(61), level = 80, bootCount = 2)
+            val unknown = UnplugSummaryCalculator.compute(history, now) as UnplugSummary.Discharging
+            assertEquals(10, unknown.dropPct)
+            assertEquals(minutes(61), unknown.elapsedMs)
+            assertNull(unknown.screenOffPctPerHour)
+            assertNull(unknown.screenOnPctPerHour)
+            assertNull(unknown.deepSleepRatio)
+            val known = UnplugSummaryCalculator.compute(
+                history + statusSnapshot(minutes(31), level = 85, bootCount = 2, trigger = CaptureTrigger.SCREEN_ON),
+                now,
+            ) as UnplugSummary.Discharging
+            assertEquals(10.0, known.screenOnPctPerHour!!, 1e-9)
+            assertNull(known.screenOffPctPerHour)
+        }
     }
 
     @Test
