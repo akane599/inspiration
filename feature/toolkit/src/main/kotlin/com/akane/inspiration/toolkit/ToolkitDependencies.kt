@@ -4,7 +4,9 @@ import com.akane.inspiration.ipc.ShizukuState
 import com.akane.inspiration.telemetry.app.AppEntry
 import com.akane.inspiration.telemetry.app.AppLabels
 import com.akane.inspiration.telemetry.toolkit.ToolkitActions
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 
 /**
  * Everything the Toolkit screen needs from the app, pinned by docs/plans/phase-5.md ("Feature dependencies").
@@ -24,4 +26,17 @@ interface ToolkitDependencies {
 
     /** Keeps the Shizuku service bound (a running bg-dexopt job needs it); close it when done. */
     fun holdBinding(): AutoCloseable
+
+    /** The status-notification switch. Defaults keep an implementation that has no such notification compiling. */
+    val statusNotificationEnabled: StateFlow<Boolean> get() = StatusNotificationDefaults.OFF
+
+    fun setStatusNotificationEnabled(enabled: Boolean) {}
+
+    /** True when the system will not show this app's notifications. Read again every time the screen starts. */
+    fun notificationsBlocked(): Boolean = false
+}
+
+/** Shared "off" flow behind the [ToolkitDependencies] defaults. */
+internal object StatusNotificationDefaults {
+    val OFF: StateFlow<Boolean> = MutableStateFlow(false).asStateFlow()
 }

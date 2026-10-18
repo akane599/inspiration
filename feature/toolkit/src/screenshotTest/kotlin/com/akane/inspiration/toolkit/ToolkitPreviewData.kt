@@ -118,6 +118,13 @@ internal object ToolkitPreviewData {
         dexopt = DexoptSection(status = BgDexoptStatus.Idle),
     )
 
+    val notificationOn = StatusNotificationState(enabled = true)
+
+    val notificationOff = StatusNotificationState(enabled = false)
+
+    /** Blocked by the system: the stored choice is on, but the switch cannot be used. */
+    val notificationBlocked = StatusNotificationState(enabled = true, blocked = true)
+
     val loading = ToolkitState(status = ToolkitPhase.LOADING)
 
     val failed = ToolkitState(status = ToolkitPhase.FAILED, history = history)

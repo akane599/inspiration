@@ -237,6 +237,14 @@ data class Confirmation(
     val count: Int = 0,
 )
 
+/** The status-notification switch: what the app stores, and whether the system lets it post at all. */
+@Immutable
+data class StatusNotificationState(
+    val enabled: Boolean = false,
+    /** Notifications are blocked for the app (permission or channel), so the switch cannot do anything. */
+    val blocked: Boolean = false,
+)
+
 @Immutable
 data class ToolkitState(
     val status: ToolkitPhase = ToolkitPhase.LOADING,
@@ -252,6 +260,7 @@ data class ToolkitState(
     val detail: AppDetail? = null,
     val confirmation: Confirmation? = null,
     val resetReport: ResetReport? = null,
+    val statusNotification: StatusNotificationState = StatusNotificationState(),
 )
 
 sealed interface ToolkitIntent {
@@ -286,11 +295,20 @@ sealed interface ToolkitIntent {
     data object StartDexopt : ToolkitIntent
 
     data object CancelDexopt : ToolkitIntent
+
+    /** The status-notification switch. */
+    data class SetStatusNotification(val enabled: Boolean) : ToolkitIntent
+
+    /** "Allow in settings": asks the Route to open the app's notification settings. */
+    data object OpenNotificationSettings : ToolkitIntent
 }
 
 sealed interface ToolkitEffect {
     /** "Reset all" finished: how many changes were restored out of how many were active. */
     data class ResetFinished(val restored: Int, val total: Int) : ToolkitEffect
+
+    /** The Route should open the system notification settings of this app. */
+    data object OpenNotificationSettings : ToolkitEffect
 }
 
 internal fun ShizukuState.blockedReason(): BlockedReason? = when (this) {
