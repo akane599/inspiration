@@ -72,13 +72,13 @@ class ChargingCaptureJobService : JobService() {
                     }
                 } catch (_: CancellationException) {
                     // onStopJob has already stopped this job; re-arm only after its coroutine is cancelled.
-                    ChargingCaptureScheduler.arm(this@ChargingCaptureJobService, reArmFromJob = true)
+                    reArm()
                 } catch (error: Exception) {
-                    // applicationScope has no exception handler, so a capture/store failure must not escape and
-                    // kill the process; finish and re-arm so the persisted job survives a bad run.
+                    // Finish and re-arm so the persisted job survives a bad run; the re-arm itself must not throw
+                    // out of this catch block.
                     Log.w(TAG, "charge job capture failed", error)
                     jobFinished(params, false)
-                    ChargingCaptureScheduler.arm(this@ChargingCaptureJobService, reArmFromJob = true)
+                    reArm()
                 } finally {
                     val currentJob = currentCoroutineContext()[Job]
                     synchronized(runningJobs) {
@@ -101,6 +101,15 @@ class ChargingCaptureJobService : JobService() {
             runningJobs.remove(params.jobId)?.cancel()
         }
         return false
+    }
+
+    private fun reArm() {
+        try {
+            ChargingCaptureScheduler.arm(this, reArmFromJob = true)
+        } catch (error: RuntimeException) {
+            // JobScheduler can refuse (job limit, IllegalStateException); the next app open or boot re-arms.
+            Log.w(TAG, "charge job re-arm failed", error)
+        }
     }
 
     // One bounded kernel read through the existing telemetry source; null (no Shizuku, no sysfs node) skips analysis.
