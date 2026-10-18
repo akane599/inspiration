@@ -109,10 +109,14 @@ class ReferenceResolver(
 
     private fun completedScreenOff(events: List<HistoryEvent>): Boundary? {
         var candidate: Boundary? = null
-        events.forEachIndexed { index, event ->
-            if (event.kind == HistoryKind.SCREEN_OFF) {
-                val screenOn = events.drop(index + 1).firstOrNull { it.kind == HistoryKind.SCREEN_ON }
-                if (screenOn != null) candidate = Boundary(event.wallMs, screenOn.wallMs)
+        var screenOff: Long? = null
+        for (event in events) {
+            when (event.kind) {
+                HistoryKind.SCREEN_OFF -> screenOff = event.wallMs
+                HistoryKind.SCREEN_ON -> {
+                    screenOff?.let { candidate = Boundary(it, event.wallMs) }
+                    screenOff = null
+                }
             }
         }
         return candidate

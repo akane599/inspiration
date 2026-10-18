@@ -421,6 +421,20 @@ class SnapshotDifferTest {
     }
 
     @Test
+    fun `screen off resolution handles long history and consecutive off markers`() = runTest {
+        val events = (0 until 2_000).flatMap { i -> listOf(
+            history(3L * i, HistoryKind.SCREEN_OFF),
+            history(3L * i + 1, HistoryKind.SCREEN_OFF),
+            history(3L * i + 2, HistoryKind.SCREEN_ON),
+        ) }
+        val snapshots = listOf(snapshot(id = 1, wall = 5_998, elapsed = 5_998), snapshot(id = 2, wall = 5_999, elapsed = 5_999))
+        val resolver = ReferenceResolver(FakeStore(snapshots, events, emptyMap()))
+        val resolved = resolver.resolve(ReferenceKind.SinceScreenOff, 6_000)!!
+        assertEquals(5_998L, resolved.boundaryFromWallMs)
+        assertEquals(5_999L, resolved.boundaryToWallMs)
+    }
+
+    @Test
     fun `resolver supports all kinds and reports uncovered gaps`() = runTest {
         val snapshots = listOf(
             snapshot(id = 1, wall = 1_000, elapsed = 1_000),
