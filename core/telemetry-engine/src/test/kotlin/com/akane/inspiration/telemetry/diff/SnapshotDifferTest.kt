@@ -493,6 +493,8 @@ class SnapshotDifferTest {
         override suspend fun lastAtOrBefore(wallMs: Long, kind: SnapshotKind?) = snapshots.filterKind(kind)
             .filter { it.clock.wallMs <= wallMs }.maxByOrNull { it.clock.wallMs }
         override suspend fun latestByTrigger(trigger: CaptureTrigger) = snapshots.filter { it.trigger == trigger }.maxByOrNull { it.clock.wallMs }
+        override suspend fun snapshotsBetween(fromWallMs: Long, toWallMs: Long) =
+            snapshots.filter { it.clock.wallMs in fromWallMs..toWallMs }.sortedBy { it.clock.wallMs }
         override suspend fun insertHistory(events: List<HistoryEvent>, statsStartMs: Long) = Unit
         override suspend fun historyBetween(fromWallMs: Long, toWallMs: Long) = history.filter { it.wallMs in fromWallMs..toWallMs }
         override suspend fun historyCursor(): Pair<Long, Long>? = null
