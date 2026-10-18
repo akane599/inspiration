@@ -41,16 +41,41 @@ cd "$root" || exit 2
 say() { echo "[device-probe] $*" >&2; }
 
 # 1. Device: reuse an attached one (honours ANDROID_SERIAL), else boot the AVD headless.
-if ! adb get-state >/dev/null 2>&1; then
+[[ $timeout =~ ^[1-9][0-9]*$ ]] || { say "timeout must be positive seconds"; exit 2; }
+boot_deadline=$((SECONDS + timeout))
+emulator_pid=""
+if ! timeout 5s adb get-state >/dev/null 2>&1; then
   say "booting $avd"
-  nohup emulator -avd "$avd" -no-window -no-audio -no-snapshot-save >"build/emulator-$avd.log" 2>&1 &
-  adb wait-for-device || exit 2
+  mkdir -p build || exit 2
+  emulator_log=$(mktemp build/emulator.XXXXXXXX.log) || exit 2
+  nohup emulator -avd "$avd" -no-window -no-audio -no-snapshot-save >"$emulator_log" 2>&1 &
+  emulator_pid=$!
+  until timeout 5s adb get-state >/dev/null 2>&1; do
+    if ! kill -0 "$emulator_pid" 2>/dev/null; then
+      wait "$emulator_pid" || true
+      say "emulator exited before connecting; log: $emulator_log"
+      exit 2
+    fi
+    if (( SECONDS >= boot_deadline )); then
+      kill "$emulator_pid" 2>/dev/null || true
+      wait "$emulator_pid" || true
+      say "device connection timed out; log: $emulator_log"
+      exit 2
+    fi
+    sleep 1
+  done
 fi
-for _ in $(seq 1 180); do
-  [[ $(adb shell getprop sys.boot_completed 2>/dev/null | tr -d '\r') == 1 ]] && break
+until [[ $(timeout 5s adb shell getprop sys.boot_completed 2>/dev/null | tr -d '\r') == 1 ]]; do
+  if (( SECONDS >= boot_deadline )); then
+    if [[ -n $emulator_pid ]]; then
+      kill "$emulator_pid" 2>/dev/null || true
+      wait "$emulator_pid" || true
+    fi
+    say "boot timed out"
+    exit 2
+  fi
   sleep 1
 done
-[[ $(adb shell getprop sys.boot_completed | tr -d '\r') == 1 ]] || { say "boot timed out"; exit 2; }
 sdk=$(adb shell getprop ro.build.version.sdk | tr -d '\r')
 say "device $(adb get-serialno) api $sdk"
 
