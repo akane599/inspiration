@@ -20,6 +20,7 @@ import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Assert.fail
 import org.junit.Test
@@ -33,6 +34,37 @@ class ToolkitActionsRobustnessTest {
 
     private fun TestScope.actionsOnVirtualTime() =
         ToolkitActions(backend, audit, holds::hold, nowMs = { currentTime }, supervisorScope = backgroundScope)
+
+    @Test
+    fun lostReplyAfterEffectCanReconcileAndRestoreTheOriginal() = runTest {
+        val actions = actionsOnVirtualTime()
+        backend.unavailableAfterWrite = GatewayUnavailable.NO_SERVICE
+        assertTrue(actions.execute(ToolkitAction.SetBucket(PKG, StandbyBucket.RARE)) is ToolkitOutcome.Unavailable)
+        assertEquals(StandbyBucket.RARE.rawValue, backend.buckets[PKG])
+        assertEquals(ToolkitActionStatus.PENDING, audit.rows.single().status)
+        backend.unavailableAfterWrite = null
+        actions.reconcile()
+        assertEquals(ToolkitActionStatus.DONE, audit.rows.single().status)
+        assertEquals(1, actions.resetAll().size)
+        assertEquals(StandbyBucket.ACTIVE.rawValue, backend.buckets[PKG])
+    }
+
+    @Test
+    fun exceptionAfterEffectCanReconcileAndRestoreTheOriginal() = runTest {
+        val actions = actionsOnVirtualTime()
+        backend.afterWrite = { error("reply lost") }
+        try {
+            actions.execute(ToolkitAction.SetBucket(PKG, StandbyBucket.RARE))
+            fail("expected reply failure")
+        } catch (_: IllegalStateException) {
+            assertEquals(ToolkitActionStatus.PENDING, audit.rows.single().status)
+        }
+        backend.afterWrite = {}
+        actions.reconcile()
+        assertEquals(ToolkitActionStatus.DONE, audit.rows.single().status)
+        actions.resetAll()
+        assertEquals(StandbyBucket.ACTIVE.rawValue, backend.buckets[PKG])
+    }
 
     // ---- M1 --------------------------------------------------------------------------------
 
@@ -71,7 +103,7 @@ class ToolkitActionsRobustnessTest {
     }
 
     @Test
-    fun aBackendExceptionFinalizesTheRowAsFailedAndIsRethrown() = runTest {
+    fun aBackendExceptionRetainsTheRowForReadback() = runTest {
         val actions = actionsOnVirtualTime()
         backend.writeFailure = IllegalStateException("binder exploded")
 
@@ -83,10 +115,10 @@ class ToolkitActionsRobustnessTest {
         }
 
         val row = audit.rows.single()
-        assertEquals(ToolkitActionStatus.FAILED, row.status)
+        assertEquals(ToolkitActionStatus.PENDING, row.status)
         assertEquals(ToolkitClientCode.WRITE_ERROR, row.code)
-        assertNotNull(row.endedAt)
-        assertTrue(audit.pending().isEmpty())
+        assertNull(row.endedAt)
+        assertEquals(listOf(row), audit.pending())
     }
 
     @Test

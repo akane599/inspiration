@@ -242,13 +242,13 @@ class ToolkitActionsTest {
     }
 
     @Test
-    fun staleApiAtWriteTimeFinalizesThePendingRowAsFailed() = runTest {
+    fun unavailableWriteRemainsPendingUntilReadback() = runTest {
         // reads pass, then the service turns out to be stale: the write gets Unavailable
         backend.writeUnavailable = GatewayUnavailable.STALE_SERVICE
         val outcome = actions.execute(ToolkitAction.SetBucket(PKG, StandbyBucket.RARE))
         assertEquals(ToolkitOutcome.Unavailable(ToolkitUnavailable.STALE_SERVICE), outcome)
         val row = audit.rows.single()
-        assertEquals(ToolkitActionStatus.FAILED, row.status)
+        assertEquals(ToolkitActionStatus.PENDING, row.status)
         assertEquals(ToolkitClientCode.STALE_SERVICE, row.code)
         assertEquals("10", row.beforeRaw)
         assertEquals(StandbyBucket.ACTIVE.rawValue, backend.buckets[PKG] ?: StandbyBucket.ACTIVE.rawValue)

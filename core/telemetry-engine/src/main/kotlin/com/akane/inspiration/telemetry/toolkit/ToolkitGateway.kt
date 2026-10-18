@@ -18,7 +18,7 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
-/** Why a call produced no service answer. Never a partial write: nothing ran. */
+/** Why a call produced no service answer. A post-dispatch transport failure may hide a committed write. */
 enum class GatewayUnavailable {
     /** Shizuku is not ready, the service did not bind in time, or the binder call failed. */
     NO_SERVICE,

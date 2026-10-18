@@ -159,6 +159,7 @@ class ToolkitActionsChainTest {
         } catch (_: IllegalStateException) {
         }
         backend.writeFailure = null
+        actions.reconcile() // Only readback can prove the throwing write had no effect.
         assertEquals(ToolkitActionStatus.FAILED, audit.rows.last().status)
         run(ToolkitAction.SetBucket(PKG, StandbyBucket.FREQUENT))
 

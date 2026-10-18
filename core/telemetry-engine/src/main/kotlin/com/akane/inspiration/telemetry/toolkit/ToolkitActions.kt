@@ -48,7 +48,7 @@ object ToolkitClientCode {
      */
     const val BEFORE_MISSING = 104
 
-    /** The privileged call threw after the PENDING row existed; the row is finalized FAILED and the error rethrown. */
+    /** The privileged call threw after the PENDING row existed; the uncertain row remains PENDING for readback and the error is rethrown. */
     const val WRITE_ERROR = 105
 }
 
@@ -529,7 +529,7 @@ class ToolkitActions internal constructor(
     }
 
     private suspend fun failPending(pending: ToolkitActionRecord) {
-        audit.update(pending.copy(status = ToolkitActionStatus.FAILED, endedAt = nowMs(), code = ToolkitClientCode.WRITE_ERROR))
+        audit.update(pending.copy(status = ToolkitActionStatus.PENDING, endedAt = null, code = ToolkitClientCode.WRITE_ERROR))
     }
 
     private suspend fun write(action: ToolkitAction, prep: Prep.Ok): GatewayReply<ToolkitResult> = when (action) {
@@ -584,7 +584,7 @@ class ToolkitActions internal constructor(
             } else {
                 ToolkitClientCode.NO_SERVICE
             }
-            audit.update(pending.copy(status = ToolkitActionStatus.FAILED, endedAt = now, code = code))
+            audit.update(pending.copy(status = ToolkitActionStatus.PENDING, endedAt = null, code = code))
             return ToolkitOutcome.Unavailable(unavailableFor(reply.reason))
         }
         val result = (reply as GatewayReply.Reply).value

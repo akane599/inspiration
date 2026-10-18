@@ -61,6 +61,7 @@ class FakeBackend : ToolkitBackend {
 
     /** Like [unavailable] but only for writes: reads still answer (a service that goes stale mid-flow). */
     var writeUnavailable: GatewayUnavailable? = null
+    var unavailableAfterWrite: GatewayUnavailable? = null
 
     /** When set, the next write returns this instead of changing the device. */
     var scriptedWrite: ToolkitResult? = null
@@ -113,6 +114,7 @@ class FakeBackend : ToolkitBackend {
         writeFailure?.let { throw it }
         val reply = GatewayReply.Reply(scriptedWrite?.also { scriptedWrite = null } ?: block())
         afterWrite(name)
+        unavailableAfterWrite?.let { return GatewayReply.Unavailable(it) }
         return reply
     }
 
