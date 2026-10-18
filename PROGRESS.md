@@ -65,6 +65,15 @@ _Work items, stories and blockers live on the Sidequest board. This file keeps w
 - 2026-10-18: Status notification (plan audited SQ-121, rev 2 at ~/.claude/plans/elegant-questing-stroustrup.md → docs/plans/status-notification.md). The user chose a resident foreground service (`specialUse`), on by default with a Toolkit switch. This reverses Phase 2's "no resident service" (phase-2.md:27). It also keeps the runtime SCREEN_* receiver from being frozen on API 35+.
   - There is no BATTERY_CHANGED receiver. Updates come only from the existing SCREEN_*/POWER_* captures and app open, so §6.2 is unchanged.
   - The service is not started when notifications are blocked.
+  - Emulator QA (API 36) found two issues, both fixed in d19c506:
+    - The FGS notification needs `FOREGROUND_SERVICE_IMMEDIATE`. Without it the deferred placeholder overwrote the first redraw about 10 s later.
+    - A `POWER_DISCONNECTED` capture anchors "since unplug" even when no plugged snapshot is stored.
+  - Device evidence:
+    - In the background the process is procState 4 and not frozen.
+    - Our registered actions are only SCREEN_*/POWER_*/BATTERY_LOW/OKAY.
+    - The switch off/on and blocked paths behave as specified.
+    - The service returns after BOOT_COMPLETED and MY_PACKAGE_REPLACED. A force-stopped app gets neither broadcast; that is platform behaviour.
+  - Not covered: the X-Ray app names fix on a device. A fresh emulator has no per-UID energy data; the fix is covered by unit and screenshot tests.
   - The numbers come from light snapshots (no Shizuku). The unplug anchor is the first unplugged snapshot after the last plugged one.
   - Pinned-surface changes: `SnapshotStore.snapshotsBetween`, `ToolkitDependencies` +3 defaulted members, and `AppLabels.packageForUid` (default null; SQ-122 X-Ray UID→package fix).
   - Delivered as branch feat/status-notification with a PR to main. (US-6)
