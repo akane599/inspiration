@@ -36,6 +36,10 @@ interface SnapshotStore {
 
     suspend fun historyBetween(fromWallMs: Long, toWallMs: Long): List<HistoryEvent>
 
+    /** Retain epoch provenance for analysis whose clocks restart with battery statistics. */
+    suspend fun historySessions(): Map<Long, List<HistoryEvent>> =
+        mapOf((historyCursor()?.first ?: 0L) to historyBetween(0L, Long.MAX_VALUE))
+
     /**
      * The newest event of each kind strictly before [wallMs], oldest first: at most one per kind, so the cost
      * does not grow with the history before the bound. The default scans everything before it (for fakes);

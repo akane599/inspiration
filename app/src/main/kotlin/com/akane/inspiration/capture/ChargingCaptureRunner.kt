@@ -44,15 +44,16 @@ class ChargeHealthPipeline(
     private suspend fun evaluateSegments(kernel: KernelCapacity) {
         val known = store.chargeSessions()
         val knownKeys = known.mapTo(HashSet()) { it.startWallMs to it.endWallMs }
-        val statsStartMs = store.historyCursor()?.first ?: 0L
         val accepted = store.acceptedEstimatesChronological(ACCEPTED_LIMIT).toMutableList()
         var consecutiveRejections = known.takeLastWhile { !it.accepted }.size
 
-        val segments = ChargeSegmentExtractor.fromHistory(store.historyBetween(0L, Long.MAX_VALUE))
+        val segments = store.historySessions().flatMap { (epoch, events) ->
+            ChargeSegmentExtractor.fromHistory(events).map { epoch to it }
+        }
             // Wall times, not (statsStart, historyTime): a battery-stats reset changes the epoch key but not these.
-            .filter { (it.startWallMs to it.endWallMs) !in knownKeys }
-            .sortedBy { it.endWallMs }
-        for (segment in segments) {
+            .filter { (_, segment) -> (segment.startWallMs to segment.endWallMs) !in knownKeys }
+            .sortedBy { it.second.endWallMs }
+        for ((statsStartMs, segment) in segments) {
             val verdict = guarded("charge segment ${segment.startHistoryTimeMs} failed") {
                 val enriched = withRecordedCurrent(segment)
                 CapacityEstimator.evaluate(enriched, kernel, accepted.takeLast(MEDIAN_WINDOW), consecutiveRejections)

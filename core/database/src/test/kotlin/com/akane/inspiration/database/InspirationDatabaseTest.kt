@@ -55,11 +55,29 @@ class InspirationDatabaseTest {
             old.version = 1
         }
         database = InspirationDatabase.create(context, databaseName)
-        val original = HealthSampleEntity(1, 4800.0, 5000.0, 123, 4700.0)
+        val original = HealthSampleEntity(1, 4800.0, 5000.0, 123, null)
         assertEquals(listOf(original), database.healthDao().all())
         val missingCycles = HealthSampleEntity(2, 4750.0, 5000.0, null)
         database.healthDao().insert(missingCycles)
         assertEquals(listOf(original, missingCycles), database.healthDao().all())
+    }
+
+    @Test
+    fun `version two derived estimates are cleared once while raw kernel health survives`() = runBlocking {
+        database.healthDao().insert(HealthSampleEntity(1, 4800.0, 5000.0, 123, 4500.0))
+        database.chargeSessionDao().upsert(ChargeSessionEntity(
+            statsStartMs = 1, startHistoryTimeMs = 100, startWallMs = 100, endWallMs = 200,
+            startPct = 20, endPct = 80, estimateMah = 4500.0, independent = true, accepted = true,
+        ))
+        database.close()
+        context.openOrCreateDatabase(databaseName, 0, null).use { it.version = 2 }
+        database = InspirationDatabase.create(context, databaseName)
+        assertTrue(database.chargeSessionDao().all().isEmpty())
+        assertEquals(listOf(HealthSampleEntity(1, 4800.0, 5000.0, 123, null)), database.healthDao().all())
+        database.healthDao().insert(HealthSampleEntity(2, 4800.0, 5000.0, 123, 4700.0))
+        database.close()
+        database = InspirationDatabase.create(context, databaseName)
+        assertEquals(4700.0, database.healthDao().all().last().measuredMah!!, 0.0)
     }
 
     @Test

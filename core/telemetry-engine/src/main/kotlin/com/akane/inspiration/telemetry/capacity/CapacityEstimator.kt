@@ -48,6 +48,7 @@ object ChargeSegmentExtractor {
 
         for (event in events.sortedBy(HistoryEvent::historyTimeMs)) {
             when (event.kind) {
+                HistoryKind.RESET, HistoryKind.START, HistoryKind.SHUTDOWN -> active.clear()
                 HistoryKind.PLUGGED -> active = mutableListOf(event)
                 HistoryKind.UNPLUGGED -> {
                     if (active.isNotEmpty()) {
@@ -65,6 +66,7 @@ object ChargeSegmentExtractor {
     private fun List<HistoryEvent>.toChargeSegment(): ChargeSegment? {
         val start = first()
         val end = last()
+        if (start.wallMs < 0L || end.wallMs <= start.wallMs) return null
         if (end.levelPct - start.levelPct < MINIMUM_SOC_RISE_PCT) return null
 
         return ChargeSegment(

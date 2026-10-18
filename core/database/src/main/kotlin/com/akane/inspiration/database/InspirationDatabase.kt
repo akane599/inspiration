@@ -28,7 +28,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         HealthSampleEntity::class,
         ToolkitActionEntity::class,
     ],
-    version = 2,
+    version = 3,
     exportSchema = true,
 )
 abstract class InspirationDatabase : RoomDatabase() {
@@ -49,7 +49,7 @@ abstract class InspirationDatabase : RoomDatabase() {
                 InspirationDatabase::class.java,
                 name,
             ).setJournalMode(JournalMode.WRITE_AHEAD_LOGGING)
-                .addMigrations(MIGRATION_1_2)
+                .addMigrations(MIGRATION_1_2, MIGRATION_2_3)
                 .build()
 
         val MIGRATION_1_2: Migration = object : Migration(1, 2) {
@@ -58,6 +58,14 @@ abstract class InspirationDatabase : RoomDatabase() {
                 db.execSQL("INSERT INTO battery_health_sample_new SELECT wallMs, fccMah, designMah, cycleCount, measuredMah FROM battery_health_sample")
                 db.execSQL("DROP TABLE battery_health_sample")
                 db.execSQL("ALTER TABLE battery_health_sample_new RENAME TO battery_health_sample")
+            }
+        }
+
+        /** Derived estimates from older versions cannot be certified across history discontinuities. */
+        val MIGRATION_2_3: Migration = object : Migration(2, 3) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("DELETE FROM charge_session")
+                db.execSQL("UPDATE battery_health_sample SET measuredMah = NULL")
             }
         }
 

@@ -29,6 +29,18 @@ class ChargeHealthPipelineTest {
     private fun pipeline() = ChargeHealthPipeline(store, { kernel }, { message, _ -> logged += message })
 
     @Test
+    fun `overlapping history clocks are extracted and stored under their own epochs`() = runTest {
+        store.cursor = 2L to 100L
+        store.epochs = mapOf(
+            1L to charge(0L),
+            2L to charge(10_000L).map { it.copy(historyTimeMs = it.historyTimeMs - 10_000L) },
+        )
+        pipeline().run(100_000L)
+        assertEquals(listOf(1L, 2L), store.sessions.map { it.statsStartMs })
+        assertEquals(listOf(0L, 10_000L), store.sessions.map { it.startWallMs })
+    }
+
+    @Test
     fun `a completed charge segment is evaluated and upserted with the current stats epoch`() = runTest {
         store.cursor = 77L to 12_000L
         store.history += charge(startMs = 0L)
@@ -198,6 +210,7 @@ class ChargeHealthPipelineTest {
 
     private class FakeStore : SnapshotStore {
         var cursor: Pair<Long, Long>? = null
+        var epochs: Map<Long, List<HistoryEvent>>? = null
         val history = mutableListOf<HistoryEvent>()
         val samples = mutableListOf<TelemetrySample>()
         val sessions = mutableListOf<ChargeSessionRecord>()
@@ -208,6 +221,8 @@ class ChargeHealthPipelineTest {
 
         override suspend fun historyBetween(fromWallMs: Long, toWallMs: Long): List<HistoryEvent> = history
         override suspend fun historyCursor(): Pair<Long, Long>? = cursor
+        override suspend fun historySessions(): Map<Long, List<HistoryEvent>> =
+            epochs ?: mapOf((cursor?.first ?: 0L) to history)
 
         override suspend fun upsertChargeSession(statsStartMs: Long, segment: ChargeSegment, verdict: SegmentVerdict) {
             upsertCalls++

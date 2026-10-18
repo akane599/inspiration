@@ -11,6 +11,17 @@ import org.junit.Test
 
 class CapacityEstimatorTest {
     @Test
+    fun `charge sessions never span a lifecycle boundary`() {
+        for (boundary in listOf(HistoryKind.RESET, HistoryKind.START, HistoryKind.SHUTDOWN)) {
+            assertTrue(ChargeSegmentExtractor.fromHistory(listOf(
+                historyEvent(0, HistoryKind.PLUGGED, 20, 1_000_000),
+                historyEvent(500, boundary, 40, 2_000_000),
+                historyEvent(1_000, HistoryKind.UNPLUGGED, 80, 3_700_000),
+            )).isEmpty())
+        }
+    }
+
+    @Test
     fun `extractor keeps only completed plugged segments rising at least forty points`() {
         val segments = ChargeSegmentExtractor.fromHistory(
             listOf(
