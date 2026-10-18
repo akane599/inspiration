@@ -48,7 +48,30 @@ internal fun timesText(count: Long): String {
 
 @Composable
 internal fun displayName(app: AppRow): String =
-    app.label ?: app.packageName ?: stringResource(R.string.xray_uid_label, app.uid)
+    app.label
+        ?: app.packageName
+        ?: systemUidLabelRes(app.uid)?.let { stringResource(it) }
+        ?: stringResource(R.string.xray_uid_label, app.uid)
+
+private const val PER_USER_UID_RANGE = 100_000
+
+/** A readable name for a well-known shared platform UID (in any user), or null for everything else. */
+@StringRes
+internal fun systemUidLabelRes(uid: Int): Int? = when (uid % PER_USER_UID_RANGE) {
+    0 -> R.string.xray_uid_root
+    1_000 -> R.string.xray_uid_system
+    1_001 -> R.string.xray_uid_phone
+    1_002 -> R.string.xray_uid_bluetooth
+    1_010 -> R.string.xray_uid_wifi
+    1_013 -> R.string.xray_uid_media
+    1_017 -> R.string.xray_uid_keystore
+    1_021 -> R.string.xray_uid_gps
+    1_027 -> R.string.xray_uid_nfc
+    1_041 -> R.string.xray_uid_audio
+    1_047 -> R.string.xray_uid_camera
+    2_000 -> R.string.xray_uid_shell
+    else -> null
+}
 
 @StringRes
 internal fun componentLabelRes(key: String): Int? = when (key) {

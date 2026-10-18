@@ -15,6 +15,9 @@ interface AppLabelSource {
 
     /** The launcher icon, or null when the package is not installed (or not visible). */
     fun loadIcon(packageName: String): Bitmap?
+
+    /** The visible packages running as [uid], in any order; empty when none is. */
+    fun loadPackagesForUid(uid: Int): List<String>
 }
 
 class PackageManagerAppLabelSource(private val packageManager: PackageManager) : AppLabelSource {
@@ -30,6 +33,8 @@ class PackageManagerAppLabelSource(private val packageManager: PackageManager) :
     } catch (_: PackageManager.NameNotFoundException) {
         null
     }
+
+    override fun loadPackagesForUid(uid: Int): List<String> = packageManager.getPackagesForUid(uid)?.toList().orEmpty()
 
     private companion object {
         const val ICON_PX = 128
@@ -49,6 +54,7 @@ class CachedAppLabels(
 ) : AppLabels {
     private val labels = Lru<Resolved<String>>(maxLabels)
     private val icons = Lru<Resolved<Bitmap>>(maxIcons)
+    private val packages = Lru<Resolved<String>>(maxLabels)
 
     override suspend fun label(packageName: String): String {
         labels.get(packageName)?.let { return it.value ?: packageName }
@@ -61,6 +67,15 @@ class CachedAppLabels(
         icons.get(packageName)?.let { return it.value }
         val loaded = withContext(ioDispatcher) { source.loadIcon(packageName) }
         icons.put(packageName, Resolved(loaded))
+        return loaded
+    }
+
+    override suspend fun packageForUid(uid: Int): String? {
+        if (uid % PER_USER_UID_RANGE < FIRST_APPLICATION_UID) return null // shared platform UIDs own no single app
+        val key = uid.toString()
+        packages.get(key)?.let { return it.value }
+        val loaded = withContext(ioDispatcher) { source.loadPackagesForUid(uid) }.minOrNull()
+        packages.put(key, Resolved(loaded))
         return loaded
     }
 
@@ -86,5 +101,7 @@ class CachedAppLabels(
         const val DEFAULT_MAX_ICONS = 96
         const val INITIAL_CAPACITY = 16
         const val LOAD_FACTOR = 0.75f
+        const val PER_USER_UID_RANGE = 100_000
+        const val FIRST_APPLICATION_UID = 10_000
     }
 }

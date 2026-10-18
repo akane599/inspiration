@@ -170,8 +170,9 @@ class XRayViewModel(private val deps: XRayDependencies) : ViewModel() {
     }
 
     private suspend fun withIdentities(rows: List<AppRow>): List<AppRow> = rows.map { row ->
-        val pkg = row.packageName ?: return@map row
-        row.copy(label = deps.appLabels.label(pkg), icon = deps.appLabels.icon(pkg)?.asImageBitmap())
+        // batterystats often reports an app UID without a package; PackageManager knows which one owns it.
+        val pkg = row.packageName ?: deps.appLabels.packageForUid(row.uid) ?: return@map row
+        row.copy(packageName = pkg, label = deps.appLabels.label(pkg), icon = deps.appLabels.icon(pkg)?.asImageBitmap())
     }
 
     // ---- detail sheet ----------------------------------------------------------------------
