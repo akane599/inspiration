@@ -257,6 +257,28 @@ class ToolkitViewModelTest {
     }
 
     @Test
+    fun `a doze write finishing after opening an app refreshes the card without a stale notice`() {
+        start()
+        val gate = CompletableDeferred<Unit>()
+        device.store.insertGate = gate
+
+        act(ToolkitRequest.ApplyDoze(DozeProfile.BALANCED))
+        assertTrue(state.busy)
+        assertEquals(DozeProfile.STANDARD, dozeInfo.profile)
+
+        open(CHATTY)
+        gate.complete(Unit)
+
+        assertEquals(DozeProfile.BALANCED.constants, device.dozeRaw)
+        assertEquals(DozeProfile.BALANCED, dozeInfo.profile)
+        assertEquals(CHATTY, detail.app.packageName)
+        assertNull(state.doze.notice)
+        assertNull(detail.notice)
+        assertNull(state.confirmation)
+        assertFalse(state.busy)
+    }
+
+    @Test
     fun `standard over a custom value asks first and writes nothing until confirmed`() {
         start { device.dozeRaw = "idle_to=1" }
         assertNull(dozeInfo.profile)

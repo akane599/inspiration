@@ -229,8 +229,10 @@ private class FakeShizuku(private val device: FakeDevice) : ShizukuManager {
 /** Keeps the toolkit audit rows in memory; everything else reads as empty. */
 internal class MemoryStore : SnapshotStore {
     val rows = mutableListOf<ToolkitActionRecord>()
+    var insertGate: CompletableDeferred<Unit>? = null
 
     override suspend fun insertToolkitAction(record: ToolkitActionRecord): Long {
+        insertGate?.await()
         val id = rows.size + 1L
         rows += record.copy(id = id)
         return id

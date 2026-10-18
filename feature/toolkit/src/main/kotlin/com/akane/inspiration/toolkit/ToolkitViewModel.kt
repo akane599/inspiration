@@ -384,11 +384,7 @@ class ToolkitViewModel(private val deps: ToolkitDependencies) : ViewModel() {
             askAgain(prepared)
             return
         }
-        if (prepared.generation == generation) {
-            finish(prepared, if (outcome is ToolkitOutcome.Done<*>) ToolkitNotice.Applied(changeOf(request)) else ToolkitNotice.Rejected(ToolkitMapper.problem(outcome)))
-        } else {
-            _state.update { it.copy(busy = false) }
-        }
+        finish(prepared, if (outcome is ToolkitOutcome.Done<*>) ToolkitNotice.Applied(changeOf(request)) else ToolkitNotice.Rejected(ToolkitMapper.problem(outcome)))
     }
 
     /** The setting moved between plan and write: read it again and let the user decide with the value that is there now. */
