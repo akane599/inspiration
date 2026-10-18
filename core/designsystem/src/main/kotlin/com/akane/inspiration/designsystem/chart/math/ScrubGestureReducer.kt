@@ -68,7 +68,15 @@ class ScrubGestureReducer(val minSelectionMs: Long, val slopPx: Float, val handl
         is ScrubGestureEvent.Down -> down(event, scale, selection)
         is ScrubGestureEvent.LongPress -> longPress(state, event, scale)
         is ScrubGestureEvent.Move -> move(state, event, scale)
-        is ScrubGestureEvent.Up -> up(state, scale, selection)
+        is ScrubGestureEvent.Up -> up(
+            when (state) {
+                is ScrubGestureState.Brushing -> state.copy(currentMs = timeAt(event.x, scale))
+                is ScrubGestureState.DraggingHandle -> state.copy(currentMs = timeAt(event.x, scale))
+                else -> state
+            },
+            scale,
+            selection,
+        )
     }
 
     private fun down(event: ScrubGestureEvent.Down, scale: TimeScale, selection: TimeRange?): ScrubGestureResult {

@@ -30,6 +30,18 @@ class ScrubGestureReducerTest {
     }
 
     @Test
+    fun releasePositionCompletesTheBrushEvenWhenNoMoveWasDeliveredThere() {
+        val result = run(null, Down(200f, 50f), Move(400f, 50f), Up(450f))
+        assertEquals(SelectionCommit.Set(TimeRange.of(20_000, 45_000)), result.commit)
+    }
+
+    @Test
+    fun releaseCanCrossTheMinimumBrushSize() {
+        val result = run(null, Down(200f, 50f), Move(240f, 50f), Up(260f))
+        assertEquals(SelectionCommit.Set(TimeRange.of(20_000, 26_000)), result.commit)
+    }
+
+    @Test
     fun cleanTapClearsExistingSelection() {
         val r = run(selection, Down(400f, 50f), Up(400f))
         assertEquals(SelectionCommit.Clear, r.commit)
