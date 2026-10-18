@@ -131,7 +131,7 @@ private fun SnapshotDiff.perUidState(perUidAvailable: Boolean): ListUi<Nothing>?
 internal fun appWakelockRows(diff: SnapshotDiff, perUidAvailable: Boolean, labels: Map<String, String>): ListUi<AppWakelockRow> {
     diff.perUidState(perUidAvailable)?.let { return it }
     if (!diff.validity.dumpCounters) return ListUi.Unavailable
-    val rows = diff.uids.filter { it.valid }.flatMap { uid ->
+    val rows = diff.uids.filter { it.valid && !it.packageChanged }.flatMap { uid ->
         uid.partialWakelocks.filter { it.durationMs > 0 || it.count > 0 }.map {
             AppWakelockRow(
                 uid = uid.uid,
@@ -171,7 +171,7 @@ internal fun kernelWakelockRows(diff: SnapshotDiff): ListUi<KernelWakelockRow> {
 internal fun alarmRows(diff: SnapshotDiff, perUidAvailable: Boolean, labels: Map<String, String>): ListUi<AlarmRow> {
     diff.perUidState(perUidAvailable)?.let { return it }
     if (!diff.validity.dumpCounters && !diff.validity.alarmDumpCounters) return ListUi.Unavailable
-    val rows = diff.uids.filter { it.valid }.mapNotNull { uid ->
+    val rows = diff.uids.filter { it.valid && !it.packageChanged }.mapNotNull { uid ->
         val tags = uid.wakeupAlarms.positive().ifEmpty { uid.alarmDumpWakeups.positive() }
         if (tags.isEmpty()) {
             null

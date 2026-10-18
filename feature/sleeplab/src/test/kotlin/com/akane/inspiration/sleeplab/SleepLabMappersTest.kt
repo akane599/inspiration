@@ -20,6 +20,15 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class SleepLabMappersTest {
+    @Test
+    fun `identity changes do not rank lifetime counters as interval activity`() {
+        val changed = uidDelta(10_001, wakelocks = listOf(wakelock("sync", 60_000, 100)),
+            alarms = listOf(UidAlarm("tick", 100))).copy(packageChanged = true)
+        val diff = snapshotDiff(uids = listOf(changed))
+        assertTrue((appWakelockRows(diff, true, emptyMap()) as ListUi.Rows).rows.isEmpty())
+        assertTrue((alarmRows(diff, true, emptyMap()) as ListUi.Rows).rows.isEmpty())
+    }
+
 
     @Test
     fun `missing counter sources render unavailable rather than empty or cumulative rows`() {
