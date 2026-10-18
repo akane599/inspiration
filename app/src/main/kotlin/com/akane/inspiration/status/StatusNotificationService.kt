@@ -98,6 +98,7 @@ class StatusNotificationService : Service() {
         source: AndroidTelemetrySource,
     ) {
         try {
+            if (stopIfBlocked(container)) return
             val light = source.light()
             val nowMs = light.clock.wallMs
             val history = container.store.snapshotsBetween(nowMs - HISTORY_WINDOW_MS, nowMs)
@@ -111,6 +112,7 @@ class StatusNotificationService : Service() {
             val notification = StatusNotifications.build(this, text)
             synchronized(postLock) {
                 if (stopped) return
+                if (stopIfBlocked(container)) return
                 lastNotification = notification
                 getSystemService(NotificationManager::class.java).notify(NOTIFICATION_ID, notification)
             }
@@ -120,6 +122,17 @@ class StatusNotificationService : Service() {
             // One bad redraw must not end the collector; the notification keeps its previous text.
             Log.w(TAG, "Could not redraw the status notification", e)
         }
+    }
+
+    private fun stopIfBlocked(container: AppContainer): Boolean {
+        if (StatusNotificationController.shouldRun(
+                container.statusNotificationEnabled.value,
+                container.notificationsBlocked(),
+            )
+        ) return false
+        synchronized(postLock) { stopped = true }
+        stopSelf()
+        return true
     }
 
     private fun foregroundServiceType(): Int =
