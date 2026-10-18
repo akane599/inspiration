@@ -21,19 +21,23 @@ class RuntimeCaptureReceiver : BroadcastReceiver() {
         ) ?: return
         when (plan) {
             is CapturePlan.Light -> runBlocking(Dispatchers.IO) {
-                app.appContainer.capturer.captureLight(plan.trigger)
+                app.appContainer.statusTicker.emitAfter {
+                    app.appContainer.capturer.captureLight(plan.trigger)
+                }
             }
 
             is CapturePlan.Full -> {
                 val pendingResult = goAsync()
                 app.appContainer.applicationScope.launch {
                     try {
-                        withTimeoutOrNull(plan.deadlineMs) {
-                            app.appContainer.capturer.captureFull(
-                                trigger = plan.trigger,
-                                deadlineMs = plan.deadlineMs,
-                                ingestHistory = false,
-                            )
+                        app.appContainer.statusTicker.emitAfter {
+                            withTimeoutOrNull(plan.deadlineMs) {
+                                app.appContainer.capturer.captureFull(
+                                    trigger = plan.trigger,
+                                    deadlineMs = plan.deadlineMs,
+                                    ingestHistory = false,
+                                )
+                            }
                         }
                     } finally {
                         pendingResult.finish()
