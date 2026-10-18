@@ -38,6 +38,29 @@ class TimelineBuilderTest {
         )
 
     @Test
+    fun `start and reset close all lanes without inventing a new screen or idle state`() {
+        for (boundary in listOf(HistoryKind.START, HistoryKind.RESET)) {
+            for (initial in listOf(HistoryKind.SCREEN_ON, HistoryKind.DEEP_IDLE_ON, HistoryKind.LIGHT_IDLE_ON)) {
+                val timeline = build(listOf(at(min, initial), at(2 * min, boundary)), to = 4 * min)
+                assertTrue(timeline.segments.isNotEmpty())
+                assertTrue(timeline.segments.all { it.endMs <= base + 2 * min })
+            }
+            val gap = build(listOf(at(min, HistoryKind.DEEP_IDLE_ON),
+                at(2 * min, HistoryKind.DEEP_IDLE_OFF), at(3 * min, boundary)), to = 5 * min)
+            assertTrue(gap.segments.all { it.endMs <= base + 3 * min })
+            for (plug in listOf(0, 1)) {
+                val timeline = build(listOf(at(min, HistoryKind.PLUGGED),
+                    at(2 * min, boundary).copy(plugType = plug)), to = 4 * min)
+                assertEquals(
+                    if (plug == 0) listOf(seg(CHARGING, min, 2 * min)) else
+                        listOf(seg(CHARGING, min, 2 * min), seg(CHARGING, 2 * min, 4 * min)),
+                    timeline.of(CHARGING),
+                )
+            }
+        }
+    }
+
+    @Test
     fun `a gap of exactly 10 minutes is maintenance and one millisecond more is awake`() {
         val exact = build(deepGap(10 * min))
         assertEquals(listOf(seg(MAINTENANCE, 10 * min, 20 * min)), exact.of(MAINTENANCE))

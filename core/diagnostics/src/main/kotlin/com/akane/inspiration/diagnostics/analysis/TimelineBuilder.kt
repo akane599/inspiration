@@ -144,7 +144,9 @@ private class Spans(
                     HistoryKind.PLUGGED -> plug.open(t)
                     HistoryKind.UNPLUGGED -> plug.close(t)
                     HistoryKind.RESET, HistoryKind.START -> {
-                        if (event.plugType != 0) plug.open(t) else plug.close(t)
+                        // The fresh baseline carries plug state, but no screen or idle state.
+                        listOf(screen, plug, deep, light, gaps).forEach { it.close(t) }
+                        if (event.plugType != 0) plug.open(t)
                     }
                     HistoryKind.DEEP_IDLE_ON -> {
                         light.close(t)
