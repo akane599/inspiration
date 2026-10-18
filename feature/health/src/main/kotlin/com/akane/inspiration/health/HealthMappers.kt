@@ -146,12 +146,15 @@ internal fun lastRun(points: List<CurvePoint>): List<CurvePoint> {
 }
 
 /** Resolve the same span for both the curve points and their duration analysis. */
-internal fun effectiveChargeSpan(span: ChargeSpan?, samples: List<CurvePoint>, hasLive: Boolean): ChargeSpan? =
-    if (hasLive && (span == null || span.endMs != null)) {
+internal fun effectiveChargeSpan(span: ChargeSpan?, samples: List<CurvePoint>, hasLive: Boolean): ChargeSpan? {
+    val newest = samples.maxOfOrNull { it.wallMs }
+    val extendsCompleted = span?.endMs?.let { end -> newest != null && newest > end } ?: false
+    return if (hasLive && (span == null || extendsCompleted)) {
         lastRun(samples).firstOrNull()?.let { ChargeSpan(it.wallMs, null) }
     } else {
         span
     }
+}
 
 /**
  * The points of the charge to draw and analyse: history outside continuous observed sample runs, merged with recorded

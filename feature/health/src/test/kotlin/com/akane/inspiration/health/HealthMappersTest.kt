@@ -10,6 +10,22 @@ import org.junit.Test
 
 class HealthMappersTest {
     @Test
+    fun `retained live buffer does not reopen a completed charge`() {
+        val span = ChargeSpan(0, 60 * MIN_MS)
+        val buffered = listOf(point(55 * MIN_MS), point(59 * MIN_MS))
+        assertEquals(span, effectiveChargeSpan(span, buffered, hasLive = true))
+        val history = listOf(point(0, fromHistory = true), point(5 * MIN_MS, fromHistory = true))
+        assertEquals(0L, chargeSession(span, buffered, history, true).first().wallMs)
+    }
+
+    @Test
+    fun `samples beyond previous charge retain the current session while ingestion lags`() {
+        val previous = ChargeSpan(0, 30 * MIN_MS)
+        val buffered = listOf(point(2 * HOUR_MS), point(2 * HOUR_MS + SEC_MS))
+        assertEquals(ChargeSpan(2 * HOUR_MS, null), effectiveChargeSpan(previous, buffered, true))
+    }
+
+    @Test
     fun `history after and between foreground observations remains available`() {
         val history = (0..12).map { point(it * 5 * MIN_MS, fromHistory = true) }
         val samples = listOf(10 * MIN_MS, 10 * MIN_MS + 10 * SEC_MS, 40 * MIN_MS, 40 * MIN_MS + 10 * SEC_MS)
