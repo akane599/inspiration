@@ -40,6 +40,7 @@ class SleepLabViewModel(private val deps: SleepLabDependencies) : ViewModel() {
     private val visible = MutableStateFlow(false)
     private var refreshJob: Job? = null
     private val labelCache = HashMap<String, String>()
+    private val uidPackageCache = HashMap<Int, String?>()
 
     init {
         viewModelScope.launch {
@@ -79,9 +80,24 @@ class SleepLabViewModel(private val deps: SleepLabDependencies) : ViewModel() {
     }
 
     private suspend fun showReady(analysis: IntervalAnalysis, slice: SliceUi?) {
-        val labels = labelsFor(analysis)
-        _state.update { it.copy(analysis = sleepLabAnalysis(analysis, labels), slice = slice) }
+        val named = withOwnerPackages(analysis)
+        val labels = labelsFor(named)
+        _state.update { it.copy(analysis = sleepLabAnalysis(named, labels), slice = slice) }
         loadHypnogram(analysis.resolved)
+    }
+
+    /** batterystats often reports an app UID without a package; PackageManager knows which one owns it. */
+    private suspend fun withOwnerPackages(analysis: IntervalAnalysis): IntervalAnalysis {
+        if (analysis.diff.uids.none { it.packageName == null }) return analysis
+        val uids = analysis.diff.uids.map { uid ->
+            if (uid.packageName != null) {
+                uid
+            } else {
+                val pkg = uidPackageCache.getOrPut(uid.uid) { attempt { deps.appLabels.packageForUid(uid.uid) } }
+                if (pkg == null) uid else uid.copy(packageName = pkg)
+            }
+        }
+        return analysis.copy(diff = analysis.diff.copy(uids = uids))
     }
 
     /** Labels are cached for the ViewModel's life; only the packages the tabs will show are looked up. */

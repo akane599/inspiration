@@ -1,5 +1,5 @@
 # Codebase Map — Inspiration
-*Last Updated: 2026-10-17*
+*Last Updated: 2026-10-18*
 
 Shizuku-powered battery analytics and diagnostics for Android power users. Phase 2 provides the telemetry snapshot pipeline, history ingestion, Room persistence, and capture scheduling. Phase 3 adds interval metrics and the `:core:diagnostics` insight layer (rule engine R1–R4, dictionary, Battery Story) with debug `PROBE_INSIGHTS`; Phase 4 adds the leaf `:core:designsystem` module (theme tokens, components, synchronized scrubbing chart, sleep hypnogram) plus the debug-only `DesignGalleryActivity`. Phase 5 adds the app shell (bottom bar / rail, `RefreshCoordinator`), the manual-DI `AppContainer` that implements five per-feature dependency interfaces, the five MVI feature screens (Cockpit, X-Ray, Sleep Lab, Charge & Health, Toolkit), the typed privileged toolkit write path (`ToolkitActions`, AIDL txns 20–31) and the shared `AnalysisSession`.
 

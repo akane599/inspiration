@@ -727,4 +727,64 @@ class ToolkitViewModelTest {
 
         assertEquals(whileVisible, device.count("getBgDexoptStatus"))
     }
+
+    // ---- status notification ----------------------------------------------------------------
+
+    @Test
+    fun `the status notification switch follows the setting and a toggle goes to the dependencies`() {
+        start()
+        assertFalse(state.statusNotification.enabled)
+
+        vm.onIntent(ToolkitIntent.SetStatusNotification(true))
+
+        assertEquals(listOf(true), deps.statusNotificationRequests)
+        assertTrue(state.statusNotification.enabled)
+
+        vm.onIntent(ToolkitIntent.SetStatusNotification(false))
+
+        assertEquals(listOf(true, false), deps.statusNotificationRequests)
+        assertFalse(state.statusNotification.enabled)
+    }
+
+    @Test
+    fun `the status notification card is there whatever Shizuku says`() {
+        start(shizuku = ShizukuState.NotRunning) { statusNotificationEnabled.value = true }
+
+        assertEquals(ToolkitPhase.BLOCKED, state.status)
+        assertTrue(state.statusNotification.enabled)
+    }
+
+    @Test
+    fun `the blocked flag is read again on every Visible`() {
+        start { notificationsBlocked = true }
+        assertTrue(state.statusNotification.blocked)
+
+        vm.onIntent(ToolkitIntent.Hidden)
+        deps.notificationsBlocked = false // the user allowed it in system settings
+        vm.onIntent(ToolkitIntent.Visible)
+
+        assertFalse(state.statusNotification.blocked)
+        assertEquals(2, deps.notificationsBlockedReads)
+    }
+
+    @Test
+    fun `the status notification setting is followed only while visible`() {
+        start()
+        vm.onIntent(ToolkitIntent.Hidden)
+
+        deps.statusNotificationEnabled.value = true
+        assertFalse(state.statusNotification.enabled)
+
+        vm.onIntent(ToolkitIntent.Visible)
+        assertTrue(state.statusNotification.enabled)
+    }
+
+    @Test
+    fun `Allow in settings emits the open-settings effect`() = runTest {
+        start { notificationsBlocked = true }
+
+        vm.onIntent(ToolkitIntent.OpenNotificationSettings)
+
+        assertEquals(ToolkitEffect.OpenNotificationSettings, vm.effects.first())
+    }
 }

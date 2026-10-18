@@ -87,6 +87,7 @@ private fun ToolkitBody(state: ToolkitState, onIntent: (ToolkitIntent) -> Unit, 
     ) {
         fullWidth { ScreenHeader(title = stringResource(R.string.toolkit_title), subtitle = stringResource(R.string.toolkit_subtitle)) }
         fullWidth { PersistWarning() }
+        fullWidth { StatusNotificationCard(state.statusNotification, onIntent) }
         when (state.status) {
             ToolkitPhase.LOADING -> fullWidth { LoadingBlock() }
             ToolkitPhase.FAILED -> fullWidth { ErrorBlock(onIntent) }

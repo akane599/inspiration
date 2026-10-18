@@ -8,6 +8,7 @@ import android.os.Build
 import android.util.Log
 import androidx.core.content.ContextCompat
 import com.akane.inspiration.capture.RuntimeCaptureReceiver
+import com.akane.inspiration.status.StatusNotificationController
 import kotlinx.coroutines.launch
 import org.lsposed.hiddenapibypass.HiddenApiBypass
 
@@ -29,6 +30,7 @@ class InspirationApplication : Application() {
     override fun onCreate() {
         super.onCreate()
         appContainer = AppContainer(this)
+        appContainer.statusSync = { StatusNotificationController.sync(this) }
         appContainer.shizukuManager.start()
         appContainer.start()
         ContextCompat.registerReceiver(

@@ -47,6 +47,18 @@
 
     <!-- %1$d: the app\'s UID, shown when its package is unknown -->
     <string name="sleeplab_owner_uid">UID %1$d</string>
+    <string name="sleeplab_uid_root">Root işlemleri</string>
+    <string name="sleeplab_uid_system">Android sistemi</string>
+    <string name="sleeplab_uid_phone">Telefon ve mobil radyo</string>
+    <string name="sleeplab_uid_bluetooth">Bluetooth</string>
+    <string name="sleeplab_uid_wifi">Wi-Fi</string>
+    <string name="sleeplab_uid_media">Medya sunucusu</string>
+    <string name="sleeplab_uid_keystore">Anahtar deposu</string>
+    <string name="sleeplab_uid_gps">Konum (GPS)</string>
+    <string name="sleeplab_uid_nfc">NFC</string>
+    <string name="sleeplab_uid_audio">Ses sunucusu</string>
+    <string name="sleeplab_uid_camera">Kamera sunucusu</string>
+    <string name="sleeplab_uid_shell">Kabuk (ADB)</string>
     <!-- %1$s: the number of times -->
     <plurals name="sleeplab_times">
         <item quantity="one">%1$s kez</item>

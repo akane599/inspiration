@@ -59,35 +59,86 @@ private fun DexoptBody(state: ToolkitState) {
     }
 }
 
+@Composable
+private fun NotificationBody(state: StatusNotificationState) {
+    Surface(color = MaterialTheme.colorScheme.background) {
+        Box(modifier = Modifier.padding(MaterialTheme.spacing.md)) {
+            StatusNotificationCard(state = state, onIntent = {})
+        }
+    }
+}
+
+// ---- status notification card ---------------------------------------------------------------------
+
+@PreviewTest
+@Preview(name = "status-notification-on-360", showBackground = true, widthDp = 360, heightDp = 160)
+@Composable
+fun ToolkitNotificationOn() = InspirationTheme(darkTheme = false) { NotificationBody(ToolkitPreviewData.notificationOn) }
+
+@PreviewTest
+@Preview(name = "status-notification-on-840-dark", showBackground = true, widthDp = 840, heightDp = 140, uiMode = Configuration.UI_MODE_NIGHT_YES)
+@Composable
+fun ToolkitNotificationOnWide() = InspirationTheme(darkTheme = true) { NotificationBody(ToolkitPreviewData.notificationOn) }
+
+@PreviewTest
+@Preview(name = "status-notification-off-360-dark", showBackground = true, widthDp = 360, heightDp = 160, uiMode = Configuration.UI_MODE_NIGHT_YES)
+@Composable
+fun ToolkitNotificationOff() = InspirationTheme(darkTheme = true) { NotificationBody(ToolkitPreviewData.notificationOff) }
+
+@PreviewTest
+@Preview(name = "status-notification-off-840", showBackground = true, widthDp = 840, heightDp = 140)
+@Composable
+fun ToolkitNotificationOffWide() = InspirationTheme(darkTheme = false) { NotificationBody(ToolkitPreviewData.notificationOff) }
+
+@PreviewTest
+@Preview(name = "status-notification-blocked-360", showBackground = true, widthDp = 360, heightDp = 220)
+@Composable
+fun ToolkitNotificationBlocked() = InspirationTheme(darkTheme = false) { NotificationBody(ToolkitPreviewData.notificationBlocked) }
+
+@PreviewTest
+@Preview(name = "status-notification-blocked-840-dark", showBackground = true, widthDp = 840, heightDp = 180, uiMode = Configuration.UI_MODE_NIGHT_YES)
+@Composable
+fun ToolkitNotificationBlockedWide() = InspirationTheme(darkTheme = true) { NotificationBody(ToolkitPreviewData.notificationBlocked) }
+
+@PreviewTest
+@Preview(name = "status-notification-on-large-font", showBackground = true, widthDp = 360, heightDp = 300, fontScale = 1.5f)
+@Composable
+fun ToolkitNotificationLargeFont() = InspirationTheme(darkTheme = false) { NotificationBody(ToolkitPreviewData.notificationOn) }
+
+@PreviewTest
+@Preview(name = "status-notification-blocked-large-font-dark", showBackground = true, widthDp = 360, heightDp = 460, fontScale = 1.5f, uiMode = Configuration.UI_MODE_NIGHT_YES)
+@Composable
+fun ToolkitNotificationBlockedLargeFont() = InspirationTheme(darkTheme = true) { NotificationBody(ToolkitPreviewData.notificationBlocked) }
+
 // ---- ready: themes, font scale, widths ----------------------------------------------------------
 
 @PreviewTest
-@Preview(name = "ready-light", showBackground = true, widthDp = 412, heightDp = 2300)
+@Preview(name = "ready-light", showBackground = true, widthDp = 412, heightDp = 2420)
 @Composable
 fun ToolkitReadyLight() = InspirationTheme(darkTheme = false) { Screen(ToolkitPreviewData.ready) }
 
 @PreviewTest
-@Preview(name = "ready-dark", showBackground = true, widthDp = 412, heightDp = 2300, uiMode = Configuration.UI_MODE_NIGHT_YES)
+@Preview(name = "ready-dark", showBackground = true, widthDp = 412, heightDp = 2420, uiMode = Configuration.UI_MODE_NIGHT_YES)
 @Composable
 fun ToolkitReadyDark() = InspirationTheme(darkTheme = true) { Screen(ToolkitPreviewData.ready) }
 
 @PreviewTest
-@Preview(name = "ready-large-font", showBackground = true, widthDp = 412, heightDp = 3600, fontScale = 1.5f)
+@Preview(name = "ready-large-font", showBackground = true, widthDp = 412, heightDp = 3800, fontScale = 1.5f)
 @Composable
 fun ToolkitReadyLargeFont() = InspirationTheme(darkTheme = false) { Screen(ToolkitPreviewData.ready) }
 
 @PreviewTest
-@Preview(name = "ready-narrow-360", showBackground = true, widthDp = 360, heightDp = 2400)
+@Preview(name = "ready-narrow-360", showBackground = true, widthDp = 360, heightDp = 2520)
 @Composable
 fun ToolkitReadyNarrow() = InspirationTheme(darkTheme = false) { Screen(ToolkitPreviewData.ready) }
 
 @PreviewTest
-@Preview(name = "ready-wide-840", showBackground = true, widthDp = 840, heightDp = 1500)
+@Preview(name = "ready-wide-840", showBackground = true, widthDp = 840, heightDp = 1620)
 @Composable
 fun ToolkitReadyWide() = InspirationTheme(darkTheme = false) { Screen(ToolkitPreviewData.ready) }
 
 @PreviewTest
-@Preview(name = "ready-turkish", showBackground = true, widthDp = 360, heightDp = 2500, locale = "tr")
+@Preview(name = "ready-turkish", showBackground = true, widthDp = 360, heightDp = 2640, locale = "tr")
 @Composable
 fun ToolkitReadyTurkish() = InspirationTheme(darkTheme = false) { Screen(ToolkitPreviewData.ready) }
 

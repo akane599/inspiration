@@ -68,6 +68,10 @@ internal class FakeAppLabels(val labels: MutableMap<String, String> = mutableMap
     }
 
     override suspend fun icon(packageName: String): Bitmap? = null
+
+    val uidOwners = mutableMapOf<Int, String>()
+
+    override suspend fun packageForUid(uid: Int): String? = uidOwners[uid]
 }
 
 internal fun emptyTimeline(from: Long = NOW_MS - 10 * HOUR_MS, to: Long = NOW_MS) =

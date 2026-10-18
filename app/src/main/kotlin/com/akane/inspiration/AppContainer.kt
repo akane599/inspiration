@@ -2,6 +2,7 @@ package com.akane.inspiration
 
 import android.content.Context
 import android.content.Intent
+import androidx.core.app.NotificationManagerCompat
 import com.akane.inspiration.capture.CapturePolicy
 import com.akane.inspiration.dashboard.CockpitDependencies
 import com.akane.inspiration.database.InspirationDatabase
@@ -30,6 +31,9 @@ import com.akane.inspiration.ipc.ShizukuManagerImpl
 import com.akane.inspiration.ipc.ShizukuState
 import com.akane.inspiration.ipc.model.HistoryEvent
 import com.akane.inspiration.sleeplab.SleepLabDependencies
+import com.akane.inspiration.status.StatusChannel
+import com.akane.inspiration.status.StatusNotificationSettings
+import com.akane.inspiration.status.StatusTicks
 import com.akane.inspiration.telemetry.app.AppEntry
 import com.akane.inspiration.telemetry.app.AppLabels
 import com.akane.inspiration.telemetry.app.KernelCapacitySnapshot
@@ -56,6 +60,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.flow.first
@@ -121,6 +126,7 @@ class AppContainer(context: Context) :
         when (val result = capturer.captureFull(CaptureTrigger.APP_OPEN, FULL_CAPTURE_DEADLINE_MS, ingestHistory = true)) {
             is CaptureResult.Saved -> {
                 store.prune(clocks.wallMs())
+                emitStatusTick()
                 RefreshResult.Refreshed(clocks.wallMs())
             }
             is CaptureResult.Missed -> RefreshResult.Failed(result.reason)
@@ -219,6 +225,40 @@ class AppContainer(context: Context) :
             excluded = setOf(appContext.packageName, SHIZUKU_PACKAGE),
             locale = Locale.getDefault(),
             label = appLabels::label,
+        )
+    }
+
+    // ---- status notification (ticks, switch, blocked state) --------------------------------
+
+    /** Owns the tick flow; the capture receiver wraps its captures in [StatusTicks.emitAfter]. */
+    val statusTicker = StatusTicks()
+
+    /** One value per finished capture or successful refresh; the status service redraws on each. */
+    val statusTicks: SharedFlow<Unit> get() = statusTicker.ticks
+
+    fun emitStatusTick() = statusTicker.emit()
+
+    private val statusSettings by lazy { StatusNotificationSettings.from(appContext) }
+
+    val postPromptShown: Boolean get() = statusSettings.postPromptShown()
+
+    fun markPostPromptShown() = statusSettings.markPostPromptShown()
+
+    /** Starts or stops the status service for the new switch value; T3b wires it in `InspirationApplication`. */
+    var statusSync: (Boolean) -> Unit = {}
+
+    override val statusNotificationEnabled: StateFlow<Boolean> get() = statusSettings.enabled
+
+    override fun setStatusNotificationEnabled(enabled: Boolean) {
+        statusSettings.setEnabled(enabled)
+        statusSync(enabled)
+    }
+
+    override fun notificationsBlocked(): Boolean {
+        val manager = NotificationManagerCompat.from(appContext)
+        return StatusChannel.isBlocked(
+            notificationsEnabled = manager.areNotificationsEnabled(),
+            channelImportance = manager.getNotificationChannel(StatusChannel.ID)?.importance,
         )
     }
 

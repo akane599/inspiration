@@ -13,6 +13,20 @@
     <string name="xray_share_under_one" formatted="false">&lt;1%</string>
     <string name="xray_uid_label">UID %1$d</string>
 
+    <!-- Shared platform UIDs that no single app owns. -->
+    <string name="xray_uid_root">Root processes</string>
+    <string name="xray_uid_system">Android system</string>
+    <string name="xray_uid_phone">Phone and mobile radio</string>
+    <string name="xray_uid_bluetooth">Bluetooth</string>
+    <string name="xray_uid_wifi">Wi-Fi</string>
+    <string name="xray_uid_media">Media server</string>
+    <string name="xray_uid_keystore">Keystore</string>
+    <string name="xray_uid_gps">Location (GPS)</string>
+    <string name="xray_uid_nfc">NFC</string>
+    <string name="xray_uid_audio">Audio server</string>
+    <string name="xray_uid_camera">Camera server</string>
+    <string name="xray_uid_shell">Shell (ADB)</string>
+
     <!-- Loading, empty, error -->
     <string name="xray_loading_title">Reading battery data</string>
     <string name="xray_loading_body">X-Ray is comparing the captures of this interval.</string>

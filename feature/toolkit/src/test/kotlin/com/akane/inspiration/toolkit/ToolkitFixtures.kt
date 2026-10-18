@@ -252,6 +252,7 @@ internal class MemoryStore : SnapshotStore {
     override suspend fun firstAtOrAfter(wallMs: Long, kind: SnapshotKind?, statsStartMs: Long?, bootCount: Int?): BatterySnapshot? = null
     override suspend fun lastAtOrBefore(wallMs: Long, kind: SnapshotKind?): BatterySnapshot? = null
     override suspend fun latestByTrigger(trigger: CaptureTrigger): BatterySnapshot? = null
+    override suspend fun snapshotsBetween(fromWallMs: Long, toWallMs: Long): List<BatterySnapshot> = emptyList()
     override suspend fun insertHistory(events: List<HistoryEvent>, statsStartMs: Long) = Unit
     override suspend fun historyBetween(fromWallMs: Long, toWallMs: Long): List<HistoryEvent> = emptyList()
     override suspend fun historyCursor(): Pair<Long, Long>? = null
@@ -310,6 +311,23 @@ internal class FakeToolkitDeps(
     override suspend fun installedApps(): List<AppEntry> {
         check(!appsFailure) { "package manager unavailable" }
         return apps
+    }
+
+    override val statusNotificationEnabled = MutableStateFlow(false)
+
+    /** What `notificationsBlocked()` answers; a test flips it between visits. */
+    var notificationsBlocked = false
+    var notificationsBlockedReads = 0
+    val statusNotificationRequests = mutableListOf<Boolean>()
+
+    override fun setStatusNotificationEnabled(enabled: Boolean) {
+        statusNotificationRequests += enabled
+        statusNotificationEnabled.value = enabled
+    }
+
+    override fun notificationsBlocked(): Boolean {
+        notificationsBlockedReads += 1
+        return notificationsBlocked
     }
 
     override fun holdBinding(): AutoCloseable {

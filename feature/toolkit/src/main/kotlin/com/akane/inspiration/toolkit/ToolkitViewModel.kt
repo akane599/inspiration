@@ -74,6 +74,8 @@ class ToolkitViewModel(private val deps: ToolkitDependencies) : ViewModel() {
             ToolkitIntent.DismissResetReport -> _state.update { it.copy(resetReport = null) }
             ToolkitIntent.StartDexopt -> startDexopt()
             ToolkitIntent.CancelDexopt -> cancelDexopt()
+            is ToolkitIntent.SetStatusNotification -> deps.setStatusNotificationEnabled(intent.enabled)
+            ToolkitIntent.OpenNotificationSettings -> _effects.trySend(ToolkitEffect.OpenNotificationSettings)
         }
     }
 
@@ -84,7 +86,15 @@ class ToolkitViewModel(private val deps: ToolkitDependencies) : ViewModel() {
         // An effect from a previous visit is stale: nothing replays when the screen comes back.
         while (_effects.tryReceive().isSuccess) Unit
         visibleJob?.cancel()
+        // The user may have changed this in system settings while the screen was away.
+        val blocked = deps.notificationsBlocked()
+        _state.update { it.copy(statusNotification = it.statusNotification.copy(blocked = blocked)) }
         visibleJob = viewModelScope.launch {
+            launch {
+                deps.statusNotificationEnabled.collect { enabled ->
+                    _state.update { it.copy(statusNotification = it.statusNotification.copy(enabled = enabled)) }
+                }
+            }
             // The log is local, so it is shown whatever Shizuku says.
             launch { deps.toolkit.history(HISTORY_LIMIT).collect { showHistory(it) } }
             deps.shizukuState.collectLatest { follow(it) }

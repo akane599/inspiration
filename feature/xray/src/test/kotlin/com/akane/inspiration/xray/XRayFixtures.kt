@@ -267,6 +267,7 @@ internal class MemoryStore : SnapshotStore {
     override suspend fun firstAtOrAfter(wallMs: Long, kind: SnapshotKind?, statsStartMs: Long?, bootCount: Int?): BatterySnapshot? = null
     override suspend fun lastAtOrBefore(wallMs: Long, kind: SnapshotKind?): BatterySnapshot? = null
     override suspend fun latestByTrigger(trigger: CaptureTrigger): BatterySnapshot? = null
+    override suspend fun snapshotsBetween(fromWallMs: Long, toWallMs: Long): List<BatterySnapshot> = emptyList()
     override suspend fun insertHistory(events: List<HistoryEvent>, statsStartMs: Long) = Unit
     override suspend fun historyBetween(fromWallMs: Long, toWallMs: Long): List<HistoryEvent> = emptyList()
     override suspend fun historyCursor(): Pair<Long, Long>? = null
@@ -297,7 +298,12 @@ internal class FakeXRayDeps(
     override val appLabels: AppLabels = object : AppLabels {
         override suspend fun label(packageName: String) = "Label of $packageName"
         override suspend fun icon(packageName: String): Bitmap? = null
+
+        override suspend fun packageForUid(uid: Int): String? = packagesByUid[uid]
     }
+
+    /** What `PackageManager` would answer for a UID batterystats reported without a package. */
+    val packagesByUid = mutableMapOf<Int, String>()
 
     var refreshResult: RefreshResult = RefreshResult.Refreshed(0L)
     var refreshCalls = 0

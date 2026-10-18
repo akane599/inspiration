@@ -1,5 +1,5 @@
 # Database
-*Last Updated: 2026-10-17*
+*Last Updated: 2026-10-18*
 
 ## Room setup
 
@@ -31,7 +31,7 @@ The schema follows the contracts in [`docs/plans/phase-2.md`](../../docs/plans/p
 
 [`Daos.kt`](../../core/database/src/main/kotlin/com/akane/inspiration/database/Daos.kt) exposes:
 
-- `SnapshotDao`: insert/read snapshots and children, query latest/nearest snapshots, and merge wakelocks with an `ON CONFLICT ... DO UPDATE` sum.
+- `SnapshotDao`: insert/read snapshots and children, query latest/nearest snapshots, `between(from, to)` (bare snapshot rows in a wall-time range, exposed as `SnapshotStore.snapshotsBetween` with empty per-UID lists, used by the status notification), and merge wakelocks with an `ON CONFLICT ... DO UPDATE` sum.
 - `MarkerDao`: insert and resolve marker-to-snapshot references.
 - `HistoryDao`: insert-ignore events, query wall-time ranges, `lastOfEachKindBefore(beforeWallMs)` (the newest event of each kind strictly before a bound, oldest first, in one query; the store exposes it as `lastHistoryOfEachKindBefore`, which seeds the timeline state without scanning all older history), and read/upsert the cursor.
 - `ToolkitActionDao`: insert (with `insertAndPrune`), update, newest-N and by-status queries for the `toolkit_action` audit table.

@@ -5,6 +5,10 @@
     <string name="toolkit_subtitle">Doze\'u ve arka plan işlerini ayarlayın. Yaptığınız her değişiklik aşağıda listelenir, böylece geri alabilirsiniz.</string>
     <string name="toolkit_persist_title">Değişiklikler siz geri alana kadar kalır</string>
     <string name="toolkit_persist_body">Burada yapılan değişiklikler yeniden başlatmalardan ve Inspiration kaldırıldıktan sonra bile sürer. Uygulamayı kaldırmadan önce bu ekrandan geri alın.</string>
+    <string name="toolkit_status_notification_title">Durum bildirimi</string>
+    <string name="toolkit_status_notification_body">Şarjdan çıkarıldığından beri tüketimi ve derin uykuyu gösterir. Yalnızca ekran ve şarj olaylarında güncellenir.</string>
+    <string name="toolkit_status_notification_blocked">Bildirimler engellenmiş</string>
+    <string name="toolkit_status_notification_allow">Ayarlardan izin ver</string>
     <string name="toolkit_reset_all">Tümünü sıfırla</string>
     <string name="toolkit_reset_finished">%2$d değişikliğin %1$d tanesi geri alındı.</string>
     <string name="toolkit_seconds">%1$s sn</string>
