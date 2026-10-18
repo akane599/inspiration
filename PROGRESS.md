@@ -62,12 +62,18 @@ _Work items, stories and blockers live on the Sidequest board. This file keeps w
   - Toolkit Restrict→Restore and Reset all were checked by appops read-back. The standby bucket restores to a settable baseline. A system-set bucket baseline (50) is NOT_RESTORABLE by design and stays listed.
   - After a restore, appops shows an explicit "default" uid-mode entry rather than "No operations"; the effective mode is unchanged.
   (US-5)
+- 2026-10-18: Status notification (plan audited SQ-121, rev 2 at ~/.claude/plans/elegant-questing-stroustrup.md → docs/plans/status-notification.md). The user chose a resident foreground service (`specialUse`), on by default with a Toolkit switch. This reverses Phase 2's "no resident service" (phase-2.md:27). It also keeps the runtime SCREEN_* receiver from being frozen on API 35+.
+  - There is no BATTERY_CHANGED receiver. Updates come only from the existing SCREEN_*/POWER_* captures and app open, so §6.2 is unchanged.
+  - The service is not started when notifications are blocked.
+  - The numbers come from light snapshots (no Shizuku). The unplug anchor is the first unplugged snapshot after the last plugged one.
+  - Pinned-surface changes: `SnapshotStore.snapshotsBetween`, `ToolkitDependencies` +3 defaulted members, and `AppLabels.packageForUid` (default null; SQ-122 X-Ray UID→package fix).
+  - Delivered as branch feat/status-notification with a PR to main. (US-6)
 - 2026-10-17: Chart perf (SQ-60): cursor/selection reads shared a draw node with static content, so every drag frame re-rasterized all paths on the RenderThread (the UI thread blocked in postAndWait). Static data is now recorded once per cache build into an Offscreen GraphicsLayer, and the overlay draws on top. New charts must keep that split. On the API 36 emulator (software rendering via SwiftShader, so read the numbers as relative): drag frames p50 34 → 17 ms, p90 40 → 23 ms, and janky 17% → 0.7% (final run, `build/gfx-final-api36.txt`). Drags trigger 0 recompositions, and a committed brush 1/1. (US-4)
 
 ## Audit status
 | Area | Last run | Result | How |
 |---|---|---|---|
-| Plan audit | 2026-10-17 | Phase 5: approve with fixes (5 + 4 security blockers, all applied in rev 2); Phase 1–4 likewise | SQ-64 + SQ-65 security (Phase 4: SQ-51; Phase 3: SQ-37/38; Phase 2: SQ-18/19/20) |
+| Plan audit | 2026-10-18 | Status notification: approve with fixes (3 blockers, applied in rev 2). Phase 5: approve with fixes (5 + 4 security blockers, all applied in rev 2); Phase 1–4 likewise | SQ-121 (status notification); SQ-64 + SQ-65 security (Phase 4: SQ-51; Phase 3: SQ-37/38; Phase 2: SQ-18/19/20) |
 | Bug hunt | — | — | `/bug-hunt` |
 | Security | — | — | `/claude-security` |
 | UI / design | 2026-10-17 | Phase 4 design system + charts: approve with fixes; F1–F6 applied (SQ-59), readout truncation fixed (SQ-61); F7 + nits deferred to Phase 5 | SQ-58 visual-evaluation (Opus) |
