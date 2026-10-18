@@ -2,6 +2,7 @@ package com.akane.inspiration.di
 
 import com.akane.inspiration.telemetry.app.RefreshResult
 import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -30,6 +31,7 @@ class RefreshCoordinator(
     private val nowWallMs: () -> Long,
     private val debounceMs: Long,
     private val failureBackoffMs: Long = FAILURE_BACKOFF_MS,
+    private val onFailure: (Exception) -> Unit = {},
     private val capture: suspend () -> RefreshResult,
 ) {
     private val mutex = Mutex()
@@ -64,7 +66,14 @@ class RefreshCoordinator(
             return@withLock failure.second
         }
         val epoch = backoffEpoch
-        val result = withContext(NonCancellable) { capture() }
+        val result = try {
+            withContext(NonCancellable) { capture() }
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (error: Exception) {
+            onFailure(error)
+            RefreshResult.Failed("capture_failed")
+        }
         lastFailure = (result as? RefreshResult.Failed)?.takeIf { epoch == backoffEpoch }?.let { nowWallMs() to it }
         if (result is RefreshResult.Refreshed) mutableLastRefreshWallMs.value = result.wallMs
         result

@@ -113,6 +113,7 @@ class AppContainer(context: Context) :
     private val refreshCoordinator = RefreshCoordinator(
         nowWallMs = clocks::wallMs,
         debounceMs = CapturePolicy.APP_OPEN_DEBOUNCE_MS,
+        onFailure = { android.util.Log.w("AppContainer", "App refresh failed", it) },
         capture = ::captureFull,
     )
 

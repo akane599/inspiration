@@ -3,6 +3,7 @@ package com.akane.inspiration.di
 import com.akane.inspiration.ipc.ShizukuState
 import com.akane.inspiration.telemetry.app.RefreshResult
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.async
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -25,6 +26,30 @@ class RefreshCoordinatorTest {
             captures += 1
             capture()
         }
+
+    @Test
+    fun `storage exceptions become failed results and participate in backoff`() = runTest {
+        val coordinator = coordinator { error("disk full") }
+        assertEquals(RefreshResult.Failed("capture_failed"), coordinator.refresh())
+        assertEquals(RefreshResult.Failed("capture_failed"), coordinator.refresh())
+        assertEquals(1, captures)
+        now += 12_000L
+        coordinator.refresh()
+        assertEquals(2, captures)
+        assertNull(coordinator.lastRefreshWallMs.value)
+    }
+
+    @Test
+    fun `capture cancellation remains cancellation`() = runTest {
+        val coordinator = coordinator { throw CancellationException("stopped") }
+        try {
+            coordinator.refresh()
+            error("expected cancellation")
+        } catch (cancelled: CancellationException) {
+            assertEquals("stopped", cancelled.message)
+        }
+        assertNull(coordinator.lastRefreshWallMs.value)
+    }
 
     @Test
     fun `two concurrent calls run one capture and the second is debounced`() = runTest {
