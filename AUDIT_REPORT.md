@@ -1,8 +1,63 @@
 # Whole-repository audit — Inspiration
 
-Audit date: 2026-10-18. Audited commit: `eb3fe08185995a7925db4bc97d44c4da1cf1048c` (`Review-n-fix`). The repository was reviewed as a whole, not as a diff. Application code, dependencies, golden images, Claude configuration and Sidequest state were not changed. The working tree already contained untracked Codex kit files and distribution artifacts; those local executable helpers were also reviewed and are explicitly distinguished from the shipped app.
+Original audit date: 2026-10-18. Audited commit: `eb3fe08185995a7925db4bc97d44c4da1cf1048c` (`Review-n-fix`). The repository was reviewed as a whole, not as a diff. During that original audit, application code, dependencies, golden images, Claude configuration and Sidequest state were not changed. The working tree already contained untracked Codex kit files and distribution artifacts; those local executable helpers were also reviewed and are explicitly distinguished from the shipped app.
 
 ## 1. Executive Summary & System Health Scorecard
+
+### Remediation progress
+
+All 20 confirmed findings were remediated on `fix/audit-remediation-20261018` in separate finding commits. Original audit evidence, scorecard, proposed fixes and roadmap below are historical; status entries and the final verification record supersede their unresolved-state wording.
+
+| ID | Commit | Files modified | Verification | Status |
+|---|---|---|---|---|
+| LINT | `3dc4415` | `core/designsystem/src/main/kotlin/com/akane/inspiration/designsystem/chart/scrub/ScrubReadout.kt`<br>`core/designsystem/src/main/kotlin/com/akane/inspiration/designsystem/chart/scrub/SynchronizedScrubbingChart.kt`<br>`core/designsystem/src/main/kotlin/com/akane/inspiration/designsystem/component/format/TelemetryFormat.kt`<br>`feature/dashboard/src/main/kotlin/com/akane/inspiration/dashboard/CockpitCards.kt`<br>`feature/dashboard/src/main/kotlin/com/akane/inspiration/dashboard/CockpitMarkerSheet.kt`<br>`feature/sleeplab/src/main/kotlin/com/akane/inspiration/sleeplab/SleepLabRoute.kt`<br>`feature/toolkit/src/main/kotlin/com/akane/inspiration/toolkit/ToolkitRoute.kt`<br>`feature/toolkit/src/main/kotlin/com/akane/inspiration/toolkit/ToolkitText.kt`<br>`feature/xray/src/main/kotlin/com/akane/inspiration/xray/XRayText.kt` | `bash .codex/android-kit/gradle-check.sh :app:assembleDebug lintDebug testDebugUnitTest --continue --max-workers=1 -Dorg.gradle.jvmargs=-Xmx2g`; screenshot gate `validateDebugScreenshotTest --continue --max-workers=1 -Dorg.gradle.jvmargs=-Xmx2g` (.codex/android-kit/logs/gradle.2P4RLAiP.log); log `.codex/android-kit/logs/gradle.zXq6egx0.log` | FIXED |
+| APP-1 | `efc24d9` | `app/src/main/kotlin/com/akane/inspiration/capture/BroadcastCaptureRunner.kt`<br>`app/src/main/kotlin/com/akane/inspiration/capture/RuntimeCaptureReceiver.kt`<br>`app/src/test/kotlin/com/akane/inspiration/capture/BroadcastCaptureRunnerTest.kt` | `bash .codex/android-kit/gradle-check.sh :app:assembleDebug lintDebug testDebugUnitTest --continue --max-workers=1 -Dorg.gradle.jvmargs=-Xmx2g`; log `.codex/android-kit/logs/gradle.6UKWXQYa.log` | FIXED |
+| APP-2 | `f869731` | `app/src/main/kotlin/com/akane/inspiration/di/RefreshCoordinator.kt`<br>`app/src/main/kotlin/com/akane/inspiration/AppContainer.kt`<br>`app/src/test/kotlin/com/akane/inspiration/di/RefreshCoordinatorTest.kt` | `bash .codex/android-kit/gradle-check.sh :app:assembleDebug lintDebug testDebugUnitTest --continue --max-workers=1 -Dorg.gradle.jvmargs=-Xmx2g`; log `.codex/android-kit/logs/gradle.HkEGatf2.log` | FIXED |
+| IPC-1 | `b58e3bf` | `core/shizuku-ipc/src/main/kotlin/com/akane/inspiration/ipc/ShizukuManagerImpl.kt`<br>`core/shizuku-ipc/src/test/kotlin/com/akane/inspiration/ipc/ShizukuManagerImplTest.kt` | `bash .codex/android-kit/gradle-check.sh :app:assembleDebug lintDebug testDebugUnitTest --continue --max-workers=1 -Dorg.gradle.jvmargs=-Xmx2g`; log `.codex/android-kit/logs/gradle.clkRrYRu.log` | FIXED |
+| T1 | `feedebd` | `core/telemetry-engine/src/main/kotlin/com/akane/inspiration/telemetry/toolkit/ToolkitActions.kt`<br>`core/telemetry-engine/src/main/kotlin/com/akane/inspiration/telemetry/toolkit/ToolkitGateway.kt`<br>`core/telemetry-engine/src/test/kotlin/com/akane/inspiration/telemetry/toolkit/ToolkitActionsFakes.kt`<br>`core/telemetry-engine/src/test/kotlin/com/akane/inspiration/telemetry/toolkit/ToolkitActionsRobustnessTest.kt`<br>`core/telemetry-engine/src/test/kotlin/com/akane/inspiration/telemetry/toolkit/ToolkitActionsTest.kt`<br>`core/telemetry-engine/src/test/kotlin/com/akane/inspiration/telemetry/toolkit/ToolkitActionsChainTest.kt` | `bash .codex/android-kit/gradle-check.sh :app:assembleDebug lintDebug testDebugUnitTest --continue --max-workers=1 -Dorg.gradle.jvmargs=-Xmx2g`; log `.codex/android-kit/logs/gradle.8gmBIHl2.log` | FIXED |
+| T2 | `ffcef24` | `core/database/src/main/kotlin/com/akane/inspiration/database/Daos.kt`<br>`core/telemetry-engine/src/main/kotlin/com/akane/inspiration/telemetry/toolkit/ToolkitActions.kt`<br>`core/telemetry-engine/src/main/kotlin/com/akane/inspiration/telemetry/store/SnapshotStore.kt`<br>`core/database/src/test/kotlin/com/akane/inspiration/database/store/RoomSnapshotStoreTest.kt`<br>`core/telemetry-engine/src/test/kotlin/com/akane/inspiration/telemetry/toolkit/ToolkitActionsRobustnessTest.kt` | `bash .codex/android-kit/gradle-check.sh :app:assembleDebug lintDebug testDebugUnitTest --continue --max-workers=1 -Dorg.gradle.jvmargs=-Xmx2g`; log `.codex/android-kit/logs/gradle.wAgWVBIS.log` | FIXED |
+| DB-1 | `198bd27` | `app/src/main/kotlin/com/akane/inspiration/capture/ChargingCaptureRunner.kt`<br>`app/src/test/kotlin/com/akane/inspiration/capture/ChargeHealthPipelineTest.kt`<br>`core/database/src/main/kotlin/com/akane/inspiration/database/InspirationDatabase.kt`<br>`core/database/src/main/kotlin/com/akane/inspiration/database/store/RoomSnapshotStore.kt`<br>`core/database/src/test/kotlin/com/akane/inspiration/database/InspirationDatabaseTest.kt`<br>`core/database/schemas/com.akane.inspiration.database.InspirationDatabase/3.json`<br>`core/telemetry-engine/src/main/kotlin/com/akane/inspiration/telemetry/capacity/CapacityEstimator.kt`<br>`core/telemetry-engine/src/main/kotlin/com/akane/inspiration/telemetry/store/SnapshotStore.kt`<br>`core/telemetry-engine/src/test/kotlin/com/akane/inspiration/telemetry/capacity/CapacityEstimatorTest.kt` | `bash .codex/android-kit/gradle-check.sh :app:assembleDebug lintDebug testDebugUnitTest --continue --max-workers=1 -Dorg.gradle.jvmargs=-Xmx2g`; log `.codex/android-kit/logs/gradle.sj1a12qv.log` | FIXED |
+| DIAG-1 | `5cc15f7` | `core/diagnostics/src/main/kotlin/com/akane/inspiration/diagnostics/story/BatteryStoryBuilder.kt`<br>`core/diagnostics/src/test/kotlin/com/akane/inspiration/diagnostics/story/BatteryStoryBuilderTest.kt`<br>`core/diagnostics/src/test/kotlin/com/akane/inspiration/diagnostics/story/StoryFixtures.kt` | `bash .codex/android-kit/gradle-check.sh :app:assembleDebug lintDebug testDebugUnitTest --continue --max-workers=1 -Dorg.gradle.jvmargs=-Xmx2g`; log `.codex/android-kit/logs/gradle.rqbRkxYh.log` | FIXED |
+| DIAG-2 | `4a0ba18` | `core/diagnostics/src/main/kotlin/com/akane/inspiration/diagnostics/analysis/TimelineBuilder.kt`<br>`app/src/main/kotlin/com/akane/inspiration/di/TimelineEvents.kt`<br>`app/src/test/kotlin/com/akane/inspiration/di/TimelineEventsTest.kt` | `bash .codex/android-kit/gradle-check.sh :app:assembleDebug lintDebug testDebugUnitTest --continue --max-workers=1 -Dorg.gradle.jvmargs=-Xmx2g`; log `.codex/android-kit/logs/gradle.cRhd5Ztk.log` | FIXED |
+| FEAT-1 | `af861ff` | `feature/health/src/main/kotlin/com/akane/inspiration/health/HealthMappers.kt`<br>`feature/health/src/test/kotlin/com/akane/inspiration/health/HealthMappersTest.kt` | `bash .codex/android-kit/gradle-check.sh :app:assembleDebug lintDebug testDebugUnitTest --continue --max-workers=1 -Dorg.gradle.jvmargs=-Xmx2g`; log `.codex/android-kit/logs/gradle.ZGQMOQHX.log` | FIXED |
+| FEAT-2 | `29d1b09` | `feature/health/src/main/kotlin/com/akane/inspiration/health/HealthMappers.kt`<br>`feature/health/src/test/kotlin/com/akane/inspiration/health/HealthMappersTest.kt` | `bash .codex/android-kit/gradle-check.sh :app:assembleDebug lintDebug testDebugUnitTest --continue --max-workers=1 -Dorg.gradle.jvmargs=-Xmx2g`; log `.codex/android-kit/logs/gradle.VL9xyZy0.log` | FIXED |
+| FEAT-3 | `cf7f61d` | `feature/sleeplab/src/main/kotlin/com/akane/inspiration/sleeplab/SleepLabMappers.kt`<br>`feature/sleeplab/src/test/kotlin/com/akane/inspiration/sleeplab/SleepLabMappersTest.kt` | `bash .codex/android-kit/gradle-check.sh :app:assembleDebug lintDebug testDebugUnitTest --continue --max-workers=1 -Dorg.gradle.jvmargs=-Xmx2g`; log `.codex/android-kit/logs/gradle.vlGpwPrJ.log` | FIXED |
+| IPC-2 | `33fe04d` | `core/shizuku-ipc/src/main/kotlin/com/akane/inspiration/ipc/toolkit/BgDexoptController.kt`<br>`core/shizuku-ipc/src/test/kotlin/com/akane/inspiration/ipc/toolkit/BgDexoptControllerTest.kt` | `bash .codex/android-kit/gradle-check.sh :app:assembleDebug lintDebug testDebugUnitTest --continue --max-workers=1 -Dorg.gradle.jvmargs=-Xmx2g`; log `.codex/android-kit/logs/gradle.iE6F6KUW.log` | FIXED |
+| IPC-3 | `b8bbb62` | `core/shizuku-ipc/src/main/kotlin/com/akane/inspiration/ipc/toolkit/BgDexoptController.kt`<br>`core/shizuku-ipc/src/main/kotlin/com/akane/inspiration/ipc/service/TelemetryUserService.kt`<br>`core/shizuku-ipc/src/test/kotlin/com/akane/inspiration/ipc/toolkit/BgDexoptControllerTest.kt` | `bash .codex/android-kit/gradle-check.sh :app:assembleDebug lintDebug testDebugUnitTest --continue --max-workers=1 -Dorg.gradle.jvmargs=-Xmx2g`; log `.codex/android-kit/logs/gradle.ouujKhiP.log` | FIXED |
+| T3 | `18149a7` | `core/telemetry-engine/src/main/kotlin/com/akane/inspiration/telemetry/status/UnplugSummary.kt`<br>`core/telemetry-engine/src/test/kotlin/com/akane/inspiration/telemetry/status/UnplugSummaryCalculatorTest.kt` | `bash .codex/android-kit/gradle-check.sh :app:assembleDebug lintDebug testDebugUnitTest --continue --max-workers=1 -Dorg.gradle.jvmargs=-Xmx2g`; log `.codex/android-kit/logs/gradle.h2HOIR4r.log` | FIXED |
+| TOOL-1 | `5ee78c3` | `.codex/android-kit/board.py`<br>`android-kit-codex/template/.codex/android-kit/board.py`<br>`android-kit-codex/tests/test_kit.py` | `python3 -m unittest discover -s android-kit-codex/tests -v; bash .codex/android-kit/gradle-check.sh :app:assembleDebug lintDebug testDebugUnitTest --continue --max-workers=1 -Dorg.gradle.jvmargs=-Xmx2g`; log `.codex/android-kit/logs/gradle.v44NbucT.log`; 18 tests `.codex/android-kit/logs/remediation/TOOL-1-tests.log` | FIXED |
+| TOOL-2 | `26de410` | `.claude/skills/device-probe/scripts/device-probe.sh` | `bash -n .claude/skills/device-probe/scripts/device-probe.sh; python3 .codex/android-kit/logs/remediation/check_probe.py; bash .codex/android-kit/gradle-check.sh :app:assembleDebug lintDebug testDebugUnitTest --continue --max-workers=1 -Dorg.gradle.jvmargs=-Xmx2g`; log `.codex/android-kit/logs/gradle.kByso1rO.log`; isolated probe log `.codex/android-kit/logs/remediation/TOOL-2-final-tests.log` | FIXED |
+| UI-1 | `995945f` | `feature/toolkit/src/main/kotlin/com/akane/inspiration/toolkit/ToolkitMapper.kt`<br>`feature/toolkit/src/main/kotlin/com/akane/inspiration/toolkit/ToolkitModels.kt`<br>`feature/toolkit/src/main/kotlin/com/akane/inspiration/toolkit/ToolkitText.kt`<br>`feature/toolkit/src/main/res/values/strings.xml`<br>`feature/toolkit/src/main/res/values-tr/strings.xml`<br>`feature/toolkit/src/test/kotlin/com/akane/inspiration/toolkit/ToolkitViewModelTest.kt`<br>`feature/toolkit/src/screenshotTestDebug/reference` | `bash .codex/android-kit/gradle-check.sh :app:assembleDebug lintDebug testDebugUnitTest --continue --max-workers=1 -Dorg.gradle.jvmargs=-Xmx2g`; log `.codex/android-kit/logs/gradle.Z5dgBwGj.log`; screenshot update + validation `.codex/android-kit/logs/gradle.H7kdihxt.log` | FIXED |
+| UI-2 | `a76f98b` | `feature/toolkit/src/main/kotlin/com/akane/inspiration/toolkit/ToolkitViewModel.kt`<br>`feature/toolkit/src/test/kotlin/com/akane/inspiration/toolkit/ToolkitViewModelTest.kt` | `bash .codex/android-kit/gradle-check.sh :app:assembleDebug lintDebug testDebugUnitTest --continue --max-workers=1 -Dorg.gradle.jvmargs=-Xmx2g`; log `.codex/android-kit/logs/gradle.ttswBkxb.log` | FIXED |
+| T4 | `a0275d9` | `core/telemetry-engine/src/main/kotlin/com/akane/inspiration/telemetry/diff/ReferenceResolver.kt`<br>`core/telemetry-engine/src/test/kotlin/com/akane/inspiration/telemetry/diff/SnapshotDifferTest.kt` | `bash .codex/android-kit/gradle-check.sh :app:assembleDebug lintDebug testDebugUnitTest --continue --max-workers=1 -Dorg.gradle.jvmargs=-Xmx2g`; log `.codex/android-kit/logs/gradle.4wWOMG5U.log` | FIXED |
+| UI-3 | `f4365f0` | `core/designsystem/src/main/kotlin/com/akane/inspiration/designsystem/chart/math/ScrubGestureReducer.kt`<br>`core/designsystem/src/test/kotlin/com/akane/inspiration/designsystem/chart/math/ScrubGestureReducerTest.kt` | `bash .codex/android-kit/gradle-check.sh :app:assembleDebug lintDebug testDebugUnitTest --continue --max-workers=1 -Dorg.gradle.jvmargs=-Xmx2g`; log `.codex/android-kit/logs/gradle.Fk78WC3m.log` | FIXED |
+
+
+### Final remediation verification — 2026-10-18
+
+All **20 confirmed IDs are FIXED**, with no skipped or blocked findings. The table above records the isolated commits, modified paths and per-finding gates. The lint prerequisite was committed separately. Source tip: `f4365f0` on `fix/audit-remediation-20261018`.
+
+Final command:
+```bash
+bash .codex/android-kit/gradle-check.sh :app:assembleDebug lintDebug testDebugUnitTest --rerun validateDebugScreenshotTest --rerun --continue --max-workers=1 -Dorg.gradle.jvmargs=-Xmx2g
+```
+
+**PASS**, exit 0: `.codex/android-kit/logs/gradle.nK4SlGL9.log`. Fresh results: **1,023 unit tests and 167 screenshot comparisons, zero failures/errors/skips**, all 87 unit XML reports and all 7 screenshot XML reports fresh. Machine-readable per-module totals: `.codex/android-kit/logs/remediation/final-results.json`. Local tooling: **18 isolated kit tests passed**; probe startup, immediate failure and timeout checks passed using fake commands, without running a real device probe. Their logs are listed in the finding table.
+
+UI-1 intentionally updated six toolkit Ready golden images after reviewing narrow, Turkish and large-font renders. Pixel differences were confined to badge regions and image dimensions were unchanged. Its update/validation passed in `.codex/android-kit/logs/gradle.H7kdihxt.log`; the final all-module comparison also passed. No other reference images changed.
+
+Implementation decisions and limits:
+
+- **DB-1:** Schema **3**, with a tested 2→3 migration, clears uncertifiable derived charge sessions and measured-health estimates once. Raw kernel health fields remain. Charge sessions are recomputed from retained, epoch-partitioned history; older source history outside retention cannot be reconstructed.
+- **T2:** Display-only history remains bounded; pending writes and successful override/restore chains are retained beyond 500 rows, and recovery reads no longer truncate them. This is the conservative retention fix, not the proposed separate durable override-table refactor. Chain compaction remains architectural debt. Baseline values already deleted by an older version cannot be recovered or invented and need manual verification.
+- **IPC-2/3:** Host tests prove the queued-worker cancellation ordering and monotonic supervision invariants. They do not certify real ART/system-server cancellation behavior on every device.
+- **TOOL-1:** Timeout cleanup terminates the verifier's process group. Independently detached daemons/system services remain outside that guarantee.
+- **TOOL-2:** The user explicitly approved the single `.claude/skills/device-probe/scripts/device-probe.sh` change despite the general Claude-setup restriction. Claude settings, hooks, routing and Sidequest state were not modified.
+- The initial concurrent screenshot attempt lost its Gradle daemon. Idle compiler/Gradle JVMs were stopped; all subsequent gates used one worker and a 2 GiB heap and completed. No unavailable check was converted into a pass.
+- No release/minification/signing test or privileged device smoke test was performed. Section 3 cleanup opportunities and the remaining broader architectural/testing roadmap are recorded as debt, not additional unresolved confirmed IDs.
+
+### Original audit assessment
+
 
 Confirmed findings: **20 total — 0 critical, 5 high, 13 medium, 2 low.** These are verified call-chain defects or targeted reproductions, not a claim that every listed failure was reproduced on a device. Proposed code is reviewable remediation, not implemented or regression-tested fixes.
 
@@ -155,6 +210,8 @@ No CRITICAL issue was confirmed. HIGH findings warrant prompt remediation. TOOL 
 
 ### [APP-1] [HIGH] Light broadcast capture blocks the Android main thread through database persistence
 
+**Status: [FIXED in efc24d9]**
+
 - **Category:** Concurrency / Performance
 - **Location:** `app/src/main/kotlin/com/akane/inspiration/capture/RuntimeCaptureReceiver.kt:25-34`.
 - **Confidence:** Confirmed by call trace; an actual Android ANR was not reproduced.
@@ -190,6 +247,8 @@ is CapturePlan.Light -> {
 - **Regression:** Android receiver test with delayed fake persistence must prove onReceive returns immediately and pending result finishes on success, timeout, failure and cancellation. Current `CapturePolicyTest` explicitly calls this a “synchronous light plan” and tests only enum routing; `BroadcastCaptureRunnerTest` covers cleanup/error propagation but not main-thread liveness.
 
 ### [APP-2] [HIGH] App-open capture storage failures escape a root launch and terminate the app
+
+**Status: [FIXED in f869731]**
 
 - **Category:** Logic Bug / resilience
 - **Location:** `app/src/main/kotlin/com/akane/inspiration/AppContainer.kt:125-133`, related `InspirationApplication.kt:53-55`.
@@ -232,6 +291,8 @@ private suspend fun captureFull(): RefreshResult = try {
 - **Regression:** inject cursor/insert/history/prune failures through the real refresh adapter, verify Failed is returned and backoff starts without process-level uncaught exception; ensure cancellation remains cancellation. Existing coordinator tests test Failed values, not thrown capture failures; application entry point is not exercised.
 
 ### [IPC-1] [HIGH] Shizuku transport failure escapes binding lifecycle, crashes UI and strands ownership
+
+**Status: [FIXED in b58e3bf]**
 
 - **Category:** Concurrency / Logic Bug
 - **Location:** `core/shizuku-ipc/src/main/kotlin/com/akane/inspiration/ipc/ShizukuManagerImpl.kt:341-343`, `346-369`; acquisition sites `206-211`, `230-238`, and `171-178`.
@@ -292,6 +353,8 @@ private suspend fun captureFull(): RefreshResult = try {
 
 ### [T1] [HIGH] Lost toolkit replies permanently erase recovery eligibility after a real privileged write
 
+**Status: [FIXED in feedebd]**
+
 - **Category:** Logic Bug / Architecture.
 - **Location:** `core/telemetry-engine/src/main/kotlin/com/akane/inspiration/telemetry/toolkit/ToolkitActions.kt:581-588`, related `ToolkitGateway.kt:112-129`, `core/shizuku-ipc/src/main/kotlin/com/akane/inspiration/ipc/ShizukuManagerImpl.kt:188-199`, `ToolkitActions.kt:295-308,765-785,853-879`.
 - **Confidence:** confirmed by call trace, not device reproduction.
@@ -335,6 +398,8 @@ For dexopt, retain the uncertain PENDING row as well: `refreshDexoptLocked` alre
 - **Regression:** fake backend must change a bucket and *then* return Unavailable or throw; reconnect+reconcile must expose the restored DONE row and original before value. Current `aBackendExceptionFinalizesTheRowAsFailedAndIsRethrown` tests only pre-write exceptions and enshrines the unsafe generalization. Gateway tests cover missing/stale services, null replies and thrown errors, but do not test effect-then-reply-loss. Add generation-change-after-command case to manager integration coverage.
 
 ### [T2] [HIGH] Bounded audit history is also the only persistent restore state, so ordinary history pruning loses active restrictions
+
+**Status: [FIXED in ffcef24]**
 
 - **Category:** Architecture / Logic Bug.
 - **Location:** `core/database/src/main/kotlin/com/akane/inspiration/database/Daos.kt:197-205`; `core/telemetry-engine/src/main/kotlin/com/akane/inspiration/telemetry/toolkit/ToolkitActions.kt:696-711,744-753,765-785,1131`.
@@ -386,6 +451,8 @@ Changing the single recovery constant covers every `audit.recent(MAX_ROWS)` call
 - **Regression:** apply one override, insert >500 unrelated refused actions, assert activeOverride and Reset All still restore original; also retain a pending operation and a multi-step chain crossing the pruning boundary. Existing Room test `toolkit actions are pruned to the newest 500 rows on insert` asserts only the bound, not preserved active state. Toolkit fakes do not model this persisted pruning interaction.
 
 ### [DB-1] [MEDIUM] Charge analysis discards epoch/lifecycle boundaries and persists invented charging sessions
+
+**Status: [FIXED in 198bd27]**
 
 - **Category:** Logic Bug
 - **Location:** `core/telemetry-engine/src/main/kotlin/com/akane/inspiration/telemetry/capacity/CapacityEstimator.kt:49-59`; `app/src/main/kotlin/com/akane/inspiration/capture/ChargingCaptureRunner.kt:44-59`; `core/database/src/main/kotlin/com/akane/inspiration/database/store/RoomSnapshotStore.kt:122-123,510-519`.
@@ -454,6 +521,8 @@ Recovery: existing charge_session rows cannot be reliably certified because orig
 
 ### [DIAG-1] [MEDIUM] Story turns missing history and unavailable diagnostics into a factual zero-use/all-clear narrative
 
+**Status: [FIXED in 5cc15f7]**
+
 - **Category:** Logic Bug
 - **Location:** `core/diagnostics/src/main/kotlin/com/akane/inspiration/diagnostics/story/BatteryStoryBuilder.kt:11-18`; related `analysis/IntervalAnalyzer.kt:40-44`, `core/telemetry-engine/src/main/kotlin/com/akane/inspiration/telemetry/interval/IntervalMetrics.kt:38-48,116-133`, `feature/dashboard/src/main/kotlin/com/akane/inspiration/dashboard/CockpitCards.kt:90-98`.
 - **Confidence:** Confirmed by complete call trace and actual compiled-class reproduction.
@@ -487,6 +556,8 @@ A richer follow-up can render explicit unavailable/partial-evaluation wording, b
 
 ### [DIAG-2] [MEDIUM] Timeline drops the charging baseline carried by RESET/START records
 
+**Status: [FIXED in 4a0ba18]**
+
 - **Category:** Logic Bug
 - **Location:** `core/diagnostics/src/main/kotlin/com/akane/inspiration/diagnostics/analysis/TimelineBuilder.kt:139-168`; related `app/src/main/kotlin/com/akane/inspiration/di/TimelineEvents.kt:31-36`.
 - **Confidence:** Confirmed by complete call trace and actual compiled-class reproduction.
@@ -516,6 +587,8 @@ A richer follow-up can render explicit unavailable/partial-evaluation wording, b
 Add builder tests RESET/START while plugged, then UNPLUGGED, and a withSeeds integration test where the baseline predates from. Preserve chronological ordering with the last explicit plug transitions.
 
 ### [FEAT-1] [MEDIUM] A short foreground observation discards the rest of the recorded charge history
+
+**Status: [FIXED in af861ff]**
 
 - **Category:** Logic Bug.
 - **Location:** `feature/health/src/main/kotlin/com/akane/inspiration/health/HealthMappers.kt:176-186`; related `HealthViewModel.kt:177-188`.
@@ -556,6 +629,8 @@ Add builder tests RESET/START while plugged, then UNPLUGGED, and a withSeeds int
 
 ### [FEAT-2] [MEDIUM] Unplugging converts the completed charge back into a sample-only open span
 
+**Status: [FIXED in 29d1b09]**
+
 - **Category:** Logic Bug / State lifecycle.
 - **Location:** `feature/health/src/main/kotlin/com/akane/inspiration/health/HealthViewModel.kt:183-184`; related `:91-97`, `HealthMappers.kt:149-154`.
 - **Confidence:** Confirmed (verified via call-trace).
@@ -583,6 +658,8 @@ Add builder tests RESET/START while plugged, then UNPLUGGED, and a withSeeds int
 
 ### [FEAT-3] [MEDIUM] Sleep Lab presents package-changed cumulative counters as interval deltas
 
+**Status: [FIXED in cf7f61d]**
+
 - **Category:** Logic Bug.
 - **Location:** `feature/sleeplab/src/main/kotlin/com/akane/inspiration/sleeplab/SleepLabMappers.kt:134-147,174-189`; related `core/telemetry-engine/src/main/kotlin/com/akane/inspiration/telemetry/diff/SnapshotDiffer.kt:208-240`.
 - **Confidence:** Confirmed (verified via call-trace).
@@ -599,6 +676,8 @@ Add builder tests RESET/START while plugged, then UNPLUGGED, and a withSeeds int
   Add mapper tests using a positive, valid `UidDelta` with `packageChanged = true` in both tabs, ideally backed by an integration test using real `SnapshotDiffer` output.
 
 ### [IPC-2] [MEDIUM] A cancelled queued dexopt worker can start a new system job after Cancel succeeded
+
+**Status: [FIXED in 33fe04d]**
 
 - **Category:** Concurrency / Logic Bug
 - **Location:** `core/shizuku-ipc/src/main/kotlin/com/akane/inspiration/ipc/toolkit/BgDexoptController.kt:58-73`, `98-110`, `126-135`; related `ToolkitExecutor.kt:167-172`.
@@ -636,6 +715,8 @@ Add builder tests RESET/START while plugged, then UNPLUGGED, and a withSeeds int
 - Blind spot: `BgDexoptControllerTest` queues runnables but never executes one after successful cancellation. `ToolkitExecutorTest:547-564` deliberately runs Cancel during the plugged probe and asserts both operations DONE; it verifies nonblocking behavior but not that cancelled work stays cancelled. UI's busy gate reduces the before-probe scenario on one screen, but does not prevent the queued worker race after Start has returned.
 
 ### [IPC-3] [MEDIUM] Wall-clock corrections disable dexopt unplug checks and extend its one-hour cap
+
+**Status: [FIXED in b8bbb62]**
 
 - **Category:** Logic Bug / Performance
 - **Location:** `core/shizuku-ipc/src/main/kotlin/com/akane/inspiration/ipc/toolkit/BgDexoptController.kt:114-141`; production clock injection `core/shizuku-ipc/src/main/kotlin/com/akane/inspiration/ipc/service/TelemetryUserService.kt:394-398`.
@@ -680,6 +761,8 @@ Add builder tests RESET/START while plugged, then UNPLUGGED, and a withSeeds int
 
 ### [T3] [MEDIUM] A newer disconnect is ignored when any older plugged snapshot survives
 
+**Status: [FIXED in 18149a7]**
+
 - **Category:** Logic Bug.
 - **Location:** `core/telemetry-engine/src/main/kotlin/com/akane/inspiration/telemetry/status/UnplugSummary.kt:49-58`.
 - **Confidence:** confirmed via call trace AND executable reproduction using the repository's built telemetry classes. Reproduction artifact `.codex/android-kit/logs/full-repo-audit/StatusRepro.java`; output `.codex/android-kit/logs/full-repo-audit/status-repro.txt`.
@@ -714,6 +797,8 @@ if (lastPlugged < 0) {
 
 ### [TOOL-1] [MEDIUM] Board verification timeout leaves descendant processes running
 
+**Status: [FIXED in 5ee78c3]**
+
 - **Category:** Concurrency / Resource Leak.
 - **Location:** `.codex/android-kit/board.py:65-68`; identical `android-kit-codex/template/.codex/android-kit/board.py:65-68`; caller `.agents/skills/android-board/SKILL.md:8`, documented workflow `android-kit-codex/README.md:51-58`; wrapper `.codex/android-kit/gradle-check.sh:7-8`.
 - **Confidence:** Confirmed by isolated execution reproduction.
@@ -746,6 +831,8 @@ if (lastPlugged < 0) {
 Add regression proving a spawned grandchild cannot mutate a sentinel after timeout; existing tests only cover nonzero exit and source changes, not timeouts or child cleanup. Long-lived external Gradle daemons may need separate cancellation validation; process groups handle wrapper descendants but are not a universal daemon shutdown mechanism.
 
 ### [TOOL-2] [MEDIUM] Fresh-checkout emulator probe fails before boot and then waits indefinitely
+
+**Status: [FIXED in 26de410]**
 
 - **Category:** Logic Bug / Resource Management.
 - **Location:** `.claude/skills/device-probe/scripts/device-probe.sh:43-47`, related output-directory creation line 104 (after device boot); caller `.claude/skills/device-probe/SKILL.md:13`; onboarding `.claude/.codebase-info/onboarding.md:79-84`.
@@ -782,6 +869,8 @@ fi
 This change is proposed only; instruction forbids modifying parallel Claude setup. Add isolated shell tests for missing build directory, emulator immediate failure, and bounded connection timeout. ADB individual command stalls need an additional command timeout if they are to be covered as well.
 
 ### [UI-1] [MEDIUM] Active app-op overrides always claim the app is restricted, including an override that allowed it
+
+**Status: [FIXED in 995945f]**
 
 - **Category:** Logic Bug
 - **Location:** `feature/toolkit/src/main/kotlin/com/akane/inspiration/toolkit/ToolkitMapper.kt:33-40`; related `ToolkitModels.kt:133-134`, `ToolkitText.kt:173-179`, `ToolkitViewModel.kt:249-257`, `app/src/main/kotlin/com/akane/inspiration/AppContainer.kt:215-227`.
@@ -845,6 +934,8 @@ A subsequent cleanup can rename AppOpIgnored to AppOpSet and restricted to modif
 
 ### [UI-2] [MEDIUM] Retry loads can overwrite the Shizuku blocked state after access disappears
 
+**Status: [FIXED in a76f98b]**
+
 - **Category:** Concurrency
 - **Location:** `feature/toolkit/src/main/kotlin/com/akane/inspiration/toolkit/ToolkitViewModel.kt:167-183`; related lifecycle cancellation at 122-146 and `ToolkitScreen.kt:97-106`.
 - **Confidence:** Confirmed via call trace/interleaving; no device reproduction claimed.
@@ -884,6 +975,8 @@ Add regression: start with appsFailure=true, set FakeDevice.gate to deferred, se
 
 ### [T4] [LOW] Completed-screen-off lookup repeatedly copies the entire history suffix
 
+**Status: [FIXED in a0275d9]**
+
 - **Category:** Performance.
 - **Location:** `core/telemetry-engine/src/main/kotlin/com/akane/inspiration/telemetry/diff/ReferenceResolver.kt:110-117`.
 - **Confidence:** confirmed by code and production call trace; no device benchmark claimed.
@@ -910,6 +1003,8 @@ private fun completedScreenOff(events: List<HistoryEvent>): Boundary? {
 The latest SCREEN_OFF before the next SCREEN_ON is selected exactly as in the current implementation. Add large-history and consecutive OFF/ON fixtures; current resolver tests use only tiny histories.
 
 ### [UI-3] [LOW] Chart selection commits the last move position instead of the finger-up position
+
+**Status: [FIXED in f4365f0]**
 
 - **Category:** Logic Bug
 - **Location:** `core/designsystem/src/main/kotlin/com/akane/inspiration/designsystem/chart/math/ScrubGestureReducer.kt:71` and `:133-163`; caller `chart/scrub/ScrubGestures.kt:72-86`.
