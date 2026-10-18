@@ -159,6 +159,7 @@ internal fun unavailableRes(reason: ToolkitUnavailable): Int = when (reason) {
     ToolkitUnavailable.NO_SERVICE -> R.string.xray_unavailable_no_service
     ToolkitUnavailable.STALE_SERVICE -> R.string.xray_unavailable_stale_service
     ToolkitUnavailable.NOT_EFFECTIVE -> R.string.xray_unavailable_not_effective
+    ToolkitUnavailable.UNVERIFIED -> R.string.xray_unavailable_unverified
 }
 
 @Composable

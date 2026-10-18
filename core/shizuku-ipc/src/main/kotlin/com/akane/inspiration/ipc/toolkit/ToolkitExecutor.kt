@@ -49,8 +49,8 @@ internal class ToolkitExecutor(
         // Package writes cannot change a UID override, and changing the UID would affect shared-UID apps.
         if (beforeState.uidMode != null) return ToolkitResult.refused(ToolkitCode.NOT_EFFECTIVE, before = before)
         val write = runner.run(listOf(CMD, "appops", "set", "--user", USER, pkg.orEmpty(), op.argv, mode.argv))
-        if (!write.ok) return ToolkitResult.failed(execCode(write), before = before)
-        val after = readAppOp(pkg.orEmpty(), op) ?: return ToolkitResult.failed(ToolkitCode.PARSE, before = before)
+        if (!write.ok) return writeFailed(write, before)
+        val after = readAppOp(pkg.orEmpty(), op) ?: return unverified(before)
         if (after != mode.argv) return ToolkitResult.failed(ToolkitCode.NOT_EFFECTIVE, before, after)
         ToolkitResult.done(target.warnCode, before, after)
     }
@@ -76,8 +76,8 @@ internal class ToolkitExecutor(
         val write = runner.run(
             listOf(CMD, "activity", "set-standby-bucket", "--user", USER, pkg.orEmpty(), bucket.argv),
         )
-        if (!write.ok) return ToolkitResult.failed(execCode(write), before = before)
-        val after = readBucket(pkg.orEmpty()) ?: return ToolkitResult.failed(ToolkitCode.PARSE, before = before)
+        if (!write.ok) return writeFailed(write, before)
+        val after = readBucket(pkg.orEmpty()) ?: return unverified(before)
         if (after != bucket.rawValue.toString()) return ToolkitResult.failed(ToolkitCode.NOT_EFFECTIVE, before, after)
         ToolkitResult.done(target.warnCode, before, after)
     }
@@ -122,7 +122,9 @@ internal class ToolkitExecutor(
         if (effective) return ToolkitResult.done(before = current.value, after = after?.value)
         writeDozeRaw(current.value)
         val rolledBack = readDozeRaw()
-        ToolkitResult.unavailable(ToolkitCode.NOT_EFFECTIVE, before = current.value, after = rolledBack?.value)
+        // A rollback that did not read back as the prior value may have left the profile applied.
+        if (rolledBack == null || rolledBack.value != current.value) return unverified(current.value, rolledBack?.value)
+        ToolkitResult.unavailable(ToolkitCode.NOT_EFFECTIVE, before = current.value, after = rolledBack.value)
     }
 
     fun getDozeState(): ToolkitResult = synchronized(writeLock) {
@@ -150,6 +152,7 @@ internal class ToolkitExecutor(
         }
         val write = writeDozeRaw(target)
         val after = readDozeRaw()
+        if (write.timedOut || (write.ok && after == null)) return unverified(current.value, after?.value)
         if (!write.ok || after == null || after.value != target) {
             return ToolkitResult.failed(ToolkitCode.NOT_EFFECTIVE, before = current.value, after = after?.value)
         }
@@ -265,6 +268,13 @@ internal class ToolkitExecutor(
     }
 
     private fun execCode(out: CommandOutput): Int = if (out.timedOut) ToolkitCode.TIMEOUT else ToolkitCode.EXEC
+
+    /** A timed-out write was killed after it may have committed, so its outcome is unknown, not failed. */
+    private fun writeFailed(write: CommandOutput, before: String?): ToolkitResult =
+        if (write.timedOut) unverified(before) else ToolkitResult.failed(execCode(write), before = before)
+
+    private fun unverified(before: String?, after: String? = null): ToolkitResult =
+        ToolkitResult.unavailable(ToolkitCode.UNVERIFIED, before = before, after = after)
 
     private companion object {
         const val IDLE_KEY = "device_idle_constants"

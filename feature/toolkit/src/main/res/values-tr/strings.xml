@@ -205,6 +205,7 @@
     <string name="toolkit_unavailable_no_service">Shizuku hizmetine ulaşılamıyor. Shizuku\'nun çalıştığını kontrol edin.</string>
     <string name="toolkit_unavailable_stale_service">Shizuku hizmeti güncel değil. Shizuku\'yu yeniden başlatıp tekrar deneyin.</string>
     <string name="toolkit_unavailable_not_effective">Değişiklik etkili olmadı ve geri alındı.</string>
+    <string name="toolkit_unavailable_unverified">Değişiklik gönderildi ancak doğrulanamadı. Hizmet yanıt verdiğinde yeniden denetlenecek.</string>
     <string name="toolkit_failed_code">Komut başarısız oldu (kod %1$d).</string>
     <string name="toolkit_failed">Komut başarısız oldu.</string>
 </resources>
