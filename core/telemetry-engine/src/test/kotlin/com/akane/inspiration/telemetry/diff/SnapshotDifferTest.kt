@@ -410,6 +410,18 @@ class SnapshotDifferTest {
     }
 
     @Test
+    fun `an unknown or process-qualified package name keeps the uid baseline`() {
+        listOf(null to "com.example.app", "com.example.app" to null, "com.example.app" to "com.example.app:remote").forEach { (before, after) ->
+            val delta = SnapshotDiffer.diff(
+                snapshot(elapsed = 1_000, uids = listOf(uid(totalMah = 30.0, packageName = before))),
+                snapshot(elapsed = 2_000, duration = 2_000, uids = listOf(uid(totalMah = 50.0, packageName = after))),
+            ).uids.single()
+            assertFalse("$before -> $after", delta.packageChanged)
+            assertEquals("$before -> $after", 20.0, delta.totalMah, 0.0)
+        }
+    }
+
+    @Test
     fun `light snapshots calculate deep sleep from elapsed and uptime`() {
         val diff = SnapshotDiffer.diff(
             snapshot(kind = SnapshotKind.LIGHT, elapsed = 1_000, uptime = 600),
@@ -518,7 +530,7 @@ class SnapshotDifferTest {
     private fun uid(
         uid: Int = 10_001,
         totalMah: Double,
-        packageName: String = "package",
+        packageName: String? = "package",
         components: Map<String, Double> = emptyMap(),
     ) = UidSnapshot(
         uid = uid,
