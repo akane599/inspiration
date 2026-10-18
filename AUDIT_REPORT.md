@@ -6,6 +6,46 @@ Mode: standalone review (Sidequest disabled, hooks untouched). No application co
 
 Finding IDs use a new `B` series so they cannot be confused with the prior audit's `A01–A12`.
 
+## Remediation status (2026-10-18, branch `audit-remediate-b`)
+
+All 16 findings are **FIXED** on branch `audit-remediate-b`, one atomic commit per finding, or per coupled group (B06+B14). Each commit was written test-first: a regression test that fails on the old code where the bug is reproducible. B14 is a microsecond race that could not be reproduced on the old code, so its new tests guard the new ordering; B13's unit test covers the extracted clamp. Fixes were made in isolated worktrees per lane and cherry-picked onto the integration branch. B01 and B03 received independent post-fix reviews. The B03 review found two remaining chain gaps, which were then fixed test-first in `f067599`. The B01 review found no defect.
+
+| ID | Commit(s) | Status | Per-finding verification (exit 0 unless noted) |
+|---|---|---|---|
+| B16 | `0acf539` | FIXED | `:core:shizuku-ipc:testDebugUnitTest`. Device: redroid API 34 `PROBE` history went from `no_such_method` to `available:true, count:20`; re-verified on the integrated build `f067599` |
+| B01 | `8bf68a1` | FIXED | `:core:telemetry-engine:testDebugUnitTest`, `:app:testDebugUnitTest --tests '*ChargeHealthPipeline*' --tests '*ChargingCapture*'`. Not exercised on a device (no real batterystats reset on redroid) |
+| B02 | `a171ac8` | FIXED | `:core:telemetry-engine:testDebugUnitTest`, `:core:diagnostics … '*DiagnosticRuleEngine*'` (A05 protection kept) |
+| B03 | `2b25bd2`, `f067599` | FIXED | `:core:shizuku-ipc` + `:core:telemetry-engine:testDebugUnitTest`, toolkit/X-Ray compile; new `ToolkitActionsUncertainWriteTest` |
+| B04 | `9a030bc` | FIXED | engine `*SnapshotCapturerTest*`, `:app … '*capture*'`; the new test fails with the fix reverted |
+| B05 | `d0f37b2` | FIXED | `:core:telemetry-engine:testDebugUnitTest` (8 emissions → 2 in the 30 s RUNNING-poll test) |
+| B06 + B14 | `b8a04bb` | FIXED | `:core:diagnostics:testDebugUnitTest`, `:app:compileDebugKotlin` |
+| B07 | `0c5302a` | FIXED | `:core:{telemetry-engine,diagnostics,database}` + `:app:testDebugUnitTest` |
+| B08 | `3c908b7` | FIXED | `:feature:xray:testDebugUnitTest :feature:xray:validateDebugScreenshotTest` |
+| B09 | `4f91f3a` | FIXED | `:app … '*ReconcileOnReadyTest*'` (fails before the fix) |
+| B10 | `03dab08` | FIXED | `:app … '*ApplicationScopeTest*'` |
+| B11 | `a1a2d1a` | FIXED | `:app:testDebugUnitTest` (new `ChargeJobRunTest`) |
+| B12 | `a0fb83c` | FIXED | `:core:telemetry-engine` + `:app:testDebugUnitTest`; the new test fails with the fix reverted |
+| B13 | `09522f9` | FIXED | `:feature:health:testDebugUnitTest :feature:health:validateDebugScreenshotTest` |
+| B15 | `e0411ad` | FIXED | `:feature:{dashboard,health,sleeplab}:testDebugUnitTest` |
+| §3 cleanup | `5ac97d9` | PARTIAL | Removed `appOpenDebounced`, `nearestIndex`, `ToolkitParsers.appOpMode`, three unused stub methods, and shizuku-ipc's `hiddenapibypass` dependency. Kept the list `insertAvailability` (the audit was wrong: `RoomSnapshotStore.insert` uses it), `deleteById` and `hourly` (used by DB tests), and the items that need a product decision (`TimeSliceBanner` String overload, `DumpReader.readAll(InputStream)`, `telemetry_hourly`/`capture_miss`, `holdBinding`) |
+
+**Final gate** at `f067599`: `bash .claude/kit/gradle-check.sh testDebugUnitTest :app:lintDebug validateDebugScreenshotTest :app:assembleRelease --continue --max-workers=4` → **exit 0**.
+- Unit tests: 1083, 0 failures, 0 skipped (app 107, database 30, designsystem 101, diagnostics 140, shizuku-ipc 205, telemetry-engine 244, dashboard 36, health 66, sleeplab 55, toolkit 51, xray 48).
+- Lint: 0 errors / 10 warnings, the same housekeeping set as the baseline.
+- All screenshot references validate, and the R8 release build passes.
+- The integrated debug build launches on the redroid API 34 device without a crash.
+
+**Behaviour changes worth knowing:**
+- **B07:** if the charge job's history read times out, a due capture records a miss instead of retrying with a second full read.
+- **B03:** Reset all reports an item as Unavailable while that target still has an unsettled PENDING row.
+- **B04:** the miss write is `NonCancellable` for every `captureFull` caller.
+
+**Residual and open items, not fixed:**
+- **API 31–33 history:** stub field types and the iterator shape on API 31–33 are unverified (B16 gap). The iterator likely has the older `next(HistoryItem)` shape, which would fail cleanly as `no_such_method`.
+- **B01 review, open question:** on API 36+, a read after a session change could re-insert retained history older than the 30-day prune under the new session, before the next prune runs. A possible guard is to drop events older than the retention cutoff in `persistHistory`. This needs a device check of the framework's history retention.
+- **History voltage normalisation:** on redroid the history voltage can read `65535` (an unsigned `char` `0xFFFF`) where API 35+ would read −1. Nothing consumes it yet.
+- **Structural work** from sections 3 and 4 is not done: a shared history-discontinuity model, CI, and a dependency advisory scan.
+
 ## 1. Executive Summary & System Health Scorecard
 
 - **Architecture & Modularity: 8/10.** Clean feature/core boundaries, pinned dependency interfaces and a single privileged gateway. But history-boundary semantics (RESET/START/SHUTDOWN) are still re-implemented separately in each reducer, and one of them is wrong (B01).
@@ -48,7 +88,7 @@ No CRITICAL findings. B16 (HIGH) was found during the device pass, after the sta
 
 ---
 
-### [B16] [HIGH] Battery history ingestion fails completely on API 34: the stub declares `HistoryItem.batteryVoltage` as `short`, but the framework field is `char`
+### [B16] [HIGH] [FIXED in 0acf539] Battery history ingestion fails completely on API 34: the stub declares `HistoryItem.batteryVoltage` as `short`, but the framework field is `char`
 
 - **Category:** Logic Bug (platform compatibility)
 - **Location:** `core/hidden-api-stub/src/main/java/android/os/BatteryStats.java:15` (`public short batteryVoltage;`), read at `core/shizuku-ipc/src/main/kotlin/com/akane/inspiration/ipc/client/BatteryStatsClient.kt:192` (`voltageMv = batteryVoltage.toInt()`). The failure is mapped at `BinderResult.kt:24,42` (`LinkageError` → `no_such_method`). The class comment at `BatteryStatsClient.kt:149-153` asserts API 34+ compatibility from android-35/36/37 sources only.
@@ -78,7 +118,7 @@ No CRITICAL findings. B16 (HIGH) was found during the device pass, after the sta
 
 ---
 
-### [B01] [MEDIUM] Charges that end in a batterystats reset never become charge sessions, so measured capacity is rarely produced
+### [B01] [MEDIUM] [FIXED in 8bf68a1] Charges that end in a batterystats reset never become charge sessions, so measured capacity is rarely produced
 
 - **Category:** Logic Bug
 - **Location:** `core/telemetry-engine/src/main/kotlin/com/akane/inspiration/telemetry/capacity/CapacityEstimator.kt:44-64`. Related: `app/src/main/kotlin/com/akane/inspiration/capture/ChargingCaptureRunner.kt:50-56`, `core/database/src/main/kotlin/com/akane/inspiration/database/store/RoomSnapshotStore.kt:125-128` (`historySessions` grouped by `statsStartMs`), `core/database/.../Entities.kt:249` (dedup index: a row keeps the session it was first stored under), `core/shizuku-ipc/src/main/kotlin/com/akane/inspiration/ipc/client/BatteryHistory.kt:115-121` (RESET emission).
@@ -135,7 +175,7 @@ No CRITICAL findings. B16 (HIGH) was found during the device pass, after the sta
 
 ---
 
-### [B02] [MEDIUM] `packageChanged` fires on null→name, so apps that became active are silently dropped from every diagnostic
+### [B02] [MEDIUM] [FIXED in a171ac8] `packageChanged` fires on null→name, so apps that became active are silently dropped from every diagnostic
 
 - **Category:** Logic Bug
 - **Location:** `core/telemetry-engine/src/main/kotlin/com/akane/inspiration/telemetry/diff/SnapshotDiffer.kt:208-209`. Source of the field: `core/telemetry-engine/.../capture/SnapshotCapturer.kt:90` ← `core/shizuku-ipc/.../client/BatteryStatsClient.kt:245` (`packageWithHighestDrain`). Consumers that drop the UID: `core/diagnostics/.../rules/DiagnosticRuleEngine.kt:29,45`, `feature/xray/.../XRayMapper.kt:54`, `feature/sleeplab/.../SleepLabMappers.kt:134,174`.
@@ -157,7 +197,7 @@ No CRITICAL findings. B16 (HIGH) was found during the device pass, after the sta
 
 ---
 
-### [B03] [MEDIUM] Uncertain toolkit writes leave the override chain, so a later manual change makes Reset-all re-apply the restriction
+### [B03] [MEDIUM] [FIXED in 2b25bd2, f067599] Uncertain toolkit writes leave the override chain, so a later manual change makes Reset-all re-apply the restriction
 
 - **Category:** Logic Bug (partial-failure atomicity, privileged write path)
 - **Location:** `core/shizuku-ipc/src/main/kotlin/com/akane/inspiration/ipc/toolkit/ToolkitExecutor.kt:51-53` (app-op), `:79-81` (bucket), `:118-125` (doze rollback). `core/telemetry-engine/src/main/kotlin/com/akane/inspiration/telemetry/toolkit/ToolkitActions.kt:597-604` (`settle`), `:277-291` (`reconcile`, pending rows only), `:777-782` (`overrideRows`, DONE/RESTORED only). Reconcile trigger: `app/.../AppContainer.kt:275-282` → `app/.../di/ReconcileOnReady.kt:15-19`. `CommandRunner.kt:19-27,54-55` (`timedOut` ⇒ `!ok`, the process is killed after 10 s).
@@ -185,7 +225,7 @@ No CRITICAL findings. B16 (HIGH) was found during the device pass, after the sta
 
 ---
 
-### [B04] [LOW] Broadcast full captures run under two identical 2 s deadlines: a near-deadline snapshot is cancelled mid-insert, misses are never recorded, and there is no light fallback
+### [B04] [LOW] [FIXED in 9a030bc] Broadcast full captures run under two identical 2 s deadlines: a near-deadline snapshot is cancelled mid-insert, misses are never recorded, and there is no light fallback
 
 - **Category:** Logic Bug
 - **Location:** `app/src/main/kotlin/com/akane/inspiration/capture/RuntimeCaptureReceiver.kt:22-33`, `app/.../capture/BroadcastCaptureRunner.kt:12-19`, `core/telemetry-engine/.../capture/SnapshotCapturer.kt:36-37,57-60`. Consumers of the trigger rows: `telemetry/status/UnplugSummary.kt` (the POWER_DISCONNECTED anchor), `ChargingCaptureJobService.kt:40` (`latestByTrigger(POWER_CONNECTED)`).
@@ -212,7 +252,7 @@ No CRITICAL findings. B16 (HIGH) was found during the device pass, after the sta
 
 ---
 
-### [B05] [LOW] Each 5 s dexopt status poll triggers a full privileged override recompute, which also delays Cancel
+### [B05] [LOW] [FIXED in d0f37b2] Each 5 s dexopt status poll triggers a full privileged override recompute, which also delays Cancel
 
 - **Category:** Performance
 - **Location:** `core/telemetry-engine/.../toolkit/ToolkitActions.kt:937-956` (bump at `:955`), `:214`, `:346-353`. Collectors: `feature/toolkit/.../ToolkitViewModel.kt:139-140`, `feature/xray/.../XRayViewModel.kt:218`. Service cost: `core/shizuku-ipc/.../toolkit/Inspection.kt:72-92`, `ToolkitExecutor.kt:58-92,167`.
@@ -234,7 +274,7 @@ No CRITICAL findings. B16 (HIGH) was found during the device pass, after the sta
 
 ---
 
-### [B06] [LOW] `AnalysisSession` runs a full analysis at every process start with no subscriber
+### [B06] [LOW] [FIXED in b8a04bb] `AnalysisSession` runs a full analysis at every process start with no subscriber
 
 - **Category:** Performance
 - **Location:** `core/diagnostics/src/main/kotlin/com/akane/inspiration/diagnostics/analysis/AnalysisSession.kt:49-62`. Eager construction at `app/src/main/kotlin/com/akane/inspiration/AppContainer.kt:141-147` (built in `InspirationApplication.onCreate`).
@@ -254,7 +294,7 @@ No CRITICAL findings. B16 (HIGH) was found during the device pass, after the sta
 
 ---
 
-### [B07] [LOW] Redundant full reads: a second batterystats dump per charge job, and the 30-day history loaded repeatedly
+### [B07] [LOW] [FIXED in 0c5302a] Redundant full reads: a second batterystats dump per charge job, and the 30-day history loaded repeatedly
 
 - **Category:** Performance
 - **Location:** `app/src/main/kotlin/com/akane/inspiration/capture/ChargingCaptureJobService.kt:30-38,52-58`. `core/telemetry-engine/.../capture/SnapshotCapturer.kt:44-49` (`ingestHistory` = full `source.full`). `core/telemetry-engine/.../diff/ReferenceResolver.kt:40` and `core/diagnostics/.../analysis/IntervalAnalyzer.kt:41` (each calls `historyBetween(0, …)` in one analysis). `core/database/.../store/RoomSnapshotStore.kt:125-128` (`historySessions`), `:270-277` (per-UID `filter` of every child table, O(U×rows)).
@@ -265,7 +305,7 @@ No CRITICAL findings. B16 (HIGH) was found during the device pass, after the sta
 
 ---
 
-### [B08] [LOW] X-Ray reloads every app icon on every analysis emission; above 96 rows the LRU gets zero hits
+### [B08] [LOW] [FIXED in 3c908b7] X-Ray reloads every app icon on every analysis emission; above 96 rows the LRU gets zero hits
 
 - **Category:** Performance
 - **Location:** `feature/xray/src/main/kotlin/com/akane/inspiration/xray/XRayViewModel.kt:155,172-176`. `app/src/main/kotlin/com/akane/inspiration/di/CachedAppLabels.kt:52,101` (`DEFAULT_MAX_ICONS = 96`, access-ordered LRU).
@@ -276,7 +316,7 @@ No CRITICAL findings. B16 (HIGH) was found during the device pass, after the sta
 
 ---
 
-### [B09] [LOW] `reconcileOnEachReady` loses a Ready→down→Ready flip that happens while `reconcile()` is running
+### [B09] [LOW] [FIXED in 4f91f3a] `reconcileOnEachReady` loses a Ready→down→Ready flip that happens while `reconcile()` is running
 
 - **Category:** Concurrency
 - **Location:** `app/src/main/kotlin/com/akane/inspiration/di/ReconcileOnReady.kt:15-19`, `app/.../AppContainer.kt:275-282`.
@@ -299,7 +339,7 @@ No CRITICAL findings. B16 (HIGH) was found during the device pass, after the sta
 
 ---
 
-### [B10] [LOW] `applicationScope` has no exception handler: a Room error in `reconcile()`, or `arm()` throwing inside a catch block, kills the process
+### [B10] [LOW] [FIXED in 03dab08] `applicationScope` has no exception handler: a Room error in `reconcile()`, or `arm()` throwing inside a catch block, kills the process
 
 - **Category:** Error Handling
 - **Location:** `app/src/main/kotlin/com/akane/inspiration/AppContainer.kt:84` (`CoroutineScope(SupervisorJob() + Dispatchers.IO)`), `:275-282`. `app/.../capture/ChargingCaptureJobService.kt:73-82` (`ChargingCaptureScheduler.arm` called from both catch blocks).
@@ -317,7 +357,7 @@ No CRITICAL findings. B16 (HIGH) was found during the device pass, after the sta
 
 ---
 
-### [B11] [LOW] The persisted charge job can miss its re-arm, and a boot arm can be replaced by a 45-minute delay
+### [B11] [LOW] [FIXED in a1a2d1a] The persisted charge job can miss its re-arm, and a boot arm can be replaced by a 45-minute delay
 
 - **Category:** Logic Bug
 - **Location:** `app/src/main/kotlin/com/akane/inspiration/capture/ChargingCaptureJobService.kt:68-76`, `app/.../capture/BootCaptureReceiver.kt:25`.
@@ -328,7 +368,7 @@ No CRITICAL findings. B16 (HIGH) was found during the device pass, after the sta
 
 ---
 
-### [B12] [LOW] `full()` makes blocking binder calls and the O(U²) merge runs on Main for UI-initiated refreshes
+### [B12] [LOW] [FIXED in a0fb83c] `full()` makes blocking binder calls and the O(U²) merge runs on Main for UI-initiated refreshes
 
 - **Category:** Concurrency / Main-thread blocking
 - **Location:** `core/telemetry-engine/src/main/kotlin/com/akane/inspiration/telemetry/source/AndroidTelemetrySource.kt:33-34` (calls `light()`, lines 58-86, on the caller's dispatcher) vs `kernelReading` (line 92, already wrapped in `withContext(ioDispatcher)`). `core/telemetry-engine/.../capture/SnapshotCapturer.kt:69-135` (`mergeFull`, `firstOrNull` per UID). Callers: `feature/dashboard/.../CockpitViewModel.kt:132-136,194` and `feature/xray/.../XRayViewModel.kt:125` (`viewModelScope`, Main) → `RefreshCoordinator.refresh` (`NonCancellable` keeps the dispatcher).
@@ -337,7 +377,7 @@ No CRITICAL findings. B16 (HIGH) was found during the device pass, after the sta
 
 ---
 
-### [B13] [LOW] The Health line chart throws `IllegalArgumentException` when an axis label is wider than the space left for it
+### [B13] [LOW] [FIXED in 09522f9] The Health line chart throws `IllegalArgumentException` when an axis label is wider than the space left for it
 
 - **Category:** Logic Bug (crash)
 - **Location:** `feature/health/src/main/kotlin/com/akane/inspiration/health/HealthCharts.kt:109,114`, reached from `HealthCards.kt:395-428` (`WearBody`).
@@ -357,7 +397,7 @@ No CRITICAL findings. B16 (HIGH) was found during the device pass, after the sta
 
 ---
 
-### [B14] [LOW] A stale `Ready` for the old selection can overwrite `Loading` for the new one
+### [B14] [LOW] [FIXED in b8a04bb] A stale `Ready` for the old selection can overwrite `Loading` for the new one
 
 - **Category:** Concurrency
 - **Location:** `core/diagnostics/src/main/kotlin/com/akane/inspiration/diagnostics/analysis/AnalysisSession.kt:53-61`. Consumers: `feature/xray/.../XRayViewModel.kt:140-150` (its guard covers TimeSlice only), `feature/sleeplab/.../SleepLabViewModel.kt:57`.
@@ -378,7 +418,7 @@ No CRITICAL findings. B16 (HIGH) was found during the device pass, after the sta
 
 ---
 
-### [B15] [LOW] Pull-to-refresh is ignored, and its failure hidden, while the automatic on-enter refresh is running
+### [B15] [LOW] [FIXED in e0411ad] Pull-to-refresh is ignored, and its failure hidden, while the automatic on-enter refresh is running
 
 - **Category:** Logic Bug (UX)
 - **Location:** `feature/dashboard/src/main/kotlin/com/akane/inspiration/dashboard/CockpitViewModel.kt:130-145`, `feature/health/.../HealthViewModel.kt:130-145`, `feature/sleeplab/.../SleepLabViewModel.kt:124-137`.
