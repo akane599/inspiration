@@ -47,3 +47,23 @@ Remediation on 2026-10-18 (source tip `f4365f0`, branch `fix/audit-remediation-2
 - 18 isolated kit tests and fake-command probe checks passed; no real privileged device probe/release validation is claimed. Six toolkit badge references were reviewed/updated intentionally.
 - A concurrent screenshot run lost its daemon; idle JVM cleanup and one-worker/2-GiB verification completed successfully afterward. Gradle/SDK/dependency/JDK-target versions were not changed.
 - Successful restore chains/pending rows survive display pruning; safe chain compaction is deferred. Previously pruned original device settings cannot be reconstructed automatically.
+
+
+## Independent full-repository audit — 2026-10-18 (HEAD 3c6cf4a)
+
+- Audited current application, all 12 modules and repository/portable/sibling tooling; no application source, dependencies, screenshot references, Claude configuration or Sidequest state changed.
+- New root `AUDIT_REPORT.md` records 12 open confirmed findings (10 MEDIUM, 2 LOW), independent call traces/reproductions, proposed fixes, cleanup and roadmap. Earlier remediation notes are historical; the new findings were traced from current source.
+- Fresh host gate passed with Gradle exit 0: `bash .codex/android-kit/gradle-check.sh :app:assembleDebug lintDebug testDebugUnitTest --rerun validateDebugScreenshotTest --rerun --continue --max-workers=1 -Dorg.gradle.jvmargs=-Xmx2g`. Log `.codex/android-kit/logs/gradle.lonwzH7L.log`: 1,023 fresh unit tests (87 XML reports) and 167 fresh screenshot comparisons (seven result files), zero failures/errors/skips. Lint: zero errors, 17 warnings. References unchanged.
+- Portable-kit suite passed all 18 tests; isolated Python/Bash checks and production-class JVM probes are described in the report. Retained host reproduction source/output: `.codex/android-kit/logs/audit-20261018/`. No physical device, privileged command, backup transfer, release/minification or Python 3.9 execution is claimed.
+- Initial native board #6 wrapper rejected its fingerprint despite Gradle exit 0 because the full-repo-audit skill changed externally during verification; no application-source change occurred. The final board verification runs after these documentation updates.
+- Current Room schema remains 3 with migrations 1→2→3. Module topology is unchanged. New high-value boundaries: durable action ID ordering, cancellation generation/shutdown admission, physical unit conversion, and unknown state at identity/reboot/reset boundaries.
+
+
+## Current audit remediation — 2026-10-18 (pass 2)
+
+- Branch `fix/audit-remediation-20261018-pass2`, application/tooling source tip `9f9527f`. Current report A01–A09, A11 and A12 have separate verified fix commits; A10 is BLOCKED by the explicit Claude preservation instruction. Earlier audit/remediation sections remain historical.
+- Override chains use durable IDs. Series-pack voltage no longer doubles measured current. Notification screen inference, timeline lanes and charge reconstruction respect reboot/reset discontinuities. Changed-package counters are excluded from diagnostic anomalies/culprits. Dexopt fences probing starts, cancellation and shutdown.
+- Backup rules exclude all nine storage domains in both transports and legacy rules. Codex installed/template wrapper helpers reject destination symlinks; picker annotations are postponed. The sibling Claude setup remains unchanged.
+- X-Ray uses neutral override labels in English/Turkish. Two references were intentionally changed and visually reviewed; one allowed-override preview/reference was added and reviewed. Other screenshot references are unchanged.
+- Final fresh full debug assemble/lint/unit/screenshot gate exited 0: `.codex/android-kit/logs/gradle.8Cec1wim.log`. 1,034 unit tests (88 fresh reports), 168 screenshot comparisons (seven fresh reports), zero failures/errors/skips; lint zero errors/17 warnings. Details and commands are in root `AUDIT_REPORT.md` section 5 and `.codex/android-kit/logs/remediation-pass2/final-results.json`.
+- Portable tooling: 21 tests passed; changed helper pairs compile and match. Doctor passed (19 skills). Python 3.9 syntax/postponed annotations checked on Python 3.14.4; no Python 3.9 runtime, physical backup/transfer, privileged device, reboot/OEM or release/minification pass is claimed. Room schema stays 3 and module topology is unchanged.
