@@ -104,7 +104,7 @@
         <item quantity="one">%1$d uygulama</item>
         <item quantity="other">%1$d uygulama</item>
     </plurals>
-    <string name="toolkit_app_restricted">Kısıtlı</string>
+    <string name="toolkit_app_restricted">Değiştirildi</string>
 
     <!-- App detail -->
     <string name="toolkit_busy">Değişiklik uygulanıyor…</string>

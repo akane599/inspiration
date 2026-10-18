@@ -104,7 +104,7 @@
         <item quantity="one">%1$d app</item>
         <item quantity="other">%1$d apps</item>
     </plurals>
-    <string name="toolkit_app_restricted">Restricted</string>
+    <string name="toolkit_app_restricted">Changed</string>
 
     <!-- App detail -->
     <string name="toolkit_busy">Applying the change…</string>

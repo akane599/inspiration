@@ -35,7 +35,14 @@ internal object ToolkitMapper {
         kind = override.kind,
         label = label,
         what = when (override.kind) {
-            OverrideKind.APP_OP -> OverrideWhat.AppOpIgnored(override.appOp)
+            OverrideKind.APP_OP -> OverrideWhat.AppOpIgnored(
+                override.appOp,
+                when (override.currentRaw?.trim()) {
+                    "ignore" -> true
+                    "default", "allow" -> false
+                    else -> null
+                },
+            )
             OverrideKind.BUCKET -> OverrideWhat.Bucket(bucketOfRaw(override.currentRaw))
             OverrideKind.DOZE -> OverrideWhat.Doze(profileOfRaw(override.currentRaw))
         },

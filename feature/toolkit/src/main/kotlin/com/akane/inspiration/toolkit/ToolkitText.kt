@@ -173,9 +173,15 @@ internal fun noticeText(notice: ToolkitNotice): String = when (notice) {
 internal fun overrideText(item: OverrideItem): String {
     val app = item.label.orEmpty()
     return when (val what = item.what) {
-        is OverrideWhat.AppOpIgnored ->
-            what.op?.let { stringResource(R.string.toolkit_op_blocked_line, stringResource(opShortRes(it)), app) }
-                ?: stringResource(R.string.toolkit_override_op_other, app)
+        is OverrideWhat.AppOpIgnored -> if (what.op == null || what.ignored == null) {
+            stringResource(R.string.toolkit_override_op_other, app)
+        } else {
+            stringResource(
+                if (what.ignored) R.string.toolkit_op_blocked_line else R.string.toolkit_op_allowed_line,
+                stringResource(opShortRes(what.op)),
+                app,
+            )
+        }
         is OverrideWhat.Bucket ->
             what.bucket?.let { stringResource(R.string.toolkit_override_bucket, app, stringResource(bucketLabelRes(it))) }
                 ?: stringResource(R.string.toolkit_override_bucket_other, app)

@@ -131,7 +131,7 @@ data class AppDetail(
 
 /** What an override changed, without the package: the UI words it. */
 sealed interface OverrideWhat {
-    data class AppOpIgnored(val op: AppOp?) : OverrideWhat
+    data class AppOpIgnored(val op: AppOp?, val ignored: Boolean? = true) : OverrideWhat
 
     data class Bucket(val bucket: StandbyBucket?) : OverrideWhat
 

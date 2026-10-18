@@ -507,6 +507,19 @@ class ToolkitViewModelTest {
     // ---- overrides, restore, history ---------------------------------------------------------
 
     @Test
+    fun `allowing a preexisting restriction is shown as allowed and restore returns ignore`() {
+        start { device.app(CHATTY).ops[AppOp.RUN_ANY_IN_BACKGROUND] = "ignore" }
+        open(CHATTY)
+        act(ToolkitRequest.SetAppOp(AppOp.RUN_ANY_IN_BACKGROUND, ignored = false))
+        val override = state.overrides.single()
+        assertEquals(OverrideWhat.AppOpIgnored(AppOp.RUN_ANY_IN_BACKGROUND, false), override.what)
+        assertEquals("default", device.app(CHATTY).ops[AppOp.RUN_ANY_IN_BACKGROUND])
+        act(ToolkitRequest.Restore(override.actionId))
+        confirm()
+        assertEquals("ignore", device.app(CHATTY).ops[AppOp.RUN_ANY_IN_BACKGROUND])
+    }
+
+    @Test
     fun `a restriction is listed as an override and restore puts the old value back`() {
         start()
         restrict(CHATTY)
