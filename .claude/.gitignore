@@ -1,5 +1,6 @@
 compact-checkpoint.md
 settings.local.json
+settings.local.*.json
 kit/retired/
 compact-checkpoints/
 kit/backups/

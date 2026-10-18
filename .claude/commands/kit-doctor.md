@@ -16,7 +16,7 @@ Run inline. No installation, enablement changes, imported hooks or inference.
    routing-profile.json. Never infer provider participation from a model alias alone.
 5. Audit hook overlap metadata with merge-settings.py --audit-hooks; inspect /hooks for plugin
    sources. Distinguish four separate hook events from duplicate execution.
-6. Compare bundled review definitions and installed/registered agents; stock uses official roles.
+6. Check full-repo-audit and audit-remediate project skill discovery and ensure superseded review plugins are disabled.
    Report loaded-state checks as pending when unavailable. Use /kit-refresh after kit merges.
 7. Return PASS/WARN/BLOCKED with specific actions. Gateway-backed sets need gateway readiness;
    gateway-off sets must not start it. Remote Control still requires compatible native transport,

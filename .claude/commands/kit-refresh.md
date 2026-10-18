@@ -23,8 +23,8 @@ kit_variant and gateway_enabled from .claude/kit/state.json. Read kit.json in th
    routing-profile.py <SIDEQUEST_CLI> <KIT_ROOT>/lib/routing-profile.json check.
    Inspect actual models --full --json, board/ticket overrides and unavailable routes.
    Never retarget active attempts or reset profiles during refresh.
-6. Compare installed review plugin manifests and agent frontmatters with this kit's bundles;
-   stock uses the official installed definitions. Inspect actual registered Agent types separately.
+6. Verify both project audit skills and their referenced files exist and match reviewed template updates.
+   Confirm superseded audit/review plugins are disabled at project scope. Inspect actual registered Agent types separately.
    A file/catalog row is not proof of loaded registration. Mark unavailable checks pending and
    use /agents after a full restart. Never generate per-model agents or alter spawn model fields.
 7. Report merge blockers, scopes, hook coverage, rule sync, transport, routes, on-disk definitions
@@ -35,3 +35,7 @@ kit_variant and gateway_enabled from .claude/kit/state.json. Read kit.json in th
    Keep version-drift and pending loaded-agent checks visible. After an explicitly accepted
    update and successful checks, record the new baseline with `android-kit-manager lock --project "$PWD"`.
    Do not overwrite the baseline just to silence drift.
+
+9. Check CLAUDE.md and customized commands for references to retired plan-audit,
+   pr-review-toolkit, code-review, claude-security and security-sweep workflows. Report stale
+   guidance for a reviewed edit; never invoke retired commands as an automatic fallback.

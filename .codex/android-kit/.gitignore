@@ -1,0 +1,6 @@
+backups/
+incoming/
+logs/
+runtime/
+install.json
+__pycache__/

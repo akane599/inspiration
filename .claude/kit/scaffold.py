@@ -106,8 +106,17 @@ def write(root, rel, content, created):
 
 def gradle_wrapper(root, version, created):
     wrapper_files = ["gradlew", "gradlew.bat", "gradle/wrapper/gradle-wrapper.jar", "gradle/wrapper/gradle-wrapper.properties"]
-    if any((root / rel).exists() for rel in wrapper_files):
-        raise ValueError("wrapper files already exist; refusing to overwrite a complete or partial wrapper")
+    for rel in wrapper_files:
+        dst = root / rel
+        for part in (dst, *dst.parents):
+            if part == root:
+                break
+            if part.is_symlink():
+                raise ValueError(f"symlink in wrapper destination: {rel}")
+            if part != dst and part.exists() and not part.is_dir():
+                raise ValueError(f"non-directory wrapper ancestor: {part}")
+        if dst.exists():
+            raise ValueError("wrapper files already exist; refusing to overwrite a complete or partial wrapper")
     checksum = fetch(f"https://services.gradle.org/distributions/gradle-{version}-bin.zip.sha256").strip()
     if not re.fullmatch(r"[a-fA-F0-9]{64}", checksum):
         raise ValueError("invalid Gradle distribution checksum")
@@ -666,20 +675,53 @@ def main():
     if not (a.offline or a.no_wrapper):
         wrapper = gradle_wrapper(root, v["gradle"], created)
     W('.claude/kit/scaffold-versions.json', json.dumps(v, indent=2) + '\n')
-    for rel in created:
-        dest = target_root / rel
-        if dest.is_symlink() or any(p.is_symlink() for p in dest.parents if p != target_root):
-            raise ValueError(f"symlink in scaffold destination: {rel}")
-        if dest.exists() and rel != '.gitignore':
-            raise ValueError(f"scaffold destination already exists: {rel}")
-    for rel in created:
-        dest = target_root / rel
-        if rel == '.gitignore' and dest.exists():
-            write(target_root, rel, (root / rel).read_text(), [])
-        else:
-            dest.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copy2(root / rel, dest)
-    staging.cleanup()
+    try:
+        for rel in created:
+            dest = target_root / rel
+            for parent in dest.parents:
+                if parent.is_symlink():
+                    raise ValueError(f"symlink in scaffold destination: {rel}")
+                if parent.exists() and not parent.is_dir():
+                    raise ValueError(f"non-directory scaffold ancestor: {parent}")
+            if dest.is_symlink():
+                raise ValueError(f"symlink in scaffold destination: {rel}")
+            if dest.exists():
+                if rel != '.gitignore':
+                    raise ValueError(f"scaffold destination already exists: {rel}")
+                if not dest.is_file():
+                    raise ValueError('existing .gitignore must be a regular file')
+        published, directories = [], []
+        ignore = target_root / '.gitignore'
+        previous_ignore = ignore.read_bytes() if ignore.exists() else None
+        ignore_changed = False
+        try:
+            for rel in created:
+                dest = target_root / rel
+                if rel == '.gitignore' and previous_ignore is not None:
+                    ignore_changed = True
+                    write(target_root, rel, (root / rel).read_text(), [])
+                else:
+                    missing = []
+                    parent = dest.parent
+                    while not parent.exists():
+                        missing.append(parent)
+                        parent = parent.parent
+                    for directory in reversed(missing):
+                        directory.mkdir()
+                        directories.append(directory)
+                    # Track before copying: a failed copy can leave partial destination bytes.
+                    published.append(dest)
+                    shutil.copy2(root / rel, dest)
+        except BaseException:
+            for dest in reversed(published):
+                dest.unlink(missing_ok=True)
+            if ignore_changed:
+                ignore.write_bytes(previous_ignore)
+            for directory in reversed(directories):
+                directory.rmdir()
+            raise
+    finally:
+        staging.cleanup()
     print(json.dumps({"created": len(created), "compileSdk": csdk, "wrapper": wrapper,
                       "versions": v, "builtInKotlin": agp_major >= 9, "notes": notes}, indent=1))
 

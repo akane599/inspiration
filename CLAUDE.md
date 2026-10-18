@@ -14,15 +14,15 @@ Android, developed on Ubuntu from the CLI.
 <!-- STACK:END -->
 
 ## How work flows here
-- **The main session orchestrates; it doesn't implement.** Work becomes Sidequest tickets, executors work in isolated worktrees on their returned native Claude route, and the main session integrates verified results. Bounded inline-safe maintenance follows Sidequest's current rules.
-- **Routing** (Sidequest profile `android-kit-claude`): Opus/medium orchestrates. Sonnet/medium handles bounded work and reviews; Sonnet/high implements code/UI and designs tests. Haiku/low runs exact checks. Opus/medium handles debugging, hard coding, plans and visual judgement; Opus/high experiments/escalation, Fable/high final escalation. Use only native Claude routes. Inspect effective board/ticket overrides.
-- **Big or multi-step changes:** plan mode → `/plan-audit` (routed review ticket with the Android checklist) → pin the plan as a Sidequest story → dispatch waves.
+- **The main session orchestrates; it doesn't implement.** Work becomes Sidequest tickets, executors work in isolated worktrees on their returned Claude or GPT route, and the main session integrates verified results. Bounded inline-safe maintenance follows Sidequest's current rules.
+- **Routing** (Sidequest profile `android-kit-hybrid`): Claude Opus/medium orchestrates. Follow current mixed Sidequest routes: Luna bounded work; Terra routine coding/UI/review; Opus debugging, hard coding, experiments and visual judgement; Sonnet research. Explicit category fallbacks may cross Claude/GPT; global fallback stays provider-scoped. Inspect effective routes and disclose overrides or provider blockers.
+- **Big or multi-step changes:** plan mode → pin the reviewed plan as a Sidequest story → dispatch independent work within routing and ownership limits.
 - **UI overhaul:** `/ui-overhaul <scope>`.
-- **Bugs:** every ticket’s checks must pass before integration; weak oracles, unchecked consumers and high-stakes changes require independent review. `/bug-hunt` uses Sonnet/medium. Native review plugins use Sonnet specialists, Haiku metadata and Opus finding validation. If Sidequest blocks native review agents, report it and ask the user before disabling Sidequest; never disable it on your own. Model Gateway remains disabled.
+- **Bugs:** use `/bug-hunt` for existing-code investigations while Sidequest is active or within a story. Required ticket checks and Sidequest review gates remain. For a separate full repository audit, enter review mode with Sidequest off, then use `/full-repo-audit` followed by `/audit-remediate` for requested fixes; they coordinate native workers independently.
 - **End of a session or story:** `/wrap-up` turns corrections and decisions into rules, CLAUDE.md lines and the decision log (you approve each). Personal preferences go to auto memory ("remember that …").
 - **Conventions** live in `.claude/live-rules/rules/` and are injected into every session and executor, so they're not repeated here. **Project map:** `.claude/.codebase-info/` (codebase-mapper).
 - **Board:** "show the Sidequest board"; side issues mentioned mid-task get filed, not worked.
-- **Plugin health / updates:** `/kit-doctor`, `/kit-refresh --update-toolshed` for project-scoped Toolshed updates. Never run the broad updater or enable Model Gateway for this project.
+- **Plugin health / updates:** `/quartermaster:toolshed-doctor`, `/kit-refresh --update-toolshed`. After a few weeks of real work: `/quartermaster:resupply`.
 - **Compaction:** your last instructions are saved before compaction and re-injected after; re-read them before acting.
 
 ## Commands

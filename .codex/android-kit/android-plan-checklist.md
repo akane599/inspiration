@@ -1,10 +1,10 @@
 # Android plan audit checklist
 
-Used by `/plan-audit` review tickets. Read the plan, then CLAUDE.md's STACK block, then check the repo. Do not edit anything.
+Used by `/plan-audit` review tickets. Read the plan, then AGENTS.md's STACK block, then check the repo. Do not edit anything.
 
 **A. Grounded in reality (verify against the repo, cite `path:line`)**
 1. Every file the plan says it will modify exists — or the plan says it's new. Every function/class it references exists with that name.
-2. The plan's assumptions about architecture match `CLAUDE.md`'s STACK block (DI framework, DB, navigation, UI toolkit, min/compile SDK). Flag any step that assumes Compose in an XML app, Hilt in a Koin app, etc.
+2. The plan's assumptions about architecture match `AGENTS.md`'s STACK block (DI framework, DB, navigation, UI toolkit, min/compile SDK). Flag any step that assumes Compose in an XML app, Hilt in a Koin app, etc.
 3. Scope: list anything in the plan that isn't required by the stated goal (scope creep), and anything the goal requires that no step delivers (gap).
 
 **B. Android-specific omissions (mark each: covered / not needed / MISSING)**
@@ -25,7 +25,7 @@ Used by `/plan-audit` review tickets. Read the plan, then CLAUDE.md's STACK bloc
 3. Order: no task depends on a later one. Theme/tokens before screens; schema before DAO before repo before UI.
 4. Rollback: can the change be reverted with `git revert` alone, or does it leave migrated data / renamed keys behind? Say which.
 5. Size: any single task that touches >8 files or >3 modules should be split. Name them.
-6. Ticket shape: can each step become a Sidequest ticket with a declared file scope and an exact Gradle `--verify`? Name steps that can't.
+6. Ticket shape: can each step become a Codex board task with a declared file scope and an exact verification argv? Name steps that can't.
 
 **D. Contrarian pass**
 Pick the 3 decisions in the plan most likely to be wrong and argue the alternative in 2 lines each. The main context decides; the auditor only argues.

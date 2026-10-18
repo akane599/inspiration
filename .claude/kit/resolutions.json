@@ -1,0 +1,27 @@
+{
+  ".claude/commands/bootstrap.md": {
+    "merged_sha256": "3073b852b450760f65590216812c725d495c703aa85639c4beda0b16f6960c70",
+    "resolved_at": "2026-10-18T21:48:14.837490+00:00",
+    "template_sha256": "19bc5adc81c2bebec6693e69f5af59ced49b1946cc06e7f1089b73e390374d08"
+  },
+  ".claude/commands/ui-overhaul.md": {
+    "merged_sha256": "ef57d8fe2574d183c37b751a9cf62dfa0c9778216d282d9714d3a87f3d01af79",
+    "resolved_at": "2026-10-18T21:48:14.837763+00:00",
+    "template_sha256": "ab812be763de7d1122062936436b7d6ecd727ac72c65bde4352a66b30aa823d2"
+  },
+  ".claude/commands/wrap-up.md": {
+    "merged_sha256": "700683d0dc8f47a3ae8c468bbfd305b687b36b51dd5d18e6b56650b241fd9dfd",
+    "resolved_at": "2026-10-18T21:48:14.837985+00:00",
+    "template_sha256": "075c4f2bff6fc5a05aa27ff61a3edbcbb97ae6efabfd4ee35bce048ac6f26152"
+  },
+  ".claude/live-rules/rules/android-build.md": {
+    "merged_sha256": "4e64d25d651892b6cb9e9b50b2a9284af132bd9a2b7554a97edc1fbc5df60aaa",
+    "resolved_at": "2026-10-18T21:48:14.838200+00:00",
+    "template_sha256": "cc9a3447728ca788564cf0b33df06d90c4b03575ed6863c5094b6336585ca706"
+  },
+  ".claude/skills/compose-design/SKILL.md": {
+    "merged_sha256": "6b809a4de8b36e8067bd7f896908527bf5b3b033bc89bf2f2860d96b4f091d12",
+    "resolved_at": "2026-10-18T21:48:14.838381+00:00",
+    "template_sha256": "8a59180cb7a8181f72380aaa65f1a97c75c57fa0a546f07d07d1d7a21627695f"
+  }
+}

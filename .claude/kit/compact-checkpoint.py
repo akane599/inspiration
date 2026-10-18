@@ -7,6 +7,7 @@ import os
 from pathlib import Path
 import subprocess
 import sys
+import tempfile
 
 
 def checkpoint(root, session):
@@ -24,7 +25,7 @@ def main():
         return
     root = Path(os.environ.get('CLAUDE_PROJECT_DIR') or hook.get('cwd') or '.').resolve()
     out = checkpoint(root, session)
-    if out.is_symlink() or out.parent.is_symlink():
+    if out.is_symlink() or any(p.is_symlink() for p in out.parents if p != root and root in p.parents):
         return
     if len(sys.argv) > 1 and sys.argv[1] == '--restore':
         if out.is_file():
@@ -63,10 +64,15 @@ def main():
     lines += ['- '+f for f in edited]
     lines += ['', 'Check the Sidequest board for work already in flight before continuing.']
     out.parent.mkdir(parents=True,exist_ok=True,mode=0o700)
-    temp=out.with_suffix('.tmp')
-    with open(temp,'w') as f:
-        os.chmod(temp,0o600); f.write('\n'.join(lines)+'\n')
-    os.replace(temp,out)
+    fd, temp = tempfile.mkstemp(prefix=out.name + '.', dir=out.parent)
+    try:
+        with os.fdopen(fd, 'w') as stream:
+            os.fchmod(stream.fileno(), 0o600)
+            stream.write('\n'.join(lines) + '\n')
+        os.replace(temp, out)
+    finally:
+        if os.path.lexists(temp):
+            os.unlink(temp)
 
 
 if __name__ == '__main__':
