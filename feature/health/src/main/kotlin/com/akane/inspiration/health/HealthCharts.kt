@@ -45,6 +45,13 @@ internal object HealthMetrics {
     val KeySize = 10.dp
 }
 
+/**
+ * Where an axis label of [labelSize] starts: [desired], kept within [min]..[end]. A label wider than that room
+ * (a narrow window at a large font scale) starts at [min] and overflows [end], instead of throwing.
+ */
+internal fun labelStart(desired: Float, min: Float, end: Float, labelSize: Float): Float =
+    desired.coerceIn(min, maxOf(min, end - labelSize))
+
 /** A tick on an axis: where it sits and what it says. The caller formats the text (units, locale). */
 @Immutable
 internal data class AxisLabel(val value: Float, val text: String)
@@ -106,12 +113,12 @@ internal fun LineChart(
             val y = toY(label.value)
             drawLine(telemetry.chartGrid, Offset(plotLeft, y), Offset(plotLeft + plotWidth, y), hairline)
             val layout = yLayouts[i]
-            val top = (y - layout.size.height / 2f).coerceIn(0f, size.height - layout.size.height.toFloat())
+            val top = labelStart(y - layout.size.height / 2f, 0f, size.height, layout.size.height.toFloat())
             drawText(layout, telemetry.chartAxisLabel, Offset(plotLeft - gap.toPx() - layout.size.width, top))
         }
         xLabels.forEachIndexed { i, label ->
             val layout = xLayouts[i]
-            val left = (toX(label.value) - layout.size.width / 2f).coerceIn(plotLeft, size.width - layout.size.width.toFloat())
+            val left = labelStart(toX(label.value) - layout.size.width / 2f, plotLeft, size.width, layout.size.width.toFloat())
             drawText(layout, telemetry.chartAxisLabel, Offset(left, size.height - axisHeight))
         }
 
