@@ -31,6 +31,56 @@ import java.util.concurrent.TimeUnit
 
 class ShizukuManagerImplTest {
     @Test
+    fun failedHoldBindDoesNotThrowOrLeakOwnershipAcrossReconnect() = runTest {
+        val fixture = Fixture(this)
+        fixture.manager.start()
+        fixture.facade.bindFailure = true
+        val holder = fixture.manager.holdBinding()
+        assertSame(ShizukuState.NotRunning, fixture.manager.state.value)
+        holder.close()
+        fixture.facade.bindFailure = false
+        fixture.facade.deliverPermissionResult(PackageManager.PERMISSION_GRANTED)
+        assertEquals(1, fixture.facade.bindCalls)
+        val next = fixture.manager.holdBinding()
+        assertEquals(2, fixture.facade.bindCalls)
+        next.close()
+        advanceUntilIdle()
+        assertEquals(1, fixture.facade.unbindCalls)
+    }
+
+    @Test
+    fun failedServiceAcquisitionReleasesUserBeforeReconnect() = runTest {
+        val fixture = Fixture(this)
+        fixture.manager.start()
+        fixture.facade.bindFailure = true
+        assertNull(fixture.manager.withTelemetryService(1) { Unit })
+        fixture.facade.bindFailure = false
+        fixture.facade.deliverPermissionResult(PackageManager.PERMISSION_GRANTED)
+        assertEquals(1, fixture.facade.bindCalls)
+        advanceUntilIdle()
+        assertEquals(0, fixture.facade.unbindCalls)
+    }
+
+    @Test
+    fun failedIdleUnbindClearsTransportAndAllowsAnotherBind() = runTest {
+        val fixture = Fixture(this)
+        fixture.manager.start()
+        val holder = fixture.manager.holdBinding()
+        fixture.facade.deliverServiceConnected()
+        fixture.facade.unbindFailure = true
+        holder.close()
+        advanceUntilIdle()
+        assertSame(ShizukuState.NotRunning, fixture.manager.state.value)
+        assertNull(fixture.manager.telemetryService.value)
+        fixture.facade.unbindFailure = false
+        fixture.facade.deliverPermissionResult(PackageManager.PERMISSION_GRANTED)
+        val next = fixture.manager.holdBinding()
+        assertEquals(2, fixture.facade.bindCalls)
+        next.close()
+        advanceUntilIdle()
+    }
+
+    @Test
     fun start_reportsNotInstalledWhenManagerPackageIsAbsent() = runTest {
         val fixture = Fixture(this, applicationInfo = null)
 
@@ -568,6 +618,8 @@ class ShizukuManagerImplTest {
         var removedBinderDeadListeners = 0
         var removedPermissionListeners = 0
         var permissionRequests = 0
+        var bindFailure = false
+        var unbindFailure = false
         var bindCalls = 0
         var unbindCalls = 0
         var lastUnbindRemove = false
@@ -642,6 +694,7 @@ class ShizukuManagerImplTest {
 
         override fun bindUserService(args: Shizuku.UserServiceArgs, connection: ServiceConnection) {
             bindCalls += 1
+            if (bindFailure) error("daemon died during bind")
             connections += connection
         }
 
@@ -651,6 +704,7 @@ class ShizukuManagerImplTest {
             remove: Boolean,
         ) {
             unbindCalls += 1
+            if (unbindFailure) error("daemon died during unbind")
             lastUnbindRemove = remove
         }
 

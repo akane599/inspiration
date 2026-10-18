@@ -150,7 +150,11 @@ class ShizukuManagerImpl private constructor(
         if (!started || mutableState.value !is ShizukuState.PermissionRequired) {
             return
         }
-        facade.requestPermission(PERMISSION_REQUEST_CODE)
+        try {
+            facade.requestPermission(PERMISSION_REQUEST_CODE)
+        } catch (_: RuntimeException) {
+            synchronized(bindingLock) { transportLostLocked() }
+        }
     }
 
     override fun start() {
@@ -279,6 +283,14 @@ class ShizukuManagerImpl private constructor(
     }
 
     private fun updateState() {
+        try {
+            refreshState()
+        } catch (_: RuntimeException) {
+            synchronized(bindingLock) { transportLostLocked() }
+        }
+    }
+
+    private fun refreshState() {
         val info = applicationInfoProvider.load()
         if (info == null) {
             setUnavailableState(ShizukuState.NotInstalled)
@@ -323,6 +335,22 @@ class ShizukuManagerImpl private constructor(
         }
     }
 
+    /** Owners keep their counts and still release normally after transport loss. */
+    private fun transportLostLocked() {
+        serviceBound = false
+        serviceArgs = null
+        serviceGeneration += 1
+        awaitingUnboundDeath = false
+        unboundDeathOwed = false
+        settleTimeout?.cancel()
+        settleTimeout = null
+        idleUnbind?.cancel()
+        idleUnbind = null
+        applicationInfo = null
+        mutableTelemetryService.value = null
+        mutableState.value = ShizukuState.NotRunning
+    }
+
     private fun bindIfRequiredLocked() {
         val info = applicationInfo ?: return
         if (activeServiceUsers == 0 && bindingHolders == 0) {
@@ -340,7 +368,11 @@ class ShizukuManagerImpl private constructor(
             )
         serviceArgs = args
         serviceBound = true
-        facade.bindUserService(args, userServiceConnection)
+        try {
+            facade.bindUserService(args, userServiceConnection)
+        } catch (_: RuntimeException) {
+            transportLostLocked()
+        }
     }
 
     private fun unbindTelemetryServiceLocked() {
@@ -348,7 +380,12 @@ class ShizukuManagerImpl private constructor(
         idleUnbind = null
         val args = serviceArgs ?: return
         if (serviceBound) {
-            facade.unbindUserService(args, userServiceConnection, true)
+            try {
+                facade.unbindUserService(args, userServiceConnection, true)
+            } catch (_: RuntimeException) {
+                transportLostLocked()
+                return
+            }
             awaitingUnboundDeath = true
             // Any owed death now arrives as the awaited one: the shared stub's died() fires once for both.
             unboundDeathOwed = false
