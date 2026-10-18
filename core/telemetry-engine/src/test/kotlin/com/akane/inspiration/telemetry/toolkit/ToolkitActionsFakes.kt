@@ -59,6 +59,9 @@ class FakeBackend : ToolkitBackend {
     val denied = mutableMapOf<String, Int>()
     var unavailable: GatewayUnavailable? = null
 
+    /** The next this many reads answer NO_SERVICE, then reads answer normally again (a bind wait that expired once). */
+    var unavailableReads = 0
+
     /** Like [unavailable] but only for writes: reads still answer (a service that goes stale mid-flow). */
     var writeUnavailable: GatewayUnavailable? = null
     var unavailableAfterWrite: GatewayUnavailable? = null
@@ -101,6 +104,10 @@ class FakeBackend : ToolkitBackend {
 
     private fun <T : Any> guard(pkg: String?, block: () -> GatewayReply<T>): GatewayReply<T> {
         unavailable?.let { return GatewayReply.Unavailable(it) }
+        if (unavailableReads > 0) {
+            unavailableReads -= 1
+            return GatewayReply.Unavailable(GatewayUnavailable.NO_SERVICE)
+        }
         return block()
     }
 

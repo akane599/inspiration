@@ -506,6 +506,11 @@ class ToolkitActions internal constructor(
         if (restoring == null && !confirmed && staticWarnings(action).isNotEmpty()) {
             return refuse(spec, restoresId, ToolkitRefusal.NOT_CONFIRMED, ToolkitClientCode.NOT_CONFIRMED)
         }
+        // A same-target row that could not be settled (see reconcileTargets) may have committed; writing on top of
+        // it would make it settle against this write's value later and drop out of the chain. Nothing is written.
+        if (spec.kind in OVERRIDE_KINDS && audit.pending().any { targetKey(it) == targetKey(spec) }) {
+            return ToolkitOutcome.Unavailable(ToolkitUnavailable.UNVERIFIED)
+        }
         val prep = when (val prepared = prepare(action, restoring)) {
             is Prep.Stop -> return stopOutcome(spec, restoresId, prepared.outcome)
             is Prep.Ok -> prepared
@@ -603,7 +608,7 @@ class ToolkitActions internal constructor(
         if (result.status == ToolkitStatus.UNAVAILABLE && result.code == ToolkitCode.UNVERIFIED) {
             // Issued, outcome unknown: like a lost reply, the row stays PENDING so a read-back settles it, and a
             // committed change still joins its target's chain before anything else touches it (reconcileTargets).
-            val before = pending.beforeRaw ?: result.beforeRaw
+            val before = result.beforeRaw ?: pending.beforeRaw
             audit.update(pending.copy(status = ToolkitActionStatus.PENDING, endedAt = null, code = result.code, beforeRaw = before))
             return ToolkitOutcome.Unavailable(ToolkitUnavailable.UNVERIFIED, result.code)
         }
@@ -935,7 +940,7 @@ class ToolkitActions internal constructor(
                 is ToolkitOutcome.Done -> read.value.modes[action.op].let { current ->
                     if (current != null && modeOf(current) == action.mode) Verdict.Matched(current) else Verdict.Mismatch(current)
                 }
-                is ToolkitOutcome.Refused -> Verdict.Mismatch(null)
+                is ToolkitOutcome.Refused -> refusedVerdict(read)
                 else -> Verdict.Unreachable
             }
         }
@@ -943,13 +948,21 @@ class ToolkitActions internal constructor(
             is ToolkitOutcome.Done -> read.value.raw?.toString().let { current ->
                 if (current == action.bucket.rawValue.toString()) Verdict.Matched(current) else Verdict.Mismatch(current)
             }
-            is ToolkitOutcome.Refused -> Verdict.Mismatch(null)
+            is ToolkitOutcome.Refused -> refusedVerdict(read)
             else -> Verdict.Unreachable
         }
         is ToolkitAction.ApplyDoze -> verifyDoze(norm(action.profile.constants))
         is ToolkitAction.RestoreDoze -> verifyDoze(norm(action.rawOrNull))
         is ToolkitAction.ForceStop -> Verdict.Unverifiable
     }
+
+    /**
+     * Only a refusal that says the target can never be read back again settles a row as a mismatch. A read the
+     * service could not parse, an undecidable protection check, a caller or stale refusal are inconclusive: the
+     * write may have committed, so the row stays PENDING rather than leaving its chain as FAILED.
+     */
+    private fun refusedVerdict(read: ToolkitOutcome.Refused): Verdict =
+        if (read.code in CONCLUSIVE_REFUSALS) Verdict.Mismatch(null) else Verdict.Unreachable
 
     private suspend fun verifyDoze(expected: String?): Verdict = when (val read = readDoze()) {
         is ToolkitOutcome.Done ->
@@ -1191,6 +1204,17 @@ class ToolkitActions internal constructor(
         const val OP_BG_DEXOPT = "bg_dexopt"
 
         val OVERRIDE_KINDS = setOf(KIND_APPOP, KIND_BUCKET, KIND_DOZE)
+
+        /** Read refusals that prove the target is gone or off limits for good (see [refusedVerdict]). */
+        val CONCLUSIVE_REFUSALS = setOf(
+            ToolkitCode.NOT_INSTALLED,
+            ToolkitCode.ARG_PACKAGE,
+            ToolkitCode.DENY_APP_ID,
+            ToolkitCode.DENY_PERSISTENT,
+            ToolkitCode.DENY_SYSTEM,
+            ToolkitCode.DENY_PROTECTED,
+            ToolkitCode.DENY_OWN,
+        )
 
         /** Unset and empty are the same `device_idle_constants` state. */
         fun norm(raw: String?): String? = raw?.takeIf { it.isNotEmpty() }

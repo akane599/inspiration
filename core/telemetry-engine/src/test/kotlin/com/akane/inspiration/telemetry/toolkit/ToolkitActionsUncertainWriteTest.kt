@@ -121,4 +121,52 @@ class ToolkitActionsUncertainWriteTest {
 
         assertEquals(ToolkitActionStatus.PENDING, audit.rows.single().status)
     }
+
+    @Test
+    fun aRefusedReadBackDoesNotSettleAnUncertainRowAsFailed() = runTest {
+        uncertainWrite(before = active.toString()) { backend.buckets[PKG] = restricted }
+        actions.execute(ToolkitAction.SetBucket(PKG, StandbyBucket.RESTRICTED), confirmed = true)
+        val rowA = audit.rows.single()
+
+        // The service could not parse its own read: inconclusive, so the row must stay PENDING.
+        backend.scriptedRead = ToolkitResult.refused(ToolkitCode.PARSE)
+        actions.activeOverrides().first()
+        assertEquals(ToolkitActionStatus.PENDING, audit.byId(rowA.id).status)
+
+        backend.scriptedRead = null
+        actions.execute(ToolkitAction.SetBucket(PKG, StandbyBucket.ACTIVE), confirmed = true)
+        backend.writes.clear()
+
+        assertTrue(actions.resetAll().isEmpty())
+        assertTrue("Reset all must not write: ${backend.writes}", backend.writes.isEmpty())
+        assertEquals(active, backend.buckets[PKG])
+    }
+
+    @Test
+    fun aConclusiveRefusalStillSettlesTheRowAsFailed() = runTest {
+        uncertainWrite(before = active.toString()) { backend.buckets[PKG] = restricted }
+        actions.execute(ToolkitAction.SetBucket(PKG, StandbyBucket.RESTRICTED), confirmed = true)
+
+        backend.denied[PKG] = ToolkitCode.NOT_INSTALLED
+        actions.reconcile()
+
+        assertEquals(ToolkitActionStatus.FAILED, audit.rows.single().status)
+    }
+
+    @Test
+    fun noChangeIsWrittenOnTopOfARowThatCouldNotBeSettled() = runTest {
+        uncertainWrite(before = active.toString()) { backend.buckets[PKG] = restricted }
+        actions.execute(ToolkitAction.SetBucket(PKG, StandbyBucket.RESTRICTED), confirmed = true)
+        val rowA = audit.rows.single()
+        backend.writes.clear()
+
+        // The reconcile read finds the service unreachable; the read made for the new write would succeed.
+        backend.unavailableReads = 1
+        val outcome = actions.execute(ToolkitAction.SetBucket(PKG, StandbyBucket.ACTIVE), confirmed = true)
+
+        assertEquals(ToolkitOutcome.Unavailable(ToolkitUnavailable.UNVERIFIED), outcome)
+        assertTrue("nothing may be written: ${backend.writes}", backend.writes.isEmpty())
+        assertEquals(ToolkitActionStatus.PENDING, audit.byId(rowA.id).status)
+        assertEquals(1, audit.rows.size)
+    }
 }
