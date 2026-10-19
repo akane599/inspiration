@@ -51,7 +51,7 @@ class SleepLabViewModel(
     /** Covered measurement endpoints of the retained chart, independent of the selected reference kind. */
     private var hypnogramWindow: Pair<Long, Long>? = null
 
-    /** The user asked for the running refresh (main thread only, like every intent). */
+    /** This visible visit explicitly joined the running refresh (main thread only, like every intent). */
     private var userWaiting = false
 
     init {
@@ -84,6 +84,10 @@ class SleepLabViewModel(
 
             SleepLabIntent.Hidden -> {
                 visible.value = false
+                // End this visit's UI ownership without cancelling the shared capture.
+                userWaiting = false
+                while (effectChannel.tryReceive().isSuccess) Unit
+                _state.update { it.copy(refreshing = false) }
             }
 
             SleepLabIntent.Refresh -> {
@@ -166,7 +170,7 @@ class SleepLabViewModel(
     private fun startRefresh(userInitiated: Boolean) {
         // A user refresh during a running one (e.g. the on-enter refresh) joins it: it shows progress and
         // reports that refresh's failure.
-        if (userInitiated) {
+        if (userInitiated && visible.value) {
             userWaiting = true
             _state.update { it.copy(refreshing = true) }
         }
@@ -175,8 +179,15 @@ class SleepLabViewModel(
             viewModelScope.launch {
                 try {
                     when (attempt { deps.refresh() }) {
-                        is RefreshResult.Refreshed, is RefreshResult.Debounced -> Unit
-                        is RefreshResult.Failed, null -> if (userWaiting) effectChannel.trySend(SleepLabEffect.RefreshFailed)
+                        is RefreshResult.Refreshed, is RefreshResult.Debounced -> {
+                            Unit
+                        }
+
+                        is RefreshResult.Failed, null -> {
+                            if (userWaiting && visible.value) {
+                                effectChannel.trySend(SleepLabEffect.RefreshFailed)
+                            }
+                        }
                     }
                 } finally {
                     userWaiting = false

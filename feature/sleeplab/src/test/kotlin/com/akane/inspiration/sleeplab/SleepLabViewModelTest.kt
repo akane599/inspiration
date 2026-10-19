@@ -584,18 +584,155 @@ class SleepLabViewModelTest {
         }
 
     @Test
-    fun `a debounced or successful user refresh raises no effect and ends the spinner`() =
+    fun `hidden clears progress and an in-flight failure is not replayed after a successful return`() =
         runTest(dispatcher) {
-            deps.refreshResult = RefreshResult.Debounced(NOW_MS)
+            deps.refreshResult = RefreshResult.Failed("deadline")
+            val gate = CompletableDeferred<Unit>().also { deps.refreshGate = it }
             val vm = viewModel()
+            val previousEffects = mutableListOf<SleepLabEffect>()
+            val previousCollector = backgroundScope.launch { vm.effects.collect { previousEffects += it } }
+            visible(vm)
+            vm.onIntent(SleepLabIntent.Refresh)
+            runCurrent()
+            assertTrue(vm.state.value.refreshing)
+
+            previousCollector.cancel()
+            vm.onIntent(SleepLabIntent.Hidden)
+            assertFalse("leaving the visit ends its progress immediately", vm.state.value.refreshing)
+            runCurrent()
+            gate.complete(Unit)
+            runCurrent()
+            assertEquals("the shared capture was not replaced", 1, deps.refreshCalls)
+
+            deps.refreshGate = null
+            deps.refreshResult = RefreshResult.Refreshed(NOW_MS)
+            visible(vm)
+            val returnedEffects = mutableListOf<SleepLabEffect>()
+            backgroundScope.launch { vm.effects.collect { returnedEffects += it } }
+            runCurrent()
+
+            assertEquals(2, deps.refreshCalls)
+            assertTrue(previousEffects.isEmpty())
+            assertTrue("the retained VM must not replay the previous visit's failure", returnedEffects.isEmpty())
+            assertFalse(vm.state.value.refreshing)
+        }
+
+    @Test
+    fun `hidden drains a failure buffered before the effect collector returns`() =
+        runTest(dispatcher) {
+            deps.refreshResult = RefreshResult.Failed("deadline")
+            val vm = viewModel()
+            visible(vm)
+            // No collector: a visible explicit failure has already been buffered when the tab leaves.
+            vm.onIntent(SleepLabIntent.Refresh)
+            runCurrent()
+            assertEquals(2, deps.refreshCalls)
+            assertFalse(vm.state.value.refreshing)
+
+            vm.onIntent(SleepLabIntent.Hidden)
+            deps.refreshResult = RefreshResult.Refreshed(NOW_MS)
+            visible(vm)
+            val effects = mutableListOf<SleepLabEffect>()
+            backgroundScope.launch { vm.effects.collect { effects += it } }
+            runCurrent()
+
+            assertEquals(3, deps.refreshCalls)
+            assertTrue("a new collector cannot receive the old buffered notification", effects.isEmpty())
+        }
+
+    @Test
+    fun `reentering before the old refresh completes does not inherit the old explicit request`() =
+        runTest(dispatcher) {
+            deps.refreshResult = RefreshResult.Failed("deadline")
+            val gate = CompletableDeferred<Unit>().also { deps.refreshGate = it }
+            val vm = viewModel()
+            visible(vm)
+            vm.onIntent(SleepLabIntent.Refresh)
+            runCurrent()
+
+            vm.onIntent(SleepLabIntent.Hidden)
+            runCurrent()
+            visible(vm)
+            val effects = mutableListOf<SleepLabEffect>()
+            backgroundScope.launch { vm.effects.collect { effects += it } }
+            runCurrent()
+            assertEquals("reentry joins the shared capture rather than cancelling or replacing it", 1, deps.refreshCalls)
+            assertFalse("the new visit has no explicit waiter", vm.state.value.refreshing)
+
+            gate.complete(Unit)
+            runCurrent()
+
+            assertTrue("visible alone must not make an old explicit request eligible again", effects.isEmpty())
+            assertFalse(vm.state.value.refreshing)
+        }
+
+    @Test
+    fun `a new explicit request on reentry joins the shared capture and owns its failure once`() =
+        runTest(dispatcher) {
+            deps.refreshResult = RefreshResult.Failed("deadline")
+            val gate = CompletableDeferred<Unit>().also { deps.refreshGate = it }
+            val vm = viewModel()
+            visible(vm)
+            vm.onIntent(SleepLabIntent.Refresh)
+            runCurrent()
+            vm.onIntent(SleepLabIntent.Hidden)
+            runCurrent()
+            visible(vm)
             val effects = mutableListOf<SleepLabEffect>()
             backgroundScope.launch { vm.effects.collect { effects += it } }
 
             vm.onIntent(SleepLabIntent.Refresh)
+            vm.onIntent(SleepLabIntent.Refresh)
+            runCurrent()
+            assertTrue(vm.state.value.refreshing)
+            assertEquals("both visits reuse the running capture", 1, deps.refreshCalls)
+            gate.complete(Unit)
             runCurrent()
 
-            assertTrue(effects.isEmpty())
-            assertEquals(1, deps.refreshCalls)
+            assertEquals(listOf<SleepLabEffect>(SleepLabEffect.RefreshFailed), effects)
             assertFalse(vm.state.value.refreshing)
+        }
+
+    @Test
+    fun `a hidden refresh intent cannot opt a later visit into failure reporting`() =
+        runTest(dispatcher) {
+            deps.refreshResult = RefreshResult.Failed("deadline")
+            val gate = CompletableDeferred<Unit>().also { deps.refreshGate = it }
+            val vm = viewModel()
+            visible(vm)
+            vm.onIntent(SleepLabIntent.Hidden)
+            // A late UI callback is not an explicit request made in the next visible visit.
+            vm.onIntent(SleepLabIntent.Refresh)
+            runCurrent()
+            assertFalse(vm.state.value.refreshing)
+            visible(vm)
+            val effects = mutableListOf<SleepLabEffect>()
+            backgroundScope.launch { vm.effects.collect { effects += it } }
+
+            gate.complete(Unit)
+            runCurrent()
+
+            assertEquals(1, deps.refreshCalls)
+            assertTrue(effects.isEmpty())
+        }
+
+    @Test
+    fun `a debounced or successful user refresh raises no effect and ends the spinner`() =
+        runTest(dispatcher) {
+            val vm = viewModel()
+            val effects = mutableListOf<SleepLabEffect>()
+            backgroundScope.launch { vm.effects.collect { effects += it } }
+            visible(vm)
+
+            for (result in listOf(RefreshResult.Debounced(NOW_MS), RefreshResult.Refreshed(NOW_MS))) {
+                deps.refreshResult = result
+                vm.onIntent(SleepLabIntent.Refresh)
+                assertTrue(vm.state.value.refreshing)
+                runCurrent()
+
+                assertTrue(effects.isEmpty())
+                assertFalse(vm.state.value.refreshing)
+            }
+            assertEquals(3, deps.refreshCalls)
         }
 }

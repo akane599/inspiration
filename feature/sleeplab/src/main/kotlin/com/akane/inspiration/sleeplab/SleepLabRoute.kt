@@ -12,8 +12,11 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalLocale
 import androidx.compose.ui.res.stringResource
+import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LifecycleStartEffect
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.repeatOnLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.akane.inspiration.diagnostics.dictionary.EntryKind
 import com.akane.inspiration.diagnostics.dictionary.Explanation
@@ -31,16 +34,18 @@ fun SleepLabRoute(
     deps: SleepLabDependencies,
     modifier: Modifier = Modifier,
 ) {
-    val viewModel = viewModel<SleepLabViewModel>(
-        key = "sleeplab",
-        factory = remember(deps) { SleepLabViewModel.factory(deps) },
-    )
+    val viewModel =
+        viewModel<SleepLabViewModel>(
+            key = "sleeplab",
+            factory = remember(deps) { SleepLabViewModel.factory(deps) },
+        )
     val state by viewModel.state.collectAsStateWithLifecycle()
     val locale: Locale = LocalLocale.current.platformLocale
     // The dictionary words its explanations in the current locale, so a locale change rebuilds the lookup.
-    val explain: (EntryKind, String) -> Explanation? = remember(deps, locale) {
-        { kind, name -> deps.dictionary().explain(kind, name, locale) }
-    }
+    val explain: (EntryKind, String) -> Explanation? =
+        remember(deps, locale) {
+            { kind, name -> deps.dictionary().explain(kind, name, locale) }
+        }
     val snackbarHost = remember { SnackbarHostState() }
     val refreshFailed = stringResource(R.string.sleeplab_refresh_failed)
 
@@ -48,10 +53,13 @@ fun SleepLabRoute(
         viewModel.onIntent(SleepLabIntent.Visible)
         onStopOrDispose { viewModel.onIntent(SleepLabIntent.Hidden) }
     }
-    LaunchedEffect(viewModel, refreshFailed) {
-        viewModel.effects.collect { effect ->
-            when (effect) {
-                SleepLabEffect.RefreshFailed -> snackbarHost.showSnackbar(refreshFailed)
+    val lifecycle = LocalLifecycleOwner.current.lifecycle
+    LaunchedEffect(viewModel, lifecycle, refreshFailed) {
+        lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) {
+            viewModel.effects.collect { effect ->
+                when (effect) {
+                    SleepLabEffect.RefreshFailed -> snackbarHost.showSnackbar(refreshFailed)
+                }
             }
         }
     }
