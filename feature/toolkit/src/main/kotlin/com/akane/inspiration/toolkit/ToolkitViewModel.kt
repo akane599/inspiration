@@ -39,6 +39,9 @@ private const val HISTORY_LIMIT = 20
 /** A toolkit call threw instead of answering (a Room error from the audit log, say): there is no code, only the failure. */
 private val CALL_FAILED = ToolkitNotice.Rejected(Problem.Failed(code = null))
 
+/** The doze value moved and could not be read again, so the card is not loaded: the existing "changed, check it" notice. */
+private val DOZE_CHANGED = ToolkitNotice.Rejected(Problem.Refused(ToolkitRefusal.STALE))
+
 /**
  * MVI ViewModel of the Toolkit screen (H5). Everything privileged goes through `deps.toolkit` (plan, confirm,
  * execute, read back); the screen shows what the system reports after each write, never what was asked for.
@@ -443,8 +446,8 @@ class ToolkitViewModel(
         return when (request) {
             is ToolkitRequest.ApplyDoze -> {
                 // Pinned to the value on screen: if it changes before the write, the user is asked again (F-18).
-                val shown = (_state.value.doze.load as? DozeLoad.Loaded)?.info?.raw
-                ToolkitAction.ApplyDoze(request.profile, SeenDoze(shown))
+                // With no value on screen there is nothing to pin (an unset pin would mean "expected unset").
+                (_state.value.doze.load as? DozeLoad.Loaded)?.let { ToolkitAction.ApplyDoze(request.profile, SeenDoze(it.info.raw)) }
             }
 
             is ToolkitRequest.SetAppOp -> {
@@ -510,9 +513,19 @@ class ToolkitViewModel(
         val prepared = pending ?: return
         if (_state.value.busy) return
         pending = null
+        if (dozeNotShown(prepared.request)) {
+            // The doze value the user decided against is no longer on screen: nothing is written.
+            _state.update { it.copy(confirmation = null) }
+            showNotice(prepared.request, DOZE_CHANGED)
+            return
+        }
         _state.update { it.copy(confirmation = null, busy = true) }
         viewModelScope.launch { executeContained(prepared, confirmed = true) }
     }
+
+    /** A doze apply is only built or confirmed against a loaded doze card: its value is what the user decided against. */
+    private fun dozeNotShown(request: ToolkitRequest): Boolean =
+        request is ToolkitRequest.ApplyDoze && _state.value.doze.load !is DozeLoad.Loaded
 
     private fun dismissConfirmation() {
         pending = null
@@ -575,6 +588,12 @@ class ToolkitViewModel(
             return
         }
         refresh(request)
+        if (dozeNotShown(request)) {
+            // The re-read failed: the card shows it is unavailable, and nothing is asked against a value not on screen.
+            showNotice(request, DOZE_CHANGED)
+            _state.update { it.copy(busy = false) }
+            return
+        }
         // A doze action is pinned to the value on screen, which refresh just updated; other targets stay pinned.
         val prepared = if (request is ToolkitRequest.ApplyDoze) stalePrepared.copy(action = actionOf(request)) else stalePrepared
         val plan = planOf(prepared)

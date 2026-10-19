@@ -407,6 +407,44 @@ class ToolkitViewModelTest {
     }
 
     @Test
+    fun `a doze apply is not asked or written when the re-read after a stale plan fails`() {
+        start { device.dozeRaw = "idle_to=1" }
+        device.dozeRaw = null // reset elsewhere; the screen still shows the custom value
+        // The plan's read finds the change; the re-read that would show it fails (F-18).
+        device.failDozeRead = device.count("getDozeState") + 2
+
+        act(ToolkitRequest.ApplyDoze(DozeProfile.BALANCED))
+
+        assertTrue(state.doze.load is DozeLoad.Unavailable)
+        assertNull("no confirmation against a value the screen does not show", state.confirmation)
+        assertEquals(ToolkitNotice.Rejected(Problem.Refused(ToolkitRefusal.STALE)), state.doze.notice)
+        assertFalse(state.busy)
+        confirm()
+        assertTrue("nothing may be written: ${device.writes}", device.writes.isEmpty())
+        assertNull(device.dozeRaw)
+    }
+
+    @Test
+    fun `a doze confirmation is not carried out once the doze card is no longer loaded`() {
+        start { device.dozeRaw = "idle_to=1" }
+        act(ToolkitRequest.ApplyDoze(DozeProfile.STANDARD))
+        assertEquals(listOf(ToolkitWarning.DOZE_OVER_CUSTOM), state.confirmation?.warnings)
+        // a reload whose doze read fails: the card can no longer show the value the user is deciding against
+        device.failDozeRead = device.count("getDozeState") + 1
+        vm.onIntent(ToolkitIntent.Reload)
+        assertTrue(state.doze.load is DozeLoad.Unavailable)
+        assertNotNull(state.confirmation)
+
+        confirm()
+
+        assertTrue("nothing may be written: ${device.writes}", device.writes.isEmpty())
+        assertEquals("idle_to=1", device.dozeRaw)
+        assertNull(state.confirmation)
+        assertEquals(ToolkitNotice.Rejected(Problem.Refused(ToolkitRefusal.STALE)), state.doze.notice)
+        assertFalse(state.busy)
+    }
+
+    @Test
     fun `a profile the system does not take is rolled back and explained`() {
         start { device.dozeNotEffective = true }
 

@@ -31,11 +31,11 @@ import com.akane.inspiration.telemetry.store.ToolkitActionRecord
 import com.akane.inspiration.telemetry.store.ToolkitActionStatus
 import com.akane.inspiration.telemetry.toolkit.ToolkitActions
 import com.akane.inspiration.telemetry.toolkit.ToolkitGateway
-import java.lang.reflect.Proxy
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import java.lang.reflect.Proxy
 import com.akane.inspiration.ipc.model.BgDexoptStatus as ServiceDexopt
 
 internal const val CHATTY = "com.example.chatty"
@@ -43,12 +43,13 @@ internal const val MAPS = "com.example.maps"
 internal const val MAIL = "com.example.mail"
 internal const val CALC = "com.example.calc"
 
-internal val DEFAULT_APPS = listOf(
-    AppEntry(CHATTY, "Chatty", launchable = true, restricted = false),
-    AppEntry(MAPS, "Maps", launchable = true, restricted = false),
-    AppEntry(CALC, "Calculator", launchable = true, restricted = false),
-    AppEntry(MAIL, "Mail", launchable = false, restricted = true),
-)
+internal val DEFAULT_APPS =
+    listOf(
+        AppEntry(CHATTY, "Chatty", launchable = true, restricted = false),
+        AppEntry(MAPS, "Maps", launchable = true, restricted = false),
+        AppEntry(CALC, "Calculator", launchable = true, restricted = false),
+        AppEntry(MAIL, "Mail", launchable = false, restricted = true),
+    )
 
 private const val DEFAULT_EFFECTIVE = "inactive_to=1800000,light_after_inactive_to=60000"
 
@@ -85,6 +86,9 @@ internal class FakeDevice {
     /** A doze apply that the "system" does not take, so the service rolls it back. */
     var dozeNotEffective = false
 
+    /** The 1-based number of the `getDozeState` call that fails (the others answer normally); null for none. */
+    var failDozeRead: Int? = null
+
     var plugged = true
     var dexopt = ServiceDexopt(BgDexoptState.IDLE, 0, 0, 0, BgDexoptReason.NONE)
 
@@ -107,108 +111,147 @@ internal class FakeDevice {
 
     private fun denied(pkg: String) = if (pkg in protectedPackages) ToolkitResult.refused(ToolkitCode.DENY_PROTECTED) else null
 
-    private fun writeDenied(pkg: String) = denied(pkg) ?: if (pkg in refuseWritesFor) ToolkitResult.refused(ToolkitCode.DENY_PROTECTED) else null
+    private fun writeDenied(pkg: String) =
+        denied(pkg) ?: if (pkg in refuseWritesFor) ToolkitResult.refused(ToolkitCode.DENY_PROTECTED) else null
 
-    private fun dozeCode(): Int = when (dozeRaw) {
-        null -> DozeProfile.STANDARD.code
-        else -> DozeProfile.entries.firstOrNull { it.constants == dozeRaw }?.code ?: ToolkitCode.DOZE_CUSTOM
-    }
+    private fun dozeCode(): Int =
+        when (dozeRaw) {
+            null -> DozeProfile.STANDARD.code
+            else -> DozeProfile.entries.firstOrNull { it.constants == dozeRaw }?.code ?: ToolkitCode.DOZE_CUSTOM
+        }
 
     private fun dozeEffective(): String = dozeRaw ?: DEFAULT_EFFECTIVE
 
-    val service: ITelemetryUserService = Proxy.newProxyInstance(
-        ITelemetryUserService::class.java.classLoader,
-        arrayOf(ITelemetryUserService::class.java),
-    ) { _, method, args ->
-        if (method.name == "getApiVersion") return@newProxyInstance ToolkitApi.VERSION
-        calls += method.name
-        when (method.name) {
-            "getAppOps" -> {
-                val pkg = args[0] as String
-                denied(pkg) ?: ToolkitResult.done(after = app(pkg).ops.entries.joinToString(",") { (op, mode) -> "${op.argv}=$mode" })
-            }
-            "getStandbyBucket" -> {
-                val pkg = args[0] as String
-                denied(pkg) ?: ToolkitResult.done(after = app(pkg).bucket.toString())
-            }
-            "setAppOp" -> {
-                writes += "setAppOp"
-                val pkg = args[0] as String
-                writeDenied(pkg) ?: run {
-                    val op = AppOp.fromCode(args[1] as Int)!!
-                    val mode = AppOpMode.fromCode(args[2] as Int)!!
-                    val before = app(pkg).ops.getValue(op)
-                    app(pkg).ops[op] = mode.argv
-                    ToolkitResult.done(before = before, after = mode.argv)
+    val service: ITelemetryUserService =
+        Proxy.newProxyInstance(
+            ITelemetryUserService::class.java.classLoader,
+            arrayOf(ITelemetryUserService::class.java),
+        ) { _, method, args ->
+            if (method.name == "getApiVersion") return@newProxyInstance ToolkitApi.VERSION
+            calls += method.name
+            when (method.name) {
+                "getAppOps" -> {
+                    val pkg = args[0] as String
+                    denied(pkg) ?: ToolkitResult.done(after = app(pkg).ops.entries.joinToString(",") { (op, mode) -> "${op.argv}=$mode" })
                 }
-            }
-            "setStandbyBucket" -> {
-                writes += "setStandbyBucket"
-                val pkg = args[0] as String
-                writeDenied(pkg) ?: run {
-                    val before = app(pkg).bucket
-                    app(pkg).bucket = StandbyBucket.fromCode(args[1] as Int)!!.rawValue
-                    ToolkitResult.done(before = before.toString(), after = app(pkg).bucket.toString())
+
+                "getStandbyBucket" -> {
+                    val pkg = args[0] as String
+                    denied(pkg) ?: ToolkitResult.done(after = app(pkg).bucket.toString())
                 }
-            }
-            "forceStop" -> {
-                writes += "forceStop"
-                writeDenied(args[0] as String) ?: ToolkitResult.done(before = "stopped=false", after = "stopped=true")
-            }
-            "getDozeState" -> ToolkitResult.done(code = dozeCode(), after = dozeRaw, message = dozeEffective())
-            "applyDozeProfile" -> {
-                writes += "applyDozeProfile"
-                val expected = args[1] as String?
-                when {
-                    dozeStaleOnce -> {
-                        dozeStaleOnce = false
-                        dozeRaw = "idle_to=1"
-                        ToolkitResult.refused(ToolkitCode.STALE)
+
+                "setAppOp" -> {
+                    writes += "setAppOp"
+                    val pkg = args[0] as String
+                    writeDenied(pkg) ?: run {
+                        val op = AppOp.fromCode(args[1] as Int)!!
+                        val mode = AppOpMode.fromCode(args[2] as Int)!!
+                        val before = app(pkg).ops.getValue(op)
+                        app(pkg).ops[op] = mode.argv
+                        ToolkitResult.done(before = before, after = mode.argv)
                     }
-                    expected != dozeRaw -> ToolkitResult.refused(ToolkitCode.STALE)
-                    dozeNotEffective -> ToolkitResult.unavailable(ToolkitCode.NOT_EFFECTIVE, before = dozeRaw, after = dozeRaw)
-                    else -> {
+                }
+
+                "setStandbyBucket" -> {
+                    writes += "setStandbyBucket"
+                    val pkg = args[0] as String
+                    writeDenied(pkg) ?: run {
+                        val before = app(pkg).bucket
+                        app(pkg).bucket = StandbyBucket.fromCode(args[1] as Int)!!.rawValue
+                        ToolkitResult.done(before = before.toString(), after = app(pkg).bucket.toString())
+                    }
+                }
+
+                "forceStop" -> {
+                    writes += "forceStop"
+                    writeDenied(args[0] as String) ?: ToolkitResult.done(before = "stopped=false", after = "stopped=true")
+                }
+
+                "getDozeState" -> {
+                    if (count("getDozeState") == failDozeRead) {
+                        ToolkitResult.failed(ToolkitCode.EXEC)
+                    } else {
+                        ToolkitResult.done(code = dozeCode(), after = dozeRaw, message = dozeEffective())
+                    }
+                }
+
+                "applyDozeProfile" -> {
+                    writes += "applyDozeProfile"
+                    val expected = args[1] as String?
+                    when {
+                        dozeStaleOnce -> {
+                            dozeStaleOnce = false
+                            dozeRaw = "idle_to=1"
+                            ToolkitResult.refused(ToolkitCode.STALE)
+                        }
+
+                        expected != dozeRaw -> {
+                            ToolkitResult.refused(ToolkitCode.STALE)
+                        }
+
+                        dozeNotEffective -> {
+                            ToolkitResult.unavailable(ToolkitCode.NOT_EFFECTIVE, before = dozeRaw, after = dozeRaw)
+                        }
+
+                        else -> {
+                            val before = dozeRaw
+                            dozeRaw = DozeProfile.fromCode(args[0] as Int)!!.constants
+                            ToolkitResult.done(before = before, after = dozeRaw)
+                        }
+                    }
+                }
+
+                "restoreDozeRaw" -> {
+                    writes += "restoreDozeRaw"
+                    if (args[1] as String? != dozeRaw) {
+                        ToolkitResult.refused(ToolkitCode.STALE)
+                    } else {
                         val before = dozeRaw
-                        dozeRaw = DozeProfile.fromCode(args[0] as Int)!!.constants
+                        dozeRaw = args[0] as String?
                         ToolkitResult.done(before = before, after = dozeRaw)
                     }
                 }
-            }
-            "restoreDozeRaw" -> {
-                writes += "restoreDozeRaw"
-                if (args[1] as String? != dozeRaw) {
-                    ToolkitResult.refused(ToolkitCode.STALE)
-                } else {
-                    val before = dozeRaw
-                    dozeRaw = args[0] as String?
-                    ToolkitResult.done(before = before, after = dozeRaw)
-                }
-            }
-            "startBgDexopt" -> {
-                writes += "startBgDexopt"
-                when {
-                    !plugged -> ToolkitResult.refused(ToolkitCode.NOT_PLUGGED)
-                    dexopt.state == BgDexoptState.RUNNING -> ToolkitResult.refused(ToolkitCode.BUSY)
-                    else -> {
-                        dexopt = ServiceDexopt(BgDexoptState.RUNNING, now(), 0, 0, BgDexoptReason.NONE)
-                        ToolkitResult.done()
+
+                "startBgDexopt" -> {
+                    writes += "startBgDexopt"
+                    when {
+                        !plugged -> {
+                            ToolkitResult.refused(ToolkitCode.NOT_PLUGGED)
+                        }
+
+                        dexopt.state == BgDexoptState.RUNNING -> {
+                            ToolkitResult.refused(ToolkitCode.BUSY)
+                        }
+
+                        else -> {
+                            dexopt = ServiceDexopt(BgDexoptState.RUNNING, now(), 0, 0, BgDexoptReason.NONE)
+                            ToolkitResult.done()
+                        }
                     }
                 }
+
+                "getBgDexoptStatus" -> {
+                    dexopt
+                }
+
+                "cancelBgDexopt" -> {
+                    writes += "cancelBgDexopt"
+                    dexopt = ServiceDexopt(BgDexoptState.CANCELLED, dexopt.startedAtMs, now(), 0, BgDexoptReason.USER)
+                    ToolkitResult.done()
+                }
+
+                else -> {
+                    null
+                }
             }
-            "getBgDexoptStatus" -> dexopt
-            "cancelBgDexopt" -> {
-                writes += "cancelBgDexopt"
-                dexopt = ServiceDexopt(BgDexoptState.CANCELLED, dexopt.startedAtMs, now(), 0, BgDexoptReason.USER)
-                ToolkitResult.done()
-            }
-            else -> null
-        }
-    } as ITelemetryUserService
+        } as ITelemetryUserService
 
     fun count(call: String): Int = calls.count { it == call }
 }
 
-private class FakeShizuku(private val device: FakeDevice) : ShizukuManager {
+private class FakeShizuku(
+    private val device: FakeDevice,
+) : ShizukuManager {
     override val state: StateFlow<ShizukuState> = MutableStateFlow(ShizukuState.Ready(2000, 13))
     override val telemetryService: StateFlow<ITelemetryUserService?> = MutableStateFlow(device.service)
 
@@ -216,7 +259,10 @@ private class FakeShizuku(private val device: FakeDevice) : ShizukuManager {
 
     override fun start() = Unit
 
-    override suspend fun <T> withTelemetryService(timeoutMs: Long, block: suspend (ITelemetryUserService) -> T): T? {
+    override suspend fun <T> withTelemetryService(
+        timeoutMs: Long,
+        block: suspend (ITelemetryUserService) -> T,
+    ): T? {
         device.gate?.await()
         return if (device.serviceUp) block(device.service) else null
     }
@@ -257,27 +303,84 @@ internal class MemoryStore : SnapshotStore {
     }
 
     override suspend fun insert(snapshot: BatterySnapshot): Long = 0L
+
     override suspend fun byId(id: Long): BatterySnapshot? = null
+
     override suspend fun latest(kind: SnapshotKind?): BatterySnapshot? = null
-    override suspend fun firstAtOrAfter(wallMs: Long, kind: SnapshotKind?, statsStartMs: Long?, bootCount: Int?): BatterySnapshot? = null
-    override suspend fun lastAtOrBefore(wallMs: Long, kind: SnapshotKind?): BatterySnapshot? = null
+
+    override suspend fun firstAtOrAfter(
+        wallMs: Long,
+        kind: SnapshotKind?,
+        statsStartMs: Long?,
+        bootCount: Int?,
+    ): BatterySnapshot? = null
+
+    override suspend fun lastAtOrBefore(
+        wallMs: Long,
+        kind: SnapshotKind?,
+    ): BatterySnapshot? = null
+
     override suspend fun latestByTrigger(trigger: CaptureTrigger): BatterySnapshot? = null
-    override suspend fun snapshotsBetween(fromWallMs: Long, toWallMs: Long): List<BatterySnapshot> = emptyList()
-    override suspend fun insertHistory(events: List<HistoryEvent>, statsStartMs: Long) = Unit
-    override suspend fun historyBetween(fromWallMs: Long, toWallMs: Long): List<HistoryEvent> = emptyList()
+
+    override suspend fun snapshotsBetween(
+        fromWallMs: Long,
+        toWallMs: Long,
+    ): List<BatterySnapshot> = emptyList()
+
+    override suspend fun insertHistory(
+        events: List<HistoryEvent>,
+        statsStartMs: Long,
+    ) = Unit
+
+    override suspend fun historyBetween(
+        fromWallMs: Long,
+        toWallMs: Long,
+    ): List<HistoryEvent> = emptyList()
+
     override suspend fun historyCursor(): Pair<Long, Long>? = null
-    override suspend fun setHistoryCursor(statsStartMs: Long, lastHistoryTimeMs: Long) = Unit
-    override suspend fun addMarker(snapshotId: Long, label: String, wallMs: Long): Long = 0L
+
+    override suspend fun setHistoryCursor(
+        statsStartMs: Long,
+        lastHistoryTimeMs: Long,
+    ) = Unit
+
+    override suspend fun addMarker(
+        snapshotId: Long,
+        label: String,
+        wallMs: Long,
+    ): Long = 0L
+
     override suspend fun marker(id: Long): Pair<Long, BatterySnapshot>? = null
+
     override suspend fun markers(): List<Marker> = emptyList()
+
     override suspend fun insertSamples(samples: List<LiveReading>) = Unit
-    override suspend fun samplesBetween(from: Long, to: Long): List<TelemetrySample> = emptyList()
-    override suspend fun upsertChargeSession(statsStartMs: Long, segment: ChargeSegment, verdict: SegmentVerdict) = Unit
+
+    override suspend fun samplesBetween(
+        from: Long,
+        to: Long,
+    ): List<TelemetrySample> = emptyList()
+
+    override suspend fun upsertChargeSession(
+        statsStartMs: Long,
+        segment: ChargeSegment,
+        verdict: SegmentVerdict,
+    ) = Unit
+
     override suspend fun chargeSessions(): List<ChargeSessionRecord> = emptyList()
+
     override suspend fun acceptedEstimatesChronological(limit: Int): List<Double> = emptyList()
+
     override suspend fun healthSamples(): List<HealthSample> = emptyList()
+
     override suspend fun insertHealthSample(sample: HealthSample) = Unit
-    override suspend fun recordMiss(wallMs: Long, trigger: CaptureTrigger, reason: String) = Unit
+
+    override suspend fun recordMiss(
+        wallMs: Long,
+        trigger: CaptureTrigger,
+        reason: String,
+    ) = Unit
+
     override suspend fun prune(nowWallMs: Long) = Unit
 }
 
@@ -290,21 +393,24 @@ internal class FakeToolkitDeps(
     val device: FakeDevice = FakeDevice(),
     scope: CoroutineScope,
 ) : ToolkitDependencies {
-    override val toolkit = ToolkitActions(
-        gateway = ToolkitGateway(FakeShizuku(device), holdBridgeScope = scope),
-        store = device.store,
-        holdBinding = {
-            device.holds += 1
-            AutoCloseable { device.releases += 1 }
-        },
-        nowMs = device::now,
-        supervisorScope = scope,
-    )
-    override val appLabels: AppLabels = object : AppLabels {
-        override suspend fun label(packageName: String) = DEFAULT_APPS.firstOrNull { it.packageName == packageName }?.label ?: "Label of $packageName"
+    override val toolkit =
+        ToolkitActions(
+            gateway = ToolkitGateway(FakeShizuku(device), holdBridgeScope = scope),
+            store = device.store,
+            holdBinding = {
+                device.holds += 1
+                AutoCloseable { device.releases += 1 }
+            },
+            nowMs = device::now,
+            supervisorScope = scope,
+        )
+    override val appLabels: AppLabels =
+        object : AppLabels {
+            override suspend fun label(packageName: String) =
+                DEFAULT_APPS.firstOrNull { it.packageName == packageName }?.label ?: "Label of $packageName"
 
-        override suspend fun icon(packageName: String): Bitmap? = null
-    }
+            override suspend fun icon(packageName: String): Bitmap? = null
+        }
     override val shizukuState = MutableStateFlow(shizuku)
 
     var apps: List<AppEntry> = DEFAULT_APPS
