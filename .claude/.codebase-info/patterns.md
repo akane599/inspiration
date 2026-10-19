@@ -36,7 +36,7 @@ Durations and deadlines use `elapsedRealtime`, never wall-clock differences: ret
 
 ## Persistence boundaries
 
-`RoomSnapshotStore` writes a snapshot and its child tables inside a transaction. Room is configured for WAL, schema export is enabled, and marker foreign keys restrict deletion while snapshot children cascade. `MaintenanceDao.prune()` downsamples old live samples to hourly rows, removes data older than 30 days, and preserves marker-referenced snapshots. Backup is disabled by the app manifest and extraction rules before production writes.
+`RoomSnapshotStore` writes a snapshot and its child tables inside a transaction. Room is configured for WAL, schema export is enabled, and marker foreign keys restrict deletion while snapshot children cascade. `MaintenanceDao.prune()` downsamples old live samples to hourly rows, removes data older than 30 days (`RETENTION_WINDOW_MS`), keeps `telemetry_hourly` for 365 days, and preserves marker-referenced snapshots. History ingest skips rows that the prune would delete at the same `retentionNowMs`. Backup is disabled by the app manifest and extraction rules before production writes.
 
 ## NotEvaluable instead of guessing
 
@@ -50,6 +50,10 @@ Explanations come from a bundled JSON dictionary with fixed precedence (exact > 
 
 `IntervalMetricsCalculator` derives screen on/off time and level drops from `history_event` over the diff's covered bounds, because broadcasts coalesce for frozen apps. Levels are seeded from any event kind, drops apply only on LEVEL events, charging time is excluded, and RESET/START boundaries are recorded as discontinuities rather than attributed. Rates are null below 15 minutes of state time.
 
+**RESET baseline (N-01).** A RESET is followed, at the same instant, by the screen and doze state it restates. Stored order keeps the RESET ahead of that state (`ORDER BY wallMs, id`, and fakes keep list order), so a period that spans a reset is cut there instead of becoming unknown. A bare legacy RESET's screen state is unknown.
+
+**Reference windows (N-02, N-12).** `ReferenceResolver` starts "since" windows at the newest history event. A capture within `CAPTURE_SLACK_MS` (10 s) after that event counts as the event's own. A later capture starts the window only when the history is provably stale: a snapshot between the two reverts the event, or the capture is more than the slack past the history horizon. A marker reference must precede the end snapshot.
+
 **History horizon (F-04).** The last known state is carried only up to the history horizon: the wall time of the newest FULL snapshot whose `history` availability row is available with no reason (`SnapshotStore.historyHorizonWallMs()`, one `SnapshotDao.newestWallMsWithCompleteSource` query; helpers in [`HistoryHorizon.kt`](../../core/telemetry-engine/src/main/kotlin/com/akane/inspiration/telemetry/store/HistoryHorizon.kt)).
 - A tail up to `HISTORY_HORIZON_GRACE_MS` (2 min: the 60 s refresh debounce plus slack) stays known.
 - A longer tail is `unknownMs` from the horizon itself. That turns off the Summary and `SCREEN_OFF_ONLY` gates, and `TimelineBuilder` closes lanes there.
@@ -61,6 +65,12 @@ Charts in `:core:designsystem` keep per-frame interaction state (cursor, brush, 
 - **Edge grab (F-08):** a Down within half the 48 dp target of a selection edge enters `PressedOnHandle` without consuming the event. It becomes a delta-relative handle drag only after horizontal touch slop. Vertical movement releases the gesture to the parent scroll, and an Up before slop is an ordinary tap.
 - **Data reloads (F-12):** the `pointerInput` loop is keyed stably and reads the window through `rememberUpdatedState`, so a reload never restarts a gesture. Each gesture keeps the scale captured at Down.
 - **Tick labels (F-13):** chosen from the selected tick step (`niceTimeTickSet().dayAligned`), not the window length. Day steps show dates. Sub-day steps show times, with the date at midnight ticks.
+- **Selection edges (N-21, N-24):** only selection edges inside the window are drawn or grabbable, and a selection that no longer overlaps the window is neither dimmed nor adjusted (`TimeRanges`). The slice-control step scales with the chart window.
+- **Text and zones (N-19, N-22, N-23):**
+  - Axis and readout values are formatted through resources and `TelemetryFormat`.
+  - The system zone is remembered (`SystemZone`), not rebuilt on every recomposition.
+  - Hypnogram a11y text carries dates whenever the window spans two local dates.
+- **JVM-testable glue (N-28):** gesture glue (`ScrubGestures`) and axis-label placement (`TimeAxis`) are pulled out of composables so JVM tests reach them.
 - **Single points (F-14):** a one-point series draws a dot. Models use sanitizing factories instead of constructor `require`. Chart strings live only in `strings_chart.xml` (en/tr). [`SliceControls.kt`](../../core/designsystem/src/main/kotlin/com/akane/inspiration/designsystem/chart/scrub/SliceControls.kt) adds standard focusable buttons for interval creation, one-minute boundary adjustments and clearing through the same caller-owned `onSelectionChange` callback; window/minimum-duration checks disable impossible adjustments without adding a second selection state.
 
 ## MVI with visibility-driven work
@@ -82,6 +92,15 @@ A later explicit refresh may join that running capture, and only the waiting vis
 
 **Live gauge staleness (F-07).** The Cockpit gauge returns to dashes after `LIVE_STALE_MS` (9.5 s) without a reading, on a live-source failure, or when Shizuku leaves Ready. A single missed reading never flashes dashes.
 
+**Live gauge charging state (N-10).** "Charging" comes from the battery's own status and the measured current, never from the plug alone. A plugged battery can be full, held at a charge limit, or losing to the load.
+- On a charger, a current within `CHARGING_DRAIN_DEADBAND_MA` (50 mA, `CockpitMappers`) of zero is noise and has no time to empty.
+- A label or time left decided against the deadband holds until the current is `DEADBAND_HYSTERESIS_MA` (10 mA) back inside it, so it cannot flip on every reading.
+
+**Live current calibration (N-05).** Unit, sign convention and cell layout are device constants. `PowerCalibrator` learns them across every reading, so one near-zero or skewed sample never re-decides them.
+- **Persistence:** what is settled goes to `SharedPreferencesCalibrationStore` (prefs `power_calibration`), keyed to `Build.FINGERPRINT`. A new build's process starts with the old locks as guesses only.
+- **Learning:** an unplugged first reading of 50–20,000 is taken as mA. A lock is re-learned after 3 disputes in a row. A vote needs at least `CLEAR_MAJORITY_VOTES` (6).
+- **Unsupported unit:** a current whose unit nothing supports yet is neither shown ("—") nor stored.
+
 **Package identity.** A batterystats UID is named by an installed package, never by the reported process name: `AppLabels.packageForUid(uid, reported)` returns `reported` only when `PackageManager` lists it for the UID, else the alphabetically first package (`packagesForUid`), else null. `CachedAppLabels` caches only cosmetic labels/icons; `packagesForUid` reads membership fresh, including after earlier empty results. This display lookup is not capture-time UID continuity proof. A confirmation dialog pins its target (`uid`, package) when it is planned, and the confirm runs against that pin, not a re-read. X-Ray keeps analytics separate from package-only user-0 controls: other-user UIDs get `ActionsState.UnsupportedUser`, with checks before reads, planning, confirmation and execution.
 
 ## Health evidence and optional live persistence
@@ -90,7 +109,7 @@ A later explicit refresh may join that running capture, and only the waiting vis
 
 ## Refresh: one debounced, mutex-guarded entry point
 
-`RefreshCoordinator.refresh()` serialises captures, returns `Debounced` within 60 s of a success, replays a cached `Failed` for 12 s after a failure (so Visible/onStart bursts against a hung service queue nothing), and runs the capture `NonCancellable`. A Shizuku transition to Ready clears the failure backoff and then calls `refreshIfLastFailed()`, which re-runs a refresh only if the last capture failed (e.g. the cold-start one made before the binder arrived). Nothing schedules a refresh. `ShizukuManager.withTelemetryService` waits out `NotRunning` within its timeout (a cold process gets the Shizuku binder after `start()`); acquire-or-wait is decided under `bindingLock`, where Ready is published (F-16).
+Stored views follow `StoreTicks`, not the refresh result: a tick follows every capture that ingested history, whatever ran it (see "Refresh and store ticks" in [`architecture.md`](architecture.md)). A new entry point that ingests history must tick it, as `captureMarker` and the charge job do. `RefreshCoordinator.refresh()` serialises captures, returns `Debounced` within 60 s of a success, replays a cached `Failed` for 12 s after a failure (so Visible/onStart bursts against a hung service queue nothing), and runs the capture `NonCancellable`. A Shizuku transition to Ready clears the failure backoff and then calls `refreshIfLastFailed()`, which re-runs a refresh only if the last capture failed (e.g. the cold-start one made before the binder arrived). Nothing schedules a refresh. `ShizukuManager.withTelemetryService` waits out `NotRunning` within its timeout (a cold process gets the Shizuku binder after `start()`); acquire-or-wait is decided under `bindingLock`, where Ready is published (F-16).
 
 **Dead binder recovery (F-17).** After a slow unbind, the timeout rebind shares the old process's Shizuku connection stub, whose once-only `died()` is spent on the old process. The manager records that (`spentStubGeneration`) and links its own death recipient to each accepted binder. A `RemoteException` on a dead binder (`!isBinderAlive`) goes through the same handler, which drops the binding only while the stub can no longer report; the next use binds a fresh stub.
 
@@ -99,6 +118,13 @@ A later explicit refresh may join that running capture, and only the waiting vis
 ## Toolkit writes: plan, confirm, audit, read back
 
 Writes go plan → (confirm when risky) → PENDING `toolkit_action` row → privileged call → settle from the service's own before/after → read-back `verify`. `restore`, `planRestore` and `resetAll` return a target to the original of its chain (`chainOriginal`), and `activeOverrides()` lists only changes that read-back shows are still in effect; a target already at its original is not an override and nothing is written. Chain membership comes from the **observed** before/after the service returns, not from the row status: a write reported FAILED that still moved its target to a third value stays in the chain (and in retention), and a same-value write over an existing override does not hide it. A partially effective failed restore is also a link, not a closed chain: its persisted typed intended value anchors the original even if older history was pruned or its confirmed before-value was external. Doze profile writes require an original replayable by a fresh executor (`DozeRaw.isRestorable`), not only one remembered by the current process. `reconcile()` finalizes crash-orphaned PENDING rows. Outcomes are not binary: a write that may have committed but could not be confirmed (`UNVERIFIED`) stays PENDING so it remains in the restore chain, and nothing is written on top of an unsettled row for the same target. The write is never taken from an Intent or URI; the UI names a package only from the in-app list. Warnings, refusals and unavailability are typed enums whose wording lives in the UI's strings.
+
+**Write outcomes and unreadable overrides:**
+- **Never dispatched (N-07):** a write known never to have been dispatched is final at once, FAILED with no `after`, so it never joins a chain or holds the dexopt card in Unknown. Examples: no service, a bind timeout, or a dead binder or stale API at the API check. A lost reply after dispatch keeps the row PENDING.
+- **Unreadable overrides (N-06):** an override whose read-back is refused or fails, or whose PENDING row could not be settled, stays listed with `Override.unverified`, never dropped. Nothing is written over an unsettled row; Reset all reports it `UNVERIFIED`.
+- **Protected apps:** a protected app accepts only the undo of Inspiration's own change, and only when that undo lifts a restriction. The service enforces the lift-only half and stays stateless; the client refuses any new change.
+
+**bg-dexopt cancel (N-03).** The cancel command is chosen per API level, and bg-dexopt is refused below API 33. A cancel counts as confirmed only when our client process exits; a timed-out cancel is unverified. A user-cancelled row settles from the service status, and the destroy hook skips the cancel before our client has started.
 
 **App-op `allow` vs `default` (F-01, toolkit API 3).** Android enforces `default` as restricted for `RUN_ANY_IN_BACKGROUND`, so every permissive write, restore and reset writes `AppOpMode.ALLOW` (code 3).
 - The service refuses mode `DEFAULT` (2) as a write.
@@ -118,7 +144,7 @@ Dexopt admission runs outside the client mutex, but its durable PENDING row is p
 
 ## Design-system components over raw Material
 
-Screens use `ScreenHeader`/`CardTitle`, `MetricBar` (not `LinearProgressIndicator`), `SegmentedToggle`, `MetricValue(shrinkToFit)`/`MetricTile`, `TimeSliceBanner`, `LiveGauge(isCharging = null)` for an unknown state, `MaterialTheme.statusColors` for ok/warning/neutral, and `TelemetryFormat` for every number, unit, duration and date (U+2212 minus). No raw colors, `.dp`/`.sp` or hard-coded strings in screen files; text is en+tr.
+Screens use `ScreenHeader`/`CardTitle`, `MetricBar` (not `LinearProgressIndicator`), `SegmentedToggle`, `MetricValue(shrinkToFit)`/`MetricTile`, `TimeSliceBanner`, `LiveGauge(chargeState = null)` for an unknown state, `MaterialTheme.statusColors` for ok/warning/neutral, and `TelemetryFormat` for every number, unit, duration and date (U+2212 minus). No raw colors, `.dp`/`.sp` or hard-coded strings in screen files; text is en+tr.
 
 ## Fakes over mocks
 

@@ -3,7 +3,7 @@
   "tool": "codebase-mapper",
   "version": "2.15.10",
   "mappedAt": "2026-10-19",
-  "gitCommit": "cf521e25e3ade8ec142b0f0f45fc866fa1ace26e",
+  "gitCommit": "c83f7a592c600e5401e09aa1d1056c3bf04c355a",
   "documents": [
     "architecture.md",
     "communication.md",
@@ -16,15 +16,15 @@
     "tech-landscape.md"
   ],
   "hashes": {
-    "INDEX.md": "556d118d09ed36c79d5527bb1a4ace22d28b72de6dfaaef72216d2944a0e852a",
-    "architecture.md": "16368186ab5b66fa2e35b986a92b3609f4870e48c5b188f95cc31e9bb2bd9537",
-    "communication.md": "6cfacd742133ca8f3cbc95bd9de20ffd6e2f3d5ffdf57a9a5482e58ea2a6ecbc",
-    "database.md": "d2fba257c818ab88a6f02a034b6d7857246d23c13c58c532b275eb0aa73b6129",
-    "directory-structure.md": "651a00bb15b939e11bb4759d3db33a72182e9932fbbbbd3ccb25e6880c81341f",
-    "entry-points.md": "c57d04de39bb5a5f2651df2758ccd9d3f676ce620877d9145ac24fb118a26344",
-    "modules.md": "eb3d63ed7febdd4f210b8cc889983a6f0ac379b1ffdcb263d3f3717155471fea",
+    "INDEX.md": "e363babdcfca9e4e5ba4d912ec6d1fbdcdc9e03ab36eac3b0c3e94a14b3db88a",
+    "architecture.md": "e90c215775f164ae52e61b1d5031ec1df6de667aefe86ff9b4e3ad5957f474b9",
+    "communication.md": "caeaad9fa866731002617a351c8595049a6f9dab3e3217b306ac2eb18c950f2a",
+    "database.md": "2b319e6ab984119cb1c89f5d90a43858a1c60205b04504197985bf1a710926a6",
+    "directory-structure.md": "74ad8ed882fdc7335ac6f0390115e87872f7f0a518a3ae7eb77899cc88618a53",
+    "entry-points.md": "d0b2ac11b8ceacef2a4b13844b9b9823adf186aa6a0e1e64ed48d0ab81a1aa30",
+    "modules.md": "ba7b8569a397e2b5755a1e78b6cad19f6117a4ccc92cab76eb4e5f9473582972",
     "onboarding.md": "64d4fff2cc2fcd406e7f2a4157e5795397fbb70b577679d8bf6975460f975162",
-    "patterns.md": "9cc3f654520e92e16d85c20bdc83126bb104d11d93f6b7aab26cef969653053e",
-    "tech-landscape.md": "b4a327148220ef784c8da73c563d9929e5fa8e05d791cb587409646bf680d74a"
+    "patterns.md": "edc9df8897d2733eb6176c33a829cd8daf3ef75250f53dad8b394d13cd5ab5c3",
+    "tech-landscape.md": "a010ef2ce527a0ed4bd7ae4d91e416b11c627479a3f755d35ade17ef931176f1"
   }
 }

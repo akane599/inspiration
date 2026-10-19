@@ -12,12 +12,12 @@ app/
     AppContainer.kt
     capture/{BootCaptureReceiver,BroadcastCaptureRunner,CapturePolicy,ChargeJobRun,
       ChargingCaptureJobService,ChargingCaptureRunner,ChargingCaptureScheduler,
-      RuntimeCaptureReceiver}.kt
+      MarkerCapture,RuntimeCaptureReceiver}.kt
     di/{AppEntries,ApplicationScope,CachedAppLabels,Preloaded,ReconcileOnReady,
-      RefreshCoordinator,TimelineEvents}.kt
+      RefreshCoordinator,StoreTicks,TimelineEvents}.kt
     shell/{AppShell,ShellIcons,ShellState}.kt
     status/{StatusNotificationContent,StatusNotificationController,StatusNotifications,
-      StatusNotificationService,StatusNotificationSettings,StatusTicks}.kt
+      StatusNotificationService,StatusNotificationSettings,StatusStartDecision,StatusTicks}.kt
   src/main/res/xml/data_extraction_rules.xml
   src/debug/AndroidManifest.xml
   src/debug/kotlin/com/akane/inspiration/debug/{ProbeReceiver,DesignGalleryActivity}.kt
@@ -36,8 +36,8 @@ build-logic/
     AndroidFeatureConventionPlugin.kt
 
 core/
-  hidden-api-stub/src/main/java/android/os/{BatteryConsumer,BatteryUsageStats,
-    BatteryUsageStatsQuery,IDeviceIdleController,IPowerManager,IPowerStatsService,
+  hidden-api-stub/src/main/java/android/os/{AggregateBatteryConsumer,BatteryConsumer,BatteryStats,
+    BatteryUsageStats,BatteryUsageStatsQuery,IDeviceIdleController,IPowerManager,IPowerStatsService,
     ServiceManager,UidBatteryConsumer}.java
   shizuku-ipc/
     src/main/aidl/com/akane/inspiration/ipc/ITelemetryUserService.aidl
@@ -50,6 +50,7 @@ core/
       model/{BatteryHistorySnapshot,BatteryUsageSnapshot,CpuTimeSnapshot,
         DeviceIdleSnapshot,DumpResult,DumpTarget,HistoryEvent,KernelBatterySnapshot,
         PowerMonitorSnapshot,TelemetryValues,ToolkitResult,BgDexoptStatus}.kt
+        # DeviceIdleSnapshot/PowerMonitorSnapshot: debug-probe in-process models, no .aidl
       service/TelemetryUserService.kt
       toolkit/{BgDexoptController,CommandRunner,Inspection,Toolkit,ToolkitExecutor,
         ToolkitParsers}.kt            # typed privileged write executor (txns 20-30)
@@ -58,10 +59,9 @@ core/
     build.gradle.kts
     src/main/proto/{android/os/batterystats.proto,
       android/service/batterystats/batterystats.proto,
-      com/android/server/alarm/alarmmanagerservice.proto,
-      com/android/server/power/powermanagerservice.proto}
+      com/android/server/alarm/alarmmanagerservice.proto}
     src/main/kotlin/com/akane/inspiration/telemetry/
-      calibration/PowerCalibrator.kt
+      calibration/{PowerCalibrator,SharedPreferencesCalibrationStore}.kt
       capacity/CapacityEstimator.kt
       capture/SnapshotCapturer.kt
       common/Clocks.kt
@@ -72,14 +72,13 @@ core/
       app/Attempt.kt               # shared attempt {} for feature ViewModels
       live/{KernelUnits,LiveTelemetry}.kt
       snapshot/{SnapshotModels,UidIdentity}.kt
-      source/{AndroidCalibrationInputReader,AndroidClocks,AndroidTelemetrySource,
-        TelemetrySource,UidIdentityReader}.kt
+      source/{AndroidClocks,AndroidTelemetrySource,TelemetrySource,UidIdentityReader}.kt
+      status/UnplugSummary.kt
       store/{HistoryHorizon,RetentionPrune,SnapshotStore,StoreModels}.kt
       toolkit/{ToolkitActions,ToolkitGateway,ToolkitModels}.kt
     src/test/kotlin/com/akane/inspiration/telemetry/**
     src/test/resources/proto/{alarm-api35,alarm-api36,alarm-api37,
-      batterystats-api35,batterystats-api36,batterystats-api37,
-      power-api35,power-api36,power-api37}.pb
+      batterystats-api35,batterystats-api36,batterystats-api37}.pb
   database/
     build.gradle.kts
     schemas/com.akane.inspiration.database.InspirationDatabase/{1,2,3,4,5}.json
@@ -109,9 +108,9 @@ core/
       component/{CardTitle,EmptyState,InspirationCard,LegendRow,LiveGauge,MetricBar,MetricTile,
         MetricValue,ReducedMotion,ReferencePill,ScreenHeader,SegmentedToggle,SemanticDot,
         ShizukuPulse,StackedBar,TimeSliceBanner}.kt
-      component/format/TelemetryFormat.kt
+      component/format/{SystemZone,TelemetryFormat}.kt
       chart/model/{ChartLabels,ChartModels}.kt
-      chart/math/{Scales,ScrubGestureReducer,SeriesMath,TimeTicks}.kt
+      chart/math/{Scales,ScrubGestureReducer,SeriesMath,TimeRanges,TimeTicks}.kt
       chart/draw/{SelectionDim,TimeAxis}.kt
       chart/scrub/{ScrubChartMath,ScrubChartRenderer,ScrubChartState,ScrubGestures,
         ScrubReadout,SliceControls,SynchronizedScrubbingChart}.kt

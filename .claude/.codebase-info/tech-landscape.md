@@ -23,14 +23,22 @@ Source of truth: [`gradle/libs.versions.toml`](../../gradle/libs.versions.toml),
 | Catalog entry | Version | Current use |
 |---|---:|---|
 | `dev.rikka.shizuku:api` / `provider` | 13.1.5 | Shizuku lifecycle, binder wrapper, and provider integration in `:app`/`:core:shizuku-ipc` |
-| `org.lsposed.hiddenapibypass:hiddenapibypass` | 6.1 | Hidden API exemption in `InspirationApplication` (`:app` only) |
-| `com.google.protobuf:protobuf-javalite` / `protobuf-kotlin-lite` / `protoc` | 4.36.2 | Lite runtime and protoc for trimmed vendored batterystats, alarm, and power schemas in `:core:telemetry-engine` (Phase 3 adds signal-strength, scanning, radio-active and UID sensor fields, numbered per AOSP android-15.0.0_r36) |
+| `org.lsposed.hiddenapibypass:hiddenapibypass` | 6.1 | `:app` only. `InspirationApplication` exempts only `Sensor.getHandle()` (N-26); the debug `ProbeReceiver` adds its own debug-only exemptions |
+| `com.google.protobuf:protobuf-javalite` / `protoc` | 4.36.2 | Lite runtime and protoc for the trimmed vendored batterystats and alarm schemas in `:core:telemetry-engine`. Phase 3 added signal-strength, scanning, radio-active and UID sensor fields, numbered per AOSP android-15.0.0_r36. `powermanagerservice.proto` and the unused `protobuf-kotlin-lite` entry were removed |
 | `com.google.devtools.ksp` | 2.3.12 | Room compiler integration in `:core:database` |
 | `com.google.protobuf` Gradle plugin | 0.10.0 | Lite Java code generation for telemetry proto sources |
-| `androidx.room` runtime / ktx / compiler / testing | 2.8.5 | WAL database, schema v5 with numbered migrations (nullable capture-time UID identity proof), DAOs, and repository tests in `:core:database` |
+| `androidx.room` runtime / compiler / testing | 2.8.5 (the redundant `room-ktx` was removed) | WAL database, schema v5 with numbered migrations (nullable capture-time UID identity proof), DAOs, and repository tests in `:core:database` |
 | `org.robolectric:robolectric` | 4.16.1 | JVM Room/DAO tests and `:core:diagnostics` tests (org.json, resources) |
 | `androidx.test:core` | 1.7.0 | Room test application context support |
 | AndroidX Compose UI / Runtime / Material3 | BOM-managed | UI shell and feature convention dependencies |
+
+**Release build** ([`app/build.gradle.kts`](../../app/build.gradle.kts)): version 0.2.4 (code 6).
+- **Shrinking:** R8 minify plus `isShrinkResources` (N-27; safe because nothing calls `getIdentifier`).
+- **Locales:** `localeFilters` en/tr, so library translations follow the app's languages.
+- **Excluded from the APK:** `**/*.proto`, `DebugProbesKt.bin` and, for release, `META-INF/*.version`.
+- **Signing:** all or nothing from the four `INSPIRATION_RELEASE_*` Gradle properties. A partial set fails only the release packaging tasks, naming the missing keys (N-25).
+
+The catalog's `kotlin-android` entry was removed, and parcelize is applied by alias.
 
 `:core:telemetry-engine` exposes the IPC module and owns parser, snapshot, diff, capacity, capture, and live-telemetry code. `:core:database` depends on telemetry-engine and owns Room entities/DAOs/store. `:app` uses both in production and keeps the debug probe in the debug source set.
 
