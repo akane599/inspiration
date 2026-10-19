@@ -75,7 +75,26 @@ class ChargeJobCaptureTest {
         assertEquals(0, store.wholeHistoryLoads)
     }
 
-    private class CountingSource(private val history: List<HistoryEvent>) : TelemetrySource {
+    @Test
+    fun `after a forward wall clock jump the charge job prunes on this boot's elapsed time`() = runTest {
+        // The earlier charge job read wall 4_000 at elapsed 2; one minute later the wall clock reads a year ahead.
+        val jumped = ClocksAt(wallMs = 4_000L + 60_000L + YEAR_MS, elapsedMs = 2L + 60_000L)
+        val source = CountingSource(
+            history = listOf(event(5_000, HistoryKind.PLUGGED)),
+            clock = SnapshotClock(jumped.wallMs(), jumped.elapsedRealtimeMs(), 3, BOOT, null, null),
+        )
+        val store = FakeStore(snapshots = mutableListOf(snapshot(CaptureTrigger.CHARGE_JOB, wallMs = 4_000)))
+
+        runChargeJobCapture(SnapshotCapturer(source, store, jumped), store, jumped, DEADLINE_MS, analyze = {})
+
+        assertEquals(2, store.saved().size)
+        assertEquals("retention 'now' is one minute after the earlier job, not a year", listOf(64_000L), store.prunedAt)
+    }
+
+    private class CountingSource(
+        private val history: List<HistoryEvent>,
+        private val clock: SnapshotClock = SnapshotClock(7_000, 2, 3, BOOT, null, null),
+    ) : TelemetrySource {
         var fullReads = 0
 
         override suspend fun full(trigger: CaptureTrigger, historyCursor: Pair<Long, Long>?): FullRead {
@@ -93,7 +112,7 @@ class ChargeJobCaptureTest {
         }
 
         override fun light(): LightRead = LightRead(
-            clock = SnapshotClock(7_000, 2, 3, BOOT, null, null),
+            clock = clock,
             levelPct = 70,
             plugged = true,
             status = "charging",
@@ -111,10 +130,18 @@ class ChargeJobCaptureTest {
         override fun bootCount(): Int = BOOT
     }
 
+    private class ClocksAt(private val wallMs: Long, private val elapsedMs: Long) : Clocks {
+        override fun wallMs(): Long = wallMs
+        override fun elapsedRealtimeMs(): Long = elapsedMs
+        override fun uptimeMs(): Long = elapsedMs
+        override fun bootCount(): Int = BOOT
+    }
+
     private class FakeStore(private val snapshots: MutableList<BatterySnapshot> = mutableListOf()) : SnapshotStore {
         val history = mutableListOf<HistoryEvent>()
         var wholeHistoryLoads = 0
         var perKindLookups = 0
+        val prunedAt = mutableListOf<Long>()
         private var cursor: Pair<Long, Long>? = null
 
         fun saved() = snapshots.map { it.kind to it.trigger }
@@ -155,7 +182,8 @@ class ChargeJobCaptureTest {
         override suspend fun latest(kind: SnapshotKind?): BatterySnapshot? = null
         override suspend fun firstAtOrAfter(wallMs: Long, kind: SnapshotKind?, statsStartMs: Long?, bootCount: Int?): BatterySnapshot? = null
         override suspend fun lastAtOrBefore(wallMs: Long, kind: SnapshotKind?): BatterySnapshot? = null
-        override suspend fun snapshotsBetween(fromWallMs: Long, toWallMs: Long): List<BatterySnapshot> = emptyList()
+        override suspend fun snapshotsBetween(fromWallMs: Long, toWallMs: Long): List<BatterySnapshot> =
+            snapshots.filter { it.clock.wallMs in fromWallMs..toWallMs }
         override suspend fun addMarker(snapshotId: Long, label: String, wallMs: Long): Long = 0
         override suspend fun marker(id: Long): Pair<Long, BatterySnapshot>? = null
         override suspend fun markers(): List<Marker> = emptyList()
@@ -170,12 +198,15 @@ class ChargeJobCaptureTest {
         override suspend fun updateToolkitAction(record: ToolkitActionRecord) = Unit
         override suspend fun toolkitActions(limit: Int): List<ToolkitActionRecord> = emptyList()
         override suspend fun pendingToolkitActions(): List<ToolkitActionRecord> = emptyList()
-        override suspend fun prune(nowWallMs: Long) = Unit
+        override suspend fun prune(nowWallMs: Long) {
+            prunedAt += nowWallMs
+        }
     }
 
     private companion object {
         const val BOOT = 4
         const val DEADLINE_MS = 10_000L
+        const val YEAR_MS = 365L * 24L * 60L * 60_000L
 
         fun event(wallMs: Long, kind: Int) = HistoryEvent(wallMs, wallMs, kind, 70, 1_000_000, 250, 4_000, 0)
 

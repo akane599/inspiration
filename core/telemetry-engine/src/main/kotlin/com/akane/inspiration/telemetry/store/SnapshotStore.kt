@@ -117,5 +117,16 @@ interface SnapshotStore {
 
     suspend fun recordMiss(wallMs: Long, trigger: CaptureTrigger, reason: String)
 
+    /**
+     * The smallest `wallMs - elapsedRealtimeMs` among the stored snapshots of boot [bootCount], null when that boot
+     * has none: the boot's earliest wall-clock frame, in which [pruneRetention] ages rows. The default scans
+     * [snapshotsBetween] (for fakes); the Room store answers it in one indexed query.
+     */
+    suspend fun minClockOffsetMs(bootCount: Int): Long? =
+        snapshotsBetween(Long.MIN_VALUE, Long.MAX_VALUE)
+            .filter { it.clock.bootCount == bootCount }
+            .minOfOrNull { it.clock.wallMs - it.clock.elapsedRealtimeMs }
+
+    /** Deletes what is older than the retention at [nowWallMs], trusting it as given; captures call [pruneRetention]. */
     suspend fun prune(nowWallMs: Long)
 }

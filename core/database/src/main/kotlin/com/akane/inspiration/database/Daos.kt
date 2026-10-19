@@ -330,6 +330,10 @@ interface MaintenanceDao {
     @Query("DELETE FROM capture_miss WHERE wallMs < :cutoffWallMs")
     suspend fun deleteMissesBefore(cutoffWallMs: Long): Int
 
+    /** The boot's earliest wall-clock frame: the smallest `wallMs - elapsedRealtimeMs` of its snapshots, null if none. */
+    @Query("SELECT MIN(wallMs - elapsedRealtimeMs) FROM snapshot WHERE bootCount = :bootCount")
+    suspend fun minClockOffsetMs(bootCount: Int): Long?
+
     @Transaction
     suspend fun prune(nowWallMs: Long) {
         val cutoffWallMs = nowWallMs - RETENTION_MS

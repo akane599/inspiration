@@ -8,6 +8,7 @@ import com.akane.inspiration.ipc.model.HistoryEvent
 import com.akane.inspiration.ipc.model.HistoryKind
 import com.akane.inspiration.telemetry.capacity.ChargeSegment
 import com.akane.inspiration.telemetry.capacity.SegmentVerdict
+import com.akane.inspiration.telemetry.common.Clocks
 import com.akane.inspiration.telemetry.diff.ReferenceKind
 import com.akane.inspiration.telemetry.diff.ReferenceResolver
 import com.akane.inspiration.telemetry.dump.KernelWakelock
@@ -32,6 +33,7 @@ import com.akane.inspiration.telemetry.store.Marker
 import com.akane.inspiration.telemetry.store.TelemetrySample
 import com.akane.inspiration.telemetry.store.ToolkitActionRecord
 import com.akane.inspiration.telemetry.store.ToolkitActionStatus
+import com.akane.inspiration.telemetry.store.pruneRetention
 import kotlinx.coroutines.runBlocking
 import org.junit.After
 import org.junit.Assert.assertEquals
@@ -517,6 +519,60 @@ class RoomSnapshotStoreTest {
     }
 
     @Test
+    fun `retention prune after a forward wall clock jump keeps what this boot recorded days ago`() = runBlocking {
+        val twoDaysAgo = store.insert(bootSnapshot(elapsedMs = 3L * DAY_MS))
+        val latest = store.insert(bootSnapshot(elapsedMs = 5L * DAY_MS))
+        store.insertHistory(listOf(levelEvent(wallMs = BOOT_WALL_MS + 4L * DAY_MS)), statsStartMs = 10L)
+        // One minute later the wall clock reads a year ahead; the capture saves with it and then prunes.
+        val nowElapsedMs = 5L * DAY_MS + 60_000L
+        val jumped = TestClocks(wallMs = BOOT_WALL_MS + nowElapsedMs + 365L * DAY_MS, elapsedMs = nowElapsedMs)
+        store.insert(bootSnapshot(elapsedMs = nowElapsedMs, wallMs = jumped.wallMs()))
+
+        store.pruneRetention(jumped)
+
+        assertNotNull("2 days old by elapsedRealtime", store.byId(twoDaysAgo))
+        assertNotNull(store.byId(latest))
+        assertEquals("history cannot be re-ingested once pruned", 1, store.historyBetween(0L, Long.MAX_VALUE).size)
+    }
+
+    @Test
+    fun `retention prune after a forward wall clock jump still expires what is thirty days old by elapsed time`() = runBlocking {
+        val expired = store.insert(bootSnapshot(elapsedMs = 1L * DAY_MS))
+        val kept = store.insert(bootSnapshot(elapsedMs = 3L * DAY_MS))
+        val nowElapsedMs = 32L * DAY_MS + 12L * HOUR_MS
+
+        store.pruneRetention(TestClocks(wallMs = BOOT_WALL_MS + nowElapsedMs + 365L * DAY_MS, elapsedMs = nowElapsedMs))
+
+        assertNull(store.byId(expired))
+        assertNotNull(store.byId(kept))
+    }
+
+    @Test
+    fun `retention prune after a backward wall clock jump only keeps rows longer`() = runBlocking {
+        // 31 days old by elapsed time, 29 days by the wall clock that was set back 2 days.
+        val old = store.insert(bootSnapshot(elapsedMs = 1L * DAY_MS))
+        val nowElapsedMs = 32L * DAY_MS
+
+        store.pruneRetention(TestClocks(wallMs = BOOT_WALL_MS + nowElapsedMs - 2L * DAY_MS, elapsedMs = nowElapsedMs))
+
+        assertNotNull(store.byId(old))
+    }
+
+    @Test
+    fun `retention prune trusts the wall clock when no stored snapshot shares the current boot`() = runBlocking {
+        // elapsedRealtime restarted with the reboot, so the previous boot's rows can only be aged by the wall clock.
+        val expired = store.insert(bootSnapshot(elapsedMs = 1L * DAY_MS))
+        val kept = store.insert(bootSnapshot(elapsedMs = 3L * DAY_MS))
+        val rebooted = TestClocks(wallMs = BOOT_WALL_MS + 32L * DAY_MS, elapsedMs = 60_000L, bootCount = 2)
+        store.insert(bootSnapshot(elapsedMs = rebooted.elapsedRealtimeMs(), wallMs = rebooted.wallMs(), bootCount = 2))
+
+        store.pruneRetention(rebooted)
+
+        assertNull(store.byId(expired))
+        assertNotNull(store.byId(kept))
+    }
+
+    @Test
     fun `snapshotsBetween returns both kinds oldest first within inclusive bounds without per-uid data`() = runBlocking {
         store.insert(fullSnapshot(wallMs = 900L))
         val late = store.insert(fullSnapshot(kind = SnapshotKind.LIGHT, trigger = CaptureTrigger.SCREEN_ON, wallMs = 3_000L, system = null))
@@ -654,6 +710,15 @@ class RoomSnapshotStoreTest {
         truncatedUids = 2,
     )
 
+    /** A snapshot of boot [bootCount], by default read while the wall clock still matches [BOOT_WALL_MS] + elapsed. */
+    private fun bootSnapshot(elapsedMs: Long, wallMs: Long = BOOT_WALL_MS + elapsedMs, bootCount: Int = 1) =
+        fullSnapshot(wallMs = wallMs, bootCount = bootCount).let {
+            it.copy(clock = it.clock.copy(elapsedRealtimeMs = elapsedMs, uptimeMs = elapsedMs))
+        }
+
+    private fun levelEvent(wallMs: Long) =
+        HistoryEvent(historyTimeMs = 5_000L, wallMs = wallMs, kind = HistoryKind.LEVEL, levelPct = 61, chargeUah = -1L, temperatureDeciC = 300, voltageMv = 4_000, plugType = 0)
+
     private fun segment(startHistoryTimeMs: Long, endWallMs: Long) = ChargeSegment(
         startHistoryTimeMs = startHistoryTimeMs,
         startWallMs = 1_000L,
@@ -709,5 +774,15 @@ class RoomSnapshotStoreTest {
         const val MINUTE_MS = 60L * 1_000L
         const val HOUR_MS = 60L * 60L * 1_000L
         const val DAY_MS = 24L * HOUR_MS
+
+        /** Boot 1 of the clock-jump tests started at this wall time. */
+        const val BOOT_WALL_MS = 100L * DAY_MS
+    }
+
+    private class TestClocks(private val wallMs: Long, private val elapsedMs: Long, private val bootCount: Int = 1) : Clocks {
+        override fun wallMs() = wallMs
+        override fun elapsedRealtimeMs() = elapsedMs
+        override fun uptimeMs() = elapsedMs
+        override fun bootCount() = bootCount
     }
 }

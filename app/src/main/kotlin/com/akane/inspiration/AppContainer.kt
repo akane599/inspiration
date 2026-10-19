@@ -53,6 +53,7 @@ import com.akane.inspiration.telemetry.store.HealthSample
 import com.akane.inspiration.telemetry.store.Marker
 import com.akane.inspiration.telemetry.store.SnapshotStore
 import com.akane.inspiration.telemetry.store.TelemetrySample
+import com.akane.inspiration.telemetry.store.pruneRetention
 import com.akane.inspiration.telemetry.toolkit.ToolkitActions
 import com.akane.inspiration.telemetry.toolkit.ToolkitGateway
 import com.akane.inspiration.toolkit.ToolkitDependencies
@@ -126,7 +127,7 @@ class AppContainer(context: Context) :
     private suspend fun captureFull(): RefreshResult =
         when (val result = capturer.captureFull(CaptureTrigger.APP_OPEN, FULL_CAPTURE_DEADLINE_MS, ingestHistory = true)) {
             is CaptureResult.Saved -> {
-                store.prune(clocks.wallMs())
+                store.pruneRetention(clocks)
                 emitStatusTick()
                 RefreshResult.Refreshed(clocks.wallMs())
             }

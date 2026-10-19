@@ -240,6 +240,8 @@ class RoomSnapshotStore(
         }
     }
 
+    override suspend fun minClockOffsetMs(bootCount: Int): Long? = database.maintenanceDao().minClockOffsetMs(bootCount)
+
     override suspend fun prune(nowWallMs: Long) {
         database.maintenanceDao().prune(nowWallMs)
     }

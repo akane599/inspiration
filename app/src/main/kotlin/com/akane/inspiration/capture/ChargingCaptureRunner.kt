@@ -11,6 +11,7 @@ import com.akane.inspiration.telemetry.common.Clocks
 import com.akane.inspiration.telemetry.snapshot.CaptureTrigger
 import com.akane.inspiration.telemetry.store.HealthSample
 import com.akane.inspiration.telemetry.store.SnapshotStore
+import com.akane.inspiration.telemetry.store.pruneRetention
 import kotlinx.coroutines.CancellationException
 
 class ChargingCaptureRunner {
@@ -60,7 +61,7 @@ internal suspend fun runChargeJobCapture(
         ),
         capture = { capturer.captureFull(ingest) },
         analyze = analyze,
-        prune = { store.prune(clocks.wallMs()) },
+        prune = { store.pruneRetention(clocks) },
     )
 }
 
