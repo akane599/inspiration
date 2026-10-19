@@ -4,6 +4,20 @@ plugins {
     alias(libs.plugins.compose.screenshot)
 }
 
+// Release signing comes from user-level Gradle properties (~/.gradle/gradle.properties) and is all or
+// nothing: all four set signs the release APK, none set builds it unsigned. A partial set (a blank value
+// counts as unset) must not break configuration, so debug builds and tests still run; only release
+// packaging fails, naming the missing keys (never values).
+val releaseSigningKeys =
+    listOf(
+        "INSPIRATION_RELEASE_STORE_FILE",
+        "INSPIRATION_RELEASE_STORE_PASSWORD",
+        "INSPIRATION_RELEASE_KEY_ALIAS",
+        "INSPIRATION_RELEASE_KEY_PASSWORD",
+    )
+val releaseSigningValues = releaseSigningKeys.map { providers.gradleProperty(it).orNull?.takeIf(String::isNotBlank) }
+val missingReleaseSigningKeys = releaseSigningKeys.filterIndexed { index, _ -> releaseSigningValues[index] == null }
+
 android {
     namespace = "com.akane.inspiration"
     compileSdk = 37
@@ -16,16 +30,14 @@ android {
         versionName = "0.2.3"
     }
 
-    // Release signing comes from user-level Gradle properties (~/.gradle/gradle.properties);
-    // without them the release APK is built unsigned.
-    val releaseStoreFile = providers.gradleProperty("INSPIRATION_RELEASE_STORE_FILE").orNull
     signingConfigs {
-        if (releaseStoreFile != null) {
+        if (missingReleaseSigningKeys.isEmpty()) {
+            val (storePath, storeSecret, alias, keySecret) = releaseSigningValues.filterNotNull()
             create("release") {
-                storeFile = file(releaseStoreFile)
-                storePassword = providers.gradleProperty("INSPIRATION_RELEASE_STORE_PASSWORD").get()
-                keyAlias = providers.gradleProperty("INSPIRATION_RELEASE_KEY_ALIAS").get()
-                keyPassword = providers.gradleProperty("INSPIRATION_RELEASE_KEY_PASSWORD").get()
+                storeFile = file(storePath)
+                storePassword = storeSecret
+                keyAlias = alias
+                keyPassword = keySecret
             }
         }
     }
@@ -45,6 +57,20 @@ android {
         compose = true
     }
     experimentalProperties["android.experimental.enableScreenshotTest"] = true
+}
+
+if (missingReleaseSigningKeys.isNotEmpty() && missingReleaseSigningKeys.size < releaseSigningKeys.size) {
+    val incompleteSigningMessage =
+        "Release signing needs all of ${releaseSigningKeys.joinToString()}, but these are missing or blank: " +
+            "${missingReleaseSigningKeys.joinToString()}. Set them, or remove all of them to build an unsigned release."
+    val failIncompleteReleaseSigning =
+        tasks.register("failIncompleteReleaseSigning") {
+            description = "Fails release packaging while only some release-signing Gradle properties are set."
+            doLast { throw GradleException(incompleteSigningMessage) }
+        }
+    val releasePackagingTasks =
+        setOf("packageRelease", "packageReleaseBundle", "signReleaseBundle", "packageReleaseUniversalApk")
+    tasks.named { it in releasePackagingTasks }.configureEach { dependsOn(failIncompleteReleaseSigning) }
 }
 
 dependencies {
