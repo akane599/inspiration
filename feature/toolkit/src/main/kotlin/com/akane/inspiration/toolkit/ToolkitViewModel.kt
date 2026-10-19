@@ -33,6 +33,8 @@ import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import java.text.Collator
+import java.util.Locale
 
 private const val HISTORY_LIMIT = 20
 
@@ -53,6 +55,8 @@ private val DOZE_CHANGED = ToolkitNotice.Rejected(Problem.Refused(ToolkitRefusal
  */
 class ToolkitViewModel(
     private val deps: ToolkitDependencies,
+    /** The picker's sort locale, read at each rebuild: the default is the one AppContainer's `installedApps()` sorts by. */
+    private val locale: () -> Locale = { Locale.getDefault() },
 ) : ViewModel() {
     private val _state = MutableStateFlow(ToolkitState())
     val state: StateFlow<ToolkitState> = _state.asStateFlow()
@@ -285,13 +289,13 @@ class ToolkitViewModel(
             restrictedPackages
                 .filter { it !in listed }
                 .map { pkg -> AppItem(packageName = pkg, label = deps.appLabels.label(pkg), restricted = true) }
+        // The locale's collation, as the installed list is sorted (AppEntries): `Çay` sorts with C, not after Z (N-20).
+        val collator = Collator.getInstance(locale())
         allApps =
             (base.map { it.copy(restricted = it.packageName in restrictedPackages) } + extra)
                 .sortedWith(
                     compareByDescending<AppItem> { it.restricted }
-                        .thenBy(
-                            String.CASE_INSENSITIVE_ORDER,
-                        ) { it.label }
+                        .thenBy(collator) { it.label }
                         .thenBy { it.packageName },
                 )
         applyQuery()

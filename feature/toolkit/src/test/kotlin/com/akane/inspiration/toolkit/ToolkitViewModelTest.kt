@@ -36,6 +36,7 @@ import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
+import java.util.Locale
 import com.akane.inspiration.ipc.model.BgDexoptStatus as ServiceDexopt
 
 /**
@@ -70,10 +71,11 @@ class ToolkitViewModelTest {
 
     private fun start(
         shizuku: ShizukuState = ShizukuState.Ready(2000, 13),
+        locale: Locale = Locale.ENGLISH,
         prepare: FakeToolkitDeps.() -> Unit = {},
     ) {
         deps = FakeToolkitDeps(shizuku = shizuku, scope = toolkitScope).apply(prepare)
-        vm = ToolkitViewModel(deps)
+        vm = ToolkitViewModel(deps, locale = { locale })
         vm.onIntent(ToolkitIntent.Visible)
     }
 
@@ -894,6 +896,17 @@ class ToolkitViewModelTest {
                 .first { it.id == override.actionId }
                 .status,
         )
+    }
+
+    @Test
+    fun `the picker sorts labels by the locale's collation, as the installed list does`() {
+        // Case-insensitive code-point order would put `Çay` and `Ölçer` after `Zil` (N-20).
+        val labels = listOf("Zil", "Çay", "Dergi", "Ölçer", "arşiv")
+        start(locale = Locale.forLanguageTag("tr")) {
+            apps = labels.mapIndexed { i, label -> AppEntry("com.example.app$i", label, launchable = true, restricted = false) }
+        }
+
+        assertEquals(listOf("arşiv", "Çay", "Dergi", "Ölçer", "Zil"), state.apps.items.map { it.label })
     }
 
     @Test
