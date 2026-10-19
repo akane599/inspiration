@@ -52,6 +52,7 @@ import com.akane.inspiration.designsystem.chart.draw.drawTimeAxis
 import com.akane.inspiration.designsystem.chart.math.TimeScale
 import com.akane.inspiration.designsystem.chart.math.isStartOfDay
 import com.akane.inspiration.designsystem.chart.math.niceTimeTickSet
+import com.akane.inspiration.designsystem.chart.math.overlaps
 import com.akane.inspiration.designsystem.chart.model.HypnogramData
 import com.akane.inspiration.designsystem.chart.model.HypnogramStage
 import com.akane.inspiration.designsystem.chart.model.TimeRange
@@ -445,7 +446,8 @@ private fun DrawScope.drawHypnogramOverlay(
 ) {
     val palette = layer.palette
     val selection = selectionState.value
-    if (selection != null) {
+    // A selection outside the window has nothing here to dim: drawing it would wash out the whole chart.
+    if (selection != null && selection.overlaps(layer.scale.window)) {
         val plotRight = layer.plotLeft + layer.plotWidth
         val start = layer.plotLeft + layer.scale.toX(selection.startMs).coerceIn(0f, layer.plotWidth)
         val end = layer.plotLeft + layer.scale.toX(selection.endMs).coerceIn(0f, layer.plotWidth)

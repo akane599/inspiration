@@ -14,6 +14,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
 import com.akane.inspiration.designsystem.R
 import com.akane.inspiration.designsystem.chart.math.normalizeSelection
+import com.akane.inspiration.designsystem.chart.math.overlaps
 import com.akane.inspiration.designsystem.chart.model.TimeRange
 import com.akane.inspiration.designsystem.theme.spacing
 import kotlinx.collections.immutable.ImmutableList
@@ -37,11 +38,14 @@ internal fun sliceControls(
 ): ImmutableList<SliceControl> {
     val minimum = minSelectionMs.coerceAtLeast(1L)
     if (!hasData || window.durationMs < minimum) return persistentListOf()
-    val active =
-        selection?.let { normalizeSelection(it.startMs, it.endMs, window, minimum) }
-            ?: return persistentListOf(
-                SliceControl(R.string.chart_select_interval, TimeRange.of(window.endMs - minimum, window.endMs)),
-            )
+    val create = SliceControl(R.string.chart_select_interval, TimeRange.of(window.endMs - minimum, window.endMs))
+    if (selection == null) return persistentListOf(create)
+    // A selection the window has slid past has no edge on the chart to move: adjusting it would edit an invented range
+    // at the window's start. It can only be replaced by a new interval or cleared.
+    if (!selection.overlaps(window)) {
+        return persistentListOf(create, SliceControl(R.string.chart_clear_selection, selection = null))
+    }
+    val active = normalizeSelection(selection.startMs, selection.endMs, window, minimum) ?: return persistentListOf(create)
     val shrinkBy = minOf(ADJUSTMENT_STEP_MS, active.durationMs - minimum)
 
     fun adjustment(

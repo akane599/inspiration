@@ -112,6 +112,30 @@ class SliceControlsTest {
     }
 
     @Test
+    fun `a selection the window slid past offers only a new interval and clearing`() {
+        // A day-old slice: the window moved on, so the selection lies wholly outside it or only touches one of its ends.
+        for (stale in listOf(TimeRange.of(0, 5 * minute), TimeRange.of(0, window.startMs), TimeRange.of(31 * minute, 40 * minute))) {
+            val controls = sliceControls(window, stale, minimum, hasData = true)
+
+            assertEquals(listOf(R.string.chart_select_interval, R.string.chart_clear_selection), controls.map { it.labelRes })
+            // The new interval is the same in-window target as without a selection, never one invented at the window start.
+            assertEquals(TimeRange.of(25 * minute, 30 * minute), controls[0].selection)
+            assertNull(controls[1].selection)
+            assertTrue(controls.all { it.enabled })
+        }
+    }
+
+    @Test
+    fun `a selection overlapping the window only partly is still adjusted`() {
+        // Clamped to 10..12 min and widened to the 5 min minimum: 10..15 min, already at the window start.
+        val controls = sliceControls(window, TimeRange.of(5 * minute, 12 * minute), minimum, hasData = true)
+
+        assertEquals(5, controls.size)
+        assertFalse(controls[0].enabled)
+        assertEquals(TimeRange.of(10 * minute, 16 * minute), controls[3].selection)
+    }
+
+    @Test
     fun `empty data or a window below the minimum offers no creation or adjustment`() {
         assertTrue(sliceControls(window, null, minimum, hasData = false).isEmpty())
         assertTrue(sliceControls(window, window, minimum, hasData = false).isEmpty())

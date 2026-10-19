@@ -97,8 +97,8 @@ data class ScrubGestureResult(
 /**
  * Pure gesture state machine for the scrubbing chart: no Compose types, so every transition is unit-tested.
  *
- * - Down within [handleHitPx] (a radius) of a selection edge is PressedOnHandle; otherwise it is Pressed.
- *   Neither consumes the Down.
+ * - Down within [handleHitPx] (a radius) of a selection edge inside the window is PressedOnHandle; otherwise it is
+ *   Pressed. Neither consumes the Down. An edge outside the window has no drawn handle and cannot be grabbed.
  * - From either pressed state, crossing [slopPx] on either axis decides by the dominant axis: horizontal
  *   starts a brush (or, from PressedOnHandle, a handle drag that moves the edge by the finger's delta),
  *   vertical releases to the parent. LongPress starts scrubbing.
@@ -155,13 +155,14 @@ class ScrubGestureReducer(
             selection?.let { nearestHandle(it, event, scale) } ?: ScrubGestureState.Pressed(event.x, event.y),
         )
 
+    /** Only an edge inside the window has a drawn handle, so only such an edge can be grabbed. */
     private fun nearestHandle(
         selection: TimeRange,
         event: ScrubGestureEvent.Down,
         scale: TimeScale,
     ): ScrubGestureState.PressedOnHandle? {
-        val startDistance = abs(event.x - scale.toX(selection.startMs))
-        val endDistance = abs(event.x - scale.toX(selection.endMs))
+        val startDistance = handleDistance(selection.startMs, event.x, scale)
+        val endDistance = handleDistance(selection.endMs, event.x, scale)
         if (minOf(startDistance, endDistance) > handleHitPx) return null
         return if (startDistance <= endDistance) {
             ScrubGestureState.PressedOnHandle(HandleEdge.START, selection.endMs, selection.startMs, event.x, event.y)
@@ -169,6 +170,12 @@ class ScrubGestureReducer(
             ScrubGestureState.PressedOnHandle(HandleEdge.END, selection.startMs, selection.endMs, event.x, event.y)
         }
     }
+
+    private fun handleDistance(
+        edgeMs: Long,
+        x: Float,
+        scale: TimeScale,
+    ): Float = if (edgeMs in scale.window) abs(x - scale.toX(edgeMs)) else Float.POSITIVE_INFINITY
 
     private fun longPress(
         state: ScrubGestureState,

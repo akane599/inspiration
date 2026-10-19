@@ -27,6 +27,7 @@ import com.akane.inspiration.designsystem.chart.draw.TimeTick
 import com.akane.inspiration.designsystem.chart.draw.drawTimeAxis
 import com.akane.inspiration.designsystem.chart.math.TimeScale
 import com.akane.inspiration.designsystem.chart.math.ValueScale
+import com.akane.inspiration.designsystem.chart.math.contains
 import com.akane.inspiration.designsystem.chart.math.decimateMinMax
 import com.akane.inspiration.designsystem.chart.math.niceTimeTickSet
 import com.akane.inspiration.designsystem.chart.model.LaneKind
@@ -376,6 +377,9 @@ internal class ScrubRenderer(
         } else {
             return
         }
+        val window = scale.window
+        // A selection the window has slid past (a day-old slice) has nothing here to dim or grab.
+        if (endMs <= window.startMs || startMs >= window.endMs) return
         val xs = scale.toX(startMs).coerceIn(0f, plotWidth)
         val xe = scale.toX(endMs).coerceIn(0f, plotWidth)
         if (progress > 0f) {
@@ -383,8 +387,9 @@ internal class ScrubRenderer(
             drawRect(scrim, Offset.Zero, Size(xs, lanesBottom))
             drawRect(scrim, Offset(xe, 0f), Size(plotWidth - xe, lanesBottom))
         }
-        drawEdge(xs)
-        drawEdge(xe)
+        // Only an edge inside the window gets a handle: a clamped one would sit where the gesture reducer cannot grab it.
+        if (startMs in window) drawEdge(xs)
+        if (endMs in window) drawEdge(xe)
     }
 
     private fun DrawScope.drawEdge(x: Float) {

@@ -237,6 +237,36 @@ class ScrubGestureReducerTest {
     }
 
     @Test
+    fun edgeOutsideTheWindowHasNoHandleToGrab() {
+        // The window slid on: the start lies 2 s (20 px) before it, where no handle is drawn.
+        val drifted = TimeRange.of(-2_000L, 60_000L)
+        assertEquals(ScrubGestureState.Pressed(-10f, 50f), step(ScrubGestureState.Idle, Down(-10f, 50f), drifted).state)
+        assertEquals(ScrubGestureState.Pressed(0f, 50f), step(ScrubGestureState.Idle, Down(0f, 50f), drifted).state)
+        // The end is inside the window, so its handle still works.
+        assertEquals(
+            ScrubGestureState.PressedOnHandle(HandleEdge.END, -2_000L, 60_000L, 605f, 50f),
+            step(ScrubGestureState.Idle, Down(605f, 50f), drifted).state,
+        )
+        // A selection wholly outside has no handle at all; a tap on the plot still clears it.
+        val stale = TimeRange.of(-90_000L, -10_000L)
+        assertEquals(ScrubGestureState.Pressed(0f, 50f), step(ScrubGestureState.Idle, Down(0f, 50f), stale).state)
+        assertEquals(SelectionCommit.Clear, run(stale, Down(0f, 50f), Up(0f)).commit)
+    }
+
+    @Test
+    fun edgeExactlyOnTheWindowBoundIsStillGrabbable() {
+        val atBounds = TimeRange.of(0L, 100_000L)
+        assertEquals(
+            ScrubGestureState.PressedOnHandle(HandleEdge.START, 100_000L, 0L, 10f, 50f),
+            step(ScrubGestureState.Idle, Down(10f, 50f), atBounds).state,
+        )
+        assertEquals(
+            ScrubGestureState.PressedOnHandle(HandleEdge.END, 0L, 100_000L, 990f, 50f),
+            step(ScrubGestureState.Idle, Down(990f, 50f), atBounds).state,
+        )
+    }
+
+    @Test
     fun cancelResetsFromEveryStateWithoutCommit() {
         val states =
             listOf(

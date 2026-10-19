@@ -120,3 +120,17 @@ fun ScrubChartMinimumSelection() =
         darkTheme = true,
         selection = TimeRange.of(ScrubPreviewData.window.endMs - 5 * 60_000L, ScrubPreviewData.window.endMs),
     )
+
+/** The window slid on: the slice now starts before it, so only its end (04:00) has a handle and the start has none. */
+@PreviewTest
+@Preview(name = "drifted-selection", showBackground = true, widthDp = 412, heightDp = 640)
+@Composable
+fun ScrubChartDriftedSelection() =
+    ScrubChartSheet(darkTheme = true, selection = TimeRange.of(ScrubPreviewData.atHour(-3.0), ScrubPreviewData.atHour(4.0)))
+
+/** A day-old slice wholly before the window: nothing is dimmed, no handle is drawn, the buttons offer only new or clear. */
+@PreviewTest
+@Preview(name = "stale-selection", showBackground = true, widthDp = 412, heightDp = 640)
+@Composable
+fun ScrubChartStaleSelection() =
+    ScrubChartSheet(darkTheme = true, selection = TimeRange.of(ScrubPreviewData.atHour(-26.0), ScrubPreviewData.atHour(-25.0)))
