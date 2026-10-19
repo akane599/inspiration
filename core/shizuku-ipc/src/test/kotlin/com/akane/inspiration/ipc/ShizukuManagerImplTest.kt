@@ -855,6 +855,143 @@ class ShizukuManagerImplTest {
             holder.close()
         }
 
+    // N-11: an unexpected death leaves the dying stub cached exactly like an unbind does, until Shizuku's died()
+    // clears and evicts it after the callback. A bind in between joins that stub and its connect reaches nobody.
+    @Test
+    fun anUnexpectedServiceDeathDefersBindsUntilShizukusCleanupAndRebindsTheHolder() =
+        runTest {
+            val fixture = Fixture(this)
+            fixture.manager.start()
+            val holder = fixture.manager.holdBinding()
+            fixture.facade.deliverServiceConnected(LiveBinder())
+
+            fixture.facade.deliverServiceDied {
+                // A LiveTelemetry poll on IO wins bindingLock between the callback and Shizuku's cleanup.
+                fixture.manager.holdBinding().close()
+                assertEquals("no bind may join the dying stub", 1, fixture.facade.bindCalls)
+            }
+            assertEquals("settling must be posted, not run inside the death callback", 1, fixture.facade.bindCalls)
+            runCurrent()
+            fixture.facade.deliverServiceConnected(LiveBinder())
+
+            assertEquals("the remaining holder is rebound once", 2, fixture.facade.bindCalls)
+            assertNotNull("the rebound service reaches the manager", fixture.manager.telemetryService.value)
+            assertEquals("ok", fixture.manager.withTelemetryService(1_000L) { "ok" })
+            holder.close()
+            advanceUntilIdle()
+        }
+
+    @Test
+    fun anUnexpectedServiceDeathWithNoUserOrHolderLeftDoesNotRebind() =
+        runTest {
+            val fixture = Fixture(this)
+            fixture.manager.start()
+            fixture.manager
+                .holdBinding()
+                .apply { fixture.facade.deliverServiceConnected(LiveBinder()) }
+                .close() // lingering
+
+            fixture.facade.deliverServiceDied()
+            advanceUntilIdle()
+
+            assertEquals(1, fixture.facade.bindCalls)
+            assertEquals("nothing is left to unbind", 0, fixture.facade.unbindCalls)
+            assertNull(fixture.manager.telemetryService.value)
+        }
+
+    // N-11, second trigger: the old process's owed death arrives before the fallback-bound service connected.
+    @Test
+    fun anOwedDeathBeforeTheFallbackBindConnectedRebindsTheHolderOnAFreshStub() =
+        runTest {
+            val fixture = Fixture(this)
+            fixture.manager.start()
+            fixture.manager
+                .holdBinding()
+                .apply { fixture.facade.deliverServiceConnected(LiveBinder()) }
+                .close()
+            advanceTimeBy(LINGER_MS + 1)
+            val holder = fixture.manager.holdBinding()
+            advanceTimeBy(SETTLE_TIMEOUT_MS + 1)
+            assertEquals("the fallback bind shares the old process's stub", 2, fixture.facade.bindCalls)
+
+            fixture.facade.deliverServiceDied() // the shared stub's only died(): its connect will never come
+            runCurrent()
+            fixture.facade.deliverServiceConnected(LiveBinder())
+
+            assertEquals("the holder is rebound on a fresh stub", 3, fixture.facade.bindCalls)
+            assertNotNull(fixture.manager.telemetryService.value)
+            holder.close()
+            advanceUntilIdle()
+        }
+
+    // The binder-died backstop (F-17) has the same window: the old process's late death spends the shared stub, and
+    // the new process dies before Shizuku has cleared and evicted that stub.
+    @Test
+    fun aSpentStubBindingThatDiesDuringTheStubsCleanupWaitsForItBeforeRebinding() =
+        runTest {
+            val fixture = Fixture(this)
+            fixture.manager.start()
+            fixture.manager
+                .holdBinding()
+                .apply { fixture.facade.deliverServiceConnected(LiveBinder()) }
+                .close()
+            advanceTimeBy(LINGER_MS + 1)
+            val holder = fixture.manager.holdBinding()
+            advanceTimeBy(SETTLE_TIMEOUT_MS + 1)
+            val newService = LiveBinder()
+            fixture.facade.deliverServiceConnected(newService)
+
+            fixture.facade.deliverServiceDied {
+                newService.kill() // only the manager's own link reports it: the stub is spent
+                assertNull(fixture.manager.telemetryService.value)
+                fixture.manager.holdBinding().close()
+                assertEquals("no bind may join the stub being cleared", 2, fixture.facade.bindCalls)
+            }
+            runCurrent()
+            fixture.facade.deliverServiceConnected(LiveBinder())
+
+            assertEquals("the holder is rebound on a fresh stub", 3, fixture.facade.bindCalls)
+            assertNotNull(fixture.manager.telemetryService.value)
+            holder.close()
+            advanceUntilIdle()
+        }
+
+    @Test
+    fun realShizukuUnexpectedDeathRebindsTheHolderOnAFreshWrapper() =
+        runTest {
+            val main = CallbackMainDispatcher(StandardTestDispatcher(testScheduler))
+            Dispatchers.setMain(main)
+            LibraryConnectionFacade().use { facade ->
+                val manager =
+                    ShizukuManagerImpl(
+                        context = TestContext(),
+                        facade = facade,
+                        scope = this,
+                        applicationInfoProvider = ShizukuApplicationInfoProvider { ShizukuApplicationInfo(42, true) },
+                        managerApp = ShizukuManagerAppProbe { true },
+                        ioDispatcher = StandardTestDispatcher(testScheduler),
+                    )
+                manager.start()
+                val holder = manager.holdBinding()
+                val wrapper = facade.boundWrappers.single()
+                facade.deliverConnected(wrapper, LiveBinder())
+
+                main.runCallback { facade.deliverDeathCallback(wrapper) } // the service process is killed
+                assertEquals("no bind inside the real library callback", 1, facade.boundWrappers.size)
+                runCurrent()
+
+                assertEquals(2, facade.boundWrappers.size)
+                val fresh = facade.boundWrappers.last()
+                assertNotSame("cleanup must finish before choosing a cached wrapper", wrapper, fresh)
+                val freshBinder = LiveBinder()
+                facade.deliverConnected(fresh, freshBinder)
+                assertSame(freshBinder, manager.telemetryService.value?.asBinder())
+                holder.close()
+                manager.stop()
+                advanceUntilIdle()
+            }
+        }
+
     @Test
     fun realShizukuSpentStubAfterAFallbackBindStillLetsTheManagerRecover() =
         runTest {

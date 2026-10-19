@@ -77,6 +77,8 @@ class ShizukuManagerImpl private constructor(
      * Shizuku keeps one connection stub per service class and remove=true does not clear it, so a bind
      * issued before that death would share the stub: the old death would then disconnect the new binding
      * and swallow its connect (SQ-114). Binds are deferred until the death (or [UNBIND_SETTLE_TIMEOUT_MS]).
+     * Every death that drops a binding also sets it until Shizuku has cleaned the dying stub up
+     * ([settleAfterStubCleanupLocked]).
      */
     private var awaitingUnboundDeath = false
 
@@ -116,19 +118,7 @@ class ShizukuManagerImpl private constructor(
             override fun onServiceDisconnected(name: ComponentName) {
                 synchronized(bindingLock) {
                     if (awaitingUnboundDeath) {
-                        // Shizuku 13.1.5 clears connections and evicts its cached wrapper AFTER this
-                        // callback returns on Main. Non-immediate Main dispatch is the ordering fence;
-                        // keep awaitingUnboundDeath set so concurrent acquisitions cannot bind early.
-                        settleTimeout?.cancel()
-                        settleTimeout =
-                            scope.launch(Dispatchers.Main) {
-                                synchronized(bindingLock) {
-                                    // A cancelled timeout/settle may already be waiting for this lock.
-                                    if (settleTimeout !== coroutineContext.job) return@launch
-                                    settleTimeout = null
-                                    if (awaitingUnboundDeath) finishUnbindSettleLocked()
-                                }
-                            }
+                        settleAfterStubCleanupLocked()
                         return
                     }
                     if (unboundDeathOwed) {
@@ -138,10 +128,13 @@ class ShizukuManagerImpl private constructor(
                             return // the old process's late death, not ours
                         }
                     }
+                    // An unexpected death (or an owed one the new binding cannot outlive) leaves the dying stub
+                    // cached just like an unbind does, so it is fenced the same way (N-11).
                     serviceBound = false
                     serviceGeneration += 1
                     serviceArgs = null
                     mutableTelemetryService.value = null
+                    settleAfterStubCleanupLocked()
                 }
             }
         }
@@ -285,7 +278,8 @@ class ShizukuManagerImpl private constructor(
      * Ends the binding whose accepted [binder] died, when its Shizuku stub is spent (F-17). While the stub is
      * live, its died() posts onServiceDisconnected and evicts the stub only afterwards; dropping the binding
      * here first would let a bind share that dying stub (SQ-114), so the stub stays in charge. A spent stub is
-     * already evicted, so the next acquisition binds a fresh one.
+     * evicted by the same died() message that spent it, which may still be running on Main when this binder
+     * dies, so binds wait for that message like after any other death (N-11).
      */
     private fun serviceBinderDiedLocked(binder: IBinder) {
         if (mutableTelemetryService.value?.asBinder() !== binder) return // already dropped or replaced
@@ -295,6 +289,7 @@ class ShizukuManagerImpl private constructor(
         serviceGeneration += 1
         serviceArgs = null
         mutableTelemetryService.value = null
+        settleAfterStubCleanupLocked()
     }
 
     private fun currentServiceAndGeneration(): Pair<ITelemetryUserService, Int>? =
@@ -375,6 +370,27 @@ class ShizukuManagerImpl private constructor(
                     if (activeServiceUsers == 0 && bindingHolders == 0) {
                         unbindTelemetryServiceLocked()
                     }
+                }
+            }
+    }
+
+    /**
+     * Fences binds until Shizuku has cleaned up the connection stub whose death dropped the binding. Shizuku
+     * 13.1.5's died() calls onServiceDisconnected, then clears the stub's connections and evicts it, in one Main
+     * message; a bind before that would join the dying stub, and its connect would reach nobody (SQ-114, N-11).
+     * Non-immediate Main dispatch is the ordering fence, so [awaitingUnboundDeath] stays set until this post runs.
+     * The settle then rebinds if users or holders remain.
+     */
+    private fun settleAfterStubCleanupLocked() {
+        awaitingUnboundDeath = true
+        settleTimeout?.cancel()
+        settleTimeout =
+            scope.launch(Dispatchers.Main) {
+                synchronized(bindingLock) {
+                    // A cancelled timeout/settle may already be waiting for this lock.
+                    if (settleTimeout !== coroutineContext.job) return@launch
+                    settleTimeout = null
+                    if (awaitingUnboundDeath) finishUnbindSettleLocked()
                 }
             }
     }
