@@ -29,7 +29,7 @@ Diagnostics tests run under Robolectric (org.json and resources are needed by th
 
 ## Emulator and app launch
 
-The always-on redroid device is Android 15 + Shizuku 13.5 at `ANDROID_SERIAL=localhost:5555`; select it explicitly when other devices are connected. Root shell/SQLite checks use `adb shell su 0`. Debug and release APKs use different signing keys, so switching variants requires uninstalling the app and loses its data; do not use that switch or `pm clear` to claim an in-place migration test. Use a same-key upgrade when checking preservation. The container has no physical battery, so it proves wiring and persistence, not hardware accuracy.
+The always-on redroid device is Android 15 + Shizuku 13.6.0 at `ANDROID_SERIAL=localhost:5555`; select it explicitly when other devices are connected. Root shell/SQLite checks use `adb shell su 0`. Debug and release APKs use different signing keys, so switching variants requires uninstalling the app and loses its data; do not use that switch or `pm clear` to claim an in-place migration test. Use a same-key upgrade when checking preservation. The container has no physical battery, so it proves wiring and persistence, not hardware accuracy.
 
 The documented AVDs are `batstats-api36`, `screenoff-api37`, and `pixel-api35`. The normal launch flow is:
 
