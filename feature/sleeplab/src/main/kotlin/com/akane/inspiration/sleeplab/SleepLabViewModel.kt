@@ -51,6 +51,10 @@ class SleepLabViewModel(
     /** Covered measurement endpoints of the retained chart, independent of the selected reference kind. */
     private var hypnogramWindow: Pair<Long, Long>? = null
 
+    /** The interval whose timeline the hypnogram shows (or failed to read), so its Retry can read it again. */
+    private var hypnogramSource: ResolvedReference? = null
+    private var hypnogramRetry: Job? = null
+
     /** This visible visit explicitly joined the running refresh (main thread only, like every intent). */
     private var userWaiting = false
 
@@ -110,6 +114,7 @@ class SleepLabViewModel(
         slice: SliceUi?,
     ) {
         hypnogramWindow = null
+        hypnogramSource = null
         _state.update { it.copy(analysis = analysis, hypnogram = HypnogramUi.Loading, slice = slice) }
     }
 
@@ -122,6 +127,7 @@ class SleepLabViewModel(
         val window = analysis.resolved.coveredFromWallMs to analysis.resolved.coveredToWallMs
         val sameWindow = hypnogramWindow == window
         hypnogramWindow = window
+        hypnogramSource = analysis.resolved
         _state.update {
             it.copy(
                 analysis = sleepLabAnalysis(named, labels),
@@ -150,11 +156,22 @@ class SleepLabViewModel(
     private suspend fun labelsFor(analysis: IntervalAnalysis): Map<String, String> =
         visiblePackages(analysis).mapNotNull { pkg -> attempt { deps.appLabels.label(pkg) }?.let { pkg to it } }.toMap()
 
+    /** The hypnogram's own Retry: re-reads the timeline of the shown interval, which needs no capture. */
+    private fun retryHypnogram() {
+        val resolved = hypnogramSource ?: return
+        if (hypnogramRetry?.isActive == true) return
+        _state.update { it.copy(hypnogram = HypnogramUi.Loading) }
+        hypnogramRetry = viewModelScope.launch { loadHypnogram(resolved) }
+    }
+
     private suspend fun loadHypnogram(resolved: ResolvedReference) {
+        val window = resolved.coveredFromWallMs to resolved.coveredToWallMs
         val hypnogram =
             withContext(shapingDispatcher) {
                 attempt { deps.timeline(resolved.coveredFromWallMs, resolved.coveredToWallMs) }?.let(::hypnogramData)
             }
+        // A retry that finishes after another interval took over must not show (or fail) that interval's chart.
+        if (hypnogramWindow != window) return
         _state.update {
             when {
                 hypnogram != null -> it.copy(hypnogram = HypnogramUi.Ready(hypnogram))
@@ -173,18 +190,27 @@ class SleepLabViewModel(
         if (userInitiated && visible.value) {
             userWaiting = true
             _state.update { it.copy(refreshing = true) }
+            // Both read only stored data, so retrying a failed one need not wait for (or get) a capture.
+            if (deps.analysis.value is AnalysisState.Failed) deps.recomputeAnalysis()
+            if (_state.value.hypnogram is HypnogramUi.Failed) retryHypnogram()
         }
         if (refreshJob?.isActive == true) return
         refreshJob =
             viewModelScope.launch {
                 try {
                     when (attempt { deps.refresh() }) {
-                        is RefreshResult.Refreshed, is RefreshResult.Debounced -> {
+                        is RefreshResult.Refreshed -> {
                             Unit
+                        }
+
+                        // No new capture means no refresh tick: what the user asked for is recomputed from what is stored.
+                        is RefreshResult.Debounced -> {
+                            if (userWaiting && visible.value) deps.recomputeAnalysis()
                         }
 
                         is RefreshResult.Failed, null -> {
                             if (userWaiting && visible.value) {
+                                deps.recomputeAnalysis()
                                 effectChannel.trySend(SleepLabEffect.RefreshFailed)
                             }
                         }

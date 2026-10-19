@@ -25,6 +25,9 @@ interface CockpitDependencies {
     /** FULL capture plus history ingest; debounced to 60 s by the container, so safe to call on start and on pull-to-refresh. */
     suspend fun refresh(): RefreshResult
 
+    /** Re-runs the shared analysis from stored data without a capture; the shown state stays until it is replaced. */
+    fun recomputeAnalysis()
+
     fun requestShizukuPermission()
 
     /** Cold flow: it reads only while collected. The caller starts and stops it with screen visibility (H13). */
@@ -33,7 +36,10 @@ interface CockpitDependencies {
     /** Keeps the Shizuku service bound; close it when the screen is hidden. */
     fun holdBinding(): AutoCloseable
 
-    suspend fun timeline(from: Long, to: Long): Timeline
+    suspend fun timeline(
+        from: Long,
+        to: Long,
+    ): Timeline
 
     suspend fun markers(): List<Marker>
 

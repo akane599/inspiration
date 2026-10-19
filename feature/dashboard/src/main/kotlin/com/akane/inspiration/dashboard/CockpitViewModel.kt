@@ -45,7 +45,6 @@ class CockpitViewModel(
     private val deps: CockpitDependencies,
     private val shapingDispatcher: CoroutineDispatcher = Dispatchers.Default,
 ) : ViewModel() {
-
     private val _state = MutableStateFlow(CockpitState.Initial)
     val state: StateFlow<CockpitState> = _state.asStateFlow()
 
@@ -63,7 +62,10 @@ class CockpitViewModel(
     /** The system's discharge estimate from the newest analysed snapshot, with the wall time it was taken at. */
     private var systemEstimate: SystemEstimate? = null
 
-    private class SystemEstimate(val wallMs: Long, val remainingMs: Long)
+    private class SystemEstimate(
+        val wallMs: Long,
+        val remainingMs: Long,
+    )
 
     init {
         viewModelScope.launch {
@@ -72,9 +74,10 @@ class CockpitViewModel(
             }.collect { (state, kind, shizuku) ->
                 // Until the session has recomputed after a selection change, its result belongs to the old selection.
                 val analysis = state.forSelection(kind)
-                systemEstimate = (analysis as? AnalysisState.Ready)?.analysis?.resolved?.now?.let { snapshot ->
-                    snapshot.system?.dischargeTimeRemainingMs?.let { SystemEstimate(snapshot.clock.wallMs, it) }
-                }
+                systemEstimate =
+                    (analysis as? AnalysisState.Ready)?.analysis?.resolved?.now?.let { snapshot ->
+                        snapshot.system?.dischargeTimeRemainingMs?.let { SystemEstimate(snapshot.clock.wallMs, it) }
+                    }
                 val markerId = (kind as? ReferenceKind.CustomMarker)?.markerId
                 _state.update {
                     it.copy(
@@ -109,11 +112,13 @@ class CockpitViewModel(
         if (visible) return
         visible = true
         binding = deps.holdBinding()
-        liveJob = viewModelScope.launch {
-            deps.liveReadings(LIVE_PERIOD_MS)
-                .catch { /* A failed live read leaves the gauge on dashes; it must not take the screen down. */ }
-                .collect { reading -> if (visible) onReading(reading) }
-        }
+        liveJob =
+            viewModelScope.launch {
+                deps
+                    .liveReadings(LIVE_PERIOD_MS)
+                    .catch { /* A failed live read leaves the gauge on dashes; it must not take the screen down. */ }
+                    .collect { reading -> if (visible) onReading(reading) }
+            }
         startRefresh(userInitiated = false)
     }
 
@@ -134,9 +139,10 @@ class CockpitViewModel(
     }
 
     private fun onReading(reading: LiveReading) {
-        val estimate = systemEstimate
-            ?.takeIf { reading.wallMs - it.wallMs <= SYSTEM_ESTIMATE_MAX_AGE_MS }
-            ?.remainingMs
+        val estimate =
+            systemEstimate
+                ?.takeIf { reading.wallMs - it.wallMs <= SYSTEM_ESTIMATE_MAX_AGE_MS }
+                ?.remainingMs
         _state.update { it.copy(live = liveUi(reading, estimate)) }
     }
 
@@ -146,29 +152,44 @@ class CockpitViewModel(
         if (userInitiated) {
             userWaiting = true
             _state.update { it.copy(refreshing = true) }
+            // The analysis reads only stored data, so Retry on a failed one need not wait for (or get) a capture.
+            if (deps.analysis.value is AnalysisState.Failed) deps.recomputeAnalysis()
         }
         if (refreshJob?.isActive == true) return
-        refreshJob = viewModelScope.launch {
-            try {
-                loadTimeline()
-                when (val result = attempt { deps.refresh() }) {
-                    is RefreshResult.Refreshed -> loadTimeline()
-                    is RefreshResult.Debounced -> Unit
-                    is RefreshResult.Failed, null ->
-                        if (userWaiting) effectChannel.trySend(CockpitEffect.RefreshFailed)
+        refreshJob =
+            viewModelScope.launch {
+                try {
+                    loadTimeline()
+                    when (val result = attempt { deps.refresh() }) {
+                        is RefreshResult.Refreshed -> {
+                            loadTimeline()
+                        }
+
+                        // No new capture means no refresh tick: what the user asked for is recomputed from what is stored.
+                        is RefreshResult.Debounced -> {
+                            if (userWaiting) deps.recomputeAnalysis()
+                        }
+
+                        is RefreshResult.Failed, null -> {
+                            if (userWaiting) {
+                                deps.recomputeAnalysis()
+                                effectChannel.trySend(CockpitEffect.RefreshFailed)
+                            }
+                        }
+                    }
+                } finally {
+                    userWaiting = false
+                    _state.update { it.copy(refreshing = false) }
                 }
-            } finally {
-                userWaiting = false
-                _state.update { it.copy(refreshing = false) }
             }
-        }
     }
 
     private suspend fun loadTimeline() {
         val to = deps.clocks.wallMs()
-        val chart = withContext(shapingDispatcher) {
-            attempt { deps.timeline(to - CHART_WINDOW_MS, to) }?.let(::scrubChartData)
-        }
+        val chart =
+            withContext(shapingDispatcher) {
+                attempt { deps.timeline(to - CHART_WINDOW_MS, to) }?.let(::scrubChartData)
+            }
         _state.update {
             when {
                 chart != null -> it.copy(chart = ChartUi.Ready(chart))
@@ -178,7 +199,10 @@ class CockpitViewModel(
         }
     }
 
-    private fun commitBrush(aMs: Long, bMs: Long) {
+    private fun commitBrush(
+        aMs: Long,
+        bMs: Long,
+    ) {
         val range = TimeRange.of(aMs, bMs)
         deps.selection.select(ReferenceKind.TimeSlice(range.startMs, range.endMs))
     }
@@ -194,14 +218,17 @@ class CockpitViewModel(
         _state.update { state ->
             state.markerSheet?.let { sheet ->
                 state.copy(
-                    markerSheet = sheet.copy(
-                        loading = false,
-                        failed = markers == null,
-                        markers = markers.orEmpty()
-                            .sortedByDescending { it.wallMs }
-                            .map { MarkerUi(it.id, it.label, it.wallMs) }
-                            .toImmutableList(),
-                    ),
+                    markerSheet =
+                        sheet.copy(
+                            loading = false,
+                            failed = markers == null,
+                            markers =
+                                markers
+                                    .orEmpty()
+                                    .sortedByDescending { it.wallMs }
+                                    .map { MarkerUi(it.id, it.label, it.wallMs) }
+                                    .toImmutableList(),
+                        ),
                 )
             } ?: state
         }
@@ -234,8 +261,9 @@ class CockpitViewModel(
     }
 
     companion object {
-        fun factory(deps: CockpitDependencies): ViewModelProvider.Factory = viewModelFactory {
-            initializer { CockpitViewModel(deps) }
-        }
+        fun factory(deps: CockpitDependencies): ViewModelProvider.Factory =
+            viewModelFactory {
+                initializer { CockpitViewModel(deps) }
+            }
     }
 }

@@ -735,4 +735,65 @@ class SleepLabViewModelTest {
             }
             assertEquals(3, deps.refreshCalls)
         }
+
+    @Test
+    fun `retry on a failed analysis recomputes even when the refresh is debounced`() =
+        runTest(dispatcher) {
+            deps.analysis.value = AnalysisState.Failed("db closed")
+            deps.refreshResult = RefreshResult.Debounced(NOW_MS)
+            val vm = viewModel()
+            visible(vm)
+            assertEquals(AnalysisUi.Error, vm.state.value.analysis)
+            assertEquals("the on-enter refresh does not recompute", 0, deps.recomputeCalls)
+
+            deps.recomputeResult = ready(intervalAnalysis())
+            vm.onIntent(SleepLabIntent.Refresh)
+            runCurrent()
+
+            assertTrue(deps.recomputeCalls >= 1)
+            assertEquals(2, deps.refreshCalls)
+            assertTrue(vm.state.value.analysis is AnalysisUi.Ready)
+            assertFalse(vm.state.value.refreshing)
+        }
+
+    @Test
+    fun `a debounced or failed user refresh recomputes the analysis and a refreshed one does not`() =
+        runTest(dispatcher) {
+            deps.analysis.value = ready(intervalAnalysis())
+            val vm = viewModel()
+            visible(vm)
+
+            val expected =
+                listOf(
+                    RefreshResult.Debounced(NOW_MS) to 1,
+                    RefreshResult.Failed("no shizuku") to 2,
+                    RefreshResult.Refreshed(NOW_MS) to 2,
+                )
+            for ((result, calls) in expected) {
+                deps.refreshResult = result
+                vm.onIntent(SleepLabIntent.Refresh)
+                runCurrent()
+                assertEquals("after $result", calls, deps.recomputeCalls)
+            }
+        }
+
+    @Test
+    fun `the hypnogram's retry reads the timeline again without a new analysis`() =
+        runTest(dispatcher) {
+            deps.timelineResult = null
+            deps.analysis.value = ready(intervalAnalysis())
+            val vm = viewModel()
+            visible(vm)
+            assertEquals(HypnogramUi.Failed, vm.state.value.hypnogram)
+            val reads = deps.timelineCalls.size
+
+            // The session republishes nothing (a recompute of an unchanged interval is conflated away).
+            deps.refreshResult = RefreshResult.Debounced(NOW_MS)
+            deps.timelineResult = night
+            vm.onIntent(SleepLabIntent.Refresh)
+            runCurrent()
+
+            assertEquals(reads + 1, deps.timelineCalls.size)
+            assertTrue(vm.state.value.hypnogram is HypnogramUi.Ready)
+        }
 }

@@ -14,8 +14,8 @@ import com.akane.inspiration.telemetry.diff.ReferenceKind
 import com.akane.inspiration.telemetry.diff.ResolvedReference
 import com.akane.inspiration.telemetry.dump.SystemTimers
 import com.akane.inspiration.telemetry.interval.IntervalMetrics
-import com.akane.inspiration.telemetry.snapshot.BatteryState
 import com.akane.inspiration.telemetry.snapshot.BatterySnapshot
+import com.akane.inspiration.telemetry.snapshot.BatteryState
 import com.akane.inspiration.telemetry.snapshot.CaptureTrigger
 import com.akane.inspiration.telemetry.snapshot.DiffValidity
 import com.akane.inspiration.telemetry.snapshot.LiveReading
@@ -24,22 +24,27 @@ import com.akane.inspiration.telemetry.snapshot.SnapshotClock
 import com.akane.inspiration.telemetry.snapshot.SnapshotDiff
 import com.akane.inspiration.telemetry.snapshot.SnapshotKind
 import com.akane.inspiration.telemetry.store.Marker
-import kotlin.coroutines.ContinuationInterceptor
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.flow
+import kotlin.coroutines.ContinuationInterceptor
 
 internal const val HOUR_MS = 3_600_000L
 internal const val MIN_MS = 60_000L
 internal const val NOW_MS = 1_000L * HOUR_MS
 
-internal class FakeClocks(var wall: Long = NOW_MS) : Clocks {
+internal class FakeClocks(
+    var wall: Long = NOW_MS,
+) : Clocks {
     override fun wallMs() = wall
+
     override fun elapsedRealtimeMs() = wall
+
     override fun uptimeMs() = wall
+
     override fun bootCount() = 1
 }
 
@@ -79,26 +84,40 @@ internal class FakeCockpitDeps(
         return refreshResult
     }
 
+    var recomputeCalls = 0
+
+    /** What a recompute publishes, standing in for the session re-running the analysis; null leaves it as is. */
+    var recomputeResult: AnalysisState? = null
+
+    override fun recomputeAnalysis() {
+        recomputeCalls++
+        recomputeResult?.let { analysis.value = it }
+    }
+
     override fun requestShizukuPermission() {
         permissionRequests++
     }
 
-    override fun liveReadings(periodMs: Long): Flow<LiveReading> = flow {
-        liveCollections++
-        requestedPeriodMs = periodMs
-        while (true) {
-            readingsRequested++
-            emit(liveReading(currentMa = -300 - readingsRequested))
-            delay(periodMs)
+    override fun liveReadings(periodMs: Long): Flow<LiveReading> =
+        flow {
+            liveCollections++
+            requestedPeriodMs = periodMs
+            while (true) {
+                readingsRequested++
+                emit(liveReading(currentMa = -300 - readingsRequested))
+                delay(periodMs)
+            }
         }
-    }
 
     override fun holdBinding(): AutoCloseable {
         bindingsOpened++
         return AutoCloseable { bindingsClosed++ }
     }
 
-    override suspend fun timeline(from: Long, to: Long): Timeline {
+    override suspend fun timeline(
+        from: Long,
+        to: Long,
+    ): Timeline {
         timelineCalls += from to to
         timelineDispatcher = currentCoroutineContext()[ContinuationInterceptor]
         return timelineResult ?: error("timeline unavailable")
@@ -112,8 +131,10 @@ internal class FakeCockpitDeps(
     }
 }
 
-internal fun emptyTimeline(from: Long = NOW_MS - 24 * HOUR_MS, to: Long = NOW_MS) =
-    Timeline(emptyList(), emptyList(), emptyList(), emptyList(), from, to)
+internal fun emptyTimeline(
+    from: Long = NOW_MS - 24 * HOUR_MS,
+    to: Long = NOW_MS,
+) = Timeline(emptyList(), emptyList(), emptyList(), emptyList(), from, to)
 
 internal fun liveReading(
     wallMs: Long = NOW_MS,
@@ -136,14 +157,31 @@ internal fun liveReading(
 
 internal fun snapshotClock(wallMs: Long) = SnapshotClock(wallMs, wallMs, wallMs, 1, statsStartMs = 0, statsDurationMs = wallMs)
 
-internal fun systemTimers(dischargeTimeRemainingMs: Long?) = SystemTimers(
-    startClockTimeMs = 0, totalRealtimeMs = 0, totalUptimeMs = 0, batteryRealtimeMs = 0, batteryUptimeMs = 0,
-    screenOffRealtimeMs = 0, screenOffUptimeMs = 0, screenDozeMs = 0, screenOnMs = 0, interactiveMs = 0,
-    deepDozeMs = 0, deepDozeCount = 0, lightDozeMs = 0, dischargeTotalMah = 0.0, dischargeScreenOffMah = 0.0,
-    chargeTimeRemainingMs = null, dischargeTimeRemainingMs = dischargeTimeRemainingMs,
-)
+internal fun systemTimers(dischargeTimeRemainingMs: Long?) =
+    SystemTimers(
+        startClockTimeMs = 0,
+        totalRealtimeMs = 0,
+        totalUptimeMs = 0,
+        batteryRealtimeMs = 0,
+        batteryUptimeMs = 0,
+        screenOffRealtimeMs = 0,
+        screenOffUptimeMs = 0,
+        screenDozeMs = 0,
+        screenOnMs = 0,
+        interactiveMs = 0,
+        deepDozeMs = 0,
+        deepDozeCount = 0,
+        lightDozeMs = 0,
+        dischargeTotalMah = 0.0,
+        dischargeScreenOffMah = 0.0,
+        chargeTimeRemainingMs = null,
+        dischargeTimeRemainingMs = dischargeTimeRemainingMs,
+    )
 
-internal fun snapshot(wallMs: Long, system: SystemTimers? = null) = BatterySnapshot(
+internal fun snapshot(
+    wallMs: Long,
+    system: SystemTimers? = null,
+) = BatterySnapshot(
     id = wallMs,
     kind = SnapshotKind.FULL,
     trigger = CaptureTrigger.APP_OPEN,
@@ -182,23 +220,34 @@ internal fun intervalMetrics(
     screenOnPctPerHour: Double? = 8.2,
     screenOffPctPerHour: Double? = 0.5,
 ) = IntervalMetrics(
-    fromWallMs = NOW_MS - 10 * HOUR_MS, toWallMs = NOW_MS, screenOnMs = screenOnMs, screenOffMs = screenOffMs,
-    unknownMs = 0, chargingMs = 0, startLevel = 90, endLevel = 60, levelUsedPct = 30, levelDropScreenOn = 16,
-    levelDropScreenOff = 4, screenOnPctPerHour = screenOnPctPerHour, screenOffPctPerHour = screenOffPctPerHour,
+    fromWallMs = NOW_MS - 10 * HOUR_MS,
+    toWallMs = NOW_MS,
+    screenOnMs = screenOnMs,
+    screenOffMs = screenOffMs,
+    unknownMs = 0,
+    chargingMs = 0,
+    startLevel = 90,
+    endLevel = 60,
+    levelUsedPct = 30,
+    levelDropScreenOn = 16,
+    levelDropScreenOff = 4,
+    screenOnPctPerHour = screenOnPctPerHour,
+    screenOffPctPerHour = screenOffPctPerHour,
     discontinuities = emptyList(),
 )
 
 internal fun snapshotDiff(
     dischargeMah: Double? = 1_000.0,
     dischargeScreenOffMah: Double? = 200.0,
-    sleep: SleepStats? = SleepStats(
-        deepSleepMs = 7 * HOUR_MS,
-        screenOffDeepSleepMs = 7 * HOUR_MS,
-        screenOffAwakeMs = 40 * MIN_MS,
-        screenOffMs = 8 * HOUR_MS,
-        screenOnMs = 2 * HOUR_MS,
-        deepSleepRatio = 0.7,
-    ),
+    sleep: SleepStats? =
+        SleepStats(
+            deepSleepMs = 7 * HOUR_MS,
+            screenOffDeepSleepMs = 7 * HOUR_MS,
+            screenOffAwakeMs = 40 * MIN_MS,
+            screenOffMs = 8 * HOUR_MS,
+            screenOnMs = 2 * HOUR_MS,
+            deepSleepRatio = 0.7,
+        ),
 ) = SnapshotDiff(
     ref = snapshotClock(NOW_MS - 10 * HOUR_MS),
     now = snapshotClock(NOW_MS),

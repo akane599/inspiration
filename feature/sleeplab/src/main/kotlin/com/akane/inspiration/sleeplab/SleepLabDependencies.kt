@@ -20,7 +20,13 @@ interface SleepLabDependencies {
 
     suspend fun refresh(): RefreshResult
 
-    suspend fun timeline(from: Long, to: Long): Timeline
+    /** Re-runs the shared analysis from stored data without a capture; the shown state stays until it is replaced. */
+    fun recomputeAnalysis()
+
+    suspend fun timeline(
+        from: Long,
+        to: Long,
+    ): Timeline
 
     /** Already loaded when the app started; cheap to call. */
     fun dictionary(): DiagnosticDictionary

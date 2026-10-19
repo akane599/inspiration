@@ -54,7 +54,10 @@ class XRayViewModelTest {
         Dispatchers.resetMain()
     }
 
-    private fun start(fake: FakeXRayDeps, ready: AnalysisState = readyOf(sampleDiff())) {
+    private fun start(
+        fake: FakeXRayDeps,
+        ready: AnalysisState = readyOf(sampleDiff()),
+    ) {
         deps = fake
         deps.analysis.value = ready
         vm = XRayViewModel(deps)
@@ -132,41 +135,97 @@ class XRayViewModelTest {
     }
 
     @Test
-    fun `a failed capture is reported once and the last data stays`() = runTest {
-        start(FakeXRayDeps().apply { refreshResult = RefreshResult.Failed("deadline") })
+    fun `a failed capture is reported once and the last data stays`() =
+        runTest {
+            start(FakeXRayDeps().apply { refreshResult = RefreshResult.Failed("deadline") })
 
-        assertEquals(XRayEffect.RefreshFailed, vm.effects.first())
+            assertEquals(XRayEffect.RefreshFailed, vm.effects.first())
+            assertEquals(XRayStatus.READY, state.status)
+            assertFalse(state.refreshing)
+        }
+
+    @Test
+    fun `retry on a failed analysis recomputes even when the capture is debounced`() {
+        start(FakeXRayDeps().apply { refreshResult = RefreshResult.Debounced(0L) }, AnalysisState.Failed("db closed"))
+        assertEquals(XRayStatus.FAILED, state.status)
+        assertEquals("the on-enter refresh does not recompute", 0, deps.recomputeCalls)
+
+        deps.recomputeResult = readyOf(sampleDiff())
+        vm.onIntent(XRayIntent.Capture)
+
+        assertTrue(deps.recomputeCalls >= 1)
+        assertEquals(2, deps.refreshCalls)
         assertEquals(XRayStatus.READY, state.status)
         assertFalse(state.refreshing)
+    }
+
+    @Test
+    fun `a capture that brings no new data recomputes the analysis, a refreshed one does not`() {
+        deps.refreshResult = RefreshResult.Debounced(0L)
+        vm.onIntent(XRayIntent.Capture)
+        assertEquals(1, deps.recomputeCalls)
+
+        deps.refreshResult = RefreshResult.Failed("no shizuku")
+        vm.onIntent(XRayIntent.Capture)
+        assertEquals(2, deps.recomputeCalls)
+
+        deps.refreshResult = RefreshResult.Refreshed(0L)
+        vm.onIntent(XRayIntent.Capture)
+        assertEquals("a capture's own tick recomputes; no extra request", 2, deps.recomputeCalls)
+    }
+
+    @Test
+    fun `a capture joining the running refresh recomputes after it`() {
+        val gate = CompletableDeferred<Unit>()
+        start(
+            FakeXRayDeps().apply {
+                refreshGate = gate
+                refreshResult = RefreshResult.Debounced(0L)
+            },
+        )
+
+        vm.onIntent(XRayIntent.Capture)
+        assertEquals(0, deps.recomputeCalls)
+        gate.complete(Unit)
+
+        assertEquals(1, deps.refreshCalls)
+        assertEquals(1, deps.recomputeCalls)
     }
 
     /** The next effect, or null when none is queued (virtual time: the timeout costs nothing). */
     private suspend fun nextEffect(): XRayEffect? = withTimeoutOrNull(1_000L) { vm.effects.first() }
 
     @Test
-    fun `a failure reported while the screen is hidden is not shown when it comes back`() = runTest {
-        val gate = CompletableDeferred<Unit>()
-        start(FakeXRayDeps().apply { refreshGate = gate; refreshResult = RefreshResult.Failed("deadline") })
+    fun `a failure reported while the screen is hidden is not shown when it comes back`() =
+        runTest {
+            val gate = CompletableDeferred<Unit>()
+            start(
+                FakeXRayDeps().apply {
+                    refreshGate = gate
+                    refreshResult = RefreshResult.Failed("deadline")
+                },
+            )
 
-        vm.onIntent(XRayIntent.Hidden)
-        gate.complete(Unit) // the capture fails after the user left
-        deps.refreshGate = null
-        deps.refreshResult = RefreshResult.Refreshed(0L)
-        vm.onIntent(XRayIntent.Visible)
+            vm.onIntent(XRayIntent.Hidden)
+            gate.complete(Unit) // the capture fails after the user left
+            deps.refreshGate = null
+            deps.refreshResult = RefreshResult.Refreshed(0L)
+            vm.onIntent(XRayIntent.Visible)
 
-        assertNull(nextEffect())
-    }
+            assertNull(nextEffect())
+        }
 
     @Test
-    fun `a failure nobody collected is dropped on hidden instead of replaying on return`() = runTest {
-        start(FakeXRayDeps().apply { refreshResult = RefreshResult.Failed("deadline") }) // queued while visible
+    fun `a failure nobody collected is dropped on hidden instead of replaying on return`() =
+        runTest {
+            start(FakeXRayDeps().apply { refreshResult = RefreshResult.Failed("deadline") }) // queued while visible
 
-        vm.onIntent(XRayIntent.Hidden)
-        deps.refreshResult = RefreshResult.Refreshed(0L)
-        vm.onIntent(XRayIntent.Visible)
+            vm.onIntent(XRayIntent.Hidden)
+            deps.refreshResult = RefreshResult.Refreshed(0L)
+            vm.onIntent(XRayIntent.Visible)
 
-        assertNull(nextEffect())
-    }
+            assertNull(nextEffect())
+        }
 
     @Test
     fun `hidden stops watching the analysis`() {
@@ -226,10 +285,11 @@ class XRayViewModelTest {
 
     @Test
     fun `a shared uid is named by the reported package when it owns it, else by its first package`() {
-        val fake = FakeXRayDeps().apply {
-            packagesByUid[CHATTY_UID] = listOf(CHATTY, "com.example.aardvark")
-            packagesByUid[MAPS_UID] = listOf(MAPS, "com.example.aardvark.maps")
-        }
+        val fake =
+            FakeXRayDeps().apply {
+                packagesByUid[CHATTY_UID] = listOf(CHATTY, "com.example.aardvark")
+                packagesByUid[MAPS_UID] = listOf(MAPS, "com.example.aardvark.maps")
+            }
         val uids = listOf(uidDelta(CHATTY_UID, "$CHATTY:push", 60.0), uidDelta(MAPS_UID, "$MAPS.persistent", 20.0))
         start(fake, readyOf(diffOf(uids = uids)))
 

@@ -443,5 +443,15 @@ internal class FakeXRayDeps(
         return refreshResult
     }
 
+    var recomputeCalls = 0
+
+    /** What a recompute publishes, standing in for the session re-running the analysis; null leaves it as is. */
+    var recomputeResult: AnalysisState? = null
+
+    override fun recomputeAnalysis() {
+        recomputeCalls += 1
+        recomputeResult?.let { analysis.value = it }
+    }
+
     override fun dictionary() = DiagnosticDictionary(emptyList())
 }

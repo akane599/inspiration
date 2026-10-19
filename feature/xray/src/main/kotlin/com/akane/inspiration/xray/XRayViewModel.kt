@@ -72,12 +72,15 @@ class XRayViewModel(
     private var visible = false
     private var pending: PendingAction? = null
 
+    /** The user asked to capture (Retry) while this refresh ran (main thread only, like every intent). */
+    private var retryWaiting = false
+
     fun onIntent(intent: XRayIntent) {
         when (intent) {
             XRayIntent.Visible -> onVisible()
             XRayIntent.Hidden -> onHidden()
             is XRayIntent.SelectTab -> _state.update { it.copy(tab = intent.tab) }
-            XRayIntent.Capture -> startRefresh()
+            XRayIntent.Capture -> startRefresh(userInitiated = true)
             XRayIntent.ClearSlice -> deps.selection.clearSlice()
             is XRayIntent.OpenApp -> openApp(intent.uid)
             XRayIntent.CloseApp -> closeApp()
@@ -102,7 +105,7 @@ class XRayViewModel(
                 // The first value is the current state, so an open detail sheet is re-read on every start.
                 launch { deps.shizukuState.collect { if (_state.value.detail != null) reloadDetail() } }
             }
-        startRefresh()
+        startRefresh(userInitiated = false)
     }
 
     private fun onHidden() {
@@ -115,6 +118,7 @@ class XRayViewModel(
         val planning = planJob?.isActive == true
         cancelPlanning()
         pending = null
+        retryWaiting = false
         _state.update { current ->
             val detail = current.detail
             current.copy(
@@ -136,7 +140,13 @@ class XRayViewModel(
         if (visible) _effects.trySend(effect)
     }
 
-    private fun startRefresh() {
+    private fun startRefresh(userInitiated: Boolean) {
+        if (userInitiated) {
+            // A Capture during a running refresh (e.g. the on-enter one) joins it and recomputes after it.
+            retryWaiting = true
+            // The analysis reads only stored data, so retrying a failed one need not wait for (or get) a capture.
+            if (deps.analysis.value is AnalysisState.Failed) deps.recomputeAnalysis()
+        }
         if (refreshJob?.isActive == true) return
         _state.update { it.copy(refreshing = true) }
         refreshJob =
@@ -147,6 +157,9 @@ class XRayViewModel(
                     } finally {
                         _state.update { it.copy(refreshing = false) }
                     }
+                // No new capture means no refresh tick: what the user asked for is recomputed from what is stored.
+                if (retryWaiting && result !is RefreshResult.Refreshed) deps.recomputeAnalysis()
+                retryWaiting = false
                 if (result == null || result is RefreshResult.Failed) emit(XRayEffect.RefreshFailed)
             }
     }

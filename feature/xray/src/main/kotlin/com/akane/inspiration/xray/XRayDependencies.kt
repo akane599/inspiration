@@ -23,6 +23,9 @@ interface XRayDependencies {
 
     suspend fun refresh(): RefreshResult
 
+    /** Re-runs the shared analysis from stored data without a capture; the shown state stays until it is replaced. */
+    fun recomputeAnalysis()
+
     /** Already loaded when the app started; cheap to call. */
     fun dictionary(): DiagnosticDictionary
 }

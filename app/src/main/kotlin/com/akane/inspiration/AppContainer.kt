@@ -160,6 +160,9 @@ class AppContainer(
         )
     override val analysis: StateFlow<AnalysisState> = analysisSession.state
 
+    /** Retry's path when a refresh brings no new capture (debounced, failed): the analysis only reads Room. */
+    override fun recomputeAnalysis() = analysisSession.recompute()
+
     override fun dictionary(): DiagnosticDictionary = dictionary
 
     /**
