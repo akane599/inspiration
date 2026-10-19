@@ -740,7 +740,12 @@ class ToolkitActions internal constructor(
         return record.copy(id = audit.insert(record))
     }
 
-    /** Finalizes [pending] from the service's [reply] and maps it to the outcome. */
+    /**
+     * Finalizes [pending] from the service's [reply] and maps it to the outcome. A reply lost after the call was
+     * dispatched keeps the row PENDING (the write may have committed; [reconcile] reads it back). A call that was
+     * never dispatched changed nothing, so its row is final at once: FAILED with no `after`, which never joins a
+     * chain (see [landedElsewhere]) and never holds a dexopt card in Unknown.
+     */
     private suspend fun settle(
         pending: ToolkitActionRecord,
         reply: GatewayReply<ToolkitResult>,
@@ -755,7 +760,13 @@ class ToolkitActions internal constructor(
                 } else {
                     ToolkitClientCode.NO_SERVICE
                 }
-            audit.update(pending.copy(status = ToolkitActionStatus.PENDING, endedAt = null, code = code))
+            val settled =
+                if (reply.sent) {
+                    pending.copy(status = ToolkitActionStatus.PENDING, endedAt = null, code = code)
+                } else {
+                    pending.copy(status = ToolkitActionStatus.FAILED, endedAt = now, code = code, afterRaw = null)
+                }
+            audit.update(settled)
             return ToolkitOutcome.Unavailable(unavailableFor(reply.reason))
         }
         val result = (reply as GatewayReply.Reply).value

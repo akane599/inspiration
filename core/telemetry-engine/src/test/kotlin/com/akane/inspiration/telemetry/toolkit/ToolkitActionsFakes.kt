@@ -2,7 +2,6 @@ package com.akane.inspiration.telemetry.toolkit
 
 import com.akane.inspiration.ipc.model.BgDexoptReason
 import com.akane.inspiration.ipc.model.BgDexoptState
-import com.akane.inspiration.ipc.model.BgDexoptStatus as ServiceBgDexoptStatus
 import com.akane.inspiration.ipc.model.ToolkitCode
 import com.akane.inspiration.ipc.model.ToolkitResult
 import com.akane.inspiration.ipc.toolkit.AppOp
@@ -12,12 +11,29 @@ import com.akane.inspiration.ipc.toolkit.StandbyBucket
 import com.akane.inspiration.telemetry.store.ToolkitActionRecord
 import com.akane.inspiration.telemetry.store.ToolkitActionStatus
 import kotlinx.coroutines.yield
+import com.akane.inspiration.ipc.model.BgDexoptStatus as ServiceBgDexoptStatus
 
 const val PKG = "com.example.chatty"
 const val SYSTEM_PKG = "com.example.updatedsys"
 
-fun serviceStatus(state: Int, exit: Int = 0, reason: Int = BgDexoptReason.NONE) =
-    ServiceBgDexoptStatus(state, startedAtMs = 1_000L, endedAtMs = if (state >= BgDexoptState.FINISHED) 2_000L else 0L, exitCode = exit, reason = reason)
+fun serviceStatus(
+    state: Int,
+    exit: Int = 0,
+    reason: Int = BgDexoptReason.NONE,
+) = ServiceBgDexoptStatus(
+    state,
+    startedAtMs = 1_000L,
+    endedAtMs =
+        if (state >=
+            BgDexoptState.FINISHED
+        ) {
+            2_000L
+        } else {
+            0L
+        },
+    exitCode = exit,
+    reason = reason,
+)
 
 /** In-memory audit log with the real store's ordering contract (recent: newest first, pending: oldest first). */
 class FakeAudit : ToolkitAuditStore {
@@ -39,8 +55,7 @@ class FakeAudit : ToolkitAuditStore {
 
     override suspend fun recent(limit: Int): List<ToolkitActionRecord> = rows.sortedByDescending { it.id }.take(limit)
 
-    override suspend fun pending(): List<ToolkitActionRecord> =
-        rows.filter { it.status == ToolkitActionStatus.PENDING }.sortedBy { it.id }
+    override suspend fun pending(): List<ToolkitActionRecord> = rows.filter { it.status == ToolkitActionStatus.PENDING }.sortedBy { it.id }
 
     /** Every id passed to [delete], in order. */
     val deleted = mutableListOf<Long>()
@@ -70,9 +85,18 @@ class FakeBackend : ToolkitBackend {
     /** The next this many reads answer NO_SERVICE, then reads answer normally again (a bind wait that expired once). */
     var unavailableReads = 0
 
-    /** Like [unavailable] but only for writes: reads still answer (a service that goes stale mid-flow). */
+    /**
+     * Like [unavailable] but only for writes, after the write was dispatched (a reply that never came back): reads
+     * still answer, and the write may have happened.
+     */
     var writeUnavailable: GatewayUnavailable? = null
     var unavailableAfterWrite: GatewayUnavailable? = null
+
+    /**
+     * Writes fail before anything is sent (the bind for the write timed out, or its API check refused it): reads still
+     * answer, the device is not touched and the write is not listed in [writes].
+     */
+    var unsentWrite: GatewayUnavailable? = null
 
     /** When set, the next write returns this instead of changing the device. */
     var scriptedWrite: ToolkitResult? = null
@@ -105,12 +129,14 @@ class FakeBackend : ToolkitBackend {
     val dexoptStatuses = ArrayDeque<ServiceBgDexoptStatus>().apply { add(serviceStatus(BgDexoptState.IDLE)) }
     var dexoptReads = 0
 
-    fun device(pkg: String): MutableMap<AppOp, String> =
-        appOps.getOrPut(pkg) { AppOp.entries.associateWith { "allow" }.toMutableMap() }
+    fun device(pkg: String): MutableMap<AppOp, String> = appOps.getOrPut(pkg) { AppOp.entries.associateWith { "allow" }.toMutableMap() }
 
     private fun warnCode(pkg: String) = if (pkg in updatedSystem) ToolkitCode.WARN_UPDATED_SYSTEM else ToolkitCode.OK
 
-    private fun <T : Any> guard(pkg: String?, block: () -> GatewayReply<T>): GatewayReply<T> {
+    private fun <T : Any> guard(
+        pkg: String?,
+        block: () -> GatewayReply<T>,
+    ): GatewayReply<T> {
         unavailable?.let { return GatewayReply.Unavailable(it) }
         if (unavailableReads > 0) {
             unavailableReads -= 1
@@ -121,8 +147,12 @@ class FakeBackend : ToolkitBackend {
 
     private fun refusal(pkg: String): ToolkitResult? = denied[pkg]?.let { ToolkitResult.refused(it) }
 
-    private suspend fun write(name: String, block: () -> ToolkitResult): GatewayReply<ToolkitResult> {
-        unavailable?.let { return GatewayReply.Unavailable(it) }
+    private suspend fun write(
+        name: String,
+        block: () -> ToolkitResult,
+    ): GatewayReply<ToolkitResult> {
+        // An unreachable service never got the call, as the real gateway reports it.
+        (unavailable ?: unsentWrite)?.let { return GatewayReply.Unavailable(it, sent = false) }
         writes += name
         onWrite(name)
         writeUnavailable?.let { return GatewayReply.Unavailable(it) }
@@ -133,7 +163,11 @@ class FakeBackend : ToolkitBackend {
         return reply
     }
 
-    override suspend fun setAppOp(pkg: String, op: AppOp, mode: AppOpMode) = write("setAppOp($pkg,${op.argv},${mode.argv})") {
+    override suspend fun setAppOp(
+        pkg: String,
+        op: AppOp,
+        mode: AppOpMode,
+    ) = write("setAppOp($pkg,${op.argv},${mode.argv})") {
         refusal(pkg) ?: run {
             val before = device(pkg)[op]
             device(pkg)[op] = mode.argv
@@ -141,18 +175,22 @@ class FakeBackend : ToolkitBackend {
         }
     }
 
-    override suspend fun getAppOps(pkg: String): GatewayReply<ToolkitResult> = guard(pkg) {
-        reads += "getAppOps($pkg)"
-        onRead("getAppOps($pkg)")
-        GatewayReply.Reply(
-            scriptedRead ?: refusal(pkg) ?: ToolkitResult.done(
-                warnCode(pkg),
-                after = AppOp.entries.joinToString(",") { "${it.argv}=${device(pkg)[it]}" },
-            ),
-        )
-    }
+    override suspend fun getAppOps(pkg: String): GatewayReply<ToolkitResult> =
+        guard(pkg) {
+            reads += "getAppOps($pkg)"
+            onRead("getAppOps($pkg)")
+            GatewayReply.Reply(
+                scriptedRead ?: refusal(pkg) ?: ToolkitResult.done(
+                    warnCode(pkg),
+                    after = AppOp.entries.joinToString(",") { "${it.argv}=${device(pkg)[it]}" },
+                ),
+            )
+        }
 
-    override suspend fun setStandbyBucket(pkg: String, bucket: StandbyBucket) = write("setBucket($pkg,${bucket.argv})") {
+    override suspend fun setStandbyBucket(
+        pkg: String,
+        bucket: StandbyBucket,
+    ) = write("setBucket($pkg,${bucket.argv})") {
         refusal(pkg) ?: run {
             val before = buckets[pkg] ?: StandbyBucket.ACTIVE.rawValue
             buckets[pkg] = bucket.rawValue
@@ -160,60 +198,69 @@ class FakeBackend : ToolkitBackend {
         }
     }
 
-    override suspend fun getStandbyBucket(pkg: String): GatewayReply<ToolkitResult> = guard(pkg) {
-        reads += "getBucket($pkg)"
-        onRead("getBucket($pkg)")
-        GatewayReply.Reply(
-            scriptedRead ?: refusal(pkg) ?: ToolkitResult.done(warnCode(pkg), after = (buckets[pkg] ?: StandbyBucket.ACTIVE.rawValue).toString()),
-        )
-    }
-
-    override suspend fun applyDozeProfile(profile: DozeProfile, expectedBeforeRaw: String?) =
-        write("applyDoze(${profile.code},$expectedBeforeRaw)") {
-            if (dozeRaw != expectedBeforeRaw) {
-                ToolkitResult.refused(ToolkitCode.STALE, before = dozeRaw)
-            } else {
-                val before = dozeRaw
-                dozeRaw = profile.constants
-                ToolkitResult.done(before = before, after = dozeRaw)
-            }
+    override suspend fun getStandbyBucket(pkg: String): GatewayReply<ToolkitResult> =
+        guard(pkg) {
+            reads += "getBucket($pkg)"
+            onRead("getBucket($pkg)")
+            GatewayReply.Reply(
+                scriptedRead ?: refusal(pkg)
+                    ?: ToolkitResult.done(warnCode(pkg), after = (buckets[pkg] ?: StandbyBucket.ACTIVE.rawValue).toString()),
+            )
         }
 
-    override suspend fun getDozeState(): GatewayReply<ToolkitResult> = guard(null) {
-        reads += "getDozeState"
-        onRead("getDozeState")
-        val matched = DozeProfile.entries.firstOrNull { it.constants == dozeRaw }
-        GatewayReply.Reply(
-            scriptedRead ?: ToolkitResult.done(
-                code = matched?.code ?: ToolkitCode.DOZE_CUSTOM,
-                after = dozeRaw,
-                message = matched?.effectiveMs?.entries?.joinToString(",") { "${it.key}=${it.value}" },
-            ),
-        )
+    override suspend fun applyDozeProfile(
+        profile: DozeProfile,
+        expectedBeforeRaw: String?,
+    ) = write("applyDoze(${profile.code},$expectedBeforeRaw)") {
+        if (dozeRaw != expectedBeforeRaw) {
+            ToolkitResult.refused(ToolkitCode.STALE, before = dozeRaw)
+        } else {
+            val before = dozeRaw
+            dozeRaw = profile.constants
+            ToolkitResult.done(before = before, after = dozeRaw)
+        }
     }
 
-    override suspend fun restoreDozeRaw(rawOrNull: String?, expectedCurrentRaw: String?) =
-        write("restoreDoze($rawOrNull,$expectedCurrentRaw)") {
-            if (dozeRaw != expectedCurrentRaw?.takeIf { it.isNotEmpty() }) {
-                ToolkitResult.refused(ToolkitCode.STALE, before = dozeRaw)
-            } else {
-                val before = dozeRaw
-                dozeRaw = rawOrNull?.takeIf { it.isNotEmpty() }
-                ToolkitResult.done(before = before, after = dozeRaw)
-            }
+    override suspend fun getDozeState(): GatewayReply<ToolkitResult> =
+        guard(null) {
+            reads += "getDozeState"
+            onRead("getDozeState")
+            val matched = DozeProfile.entries.firstOrNull { it.constants == dozeRaw }
+            GatewayReply.Reply(
+                scriptedRead ?: ToolkitResult.done(
+                    code = matched?.code ?: ToolkitCode.DOZE_CUSTOM,
+                    after = dozeRaw,
+                    message = matched?.effectiveMs?.entries?.joinToString(",") { "${it.key}=${it.value}" },
+                ),
+            )
         }
 
-    override suspend fun forceStop(pkg: String) = write("forceStop($pkg)") {
-        refusal(pkg) ?: ToolkitResult.done(warnCode(pkg), "stopped=false", "stopped=true")
+    override suspend fun restoreDozeRaw(
+        rawOrNull: String?,
+        expectedCurrentRaw: String?,
+    ) = write("restoreDoze($rawOrNull,$expectedCurrentRaw)") {
+        if (dozeRaw != expectedCurrentRaw?.takeIf { it.isNotEmpty() }) {
+            ToolkitResult.refused(ToolkitCode.STALE, before = dozeRaw)
+        } else {
+            val before = dozeRaw
+            dozeRaw = rawOrNull?.takeIf { it.isNotEmpty() }
+            ToolkitResult.done(before = before, after = dozeRaw)
+        }
     }
+
+    override suspend fun forceStop(pkg: String) =
+        write("forceStop($pkg)") {
+            refusal(pkg) ?: ToolkitResult.done(warnCode(pkg), "stopped=false", "stopped=true")
+        }
 
     override suspend fun startBgDexopt() = write("startBgDexopt") { startResult }
 
-    override suspend fun bgDexoptStatus(): GatewayReply<ServiceBgDexoptStatus> = guard(null) {
-        dexoptReads += 1
-        val next = if (dexoptStatuses.size > 1) dexoptStatuses.removeFirst() else dexoptStatuses.first()
-        GatewayReply.Reply(next)
-    }
+    override suspend fun bgDexoptStatus(): GatewayReply<ServiceBgDexoptStatus> =
+        guard(null) {
+            dexoptReads += 1
+            val next = if (dexoptStatuses.size > 1) dexoptStatuses.removeFirst() else dexoptStatuses.first()
+            GatewayReply.Reply(next)
+        }
 
     override suspend fun cancelBgDexopt() = write("cancelBgDexopt") { cancelResult }
 }

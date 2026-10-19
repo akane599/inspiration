@@ -17,6 +17,7 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import java.util.concurrent.atomic.AtomicBoolean
 
 /** Why a call produced no service answer. A post-dispatch transport failure may hide a committed write. */
 enum class GatewayUnavailable {
@@ -31,9 +32,20 @@ enum class GatewayUnavailable {
 }
 
 sealed interface GatewayReply<out T> {
-    data class Reply<T>(val value: T) : GatewayReply<T>
+    data class Reply<T>(
+        val value: T,
+    ) : GatewayReply<T>
 
-    data class Unavailable(val reason: GatewayUnavailable) : GatewayReply<Nothing>
+    /**
+     * [sent] is false only when the typed transaction is known never to have been dispatched: no service could be
+     * acquired (Shizuku not ready, the bind timed out, the binder died before the call), or the API check in the
+     * same session refused it. Nothing can have changed then. Anything after dispatch (a lost reply, a dead binder
+     * mid-call, a rebind, a throw, a null return) keeps [sent] true: that write may have committed.
+     */
+    data class Unavailable(
+        val reason: GatewayUnavailable,
+        val sent: Boolean = true,
+    ) : GatewayReply<Nothing>
 }
 
 /** The service marks updated system apps with a DONE code the UI must warn about. */
@@ -67,24 +79,33 @@ class ToolkitGateway(
     private var dexoptHold: AutoCloseable? = null
     private var bridgeTimer: Job? = null
 
-    internal suspend fun setAppOp(pkg: String, op: AppOp, mode: AppOpMode): GatewayReply<ToolkitResult> =
-        call { it.setAppOp(pkg, op.code, mode.code) }
+    internal suspend fun setAppOp(
+        pkg: String,
+        op: AppOp,
+        mode: AppOpMode,
+    ): GatewayReply<ToolkitResult> = call { it.setAppOp(pkg, op.code, mode.code) }
 
     internal suspend fun getAppOps(pkg: String): GatewayReply<ToolkitResult> = call { it.getAppOps(pkg) }
 
-    internal suspend fun setStandbyBucket(pkg: String, bucket: StandbyBucket): GatewayReply<ToolkitResult> =
-        call { it.setStandbyBucket(pkg, bucket.code) }
+    internal suspend fun setStandbyBucket(
+        pkg: String,
+        bucket: StandbyBucket,
+    ): GatewayReply<ToolkitResult> = call { it.setStandbyBucket(pkg, bucket.code) }
 
     internal suspend fun getStandbyBucket(pkg: String): GatewayReply<ToolkitResult> = call { it.getStandbyBucket(pkg) }
 
     /** [expectedBeforeRaw] null means "expected unset". A different current value is refused as stale. */
-    internal suspend fun applyDozeProfile(profile: DozeProfile, expectedBeforeRaw: String?): GatewayReply<ToolkitResult> =
-        call { it.applyDozeProfile(profile.code, expectedBeforeRaw) }
+    internal suspend fun applyDozeProfile(
+        profile: DozeProfile,
+        expectedBeforeRaw: String?,
+    ): GatewayReply<ToolkitResult> = call { it.applyDozeProfile(profile.code, expectedBeforeRaw) }
 
     internal suspend fun getDozeState(): GatewayReply<ToolkitResult> = call { it.getDozeState() }
 
-    internal suspend fun restoreDozeRaw(rawOrNull: String?, expectedCurrentRaw: String?): GatewayReply<ToolkitResult> =
-        call { it.restoreDozeRaw(rawOrNull, expectedCurrentRaw) }
+    internal suspend fun restoreDozeRaw(
+        rawOrNull: String?,
+        expectedCurrentRaw: String?,
+    ): GatewayReply<ToolkitResult> = call { it.restoreDozeRaw(rawOrNull, expectedCurrentRaw) }
 
     internal suspend fun forceStop(pkg: String): GatewayReply<ToolkitResult> = call { it.forceStop(pkg) }
 
@@ -110,32 +131,39 @@ class ToolkitGateway(
     fun release() = releaseHold()
 
     private suspend fun <T : Any> call(block: (ITelemetryUserService) -> T?): GatewayReply<T> {
-        val reply = shizuku.withTelemetryService(bindTimeoutMs) { service ->
-            try {
-                if (service.apiVersion < ToolkitApi.VERSION) {
-                    GatewayReply.Unavailable(GatewayUnavailable.STALE_SERVICE)
-                } else {
-                    block(service)?.let { GatewayReply.Reply(it) }
-                        ?: GatewayReply.Unavailable(GatewayUnavailable.STALE_SERVICE)
+        // Set right before the typed transaction. While it is false nothing but the API check reached the service,
+        // so a failure then (no service, a bind timeout, a dead binder on the API check, a stale API) left the
+        // device untouched; the manager's null alone cannot tell that apart from a failure after dispatch.
+        val dispatched = AtomicBoolean(false)
+        val reply =
+            shizuku.withTelemetryService(bindTimeoutMs) { service ->
+                try {
+                    if (service.apiVersion < ToolkitApi.VERSION) {
+                        GatewayReply.Unavailable(GatewayUnavailable.STALE_SERVICE, sent = false)
+                    } else {
+                        dispatched.set(true)
+                        block(service)?.let { GatewayReply.Reply(it) }
+                            ?: GatewayReply.Unavailable(GatewayUnavailable.STALE_SERVICE)
+                    }
+                } catch (_: RuntimeException) {
+                    // The service was reached but threw (e.g. a SecurityException from its caller check, or an
+                    // exception it propagated): it answered, so this is not "can't be reached". A dead binder is a
+                    // RemoteException, which the manager already turns into null (NO_SERVICE below).
+                    GatewayReply.Unavailable(GatewayUnavailable.STALE_SERVICE, sent = dispatched.get())
                 }
-            } catch (_: RuntimeException) {
-                // The service was reached but threw (e.g. a SecurityException from its caller check, or an
-                // exception it propagated): it answered, so this is not "can't be reached". A dead binder is a
-                // RemoteException, which the manager already turns into null (NO_SERVICE below).
-                GatewayReply.Unavailable(GatewayUnavailable.STALE_SERVICE)
             }
-        }
-        return reply ?: GatewayReply.Unavailable(GatewayUnavailable.NO_SERVICE)
+        return reply ?: GatewayReply.Unavailable(GatewayUnavailable.NO_SERVICE, sent = dispatched.get())
     }
 
     private fun holdBindingWhileRunning() {
         synchronized(holdLock) {
             if (dexoptHold == null) dexoptHold = shizuku.holdBinding()
             bridgeTimer?.cancel()
-            bridgeTimer = holdBridgeScope.launch {
-                delay(HOLD_BRIDGE_MS)
-                releaseHold()
-            }
+            bridgeTimer =
+                holdBridgeScope.launch {
+                    delay(HOLD_BRIDGE_MS)
+                    releaseHold()
+                }
         }
     }
 
