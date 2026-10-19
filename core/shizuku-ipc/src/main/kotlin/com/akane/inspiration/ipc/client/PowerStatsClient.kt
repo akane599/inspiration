@@ -1,12 +1,13 @@
 package com.akane.inspiration.ipc.client
 
-import android.annotation.TargetApi
+import android.annotation.SuppressLint
 import android.os.Build
 import android.os.Bundle
 import android.os.IBinder
 import android.os.IPowerStatsService
 import android.os.PowerMonitor
 import android.os.ResultReceiver
+import androidx.annotation.RequiresApi
 import com.akane.inspiration.ipc.model.PowerMonitorReading
 import com.akane.inspiration.ipc.model.PowerMonitorSnapshot
 import com.akane.inspiration.ipc.model.Reasons
@@ -38,6 +39,8 @@ class PowerStatsClient internal constructor(
     private val timeoutMs: Long,
     private val callsFactory: (IBinder) -> PowerStatsCalls,
 ) {
+    // NewApi: read() returns unavailable below API_POWER_MONITORS before callsFactory ever runs.
+    @SuppressLint("NewApi")
     constructor(
         binderSource: () -> IBinder?,
         sdkInt: Int = Build.VERSION.SDK_INT,
@@ -113,7 +116,7 @@ private const val KEY_ENERGY = "energy"
 private const val KEY_TIMESTAMPS = "timestamps"
 private const val RESULT_SUCCESS = 0
 
-@TargetApi(API_POWER_MONITORS)
+@RequiresApi(API_POWER_MONITORS)
 private class FrameworkPowerStatsCalls(binder: IBinder) : PowerStatsCalls {
     private val service: IPowerStatsService = IPowerStatsService.Stub.asInterface(binder)
 

@@ -1,5 +1,6 @@
 package com.akane.inspiration.ipc.client
 
+import android.annotation.SuppressLint
 import android.os.BatteryConsumer
 import android.os.BatteryStats
 import android.os.BatteryUsageStats
@@ -286,6 +287,8 @@ private class ProcessStatePower {
         Int::class.javaPrimitiveType,
         Int::class.javaPrimitiveType,
     )
+    // Intentional hidden API: BatteryConsumer.Key is absent from :core:hidden-api-stub (see the KDoc).
+    @SuppressLint("PrivateApi")
     private val getConsumedPowerByKey: Method = BatteryConsumer::class.java.getMethod(
         "getConsumedPower",
         Class.forName("android.os.BatteryConsumer\$Key"),
