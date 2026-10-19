@@ -4,7 +4,7 @@ import kotlinx.parcelize.Parcelize
 
 /**
  * Background dexopt job state. [state] is a [BgDexoptState] constant; [exitCode] is meaningful for
- * FINISHED, [reason] ([BgDexoptReason]) for CANCELLED. Times are wall-clock ms, 0 when unknown.
+ * FINISHED, [reason] ([BgDexoptReason]) for CANCELLED and UNKNOWN. Times are wall-clock ms, 0 when unknown.
  */
 @Parcelize
 data class BgDexoptStatus(
@@ -29,4 +29,10 @@ object BgDexoptReason {
     const val UNPLUGGED = 2
     const val TIMEOUT = 3
     const val CALLER = 4
+
+    /**
+     * With UNKNOWN: this Android version (below API 33) has no command that cancels a job started from the shell,
+     * so the service never starts one ([ToolkitCode.UNSUPPORTED_API]). A job an older service started may still run.
+     */
+    const val UNSUPPORTED_API = 5
 }

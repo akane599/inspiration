@@ -127,6 +127,7 @@ internal fun refusalRes(reason: ToolkitRefusal): Int =
         ToolkitRefusal.INVALID_ARGUMENT -> R.string.toolkit_refused_invalid_argument
         ToolkitRefusal.NOT_INSTALLED -> R.string.toolkit_refused_not_installed
         ToolkitRefusal.UNSUPPORTED_USER -> R.string.toolkit_refused_unsupported_user
+        ToolkitRefusal.UNSUPPORTED_API -> R.string.toolkit_refused_unsupported_api
         ToolkitRefusal.PROTECTED_APP -> R.string.toolkit_refused_protected_app
         ToolkitRefusal.CALLER -> R.string.toolkit_refused_caller
         ToolkitRefusal.STALE -> R.string.toolkit_refused_stale
@@ -339,6 +340,10 @@ internal fun dexoptStatusText(
 
         BgDexoptStatus.Unknown -> {
             stringResource(R.string.toolkit_dexopt_unknown)
+        }
+
+        BgDexoptStatus.Unsupported -> {
+            stringResource(R.string.toolkit_dexopt_unsupported)
         }
     }
 

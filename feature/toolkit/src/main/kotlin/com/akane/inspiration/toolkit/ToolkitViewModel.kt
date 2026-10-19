@@ -703,6 +703,7 @@ class ToolkitViewModel(
         val dexopt = _state.value.dexopt
         if (_state.value.status != ToolkitPhase.READY || dexopt.busy) return
         if (dexopt.status is BgDexoptStatus.Running || dexopt.status == BgDexoptStatus.Unknown) return
+        if (dexopt.status == BgDexoptStatus.Unsupported) return
         setDexopt { it.copy(busy = true, notice = null) }
         viewModelScope.launch {
             val outcome = attempt { deps.toolkit.startBgDexopt() }

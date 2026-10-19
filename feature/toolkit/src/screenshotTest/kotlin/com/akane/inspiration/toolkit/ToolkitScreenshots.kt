@@ -29,7 +29,10 @@ private fun Screen(state: ToolkitState) {
 }
 
 @Composable
-private fun SheetBody(detail: AppDetail, busy: Boolean = false) {
+private fun SheetBody(
+    detail: AppDetail,
+    busy: Boolean = false,
+) {
     Surface(color = MaterialTheme.colorScheme.surfaceContainerLow, shape = MaterialTheme.shapes.extraLarge) {
         AppDetailContent(
             detail = detail,
@@ -76,12 +79,24 @@ private fun NotificationBody(state: StatusNotificationState) {
 fun ToolkitNotificationOn() = InspirationTheme(darkTheme = false) { NotificationBody(ToolkitPreviewData.notificationOn) }
 
 @PreviewTest
-@Preview(name = "status-notification-on-840-dark", showBackground = true, widthDp = 840, heightDp = 140, uiMode = Configuration.UI_MODE_NIGHT_YES)
+@Preview(
+    name = "status-notification-on-840-dark",
+    showBackground = true,
+    widthDp = 840,
+    heightDp = 140,
+    uiMode = Configuration.UI_MODE_NIGHT_YES,
+)
 @Composable
 fun ToolkitNotificationOnWide() = InspirationTheme(darkTheme = true) { NotificationBody(ToolkitPreviewData.notificationOn) }
 
 @PreviewTest
-@Preview(name = "status-notification-off-360-dark", showBackground = true, widthDp = 360, heightDp = 160, uiMode = Configuration.UI_MODE_NIGHT_YES)
+@Preview(
+    name = "status-notification-off-360-dark",
+    showBackground = true,
+    widthDp = 360,
+    heightDp = 160,
+    uiMode = Configuration.UI_MODE_NIGHT_YES,
+)
 @Composable
 fun ToolkitNotificationOff() = InspirationTheme(darkTheme = true) { NotificationBody(ToolkitPreviewData.notificationOff) }
 
@@ -96,7 +111,13 @@ fun ToolkitNotificationOffWide() = InspirationTheme(darkTheme = false) { Notific
 fun ToolkitNotificationBlocked() = InspirationTheme(darkTheme = false) { NotificationBody(ToolkitPreviewData.notificationBlocked) }
 
 @PreviewTest
-@Preview(name = "status-notification-blocked-840-dark", showBackground = true, widthDp = 840, heightDp = 180, uiMode = Configuration.UI_MODE_NIGHT_YES)
+@Preview(
+    name = "status-notification-blocked-840-dark",
+    showBackground = true,
+    widthDp = 840,
+    heightDp = 180,
+    uiMode = Configuration.UI_MODE_NIGHT_YES,
+)
 @Composable
 fun ToolkitNotificationBlockedWide() = InspirationTheme(darkTheme = true) { NotificationBody(ToolkitPreviewData.notificationBlocked) }
 
@@ -106,7 +127,14 @@ fun ToolkitNotificationBlockedWide() = InspirationTheme(darkTheme = true) { Noti
 fun ToolkitNotificationLargeFont() = InspirationTheme(darkTheme = false) { NotificationBody(ToolkitPreviewData.notificationOn) }
 
 @PreviewTest
-@Preview(name = "status-notification-blocked-large-font-dark", showBackground = true, widthDp = 360, heightDp = 460, fontScale = 1.5f, uiMode = Configuration.UI_MODE_NIGHT_YES)
+@Preview(
+    name = "status-notification-blocked-large-font-dark",
+    showBackground = true,
+    widthDp = 360,
+    heightDp = 460,
+    fontScale = 1.5f,
+    uiMode = Configuration.UI_MODE_NIGHT_YES,
+)
 @Composable
 fun ToolkitNotificationBlockedLargeFont() = InspirationTheme(darkTheme = true) { NotificationBody(ToolkitPreviewData.notificationBlocked) }
 
@@ -200,6 +228,11 @@ fun ToolkitDexoptUnknown() = InspirationTheme(darkTheme = true) { DexoptBody(Too
 @Preview(name = "dexopt-refused-turkish", showBackground = true, widthDp = 360, heightDp = 460, locale = "tr")
 @Composable
 fun ToolkitDexoptRefused() = InspirationTheme(darkTheme = false) { DexoptBody(ToolkitPreviewData.dexoptUnplugged) }
+
+@PreviewTest
+@Preview(name = "dexopt-unsupported-turkish", showBackground = true, widthDp = 360, heightDp = 380, locale = "tr")
+@Composable
+fun ToolkitDexoptUnsupported() = InspirationTheme(darkTheme = false) { DexoptBody(ToolkitPreviewData.dexoptUnsupported) }
 
 // ---- app detail sheet body ----------------------------------------------------------------------
 

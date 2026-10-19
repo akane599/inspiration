@@ -154,7 +154,7 @@ class AndroidPackageInspectorTest {
 
             override fun protectedPackages(): ProtectedPackages? = real.protectedPackages()
         }
-        val executor = ToolkitExecutor(runner, installed, BgDexoptController(runner, { true }, { 0L }, { }), OWN) { }
+        val executor = ToolkitExecutor(runner, installed, BgDexoptController(runner, { true }, { 0L }, { }, TEST_SDK_INT), OWN) { }
 
         val result = executor.forceStop(LATE_SERVICE)
 

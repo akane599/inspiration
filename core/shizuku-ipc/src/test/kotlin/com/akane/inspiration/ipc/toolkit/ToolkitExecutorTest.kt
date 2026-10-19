@@ -25,7 +25,7 @@ class ToolkitExecutorTest {
         ToolkitExecutor(
             runner = runner,
             inspector = inspector,
-            dexopt = BgDexoptController(runner, { true }, { 0L }, { }),
+            dexopt = BgDexoptController(runner, { true }, { 0L }, { }, TEST_SDK_INT),
             ownPackage = OWN,
             sleepMs = { },
         ).also { runner.handler = ::device }
@@ -387,7 +387,7 @@ class ToolkitExecutorTest {
         ToolkitExecutor(
             runner = runner,
             inspector = inspector,
-            dexopt = BgDexoptController(runner, { true }, { 0L }, { }),
+            dexopt = BgDexoptController(runner, { true }, { 0L }, { }, TEST_SDK_INT),
             ownPackage = OWN,
             elapsedMs = clock::now,
             sleepMs = { },
@@ -477,7 +477,7 @@ class ToolkitExecutorTest {
             ToolkitExecutor(
                 runner = runner,
                 inspector = inspector,
-                dexopt = BgDexoptController(runner, { true }, { 0L }, { }),
+                dexopt = BgDexoptController(runner, { true }, { 0L }, { }, TEST_SDK_INT),
                 ownPackage = OWN,
                 userId = 10,
                 sleepMs = { },
@@ -500,7 +500,7 @@ class ToolkitExecutorTest {
         val device = FakeDozeDevice()
         runner.handler = device::handle
         val executor =
-            ToolkitExecutor(runner, inspector, BgDexoptController(runner, { true }, { 0L }, { }), OWN, userId = 10) { }
+            ToolkitExecutor(runner, inspector, BgDexoptController(runner, { true }, { 0L }, { }, TEST_SDK_INT), OWN, userId = 10) { }
 
         val result = executor.applyDozeProfile(DozeProfile.BALANCED.code, null)
 
@@ -518,7 +518,7 @@ class ToolkitExecutorTest {
 
     private fun dozeExecutor(device: FakeDozeDevice): ToolkitExecutor {
         runner.handler = device::handle
-        return ToolkitExecutor(runner, inspector, BgDexoptController(runner, { true }, { 0L }, { }), OWN) { }
+        return ToolkitExecutor(runner, inspector, BgDexoptController(runner, { true }, { 0L }, { }, TEST_SDK_INT), OWN) { }
     }
 
     @Test
@@ -936,7 +936,7 @@ class ToolkitExecutorTest {
                 true
             }
         runner.handler = { ok() }
-        executor = ToolkitExecutor(runner, inspector, BgDexoptController(runner, probe, { 0L }, { }), OWN) { }
+        executor = ToolkitExecutor(runner, inspector, BgDexoptController(runner, probe, { 0L }, { }, TEST_SDK_INT), OWN) { }
 
         val start = executor.startBgDexopt()
 
@@ -960,12 +960,55 @@ class ToolkitExecutorTest {
         assertEquals(ToolkitStatus.DONE, executor.startBgDexopt().status)
     }
 
-    @Test
-    fun `cancelBgDexopt issues exactly bg-dexopt-job --cancel`() {
-        val result = executor().also { runner.handler = { ok() } }.cancelBgDexopt()
+    private fun dexoptExecutor(
+        shell: FakeDexoptShell,
+        sdkInt: Int,
+        probe: PluggedProbe = PluggedProbe { true },
+    ): ToolkitExecutor {
+        runner.handler = shell::handle
+        return ToolkitExecutor(runner, inspector, BgDexoptController(runner, probe, { 0L }, { }, sdkInt), OWN) { }
+    }
 
-        assertEquals(ToolkitStatus.DONE, result.status)
-        assertEquals(listOf(CMD, "package", "bg-dexopt-job", "--cancel"), runner.calls.single())
+    @Test
+    fun `from API 33 a user cancel stops the system job and runs no extra pass`() {
+        for (sdk in 33..36) {
+            runner.calls.clear()
+            val shell = FakeDexoptShell(sdk)
+            val executor = dexoptExecutor(shell, sdk)
+            assertEquals(ToolkitStatus.DONE, executor.startBgDexopt().status)
+            shell.running = true // the worker has the job under way
+
+            val result = executor.cancelBgDexopt()
+
+            assertEquals("API $sdk", ToolkitStatus.DONE, result.status)
+            assertEquals("API $sdk", 1, shell.cancels)
+            assertEquals("API $sdk", 0, shell.passes)
+            assertFalse("API $sdk", shell.running)
+        }
+    }
+
+    @Test
+    fun `below API 33 start and cancel are refused and run nothing`() {
+        for (sdk in listOf(31, 32)) {
+            runner.calls.clear()
+            val shell = FakeDexoptShell(sdk)
+            var probes = 0
+            val executor = dexoptExecutor(shell, sdk, PluggedProbe { true.also { probes += 1 } })
+            shell.running = true // a job an older service version started
+
+            val start = executor.startBgDexopt()
+            val cancel = executor.cancelBgDexopt()
+
+            for (result in listOf(start, cancel)) {
+                assertEquals("API $sdk", ToolkitStatus.REFUSED, result.status)
+                assertEquals("API $sdk", ToolkitCode.UNSUPPORTED_API, result.code)
+            }
+            assertTrue("API $sdk: nothing ran, so no extra dexopt pass", runner.calls.isEmpty())
+            assertEquals(0, shell.passes)
+            assertEquals(0, probes)
+            // A later start is still refused for the same reason, not BUSY.
+            assertEquals(ToolkitCode.UNSUPPORTED_API, executor.startBgDexopt().code)
+        }
     }
 
     private fun everyPackageAction(

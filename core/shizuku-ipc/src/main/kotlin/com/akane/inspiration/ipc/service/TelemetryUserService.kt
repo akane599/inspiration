@@ -3,6 +3,7 @@ package com.akane.inspiration.ipc.service
 import android.content.Context
 import android.content.pm.PackageManager
 import android.os.Binder
+import android.os.Build
 import android.os.IBinder
 import android.os.ParcelFileDescriptor
 import android.os.Process
@@ -423,6 +424,7 @@ class TelemetryUserService private constructor(
                         clockMs = System::currentTimeMillis,
                         elapsedMs = SystemClock::elapsedRealtime,
                         startThread = { },
+                        sdkInt = Build.VERSION.SDK_INT,
                     ),
                 ownPackage = "",
             )
@@ -437,6 +439,8 @@ class TelemetryUserService private constructor(
                     clockMs = System::currentTimeMillis,
                     elapsedMs = SystemClock::elapsedRealtime,
                     startThread = { job -> Thread(job, "bg-dexopt").apply { isDaemon = true }.start() },
+                    // The shell-UID service runs on the device's own framework, so this is the platform's level.
+                    sdkInt = Build.VERSION.SDK_INT,
                 )
             return ToolkitExecutor(
                 runner = runner,

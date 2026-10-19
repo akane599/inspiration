@@ -67,6 +67,12 @@ object ToolkitCode {
     /** Package actions run only for Android user 0; the service runs for another user (work profile etc.). */
     const val UNSUPPORTED_USER = 14
 
+    /**
+     * The action cannot be made safe on this Android version, so nothing was run. bg-dexopt below API 33: no shell
+     * command can cancel a job started from the shell there, so the unplug guard and the cap could not stop it.
+     */
+    const val UNSUPPORTED_API = 15
+
     const val DENY_APP_ID = 20
     const val DENY_PERSISTENT = 21
     const val DENY_SYSTEM = 22
@@ -96,8 +102,10 @@ object ToolkitCode {
 
 /**
  * Service API level. Version 2 added txns 20-31; version 3 added app-op mode code 3 (`allow`) and stopped
- * accepting code 2 (`default`) as a write. The client refuses writes below it (STALE_SERVICE).
+ * accepting code 2 (`default`) as a write. Version 4 picks the bg-dexopt cancel command by API level and refuses
+ * bg-dexopt below API 33 ([ToolkitCode.UNSUPPORTED_API], status reason [BgDexoptReason.UNSUPPORTED_API]); an older
+ * service would still send a cancel that does not cancel there. The client refuses writes below it (STALE_SERVICE).
  */
 object ToolkitApi {
-    const val VERSION = 3
+    const val VERSION = 4
 }

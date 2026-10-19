@@ -238,19 +238,22 @@ internal class ToolkitExecutor(
 
     fun bgDexoptStatus(): BgDexoptStatus = dexopt.status()
 
-    fun cancelBgDexopt(): ToolkitResult =
-        synchronized(writeLock) {
+    fun cancelBgDexopt(): ToolkitResult {
+        // No command cancels a job here; the platform's nearest argv would start another dexopt pass instead.
+        val argv = dexopt.cancelArgv ?: return ToolkitResult.refused(ToolkitCode.UNSUPPORTED_API)
+        return synchronized(writeLock) {
             protectedCache = null
             dexopt.beginUserCancel()
             var confirmed = false
             try {
-                val out = runner.run(BG_DEXOPT_CANCEL_ARGV)
+                val out = runner.run(argv)
                 confirmed = out.ok
                 if (out.ok) ToolkitResult.done() else ToolkitResult.failed(execCode(out))
             } finally {
                 dexopt.endUserCancel(confirmed)
             }
         }
+    }
 
     /** Called by the service's destroy() before the process exits; never throws. */
     fun cancelOnShutdown() {

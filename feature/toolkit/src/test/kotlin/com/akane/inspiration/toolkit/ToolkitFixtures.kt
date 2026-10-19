@@ -92,6 +92,9 @@ internal class FakeDevice {
     var plugged = true
     var dexopt = ServiceDexopt(BgDexoptState.IDLE, 0, 0, 0, BgDexoptReason.NONE)
 
+    /** An API 31/32 service: bg-dexopt start and cancel are refused (UNSUPPORTED_API) and nothing changes. */
+    var dexoptUnsupported = false
+
     /** Every call about these packages answers a hard-deny refusal. */
     val protectedPackages = mutableSetOf<String>()
 
@@ -215,6 +218,10 @@ internal class FakeDevice {
                 "startBgDexopt" -> {
                     writes += "startBgDexopt"
                     when {
+                        dexoptUnsupported -> {
+                            ToolkitResult.refused(ToolkitCode.UNSUPPORTED_API)
+                        }
+
                         !plugged -> {
                             ToolkitResult.refused(ToolkitCode.NOT_PLUGGED)
                         }
@@ -231,13 +238,17 @@ internal class FakeDevice {
                 }
 
                 "getBgDexoptStatus" -> {
-                    dexopt
+                    if (dexoptUnsupported) ServiceDexopt(BgDexoptState.UNKNOWN, 0, 0, 0, BgDexoptReason.UNSUPPORTED_API) else dexopt
                 }
 
                 "cancelBgDexopt" -> {
                     writes += "cancelBgDexopt"
-                    dexopt = ServiceDexopt(BgDexoptState.CANCELLED, dexopt.startedAtMs, now(), 0, BgDexoptReason.USER)
-                    ToolkitResult.done()
+                    if (dexoptUnsupported) {
+                        ToolkitResult.refused(ToolkitCode.UNSUPPORTED_API)
+                    } else {
+                        dexopt = ServiceDexopt(BgDexoptState.CANCELLED, dexopt.startedAtMs, now(), 0, BgDexoptReason.USER)
+                        ToolkitResult.done()
+                    }
                 }
 
                 else -> {

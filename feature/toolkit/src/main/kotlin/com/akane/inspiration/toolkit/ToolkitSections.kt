@@ -52,13 +52,19 @@ internal fun DozeCard(
             }
             InfoText(stringResource(R.string.toolkit_doze_intro))
             when (val load = section.load) {
-                DozeLoad.Loading -> LoadingLine(stringResource(R.string.toolkit_doze_loading))
+                DozeLoad.Loading -> {
+                    LoadingLine(stringResource(R.string.toolkit_doze_loading))
+                }
+
                 is DozeLoad.Unavailable -> {
                     InfoText(stringResource(R.string.toolkit_doze_unavailable))
                     InfoText(problemText(load.problem), small = true)
                     RetryButton(label = stringResource(R.string.toolkit_error_action), onClick = { onIntent(ToolkitIntent.Reload) })
                 }
-                is DozeLoad.Loaded -> DozeLoaded(info = load.info, busy = busy, onIntent = onIntent)
+
+                is DozeLoad.Loaded -> {
+                    DozeLoaded(info = load.info, busy = busy, onIntent = onIntent)
+                }
             }
             section.notice?.let { NoticeLine(it) }
         }
@@ -78,16 +84,21 @@ private fun ExperimentalBadge() {
 }
 
 @Composable
-private fun DozeLoaded(info: DozeInfo, busy: Boolean, onIntent: (ToolkitIntent) -> Unit) {
+private fun DozeLoaded(
+    info: DozeInfo,
+    busy: Boolean,
+    onIntent: (ToolkitIntent) -> Unit,
+) {
     val spacing = MaterialTheme.spacing
     Column(verticalArrangement = Arrangement.spacedBy(spacing.md)) {
         val current = info.profile
         Text(
-            text = if (current != null) {
-                stringResource(R.string.toolkit_doze_current, stringResource(profileLabelRes(current)))
-            } else {
-                stringResource(R.string.toolkit_doze_current_custom)
-            },
+            text =
+                if (current != null) {
+                    stringResource(R.string.toolkit_doze_current, stringResource(profileLabelRes(current)))
+                } else {
+                    stringResource(R.string.toolkit_doze_current_custom)
+                },
             style = MaterialTheme.typography.titleSmall,
             color = MaterialTheme.colorScheme.onSurface,
         )
@@ -106,7 +117,12 @@ private fun DozeLoaded(info: DozeInfo, busy: Boolean, onIntent: (ToolkitIntent) 
 }
 
 @Composable
-private fun ProfileRow(profile: DozeProfile, active: Boolean, enabled: Boolean, onApply: () -> Unit) {
+private fun ProfileRow(
+    profile: DozeProfile,
+    active: Boolean,
+    enabled: Boolean,
+    onApply: () -> Unit,
+) {
     val spacing = MaterialTheme.spacing
     Row(
         modifier = Modifier.fillMaxWidth(),
@@ -186,17 +202,20 @@ internal fun DexoptCard(
                 DexoptStatusLine(status = status, timeZone = timeZone)
                 // Unknown means the service restarted or the state was lost: it may still be running, so Cancel stays reachable.
                 val mayBeRunning = status is BgDexoptStatus.Running || status == BgDexoptStatus.Unknown
-                Row(
-                    modifier = Modifier.filterTouchesWhenObscured(),
-                    horizontalArrangement = Arrangement.spacedBy(spacing.sm),
-                ) {
-                    if (mayBeRunning) {
-                        OutlinedButton(onClick = { onIntent(ToolkitIntent.CancelDexopt) }, enabled = !section.busy) {
-                            Text(stringResource(R.string.toolkit_dexopt_cancel))
-                        }
-                    } else {
-                        Button(onClick = { onIntent(ToolkitIntent.StartDexopt) }, enabled = !section.busy) {
-                            Text(stringResource(R.string.toolkit_dexopt_start))
+                // Unsupported: the platform could neither stop the job on unplug nor cancel it, so nothing is offered.
+                if (status != BgDexoptStatus.Unsupported) {
+                    Row(
+                        modifier = Modifier.filterTouchesWhenObscured(),
+                        horizontalArrangement = Arrangement.spacedBy(spacing.sm),
+                    ) {
+                        if (mayBeRunning) {
+                            OutlinedButton(onClick = { onIntent(ToolkitIntent.CancelDexopt) }, enabled = !section.busy) {
+                                Text(stringResource(R.string.toolkit_dexopt_cancel))
+                            }
+                        } else {
+                            Button(onClick = { onIntent(ToolkitIntent.StartDexopt) }, enabled = !section.busy) {
+                                Text(stringResource(R.string.toolkit_dexopt_start))
+                            }
                         }
                     }
                 }
@@ -207,15 +226,19 @@ internal fun DexoptCard(
 }
 
 @Composable
-private fun DexoptStatusLine(status: BgDexoptStatus, timeZone: TimeZone) {
+private fun DexoptStatusLine(
+    status: BgDexoptStatus,
+    timeZone: TimeZone,
+) {
     val statusColors = MaterialTheme.statusColors
-    val color = when (status) {
-        is BgDexoptStatus.Running -> statusColors.ok
-        is BgDexoptStatus.Finished -> if (status.exitCode == 0) statusColors.ok else MaterialTheme.telemetryColors.critical
-        is BgDexoptStatus.Cancelled -> statusColors.warning
-        BgDexoptStatus.Unknown -> statusColors.warning
-        BgDexoptStatus.Idle -> statusColors.neutral
-    }
+    val color =
+        when (status) {
+            is BgDexoptStatus.Running -> statusColors.ok
+            is BgDexoptStatus.Finished -> if (status.exitCode == 0) statusColors.ok else MaterialTheme.telemetryColors.critical
+            is BgDexoptStatus.Cancelled -> statusColors.warning
+            BgDexoptStatus.Unknown -> statusColors.warning
+            BgDexoptStatus.Idle, BgDexoptStatus.Unsupported -> statusColors.neutral
+        }
     val format = rememberTelemetryFormat()
     Row(
         modifier = Modifier.fillMaxWidth().semantics { liveRegion = LiveRegionMode.Polite },
@@ -268,7 +291,12 @@ internal fun OverridesCard(
 }
 
 @Composable
-private fun OverrideRow(item: OverrideItem, since: String, enabled: Boolean, onIntent: (ToolkitIntent) -> Unit) {
+private fun OverrideRow(
+    item: OverrideItem,
+    since: String,
+    enabled: Boolean,
+    onIntent: (ToolkitIntent) -> Unit,
+) {
     val spacing = MaterialTheme.spacing
     Row(
         modifier = Modifier.fillMaxWidth(),
@@ -299,7 +327,11 @@ private fun OverrideRow(item: OverrideItem, since: String, enabled: Boolean, onI
 
 /** What "Reset all" did, item by item: a failed item stays listed with its reason. */
 @Composable
-internal fun ResetReportCard(report: ResetReport, onIntent: (ToolkitIntent) -> Unit, modifier: Modifier = Modifier) {
+internal fun ResetReportCard(
+    report: ResetReport,
+    onIntent: (ToolkitIntent) -> Unit,
+    modifier: Modifier = Modifier,
+) {
     val spacing = MaterialTheme.spacing
     val okColor = MaterialTheme.statusColors.ok
     val failedColor = MaterialTheme.telemetryColors.critical
@@ -307,12 +339,13 @@ internal fun ResetReportCard(report: ResetReport, onIntent: (ToolkitIntent) -> U
         Column(verticalArrangement = Arrangement.spacedBy(spacing.md)) {
             CardTitle(stringResource(R.string.toolkit_reset_report_title))
             Text(
-                text = pluralStringResource(
-                    R.plurals.toolkit_reset_report_summary,
-                    report.lines.size,
-                    report.restored,
-                    report.lines.size,
-                ),
+                text =
+                    pluralStringResource(
+                        R.plurals.toolkit_reset_report_summary,
+                        report.lines.size,
+                        report.restored,
+                        report.lines.size,
+                    ),
                 style = MaterialTheme.typography.titleSmall,
                 color = MaterialTheme.colorScheme.onSurface,
                 modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite },
@@ -329,11 +362,12 @@ internal fun ResetReportCard(report: ResetReport, onIntent: (ToolkitIntent) -> U
                         )
                         val result = line.result
                         InfoText(
-                            text = if (result is ResetResult.NotRestored) {
-                                stringResource(R.string.toolkit_reset_not_restored, problemText(result.problem))
-                            } else {
-                                stringResource(R.string.toolkit_status_restored)
-                            },
+                            text =
+                                if (result is ResetResult.NotRestored) {
+                                    stringResource(R.string.toolkit_reset_not_restored, problemText(result.problem))
+                                } else {
+                                    stringResource(R.string.toolkit_status_restored)
+                                },
                             small = true,
                         )
                     }
@@ -350,7 +384,11 @@ internal fun ResetReportCard(report: ResetReport, onIntent: (ToolkitIntent) -> U
 // ---- history -------------------------------------------------------------------------------------
 
 @Composable
-internal fun HistoryCard(history: ImmutableList<HistoryItem>, timeZone: TimeZone, modifier: Modifier = Modifier) {
+internal fun HistoryCard(
+    history: ImmutableList<HistoryItem>,
+    timeZone: TimeZone,
+    modifier: Modifier = Modifier,
+) {
     val spacing = MaterialTheme.spacing
     val format = rememberTelemetryFormat()
     val zone = timeZone.toZoneId()
@@ -367,7 +405,10 @@ internal fun HistoryCard(history: ImmutableList<HistoryItem>, timeZone: TimeZone
 }
 
 @Composable
-private fun HistoryRow(item: HistoryItem, time: String) {
+private fun HistoryRow(
+    item: HistoryItem,
+    time: String,
+) {
     val spacing = MaterialTheme.spacing
     Row(verticalAlignment = Alignment.Top) {
         LineDot(color = item.status.dotColor())
@@ -386,10 +427,9 @@ private fun HistoryRow(item: HistoryItem, time: String) {
 }
 
 @Composable
-private fun ToolkitActionStatus.dotColor(): Color {
-    return when (this) {
+private fun ToolkitActionStatus.dotColor(): Color =
+    when (this) {
         ToolkitActionStatus.DONE, ToolkitActionStatus.RESTORED -> MaterialTheme.statusColors.ok
         ToolkitActionStatus.REFUSED, ToolkitActionStatus.FAILED -> MaterialTheme.telemetryColors.critical
         ToolkitActionStatus.PENDING, ToolkitActionStatus.CANCELLED -> MaterialTheme.statusColors.warning
     }
-}

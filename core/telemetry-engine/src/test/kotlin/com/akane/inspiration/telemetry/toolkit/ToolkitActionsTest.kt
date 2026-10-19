@@ -716,6 +716,36 @@ class ToolkitActionsTest {
         }
 
     @Test
+    fun anUnsupportedApiLevelIsReportedAsSuchAndRefusesStartAndCancelWithItsOwnReason() =
+        runTest {
+            backend.dexoptStatuses.clear()
+            backend.dexoptStatuses.add(serviceStatus(BgDexoptState.UNKNOWN, reason = BgDexoptReason.UNSUPPORTED_API))
+            backend.startResult = ToolkitResult.refused(ToolkitCode.UNSUPPORTED_API)
+            backend.cancelResult = ToolkitResult.refused(ToolkitCode.UNSUPPORTED_API)
+            val refused = ToolkitOutcome.Refused(ToolkitRefusal.UNSUPPORTED_API, ToolkitCode.UNSUPPORTED_API)
+
+            // Not Idle: nothing can be started here, and the card must not offer it.
+            assertEquals(BgDexoptStatus.Unsupported, actions.bgDexoptStatus().first())
+            assertEquals(refused, actions.startBgDexopt())
+            assertEquals(ToolkitActionStatus.REFUSED, audit.rows.single().status)
+            assertEquals(refused, actions.cancelBgDexopt())
+            assertEquals(0, holds.opened)
+        }
+
+    @Test
+    fun anUnsupportedApiLevelKeepsAnOlderServicesPendingRowWithoutClaimingAnOutcome() =
+        runTest {
+            val id = audit.insert(pendingRow("dexopt", "bg_dexopt", null, pkg = null, before = "0"))
+            backend.dexoptStatuses.clear()
+            backend.dexoptStatuses.add(serviceStatus(BgDexoptState.UNKNOWN, reason = BgDexoptReason.UNSUPPORTED_API))
+            backend.cancelResult = ToolkitResult.refused(ToolkitCode.UNSUPPORTED_API)
+
+            assertEquals(BgDexoptStatus.Unsupported, actions.bgDexoptStatus().first())
+            assertTrue(actions.cancelBgDexopt() is ToolkitOutcome.Refused)
+            assertEquals(ToolkitActionStatus.PENDING, audit.byId(id).status)
+        }
+
+    @Test
     fun startingAgainSupersedesAStalePendingDexoptRow() =
         runTest {
             val stale = audit.insert(pendingRow("dexopt", "bg_dexopt", null, pkg = null, before = "0"))

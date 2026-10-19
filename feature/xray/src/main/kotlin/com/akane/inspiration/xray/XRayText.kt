@@ -152,6 +152,7 @@ internal fun refusalRes(reason: ToolkitRefusal): Int =
         ToolkitRefusal.INVALID_ARGUMENT -> R.string.xray_refused_invalid_argument
         ToolkitRefusal.NOT_INSTALLED -> R.string.xray_refused_not_installed
         ToolkitRefusal.UNSUPPORTED_USER -> R.string.xray_refused_unsupported_user
+        ToolkitRefusal.UNSUPPORTED_API -> R.string.xray_refused_unsupported_api
         ToolkitRefusal.PROTECTED_APP -> R.string.xray_refused_protected_app
         ToolkitRefusal.CALLER -> R.string.xray_refused_caller
         ToolkitRefusal.STALE -> R.string.xray_refused_stale

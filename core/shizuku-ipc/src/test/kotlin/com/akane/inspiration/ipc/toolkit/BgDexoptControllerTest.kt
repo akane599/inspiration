@@ -6,6 +6,7 @@ import com.akane.inspiration.ipc.model.ToolkitCode
 import com.akane.inspiration.ipc.model.ToolkitStatus
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -13,7 +14,10 @@ class BgDexoptControllerTest {
     private val clock = FakeClock(nowMs = 1_000L)
     private val threads = mutableListOf<Runnable>()
     private val calls = mutableListOf<List<String>>()
+    private var sdkInt = TEST_SDK_INT
+    private var shell = FakeDexoptShell(sdkInt)
     private var plugged = { true }
+    private var probes = 0
     private var monotonicMs = 1_000L
     private var jobExitsAtMs: Long? = null
     private var jobExit = 0
@@ -47,30 +51,158 @@ class BgDexoptControllerTest {
         }
     }
 
-    private val runner = CommandRunner { argv ->
-        calls += argv
-        when (argv) {
-            BG_DEXOPT_ARGV -> FakeJob().also { job = it }
-            BG_DEXOPT_CANCEL_ARGV -> {
-                cancelled = true
-                object : CommandProcess {
-                    override fun awaitExit(timeoutMs: Long) = !cancelOutput.timedOut
+    /** A `cmd` client that never returns within the wait (API 33 `bg-dexopt-job ARGS` behind a running job). */
+    private val blocked =
+        object : CommandProcess {
+            override fun awaitExit(timeoutMs: Long) = false
 
-                    override fun output(timedOut: Boolean) = cancelOutput
+            override fun output(timedOut: Boolean) = CommandOutput(exitCode = -1, text = "", timedOut = timedOut)
 
-                    override fun destroy() = Unit
+            override fun destroy() = Unit
+        }
+
+    /** Answers each argv the way `cmd package` does on [sdkInt] ([FakeDexoptShell]). */
+    private val runner =
+        CommandRunner { argv ->
+            calls += argv
+            when (shell.effect(argv)) {
+                FakeDexoptShell.Effect.PASS -> {
+                    shell.passes += 1
+                    shell.running = true
+                    FakeJob().also { job = it }
+                }
+
+                FakeDexoptShell.Effect.CANCEL -> {
+                    shell.cancels += 1
+                    cancelled = true
+                    if (cancelOutput.ok) shell.running = false
+                    object : CommandProcess {
+                        override fun awaitExit(timeoutMs: Long) = !cancelOutput.timedOut
+
+                        override fun output(timedOut: Boolean) = cancelOutput
+
+                        override fun destroy() = Unit
+                    }
+                }
+
+                FakeDexoptShell.Effect.WAIT_THEN_PASS -> {
+                    blocked
+                }
+
+                FakeDexoptShell.Effect.UNKNOWN_COMMAND -> {
+                    object : CommandProcess {
+                        override fun awaitExit(timeoutMs: Long) = true
+
+                        override fun output(timedOut: Boolean) = failure("Unknown command")
+
+                        override fun destroy() = Unit
+                    }
                 }
             }
-            else -> error("unexpected argv $argv")
+        }
+
+    private fun controller() =
+        BgDexoptController(
+            runner = runner,
+            plugged = {
+                probes += 1
+                plugged()
+            },
+            clockMs = clock::now,
+            startThread = { threads += it },
+            sdkInt = sdkInt,
+        )
+
+    /** A fresh device on [sdk]: no job, nothing issued, both clocks back at 1 s. */
+    private fun onApi(sdk: Int) {
+        sdkInt = sdk
+        shell = FakeDexoptShell(sdk)
+        threads.clear()
+        calls.clear()
+        probes = 0
+        cancelled = false
+        clock.nowMs = 1_000L
+        monotonicMs = 1_000L
+    }
+
+    // ---- per API level -----------------------------------------------------------------------
+
+    @Test
+    fun `below API 33 nothing can cancel a shell-started job, so none is started and nothing runs`() {
+        for (sdk in listOf(31, 32)) {
+            onApi(sdk)
+            val controller = controller()
+
+            val start = controller.tryStart()
+            controller.cancelIfRunning()
+
+            assertEquals(ToolkitStatus.REFUSED, start.status)
+            assertEquals(ToolkitCode.UNSUPPORTED_API, start.code)
+            assertNull(controller.cancelArgv)
+            assertTrue("API $sdk: no worker", threads.isEmpty())
+            assertTrue("API $sdk: no command, so no extra dexopt pass", calls.isEmpty())
+            assertEquals("API $sdk: refused before the plugged probe", 0, probes)
+            assertEquals(0, shell.passes)
+            val status = controller.status()
+            assertEquals(BgDexoptState.UNKNOWN, status.state)
+            assertEquals(BgDexoptReason.UNSUPPORTED_API, status.reason)
         }
     }
 
-    private fun controller() = BgDexoptController(
-        runner = runner,
-        plugged = { plugged() },
-        clockMs = clock::now,
-        startThread = { threads += it },
-    )
+    @Test
+    fun `from API 33 an unplug cancels the system job instead of starting another pass`() {
+        for (sdk in 33..36) {
+            onApi(sdk)
+            jobExitsAtMs = null
+            plugged = { clock.nowMs < 1_000L + 70_000 }
+            val controller = controller()
+
+            controller.tryStart()
+            threads.single().run()
+
+            assertEquals("API $sdk", BgDexoptState.CANCELLED, controller.status().state)
+            assertEquals(BgDexoptReason.UNPLUGGED, controller.status().reason)
+            assertEquals("API $sdk: one cancel reached the system", 1, shell.cancels)
+            assertEquals("API $sdk: only the job's own pass ran", 1, shell.passes)
+            assertFalse("API $sdk: the system job stopped", shell.running)
+        }
+    }
+
+    @Test
+    fun `from API 33 the 60 minute cap cancels the system job`() {
+        for (sdk in 33..36) {
+            onApi(sdk)
+            jobExitsAtMs = null
+            val controller = controller()
+
+            controller.tryStart()
+            threads.single().run()
+
+            assertEquals("API $sdk", BgDexoptState.CANCELLED, controller.status().state)
+            assertEquals(BgDexoptReason.TIMEOUT, controller.status().reason)
+            assertEquals("API $sdk", 1, shell.cancels)
+            assertEquals("API $sdk", 1, shell.passes)
+            assertFalse("API $sdk", shell.running)
+        }
+    }
+
+    @Test
+    fun `from API 33 the destroy hook cancels a running system job with a bounded wait`() {
+        for (sdk in 33..36) {
+            onApi(sdk)
+            val controller = controller()
+            controller.tryStart()
+            shell.running = true // the worker has the job under way
+
+            controller.cancelIfRunning()
+
+            assertEquals("API $sdk", 1, shell.cancels)
+            assertEquals("API $sdk: the cancel itself ran no pass", 0, shell.passes)
+            assertFalse("API $sdk", shell.running)
+        }
+    }
+
+    // ---- supervision -------------------------------------------------------------------------
 
     @Test
     fun `backward wall correction does not postpone unplug supervision`() = assertWallCorrection(-3_600_000L)
@@ -86,8 +218,8 @@ class BgDexoptControllerTest {
                 corrected = true
             }
         }
-        val controller = BgDexoptController(runner, { monotonicMs < 2_000 }, clock::now,
-            { threads += it }, elapsedMs = { monotonicMs })
+        val controller =
+            BgDexoptController(runner, { monotonicMs < 2_000 }, clock::now, { threads += it }, sdkInt, elapsedMs = { monotonicMs })
         controller.tryStart()
         threads.single().run()
         assertEquals(BgDexoptReason.UNPLUGGED, controller.status().reason)
@@ -99,10 +231,12 @@ class BgDexoptControllerTest {
         val controller = controller()
         controller.tryStart()
         cancel(controller, false)
-        runner.run(BG_DEXOPT_CANCEL_ARGV)
+        runner.run(checkNotNull(controller.cancelArgv))
         cancel(controller, true)
         threads.single().run()
-        assertEquals(listOf(BG_DEXOPT_CANCEL_ARGV), calls)
+        assertEquals("only the cancel ran", 1, calls.size)
+        assertEquals(1, shell.cancels)
+        assertEquals(0, shell.passes)
         assertEquals(BgDexoptState.CANCELLED, controller.status().state)
         assertEquals(BgDexoptReason.USER, controller.status().reason)
     }
@@ -166,7 +300,7 @@ class BgDexoptControllerTest {
     }
 
     @Test
-    fun `argv is exactly bg-dexopt-job and a finished job allows a new start`() {
+    fun `a finished job ran one pass and allows a new start`() {
         val controller = controller()
         jobExitsAtMs = clock.nowMs + 5 * 60_000
         jobExit = 0
@@ -174,7 +308,9 @@ class BgDexoptControllerTest {
         controller.tryStart()
         threads.single().run()
 
-        assertEquals(listOf(listOf(CMD, "package", "bg-dexopt-job")), calls)
+        assertEquals(1, calls.size)
+        assertEquals(1, shell.passes)
+        assertEquals(0, shell.cancels)
         val status = controller.status()
         assertEquals(BgDexoptState.FINISHED, status.state)
         assertEquals(0, status.exitCode)
@@ -211,7 +347,8 @@ class BgDexoptControllerTest {
         val status = controller.status()
         assertEquals(BgDexoptState.CANCELLED, status.state)
         assertEquals(BgDexoptReason.UNPLUGGED, status.reason)
-        assertEquals(listOf(BG_DEXOPT_ARGV, BG_DEXOPT_CANCEL_ARGV), calls)
+        assertEquals("the job, then its cancel", 2, calls.size)
+        assertEquals(1, shell.cancels)
         // Checks happen at +30 s, +60 s (plugged) and +90 s (unplugged): never faster than 30 s.
         assertEquals(1_000L + 90_000, status.endedAtMs)
         assertTrue(job.destroyed)
@@ -228,7 +365,7 @@ class BgDexoptControllerTest {
         val status = controller.status()
         assertEquals(BgDexoptState.CANCELLED, status.state)
         assertEquals(BgDexoptReason.TIMEOUT, status.reason)
-        assertEquals(BG_DEXOPT_CANCEL_ARGV, calls.last())
+        assertEquals(FakeDexoptShell.Effect.CANCEL, shell.effect(calls.last()))
         assertEquals(1_000L + 60 * 60_000, status.endedAtMs)
     }
 
@@ -252,7 +389,7 @@ class BgDexoptControllerTest {
 
     @Test
     fun `a failure to launch the worker leaves the controller usable`() {
-        val controller = BgDexoptController(runner, { true }, clock::now, { throw IllegalStateException("no thread") })
+        val controller = BgDexoptController(runner, { true }, clock::now, { throw IllegalStateException("no thread") }, sdkInt)
 
         val result = controller.tryStart()
 
@@ -263,6 +400,7 @@ class BgDexoptControllerTest {
     @Test
     fun `a fresh controller reports unknown and never claims idle blindly`() {
         assertEquals(BgDexoptState.UNKNOWN, controller().status().state)
+        assertEquals(BgDexoptReason.NONE, controller().status().reason)
         assertTrue(calls.isEmpty())
     }
 
@@ -301,12 +439,17 @@ class BgDexoptControllerTest {
         running.tryStart()
         running.cancelIfRunning()
         threads.single().run()
-        assertEquals(listOf(BG_DEXOPT_CANCEL_ARGV), calls)
+        assertEquals("only the cancel ran; the queued worker never started the job", 1, calls.size)
+        assertEquals(1, shell.cancels)
+        assertEquals(0, shell.passes)
         assertEquals(BgDexoptState.CANCELLED, running.status().state)
         assertEquals(ToolkitCode.BUSY, running.tryStart().code)
     }
 
-    private fun cancel(controller: BgDexoptController, success: Boolean) {
+    private fun cancel(
+        controller: BgDexoptController,
+        success: Boolean,
+    ) {
         controller.beginUserCancel()
         controller.endUserCancel(success)
     }

@@ -10,8 +10,10 @@ import com.akane.inspiration.ipc.model.ToolkitStatus
 import com.akane.inspiration.ipc.toolkit.BgDexoptController
 import com.akane.inspiration.ipc.toolkit.CMD
 import com.akane.inspiration.ipc.toolkit.CommandRunner
+import com.akane.inspiration.ipc.toolkit.FakeDexoptShell
 import com.akane.inspiration.ipc.toolkit.FakeInspector
 import com.akane.inspiration.ipc.toolkit.FakeRunner
+import com.akane.inspiration.ipc.toolkit.TEST_SDK_INT
 import com.akane.inspiration.ipc.toolkit.ThrowingRunner
 import com.akane.inspiration.ipc.toolkit.ToolkitExecutor
 import com.akane.inspiration.ipc.toolkit.ok
@@ -28,7 +30,7 @@ class TelemetryUserServiceToolkitTest {
     private fun toolkit(
         runner: CommandRunner = spawn,
         inspector: FakeInspector = FakeInspector(mutableMapOf("com.example.app" to userApp())),
-    ) = ToolkitExecutor(runner, inspector, BgDexoptController(runner, { true }, { 0L }, { }), "com.akane.inspiration") { }
+    ) = ToolkitExecutor(runner, inspector, BgDexoptController(runner, { true }, { 0L }, { }, TEST_SDK_INT), "com.akane.inspiration") { }
 
     private fun service(
         appUid: Int?,
@@ -95,16 +97,16 @@ class TelemetryUserServiceToolkitTest {
     }
 
     @Test
-    fun `the allowed caller reaches the executor and the api version is 3`() {
+    fun `the allowed caller reaches the executor and the api version is 4`() {
         val runner =
             FakeRunner { argv ->
                 if (argv.contains("get")) ok("WAKE_LOCK: default") else ok()
             }
         val service = service(APP_UID, { APP_UID }, toolkit(runner))
 
-        // 3: app-op mode code 3 (allow) crosses AIDL, so a stale running v2 service is STALE_SERVICE.
-        assertEquals(3, ToolkitApi.VERSION)
-        assertEquals(3, service.getApiVersion())
+        // 4: a stale running v3 service would still send a bg-dexopt cancel that does not cancel on API 31-33.
+        assertEquals(4, ToolkitApi.VERSION)
+        assertEquals(4, service.getApiVersion())
         service.setAppOp("com.example.app", 3, 1)
 
         assertTrue(listOf(CMD, "appops", "set", "--user", "0", "com.example.app", "WAKE_LOCK", "ignore") in runner.calls)
@@ -113,14 +115,20 @@ class TelemetryUserServiceToolkitTest {
 
     // --- destroy(): caller gate, dexopt cancel, exit hook ---------------------------------------
 
-    private val cancelArgv = listOf(CMD, "package", "bg-dexopt-job", "--cancel")
-
-    /** One ordered log shared by the fake runner and the exit hook, so ordering is observable. */
+    /**
+     * One ordered log shared by the fake runner and the exit hook, so ordering is observable. The runner answers
+     * like `cmd package` on [sdkInt] and logs what each command did there ("cancel", "pass", ...).
+     */
     private class Harness(
-        runnerFor: (MutableList<String>) -> FakeRunner,
+        sdkInt: Int,
     ) {
         val events = mutableListOf<String>()
-        val runner = runnerFor(events)
+        val shell = FakeDexoptShell(sdkInt)
+        val runner =
+            FakeRunner { argv ->
+                events += shell.effect(argv).name.lowercase()
+                shell.handle(argv)
+            }
         var caller = APP_UID
         val service =
             TelemetryUserService(
@@ -131,32 +139,50 @@ class TelemetryUserServiceToolkitTest {
                     ToolkitExecutor(
                         runner,
                         FakeInspector(),
-                        BgDexoptController(runner, { true }, { 0L }, { }),
+                        BgDexoptController(runner, { true }, { 0L }, { }, sdkInt),
                         "com.akane.inspiration",
                     ) { },
                 exitProcess = { events += "exit" },
             )
     }
 
-    private fun harness() =
-        Harness { events ->
-            FakeRunner { argv ->
-                events += argv.last()
-                ok()
-            }
-        }
+    private fun harness(sdkInt: Int = TEST_SDK_INT) = Harness(sdkInt)
 
     @Test
     fun `destroy cancels a running bg-dexopt job with a bounded wait before exiting`() {
-        val h = harness()
-        h.service.startBgDexopt()
-        assertEquals(BgDexoptState.RUNNING, h.service.getBgDexoptStatus().state)
+        for (sdk in 33..36) {
+            val h = harness(sdk)
+            h.service.startBgDexopt()
+            assertEquals(BgDexoptState.RUNNING, h.service.getBgDexoptStatus().state)
+            h.shell.running = true // the worker has the job under way
 
-        h.service.destroy()
+            h.service.destroy()
 
-        assertEquals(listOf(cancelArgv), h.runner.calls)
-        assertTrue("cancel wait is bounded to about 3 s", h.runner.timeouts.single() in 1L..3_000L)
-        assertEquals("cancel runs before the exit hook", listOf("--cancel", "exit"), h.events)
+            assertEquals("API $sdk", 1, h.runner.calls.size)
+            assertEquals("API $sdk: the system job was cancelled", 1, h.shell.cancels)
+            assertFalse("API $sdk", h.shell.running)
+            assertTrue("cancel wait is bounded to about 3 s", h.runner.timeouts.single() in 1L..3_000L)
+            assertEquals("cancel runs before the exit hook", listOf("cancel", "exit"), h.events)
+        }
+    }
+
+    @Test
+    fun `below API 33 the service starts no bg-dexopt job, so destroy has nothing to cancel`() {
+        for (sdk in listOf(31, 32)) {
+            val h = harness(sdk)
+
+            val start = h.service.startBgDexopt()
+            val cancel = h.service.cancelBgDexopt()
+            val status = h.service.getBgDexoptStatus()
+            h.service.destroy()
+
+            assertEquals(ToolkitResult.refused(ToolkitCode.UNSUPPORTED_API), start)
+            assertEquals(ToolkitResult.refused(ToolkitCode.UNSUPPORTED_API), cancel)
+            assertEquals(BgDexoptState.UNKNOWN, status.state)
+            assertEquals(BgDexoptReason.UNSUPPORTED_API, status.reason)
+            assertTrue("API $sdk: no command ran", h.runner.calls.isEmpty())
+            assertEquals(listOf("exit"), h.events)
+        }
     }
 
     @Test
@@ -205,7 +231,7 @@ class TelemetryUserServiceToolkitTest {
 
         h.caller = APP_UID
         h.service.destroy()
-        assertEquals(listOf("--cancel", "exit"), h.events)
+        assertEquals(listOf("cancel", "exit"), h.events)
 
         h.events.clear()
         h.caller = Process.myUid()

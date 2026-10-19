@@ -72,6 +72,7 @@
     <string name="toolkit_dexopt_cancelled_timeout">Cancelled after taking too long.</string>
     <string name="toolkit_dexopt_cancelled_other">Cancelled.</string>
     <string name="toolkit_dexopt_unknown">Status unknown. It may still be running.</string>
+    <string name="toolkit_dexopt_unsupported">Needs Android 13 or later. Android 12 can\'t stop a dexopt run once it has started, so it couldn\'t be cancelled when you unplug.</string>
     <string name="toolkit_notice_dexopt_started">Dexopt started.</string>
     <string name="toolkit_notice_dexopt_cancelled">Dexopt cancelled.</string>
 
@@ -199,6 +200,7 @@
     <string name="toolkit_refused_invalid_argument">That request isn\'t valid.</string>
     <string name="toolkit_refused_not_installed">This app isn\'t installed.</string>
     <string name="toolkit_refused_unsupported_user">App controls work only when Inspiration runs in the main Android user, not in a work profile or secondary user.</string>
+    <string name="toolkit_refused_unsupported_api">This action isn\'t available on this Android version.</string>
     <string name="toolkit_refused_protected_app">This is a protected app. Inspiration doesn\'t change system, persistent or role-holder apps.</string>
     <string name="toolkit_refused_caller">Shizuku refused this request.</string>
     <string name="toolkit_refused_stale">The setting changed in the meantime. Check it and try again.</string>

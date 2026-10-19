@@ -84,6 +84,9 @@ enum class ToolkitRefusal {
     /** Package actions need Inspiration to run in Android user 0 (not a work profile or secondary user). */
     UNSUPPORTED_USER,
 
+    /** The action cannot be made safe on this Android version (bg-dexopt below API 33); nothing was run. */
+    UNSUPPORTED_API,
+
     /** Hard-deny rules: system, persistent, role holders and so on (or the service could not decide). */
     PROTECTED_APP,
     CALLER,
@@ -233,4 +236,10 @@ sealed interface BgDexoptStatus {
 
     /** A job may still be running that this service instance does not know about; Cancel is idempotent. */
     data object Unknown : BgDexoptStatus
+
+    /**
+     * This Android version (below API 33) has no command that cancels a job started from the shell, so the service
+     * neither starts nor cancels one and nothing is offered. A PENDING row an older service version left stays PENDING.
+     */
+    data object Unsupported : BgDexoptStatus
 }

@@ -1125,6 +1125,20 @@ class ToolkitViewModelTest {
     }
 
     @Test
+    fun `on an API level that cannot cancel dexopt the card says so and neither start nor cancel is sent`() {
+        start { device.dexoptUnsupported = true }
+        assertEquals(BgDexoptStatus.Unsupported, state.dexopt.status)
+
+        vm.onIntent(ToolkitIntent.StartDexopt)
+        vm.onIntent(ToolkitIntent.CancelDexopt)
+
+        assertEquals(0, device.writes.count { it == "startBgDexopt" || it == "cancelBgDexopt" })
+        assertNull(state.dexopt.notice)
+        assertFalse(state.dexopt.busy)
+        assertEquals(0, device.holds)
+    }
+
+    @Test
     fun `cancel is ignored while nothing runs`() {
         start()
 

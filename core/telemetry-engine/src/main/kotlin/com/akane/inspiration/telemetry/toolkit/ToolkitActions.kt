@@ -347,7 +347,7 @@ class ToolkitActions internal constructor(
      * (those of an override target are also settled before that target is used again). The state is read back: DONE when it matches the
      * intended `after`, otherwise FAILED (a job whose status is gone is CANCELLED instead; a FAILED override row
      * whose read-back left its `before` stays in its chain, see [changedTarget]). A row whose
-     * state cannot be read (service unreachable, or a dexopt status that is UNKNOWN or still RUNNING)
+     * state cannot be read (service unreachable, or a dexopt status that is UNKNOWN, unsupported or still RUNNING)
      * stays PENDING and is retried on the next call.
      */
     suspend fun reconcile() {
@@ -1429,9 +1429,11 @@ class ToolkitActions internal constructor(
         // card is idle; UNKNOWN stays for a job we did start and cannot confirm.
         // A terminal status can still describe the previous job while a start waits in the plugged probe.
         // Keep its durable PENDING row and cancellation action until that admission has actually returned.
+        // Unsupported is permanent for this platform: a start in flight will be refused, and an old row cannot be settled.
         val observed = statusOf(service)
         val status =
             when {
+                observed == BgDexoptStatus.Unsupported -> observed
                 dexoptStartsInFlight.isNotEmpty() && observed !is BgDexoptStatus.Running -> BgDexoptStatus.Unknown
                 service.state == BgDexoptState.UNKNOWN && pending.isEmpty() -> BgDexoptStatus.Idle
                 else -> observed
@@ -1463,7 +1465,7 @@ class ToolkitActions internal constructor(
                         finalizeDexoptRows(ToolkitActionStatus.CANCELLED, BgDexoptReason.NONE, afterRaw = "idle")
                     }
 
-                    is BgDexoptStatus.Running, BgDexoptStatus.Unknown -> {
+                    is BgDexoptStatus.Running, BgDexoptStatus.Unknown, BgDexoptStatus.Unsupported -> {
                         0
                     }
                 }
@@ -1480,7 +1482,7 @@ class ToolkitActions internal constructor(
             BgDexoptState.FINISHED -> BgDexoptStatus.Finished(service.exitCode, service.endedAtMs)
             BgDexoptState.CANCELLED -> BgDexoptStatus.Cancelled(cancelReasonOf(service.reason), service.endedAtMs)
             BgDexoptState.IDLE -> BgDexoptStatus.Idle
-            else -> BgDexoptStatus.Unknown
+            else -> if (service.reason == BgDexoptReason.UNSUPPORTED_API) BgDexoptStatus.Unsupported else BgDexoptStatus.Unknown
         }
 
     private fun cancelReasonOf(reason: Int): BgDexoptCancelReason =
@@ -1656,6 +1658,8 @@ class ToolkitActions internal constructor(
             ToolkitCode.NOT_INSTALLED -> ToolkitRefusal.NOT_INSTALLED
 
             ToolkitCode.UNSUPPORTED_USER -> ToolkitRefusal.UNSUPPORTED_USER
+
+            ToolkitCode.UNSUPPORTED_API -> ToolkitRefusal.UNSUPPORTED_API
 
             ToolkitCode.DENY_APP_ID,
             ToolkitCode.DENY_PERSISTENT,

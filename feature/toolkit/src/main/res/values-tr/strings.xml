@@ -72,6 +72,7 @@
     <string name="toolkit_dexopt_cancelled_timeout">Çok uzun sürdüğü için iptal edildi.</string>
     <string name="toolkit_dexopt_cancelled_other">İptal edildi.</string>
     <string name="toolkit_dexopt_unknown">Durum bilinmiyor. Hâlâ çalışıyor olabilir.</string>
+    <string name="toolkit_dexopt_unsupported">Android 13 veya üstü gerekir. Android 12 başlamış bir dexopt\'u durduramaz; bu yüzden şarjdan çıkarınca iptal edilemezdi.</string>
     <string name="toolkit_notice_dexopt_started">Dexopt başlatıldı.</string>
     <string name="toolkit_notice_dexopt_cancelled">Dexopt iptal edildi.</string>
 
@@ -199,6 +200,7 @@
     <string name="toolkit_refused_invalid_argument">Bu istek geçerli değil.</string>
     <string name="toolkit_refused_not_installed">Bu uygulama yüklü değil.</string>
     <string name="toolkit_refused_unsupported_user">Uygulama denetimleri yalnızca Inspiration ana Android kullanıcısında çalışırken kullanılabilir; iş profilinde veya ikincil kullanıcıda kullanılamaz.</string>
+    <string name="toolkit_refused_unsupported_api">Bu işlem bu Android sürümünde kullanılamaz.</string>
     <string name="toolkit_refused_protected_app">Bu korumalı bir uygulama. Inspiration sistem, kalıcı veya rol sahibi uygulamaları değiştirmez.</string>
     <string name="toolkit_refused_caller">Shizuku bu isteği reddetti.</string>
     <string name="toolkit_refused_stale">Ayar bu arada değişti. Kontrol edip yeniden deneyin.</string>
