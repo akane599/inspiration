@@ -25,6 +25,7 @@ import java.util.UUID
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicReference
+import kotlin.coroutines.resumeWithException
 
 /** Fresh framework reads, deliberately separate from cached cosmetic app labels. */
 interface UidIdentityBackend {
@@ -266,24 +267,31 @@ class UidIdentityReader(
             }
             try {
                 dispatcher.asExecutor().execute {
-                    if (!continuation.isActive) {
-                        finish()
-                        return@execute
-                    }
-                    var cancelled: CancellationException? = null
+                    var failure: Throwable? = null
                     val result =
                         try {
-                            call()
-                        } catch (failure: CancellationException) {
-                            cancelled = failure
+                            if (continuation.isActive) call() else return@execute
+                        } catch (cancelled: CancellationException) {
+                            failure = cancelled
                             null
                         } catch (_: Exception) {
                             // A failed service may have restarted and reset its sequence: rotate the reader epoch.
                             epoch.set(UUID.randomUUID().toString())
                             null
+                        } catch (error: Throwable) {
+                            // Not swallowed: it reaches the caller, but only after the gate is free again.
+                            epoch.set(UUID.randomUUID().toString())
+                            failure = error
+                            null
+                        } finally {
+                            // Any throwable, or a caller already gone: the gate never outlives the physical call.
+                            finish()
                         }
-                    finish()
-                    if (cancelled != null) continuation.cancel(cancelled) else continuation.resume(result) { _, _, _ -> }
+                    when (val thrown = failure) {
+                        null -> continuation.resume(result) { _, _, _ -> }
+                        is CancellationException -> continuation.cancel(thrown)
+                        else -> continuation.resumeWithException(thrown)
+                    }
                 }
             } catch (_: java.util.concurrent.RejectedExecutionException) {
                 epoch.set(UUID.randomUUID().toString())

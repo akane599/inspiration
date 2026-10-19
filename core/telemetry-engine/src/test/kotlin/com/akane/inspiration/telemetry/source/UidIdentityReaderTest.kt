@@ -7,9 +7,11 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.asCoroutineDispatcher
 import kotlinx.coroutines.async
 import kotlinx.coroutines.cancelAndJoin
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.runTest
+import kotlinx.coroutines.withTimeout
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
@@ -461,6 +463,121 @@ class UidIdentityReaderTest {
                 }
             }
         }
+
+    @Test
+    fun `abandoned call clears its token on return and a later bracket proves owners again`() =
+        runBlocking {
+            val started = CountDownLatch(1)
+            val release = CountDownLatch(1)
+            val backend =
+                FakeBackend().apply {
+                    onPackages = {
+                        started.countDown()
+                        release.await()
+                    }
+                }
+            Executors.newSingleThreadExecutor().asCoroutineDispatcher().use { dispatcher ->
+                val reader =
+                    UidIdentityReader(
+                        backend,
+                        dispatcher,
+                        openingBudgetMs = 1_000,
+                        ownerBudgetMs = 50,
+                        closingBudgetMs = 1_000,
+                        elapsedMs = { System.nanoTime() / 1_000_000 },
+                    )
+                try {
+                    val abandoned = async(Dispatchers.Default) { reader.close(reader.open(), setOf(10_001)) }
+                    assertTrue(started.await(2, TimeUnit.SECONDS))
+                    assertNull(abandoned.await())
+                    assertNull(reader.open())
+                } finally {
+                    release.countDown()
+                }
+                // The native call returns: its token clears and the gate opens without any new caller's help.
+                val opening =
+                    withTimeout(2_000) {
+                        var next = reader.open()
+                        while (next == null) {
+                            delay(10)
+                            next = reader.open()
+                        }
+                        next
+                    }
+                val proof = requireNotNull(reader.close(opening, setOf(10_001)))
+                assertEquals(setOf(10_001), proof.fingerprintsByUid.keys)
+            }
+        }
+
+    @Test
+    fun `wait for the gate that times out abandons no call and keeps the epoch`() =
+        runBlocking {
+            val started = CountDownLatch(1)
+            val release = CountDownLatch(1)
+            val backend =
+                FakeBackend().apply {
+                    onPackages = {
+                        started.countDown()
+                        release.await()
+                    }
+                }
+            Executors.newSingleThreadExecutor().asCoroutineDispatcher().use { dispatcher ->
+                val reader =
+                    UidIdentityReader(
+                        backend,
+                        dispatcher,
+                        openingBudgetMs = 100,
+                        ownerBudgetMs = 5_000,
+                        closingBudgetMs = 1_000,
+                        elapsedMs = { System.nanoTime() / 1_000_000 },
+                    )
+                val firstOpening = requireNotNull(reader.open())
+                val first = async(Dispatchers.Default) { reader.close(firstOpening, setOf(10_001)) }
+                try {
+                    assertTrue(started.await(2, TimeUnit.SECONDS))
+                    val calls = backend.callCount.get()
+                    // The overlapping opening only waits on the gate: its timeout reaches no native call.
+                    assertNull(reader.open())
+                    assertEquals(calls, backend.callCount.get())
+                } finally {
+                    release.countDown()
+                }
+                val proof = requireNotNull(first.await())
+                assertEquals(firstOpening.scope.readerEpoch, proof.scope.readerEpoch)
+                assertEquals(firstOpening.scope.readerEpoch, requireNotNull(reader.open()).scope.readerEpoch)
+            }
+        }
+
+    @Test
+    fun `backend error releases the physical gate and still reaches the caller`() =
+        runBlocking {
+            val backend = FakeBackend().apply { onPackages = { throw BackendError() } }
+            Executors.newSingleThreadExecutor().asCoroutineDispatcher().use { dispatcher ->
+                val reader =
+                    UidIdentityReader(
+                        backend,
+                        dispatcher,
+                        openingBudgetMs = 1_000,
+                        ownerBudgetMs = 1_000,
+                        closingBudgetMs = 1_000,
+                        elapsedMs = { System.nanoTime() / 1_000_000 },
+                    )
+                val opening = requireNotNull(reader.open())
+                var thrown: Throwable? = null
+                try {
+                    withTimeout(500) { reader.close(opening, setOf(10_001)) }
+                } catch (failure: BackendError) {
+                    thrown = failure
+                }
+                assertNotNull(thrown)
+                backend.onPackages = {}
+                val fresh = requireNotNull(reader.close(reader.open(), setOf(10_001)))
+                assertEquals(setOf(10_001), fresh.fingerprintsByUid.keys)
+                assertFalse(opening.scope.readerEpoch == fresh.scope.readerEpoch)
+            }
+        }
+
+    private class BackendError : Error("test backend error")
 
     @Test
     fun `backend cancellation is not swallowed as missing ownership`() =
