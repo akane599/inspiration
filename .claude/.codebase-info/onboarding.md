@@ -1,5 +1,5 @@
 # Onboarding
-*Last Updated: 2026-10-17*
+*Last Updated: 2026-10-19*
 
 ## Read first
 
@@ -71,9 +71,11 @@ adb logcat -d -s 'InspirationProbe:*'
 
 `PROBE_CAPTURE` exercises the full capture/history path and Room persistence; `PROBE_DIFF` resolves stored references and reports validity and sleep/delta values. `PROBE_INSIGHTS` runs the diff, `IntervalMetricsCalculator`, `DiagnosticRuleEngine`, `BatteryStoryBuilder` and dictionary lookups for the top wakelocks, logging `insightsMetrics`, `insight`, `insightsReport` (with `notEvaluable` and `skippedInvalidUids`), `story` and `dictionary` lines. `PROBE_DIFF` and `PROBE_INSIGHTS` accept the string extra `reference_kind` (`since_unplugged`, `since_screen_off`, `screen_on_session`, `last_24h`); without it they pair the latest two snapshots, which is often a near-zero LIGHT interval. The ordinary `PROBE` action retains the Phase 1 bounded IPC/calibration/dump probe. Outputs report availability/reasons rather than throwing for unavailable telemetry.
 
-The charging job is armed by BOOT_COMPLETED/MY_PACKAGE_REPLACED and can be inspected with `dumpsys jobscheduler`. The app disables cloud backup and device transfer in [`app/src/main/AndroidManifest.xml`](../../app/src/main/AndroidManifest.xml), [`app/src/main/res/xml/backup_rules.xml`](../../app/src/main/res/xml/backup_rules.xml), and [`app/src/main/res/xml/data_extraction_rules.xml`](../../app/src/main/res/xml/data_extraction_rules.xml).
+The charging job is armed by BOOT_COMPLETED/MY_PACKAGE_REPLACED and can be inspected with `dumpsys jobscheduler`. The app disables cloud backup and device transfer in [`app/src/main/AndroidManifest.xml`](../../app/src/main/AndroidManifest.xml) and [`app/src/main/res/xml/data_extraction_rules.xml`](../../app/src/main/res/xml/data_extraction_rules.xml).
 
-The emulator setup recorded in [`PROGRESS.md`](../../PROGRESS.md) uses the Shizuku APK's `lib/<abi>/libshizuku.so` started with adb. Emulator batteries are synthetic; Phase 2 capture/job evidence covers API 35, 36, and 37, not production hardware.
+The emulator setup recorded in [`PROGRESS.md`](../../PROGRESS.md) uses the Shizuku APK's `lib/<abi>/libshizuku.so` started with adb.
+
+To test the permission flow from scratch on Shizuku 13.5, revoking in the server config alone is not enough: the server re-grants from the runtime permission when it starts. Stop `shizuku_server`, run `pm revoke com.akane.inspiration moe.shizuku.manager.permission.API_V23`, write `{"version":2,"packages":[]}` to `/data/user_de/0/com.android.shell/shizuku.json`, then start the server again. The Cockpit then shows "Shizuku permission needed", and a grant in Shizuku's app management screen is picked up on the next `onStart`, without a restart. Emulator batteries are synthetic; Phase 2 capture/job evidence covers API 35, 36, and 37, not production hardware.
 
 ## Device-probe skill
 
@@ -84,4 +86,4 @@ bash .claude/skills/device-probe/scripts/device-probe.sh --avd batstats-api36 --
   --extras "--es reference_kind since_unplugged"
 ```
 
-It saves JSON lines to `build/device-evidence/api<SDK>-<PROBE>.jsonl` (gitignored), ending with `{"probe":"done"}` or `timeout`. Exit codes: 0 finished, 2 setup failed, 3 no terminal line. Use `--clear` after the in-place Room schema change (`pm clear`), with `--grant` because clearing can drop the Shizuku permission. Only the orchestrator runs emulators, one at a time; emulator batteries are synthetic, so evidence proves wiring and parsing, not thresholds. On the emulator the batterystats fixtures carry no signal bins or UID sensors, so R3 reports `signalAvailable = false` and R4 is `NotEvaluable("source_absent")`.
+It saves JSON lines to `build/device-evidence/api<SDK>-<PROBE>.jsonl` (gitignored), ending with `{"probe":"done"}` or `timeout`. Exit codes: 0 finished, 2 setup failed, 3 no terminal line. Use `--clear` for an install from before the Phase 3 in-place schema change (`pm clear`; later schema changes migrate), with `--grant` because clearing can drop the Shizuku permission. Only the orchestrator runs emulators, one at a time; emulator batteries are synthetic, so evidence proves wiring and parsing, not thresholds. On the emulator the batterystats fixtures carry no signal bins or UID sensors, so R3 reports `signalAvailable = false` and R4 is `NotEvaluable("source_absent")`.

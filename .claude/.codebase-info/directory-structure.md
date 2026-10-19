@@ -1,5 +1,5 @@
 # Directory Structure
-*Last Updated: 2026-10-18*
+*Last Updated: 2026-10-19*
 
 Generated `build/`, `.gradle/`, screenshot intermediates, Room generated sources, and other build output are intentionally omitted.
 
@@ -16,7 +16,9 @@ app/
     di/{AppEntries,ApplicationScope,CachedAppLabels,Preloaded,ReconcileOnReady,
       RefreshCoordinator,TimelineEvents}.kt
     shell/{AppShell,ShellIcons,ShellState}.kt
-  src/main/res/xml/{backup_rules,data_extraction_rules}.xml
+    status/{StatusNotificationContent,StatusNotificationController,StatusNotifications,
+      StatusNotificationService,StatusNotificationSettings,StatusTicks}.kt
+  src/main/res/xml/data_extraction_rules.xml
   src/debug/AndroidManifest.xml
   src/debug/kotlin/com/akane/inspiration/debug/{ProbeReceiver,DesignGalleryActivity}.kt
   src/debug/kotlin/com/akane/inspiration/debug/gallery/{GalleryData,RecomposeCounter}.kt
@@ -66,12 +68,13 @@ core/
       diff/{ReferenceResolver,SnapshotDiffer}.kt
       dump/{DumpModels,DumpParser,DumpReader}.kt
       interval/IntervalMetrics.kt
-      app/AppFacingModels.kt       # RefreshResult, KernelCapacitySnapshot, AppEntry, AppLabels
+      app/AppFacingModels.kt       # RefreshResult, KernelCapacitySnapshot, AppEntry, AppLabels, packageForUid
+      app/Attempt.kt               # shared attempt {} for feature ViewModels
       live/{KernelUnits,LiveTelemetry}.kt
       snapshot/SnapshotModels.kt
       source/{AndroidCalibrationInputReader,AndroidClocks,AndroidTelemetrySource,
         TelemetrySource}.kt
-      store/{SnapshotStore,StoreModels}.kt
+      store/{RetentionPrune,SnapshotStore,StoreModels}.kt
       toolkit/{ToolkitActions,ToolkitGateway,ToolkitModels}.kt
     src/test/kotlin/com/akane/inspiration/telemetry/**
     src/test/resources/proto/{alarm-api35,alarm-api36,alarm-api37,
@@ -79,13 +82,13 @@ core/
       power-api35,power-api36,power-api37}.pb
   database/
     build.gradle.kts
-    schemas/com.akane.inspiration.database.InspirationDatabase/1.json
+    schemas/com.akane.inspiration.database.InspirationDatabase/{1,2,3,4}.json
     src/main/kotlin/com/akane/inspiration/database/
-      Daos.kt,Entities.kt,InspirationDatabase.kt
+      Daos.kt,Entities.kt,InspirationDatabase.kt   # version 4, MIGRATION_1_2..3_4
       store/RoomSnapshotStore.kt
     src/test/kotlin/com/akane/inspiration/database/
-      InspirationDatabaseTest.kt
-      store/RoomSnapshotStoreTest.kt
+      InspirationDatabaseTest.kt                   # incl. migrations + EXPLAIN QUERY PLAN
+      store/{HistoryCursorTest,RoomSnapshotStoreTest,ToolkitActionRetentionTest}.kt
   diagnostics/
     build.gradle.kts
     src/main/res/raw/diagnostic_dictionary.json
@@ -96,7 +99,7 @@ core/
       model/{Insight,InsightOrder}.kt
       rules/{DiagnosticInput,DiagnosticRuleEngine}.kt
       sensor/{SensorCatalog,AndroidSensorCatalog}.kt
-      story/{BatteryStory,BatteryStoryBuilder,AndroidStoryWriter}.kt
+      story/{BatteryStory,BatteryStoryBuilder,AndroidStoryWriter,SleepWindow}.kt
     src/test/kotlin/com/akane/inspiration/diagnostics/**   # per-rule, dictionary, story, sensor tests + fixtures
 
   designsystem/
@@ -137,6 +140,8 @@ docs/plans/phase-3.md              # audited Phase 3 design (F1–F9)
 docs/plans/phase-4.md             # audited Phase 4 design (G1–G13)
 docs/plans/phase-5.md             # audited Phase 5 design (authoritative; H1–H18, pinned shared surface)
 .claude/skills/device-probe/       # SKILL.md + scripts/device-probe.sh (emulator probe runner)
+.claude/skills/{full-repo-audit,audit-remediate}/   # standalone review-mode audit + remediation skills
+AGENTS.md, .agents/skills/, .codex/android-kit/     # Codex-side mirror of the hybrid android kit (instructions, skills, rules)
 PROGRESS.md                        # durable decisions and device evidence
 NOTICE                              # AOSP protobuf attribution
 ```

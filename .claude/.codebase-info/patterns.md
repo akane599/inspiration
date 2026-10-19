@@ -1,5 +1,5 @@
 # Patterns
-*Last Updated: 2026-10-18*
+*Last Updated: 2026-10-19*
 
 These patterns are established across the Phase 1 IPC boundary, the Phase 2 snapshot pipeline, the Phase 3 insight layer, the Phase 4 design-system charts, and the Phase 5 screens and toolkit.
 
@@ -18,6 +18,14 @@ Cross-process DTOs and merged snapshots retain `available` plus nullable machine
 ## Pull-first capture and bounded work
 
 Capture is triggered by app start, broadcasts, boot/package replacement, a persisted charging job, or a debug marker. There is no polling loop or resident foreground service. `CapturePolicy` chooses light work for screen transitions and cold broadcasts; full work has an explicit deadline, records a `capture_miss` on timeout, and history paging is capped. `withTelemetryService()` binds only while a capture needs the shell service; `holdBinding()` is the explicit long-lived UI exception.
+
+## Deadlines that bind blocking calls
+
+A Binder transaction ignores `Thread.interrupt`, so `withContext`/`runInterruptible` cannot end it at a deadline. `AndroidTelemetrySource.binderCall` runs each service call on the IO executor inside `suspendCancellableCoroutine`: the caller resumes as soon as it is cancelled, the abandoned call finishes on its own thread, and a late result is freed through `resume(value) { … release }` (a dump's pipe fd is closed). No new call starts after the deadline. Each history page is persisted under `NonCancellable` as soon as it is read, so pages read in time survive a later timeout. A broadcast capture's outer guard is the read deadline plus a persist budget; if the guard cancels anyway, the miss is recorded as `cancelled` and the light fallback still runs under `NonCancellable`. Bind and dump-read timeouts are separate (5 s / 2 s). Test fakes for these paths must block, not `delay()`: `AndroidTelemetrySourceDeadlineTest` and `ShizukuManagerReadyWaitTest` show the shape.
+
+## Monotonic time for durations
+
+Durations and deadlines use `elapsedRealtime`, never wall-clock differences: retention ages rows in the boot's earliest clock frame (`pruneRetention`), the dexopt hold deadline and screen-on segments run on `elapsedMs`. Wall time is for display and for matching rows, not for measuring.
 
 ## Persistence boundaries
 
@@ -43,13 +51,19 @@ Charts in `:core:designsystem` keep per-frame interaction state (cursor, brush, 
 
 Each feature has a `val`-only `State` (ImmutableList collections), a sealed `Intent`, and one-shot sealed `Effect`s (`RefreshFailed`, `ResetFinished`) shown as snackbars, never state. The Activity-scoped ViewModel outlives the tab, so device reads are tied to `Visible`/`Hidden` intents sent from `LifecycleStartEffect { onStopOrDispose }` in the Route (H13), not to the ViewModel's lifetime; pending confirmations and in-flight work are dropped on `Hidden`. Never `WhileSubscribed(5000)`. A ViewModel sees only its `XxxDependencies` interface, so tests use fakes of it.
 
+**Failure containment.** All five feature ViewModels wrap their store and `ToolkitActions` calls in the shared [`attempt {}`](../../core/telemetry-engine/src/main/kotlin/com/akane/inspiration/telemetry/app/Attempt.kt) (`telemetry.app.attempt`: value or null, cancellation rethrown) and turns null into a degraded card or a notice, never a crash; do not add private copies. Long-lived scopes (the application scope, the dexopt hold supervisor) carry a logging `CoroutineExceptionHandler`, and `reconcileOnEachReady` takes an `onFailure` so one failed reconcile does not end the collector.
+
+**Analysis tagged by selection.** `AnalysisState.Ready(analysis, kind)` names the `ReferenceKind` it answers; consumers read it through `forSelection(selected)`, which maps a `Ready` for another selection to `Loading`, so a new selection never shows the previous interval's story or apps. Heavy shaping (timeline build, chart series) runs on an injected `shapingDispatcher` (`Dispatchers.Default` in production), never on Main.
+
+**Package identity.** A batterystats UID is named by an installed package, never by the reported process name: `AppLabels.packageForUid(uid, reported)` returns `reported` only when `PackageManager` lists it for the UID, else the alphabetically first package (`packagesForUid`), else null. A confirmation dialog pins its target (`uid`, package) when it is planned, and the confirm runs against that pin, not a re-read.
+
 ## Refresh: one debounced, mutex-guarded entry point
 
-`RefreshCoordinator.refresh()` serialises captures, returns `Debounced` within 60 s of a success, replays a cached `Failed` for 12 s after a failure (so Visible/onStart bursts against a hung service queue nothing), and runs the capture `NonCancellable`. A Shizuku transition to Ready clears the failure backoff only. Nothing schedules a refresh.
+`RefreshCoordinator.refresh()` serialises captures, returns `Debounced` within 60 s of a success, replays a cached `Failed` for 12 s after a failure (so Visible/onStart bursts against a hung service queue nothing), and runs the capture `NonCancellable`. A Shizuku transition to Ready clears the failure backoff and then calls `refreshIfLastFailed()`, which re-runs a refresh only if the last capture failed (e.g. the cold-start one made before the binder arrived). Nothing schedules a refresh. `ShizukuManager.withTelemetryService` waits out `NotRunning` within its timeout (a cold process gets the Shizuku binder after `start()`), and `MainActivity.onStart` calls `shizukuManager.refresh()` because a grant made in the Shizuku app sends no callback; permission state is always re-read, never latched.
 
 ## Toolkit writes: plan, confirm, audit, read back
 
-Writes go plan → (confirm when risky) → PENDING `toolkit_action` row → privileged call → settle from the service's own before/after → read-back `verify`. `restore`, `planRestore` and `resetAll` return a target to the original of its chain (`chainOriginal`), and `activeOverrides()` lists only changes that read-back shows are still in effect; a target already at its original is not an override and nothing is written. `reconcile()` finalizes crash-orphaned PENDING rows. Outcomes are not binary: a write that may have committed but could not be confirmed (`UNVERIFIED`) stays PENDING so it remains in the restore chain, and nothing is written on top of an unsettled row for the same target. The write is never taken from an Intent or URI; the UI names a package only from the in-app list. Warnings, refusals and unavailability are typed enums whose wording lives in the UI's strings.
+Writes go plan → (confirm when risky) → PENDING `toolkit_action` row → privileged call → settle from the service's own before/after → read-back `verify`. `restore`, `planRestore` and `resetAll` return a target to the original of its chain (`chainOriginal`), and `activeOverrides()` lists only changes that read-back shows are still in effect; a target already at its original is not an override and nothing is written. Chain membership comes from the **observed** before/after the service returns, not from the row status: a write reported FAILED that still moved its target to a third value stays in the chain (and in retention), and a same-value write over an existing override does not hide it. `reconcile()` finalizes crash-orphaned PENDING rows. Outcomes are not binary: a write that may have committed but could not be confirmed (`UNVERIFIED`) stays PENDING so it remains in the restore chain, and nothing is written on top of an unsettled row for the same target. The write is never taken from an Intent or URI; the UI names a package only from the in-app list. Warnings, refusals and unavailability are typed enums whose wording lives in the UI's strings.
 
 ## Design-system components over raw Material
 
