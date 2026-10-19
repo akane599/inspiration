@@ -27,7 +27,7 @@ Source of truth: [`gradle/libs.versions.toml`](../../gradle/libs.versions.toml),
 | `com.google.protobuf:protobuf-javalite` / `protobuf-kotlin-lite` / `protoc` | 4.36.2 | Lite runtime and protoc for trimmed vendored batterystats, alarm, and power schemas in `:core:telemetry-engine` (Phase 3 adds signal-strength, scanning, radio-active and UID sensor fields, numbered per AOSP android-15.0.0_r36) |
 | `com.google.devtools.ksp` | 2.3.12 | Room compiler integration in `:core:database` |
 | `com.google.protobuf` Gradle plugin | 0.10.0 | Lite Java code generation for telemetry proto sources |
-| `androidx.room` runtime / ktx / compiler / testing | 2.8.5 | WAL database, schema v4 with numbered migrations, DAOs, and repository tests in `:core:database` |
+| `androidx.room` runtime / ktx / compiler / testing | 2.8.5 | WAL database, schema v5 with numbered migrations (nullable capture-time UID identity proof), DAOs, and repository tests in `:core:database` |
 | `org.robolectric:robolectric` | 4.16.1 | JVM Room/DAO tests and `:core:diagnostics` tests (org.json, resources) |
 | `androidx.test:core` | 1.7.0 | Room test application context support |
 | AndroidX Compose UI / Runtime / Material3 | BOM-managed | UI shell and feature convention dependencies |

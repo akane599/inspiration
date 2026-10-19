@@ -71,9 +71,9 @@ core/
       app/AppFacingModels.kt       # RefreshResult, KernelCapacitySnapshot, AppEntry, AppLabels, packageForUid
       app/Attempt.kt               # shared attempt {} for feature ViewModels
       live/{KernelUnits,LiveTelemetry}.kt
-      snapshot/SnapshotModels.kt
+      snapshot/{SnapshotModels,UidIdentity}.kt
       source/{AndroidCalibrationInputReader,AndroidClocks,AndroidTelemetrySource,
-        TelemetrySource}.kt
+        TelemetrySource,UidIdentityReader}.kt
       store/{RetentionPrune,SnapshotStore,StoreModels}.kt
       toolkit/{ToolkitActions,ToolkitGateway,ToolkitModels}.kt
     src/test/kotlin/com/akane/inspiration/telemetry/**
@@ -82,9 +82,9 @@ core/
       power-api35,power-api36,power-api37}.pb
   database/
     build.gradle.kts
-    schemas/com.akane.inspiration.database.InspirationDatabase/{1,2,3,4}.json
+    schemas/com.akane.inspiration.database.InspirationDatabase/{1,2,3,4,5}.json
     src/main/kotlin/com/akane/inspiration/database/
-      Daos.kt,Entities.kt,InspirationDatabase.kt   # version 4, MIGRATION_1_2..3_4
+      Daos.kt,Entities.kt,InspirationDatabase.kt   # version 5, MIGRATION_1_2..4_5
       store/RoomSnapshotStore.kt
     src/test/kotlin/com/akane/inspiration/database/
       InspirationDatabaseTest.kt                   # incl. migrations + EXPLAIN QUERY PLAN
@@ -114,7 +114,7 @@ core/
       chart/math/{Scales,ScrubGestureReducer,SeriesMath,TimeTicks}.kt
       chart/draw/{SelectionDim,TimeAxis}.kt
       chart/scrub/{ScrubChartMath,ScrubChartRenderer,ScrubChartState,ScrubGestures,
-        ScrubReadout,SynchronizedScrubbingChart}.kt
+        ScrubReadout,SliceControls,SynchronizedScrubbingChart}.kt
       chart/hypnogram/{HypnogramMath,SleepHypnogram}.kt
     src/main/res/font/inter_{regular,medium,semibold}.ttf
     src/main/res/{values,values-tr}/strings_chart.xml
