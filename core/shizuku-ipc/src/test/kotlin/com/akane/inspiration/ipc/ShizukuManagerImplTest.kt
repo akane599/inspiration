@@ -121,10 +121,90 @@ class ShizukuManagerImplTest {
         }
         fixture.manager.start()
 
+        // A deny that Shizuku stored is reported through the rationale flag, not by the result itself.
+        fixture.facade.showPermissionRationale = true
         fixture.facade.deliverPermissionResult(PackageManager.PERMISSION_DENIED)
 
         assertSame(ShizukuState.PermissionDenied, fixture.manager.state.value)
         assertEquals(0, fixture.facade.bindCalls)
+    }
+
+    @Test
+    fun aOneTimeDenyThenAGrantInTheShizukuAppRecoversWithoutARestart() = runTest {
+        val fixture = Fixture(this).apply {
+            facade.permissionResult = PackageManager.PERMISSION_DENIED
+        }
+        fixture.manager.start()
+        fixture.manager.requestPermission()
+
+        // Shizuku did not store this deny (onetime=true), so it reports no rationale and may ask again.
+        fixture.facade.deliverPermissionResult(PackageManager.PERMISSION_DENIED)
+        assertSame(ShizukuState.PermissionRequired, fixture.manager.state.value)
+
+        fixture.manager.requestPermission()
+        assertEquals("the second Grant tap shows the dialog again", 2, fixture.facade.permissionRequests)
+
+        // The user allows Inspiration in the Shizuku app instead: Shizuku sends this client no callback.
+        fixture.facade.permissionResult = PackageManager.PERMISSION_GRANTED
+        fixture.manager.refresh() // MainActivity.onStart on the way back
+
+        assertEquals(ShizukuState.Ready(2000, 13), fixture.manager.state.value)
+        assertEquals(0, fixture.facade.bindCalls)
+    }
+
+    @Test
+    fun grantTappedAfterAStoredDenyReReadsTheStateAndPicksUpAGrantMadeInShizuku() = runTest {
+        val fixture = Fixture(this).apply {
+            facade.permissionResult = PackageManager.PERMISSION_DENIED
+            facade.showPermissionRationale = true
+        }
+        fixture.manager.start()
+        assertSame(ShizukuState.PermissionDenied, fixture.manager.state.value)
+
+        // Shizuku answers a stored deny without a dialog, so it is not asked while the deny stands.
+        fixture.manager.requestPermission()
+        assertSame(ShizukuState.PermissionDenied, fixture.manager.state.value)
+        assertEquals(0, fixture.facade.permissionRequests)
+
+        // Allowed in the Shizuku app, then Grant tapped back in Inspiration.
+        fixture.facade.permissionResult = PackageManager.PERMISSION_GRANTED
+        fixture.facade.showPermissionRationale = false
+        fixture.manager.requestPermission()
+
+        assertEquals(ShizukuState.Ready(2000, 13), fixture.manager.state.value)
+        assertEquals("an access that is already granted needs no dialog", 0, fixture.facade.permissionRequests)
+    }
+
+    @Test
+    fun refreshDoesNothingBeforeStartOrAfterStop() = runTest {
+        val fixture = Fixture(this)
+
+        fixture.manager.refresh()
+        assertSame(ShizukuState.NotRunning, fixture.manager.state.value)
+
+        fixture.manager.start()
+        fixture.manager.stop()
+        fixture.facade.permissionResult = PackageManager.PERMISSION_DENIED
+        fixture.manager.refresh()
+
+        assertEquals(ShizukuState.Ready(2000, 13), fixture.manager.state.value)
+    }
+
+    @Test
+    fun refreshWhileReadyLeavesTheBoundServiceAlone() = runTest {
+        val fixture = Fixture(this)
+        fixture.manager.start()
+        val holder = fixture.manager.holdBinding()
+        fixture.facade.deliverServiceConnected()
+
+        fixture.manager.refresh()
+
+        assertEquals(ShizukuState.Ready(2000, 13), fixture.manager.state.value)
+        assertNotNull(fixture.manager.telemetryService.value)
+        assertEquals(1, fixture.facade.bindCalls)
+        assertEquals(0, fixture.facade.unbindCalls)
+        holder.close()
+        advanceUntilIdle()
     }
 
     @Test

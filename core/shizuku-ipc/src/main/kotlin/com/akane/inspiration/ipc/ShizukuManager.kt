@@ -8,6 +8,13 @@ interface ShizukuManager {
 
     fun requestPermission()
 
+    /**
+     * Reads the state from Shizuku again. Shizuku sends no callback for a change made in its own app (such as
+     * granting access there), so the app calls this whenever it comes back to the foreground. Managers whose
+     * state is pushed to them (test doubles) need nothing here.
+     */
+    fun refresh() = Unit
+
     fun start()
 
     suspend fun <T> withTelemetryService(

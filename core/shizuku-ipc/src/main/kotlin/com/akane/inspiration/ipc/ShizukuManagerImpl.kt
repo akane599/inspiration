@@ -137,23 +137,32 @@ class ShizukuManagerImpl private constructor(
             }
         }
 
+    /**
+     * The result only says what the user tapped. Whether a deny was stored (so Shizuku will not ask again) is
+     * Shizuku's rationale flag, which [refreshState] reads: a one-time deny must stay requestable.
+     */
     private val permissionResultListener =
-        Shizuku.OnRequestPermissionResultListener { _, grantResult ->
-            if (grantResult == PackageManager.PERMISSION_GRANTED) {
-                updateState()
-            } else {
-                setUnavailableState(ShizukuState.PermissionDenied)
-            }
-        }
+        Shizuku.OnRequestPermissionResultListener { _, _ -> updateState() }
 
     override fun requestPermission() {
-        if (!started || mutableState.value !is ShizukuState.PermissionRequired) {
+        if (!started) {
+            return
+        }
+        // Shizuku sends no callback for a grant made in its own app, and a stale state must not block the dialog.
+        updateState()
+        if (mutableState.value !is ShizukuState.PermissionRequired) {
             return
         }
         try {
             facade.requestPermission(PERMISSION_REQUEST_CODE)
         } catch (_: RuntimeException) {
             synchronized(bindingLock) { transportLostLocked() }
+        }
+    }
+
+    override fun refresh() {
+        if (started) {
+            updateState()
         }
     }
 
