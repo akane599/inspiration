@@ -14,21 +14,30 @@ class BootCaptureReceiver : BroadcastReceiver() {
         context: Context,
         intent: Intent,
     ) {
-        if (intent.action !in BOOT_ACTIONS) return
+        val trigger = BootCapturePlan.forAction(intent.action) ?: return
         val app = context.applicationContext as InspirationApplication
         // Synchronous and before goAsync: a foreground service may start only inside the boot exemption window.
         StatusNotificationController.sync(app)
         val pendingResult = goAsync()
         app.appContainer.applicationScope.launch {
             BroadcastCaptureRunner { Log.w("BootCaptureReceiver", "Boot capture or scheduling failed", it) }.run(
-                capture = { app.appContainer.capturer.captureLight(CaptureTrigger.BOOT) },
+                capture = { app.appContainer.capturer.captureLight(trigger) },
                 afterCapture = { ChargingCaptureScheduler.arm(app) },
                 finish = { pendingResult.finish() },
             )
         }
     }
+}
 
-    private companion object {
-        val BOOT_ACTIONS = setOf(Intent.ACTION_BOOT_COMPLETED, Intent.ACTION_MY_PACKAGE_REPLACED)
-    }
+/**
+ * The light capture each action of [BootCaptureReceiver] records; null for any other action. An app update is
+ * not a reboot: recorded as BOOT it would wipe the known screen state of the "since unplug" summary (audit N-14).
+ */
+internal object BootCapturePlan {
+    fun forAction(action: String?): CaptureTrigger? =
+        when (action) {
+            Intent.ACTION_BOOT_COMPLETED -> CaptureTrigger.BOOT
+            Intent.ACTION_MY_PACKAGE_REPLACED -> CaptureTrigger.PACKAGE_REPLACED
+            else -> null
+        }
 }

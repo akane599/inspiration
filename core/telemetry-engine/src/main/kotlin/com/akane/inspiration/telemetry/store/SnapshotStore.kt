@@ -54,8 +54,8 @@ interface SnapshotStore {
      * The newest part of [snapshotsBetween] that [UnplugSummaryCalculator] needs for a "now" at [toWallMs], so the
      * summary equals the one over the whole range. The newest plugged-in snapshot before [toWallMs] marks the
      * unplug (else the newest [CaptureTrigger.POWER_DISCONNECTED] capture before it). The part starts at the
-     * newest screen or boot capture at or before that mark, which fixes the screen state the calculator carries
-     * forward, else at the mark; with no mark it is the whole range. The default returns the whole range (for
+     * newest screen capture at or before that mark, which fixes the screen state the calculator carries forward,
+     * else at the mark; with no mark it is the whole range. The default returns the whole range (for
      * fakes); the Room store bounds it in SQL.
      */
     suspend fun unplugWindowSnapshots(

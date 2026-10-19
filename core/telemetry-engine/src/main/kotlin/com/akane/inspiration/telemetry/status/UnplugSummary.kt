@@ -85,9 +85,9 @@ object UnplugSummaryCalculator {
         val tally = Tally()
         for (i in points.indices) {
             val point = points[i]
-            if (point.trigger == CaptureTrigger.BOOT ||
-                (i > 0 && points[i - 1].clock.bootCount != point.clock.bootCount)
-            ) {
+            // Only a new boot forgets the screen state, never a trigger: 0.2.3 stored an app update (same boot)
+            // as BOOT, and a capture that ran before BOOT_COMPLETED already opened the new boot.
+            if (i > 0 && points[i - 1].clock.bootCount != point.clock.bootCount) {
                 screen = null
             }
             screen = screenAfter(screen, point)

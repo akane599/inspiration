@@ -16,6 +16,9 @@ enum class CaptureTrigger {
     BATTERY_OKAY,
     CHARGE_JOB,
     BOOT,
+
+    /** This app was updated (`MY_PACKAGE_REPLACED`): not a reboot, so it says nothing about the screen state. */
+    PACKAGE_REPLACED,
     MARKER,
 }
 

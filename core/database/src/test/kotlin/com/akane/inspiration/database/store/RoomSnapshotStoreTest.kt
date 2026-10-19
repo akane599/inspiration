@@ -1193,6 +1193,35 @@ class RoomSnapshotStoreTest {
         }
 
     @Test
+    fun `unplugWindowSnapshots keeps the screen state across a BOOT row of the same boot`() =
+        runBlocking { assertUpdateKeepsScreenState(CaptureTrigger.BOOT) }
+
+    @Test
+    fun `unplugWindowSnapshots keeps the screen state across an app update`() =
+        runBlocking { assertUpdateKeepsScreenState(CaptureTrigger.PACKAGE_REPLACED) }
+
+    /** An app update while charging, recorded as [updateTrigger] (0.2.3 used BOOT) in the same boot. */
+    private suspend fun assertUpdateKeepsScreenState(updateTrigger: CaptureTrigger) {
+        val base = 40L * DAY_MS
+        store.insert(statusPoint(CaptureTrigger.APP_OPEN, base, plugged = true, level = 99))
+        val screenOff = store.insert(statusPoint(CaptureTrigger.SCREEN_OFF, base + 10 * MINUTE_MS, plugged = true, level = 100))
+        // The newest plugged row, so the mark.
+        val updated = store.insert(statusPoint(updateTrigger, base + 20 * MINUTE_MS, plugged = true, level = 100))
+        val unplug = store.insert(statusPoint(CaptureTrigger.POWER_DISCONNECTED, base + 30 * MINUTE_MS, plugged = false, level = 100))
+        val now = statusPoint(CaptureTrigger.APP_OPEN, base + 150 * MINUTE_MS, plugged = false, level = 94)
+        val from = now.clock.wallMs - 30L * DAY_MS
+
+        val window = store.unplugWindowSnapshots(from, now.clock.wallMs)
+
+        assertEquals(listOf(screenOff, updated, unplug), window.map { it.id })
+        assertEquals(updateTrigger, window[1].trigger)
+        val summary = UnplugSummaryCalculator.compute(window, now) as UnplugSummary.Discharging
+        assertEquals(UnplugSummaryCalculator.compute(store.snapshotsBetween(from, now.clock.wallMs), now), summary)
+        // The screen stayed off from before the update through the 2 h since the unplug: 6 % over 2 h.
+        assertEquals(3.0, summary.screenOffPctPerHour!!, 1e-9)
+    }
+
+    @Test
     fun `unplugWindowSnapshots reads the whole range when it holds no unplug`() =
         runBlocking {
             val to = 40L * DAY_MS

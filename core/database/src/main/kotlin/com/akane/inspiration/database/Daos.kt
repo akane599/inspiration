@@ -142,8 +142,10 @@ interface SnapshotDao {
     /**
      * The newest part of [between] that the status summary needs for a "now" at [toWallMs] (see
      * `SnapshotStore.unplugWindowSnapshots`). `mark` is the newest plugged-in row before now, else the newest
-     * POWER_DISCONNECTED capture before now, else [fromWallMs]; the rows start at the newest screen or boot
-     * capture at or before `mark`, else at `mark`. Every bound stays inside the range.
+     * POWER_DISCONNECTED capture before now, else [fromWallMs]; the rows start at the newest screen capture at
+     * or before `mark` (whose trigger fixes the screen state), else at `mark`. A BOOT row is no start: the
+     * calculator resets the state where the boot count changes, which needs the row before it. Every bound
+     * stays inside the range.
      */
     @Query(
         """
@@ -159,7 +161,7 @@ interface SnapshotDao {
         SELECT * FROM snapshot
         WHERE wallMs BETWEEN :fromWallMs AND :toWallMs
           AND wallMs >= COALESCE(
-              (SELECT s.wallMs FROM snapshot s, mark WHERE s.trigger IN ('SCREEN_ON', 'SCREEN_OFF', 'BOOT')
+              (SELECT s.wallMs FROM snapshot s, mark WHERE s.trigger IN ('SCREEN_ON', 'SCREEN_OFF')
                   AND s.wallMs >= :fromWallMs AND s.wallMs <= mark.wallMs ORDER BY s.wallMs DESC LIMIT 1),
               (SELECT wallMs FROM mark)
           )

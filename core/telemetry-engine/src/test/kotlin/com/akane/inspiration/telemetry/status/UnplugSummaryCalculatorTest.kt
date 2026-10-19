@@ -8,12 +8,16 @@ import org.junit.Test
 class UnplugSummaryCalculatorTest {
     @Test
     fun `latest explicit disconnect supersedes an older inferred session when connect was missed`() {
-        val summary = UnplugSummaryCalculator.compute(listOf(
-            statusSnapshot(minutes(0), level = 100, plugged = true),
-            statusSnapshot(minutes(10), level = 100, trigger = CaptureTrigger.POWER_DISCONNECTED),
-            statusSnapshot(minutes(40), level = 90),
-            statusSnapshot(minutes(70), level = 100, trigger = CaptureTrigger.POWER_DISCONNECTED),
-        ), statusSnapshot(minutes(100), level = 95)) as UnplugSummary.Discharging
+        val summary =
+            UnplugSummaryCalculator.compute(
+                listOf(
+                    statusSnapshot(minutes(0), level = 100, plugged = true),
+                    statusSnapshot(minutes(10), level = 100, trigger = CaptureTrigger.POWER_DISCONNECTED),
+                    statusSnapshot(minutes(40), level = 90),
+                    statusSnapshot(minutes(70), level = 100, trigger = CaptureTrigger.POWER_DISCONNECTED),
+                ),
+                statusSnapshot(minutes(100), level = 95),
+            ) as UnplugSummary.Discharging
         assertEquals(minutes(70), summary.anchorWallMs)
         assertEquals(minutes(30), summary.elapsedMs)
         assertEquals(5, summary.dropPct)
@@ -149,10 +153,11 @@ class UnplugSummaryCalculatorTest {
     @Test
     fun `boot invalidates screen inference until a new screen event`() {
         for (trigger in listOf(CaptureTrigger.BOOT, CaptureTrigger.APP_OPEN)) {
-            val history = listOf(
-                statusSnapshot(minutes(0), level = 90, trigger = CaptureTrigger.SCREEN_OFF),
-                statusSnapshot(minutes(1), level = 89, bootCount = 2, trigger = trigger),
-            )
+            val history =
+                listOf(
+                    statusSnapshot(minutes(0), level = 90, trigger = CaptureTrigger.SCREEN_OFF),
+                    statusSnapshot(minutes(1), level = 89, bootCount = 2, trigger = trigger),
+                )
             val now = statusSnapshot(minutes(61), level = 80, bootCount = 2)
             val unknown = UnplugSummaryCalculator.compute(history, now) as UnplugSummary.Discharging
             assertEquals(10, unknown.dropPct)
@@ -160,12 +165,32 @@ class UnplugSummaryCalculatorTest {
             assertNull(unknown.screenOffPctPerHour)
             assertNull(unknown.screenOnPctPerHour)
             assertNull(unknown.deepSleepRatio)
-            val known = UnplugSummaryCalculator.compute(
-                history + statusSnapshot(minutes(31), level = 85, bootCount = 2, trigger = CaptureTrigger.SCREEN_ON),
-                now,
-            ) as UnplugSummary.Discharging
+            val known =
+                UnplugSummaryCalculator.compute(
+                    history + statusSnapshot(minutes(31), level = 85, bootCount = 2, trigger = CaptureTrigger.SCREEN_ON),
+                    now,
+                ) as UnplugSummary.Discharging
             assertEquals(10.0, known.screenOnPctPerHour!!, 1e-9)
             assertNull(known.screenOffPctPerHour)
+        }
+    }
+
+    @Test
+    fun `a capture in the same boot keeps the screen state whatever its trigger`() {
+        // An app update is no reboot: the screen stayed off. 0.2.3 stored such an update as BOOT.
+        for (trigger in listOf(CaptureTrigger.PACKAGE_REPLACED, CaptureTrigger.BOOT)) {
+            val summary =
+                UnplugSummaryCalculator.compute(
+                    listOf(
+                        statusSnapshot(minutes(0), level = 90, trigger = CaptureTrigger.SCREEN_OFF),
+                        statusSnapshot(minutes(60), level = 89, trigger = trigger),
+                    ),
+                    statusSnapshot(minutes(120), level = 84),
+                ) as UnplugSummary.Discharging
+
+            assertEquals("$trigger", 6, summary.dropPct)
+            assertEquals("$trigger", 3.0, summary.screenOffPctPerHour!!, 1e-9)
+            assertNull("$trigger", summary.screenOnPctPerHour)
         }
     }
 
