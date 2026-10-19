@@ -551,6 +551,11 @@ class ToolkitActions internal constructor(
             is ToolkitAction.ApplyDoze -> {
                 val read = readDoze()
                 if (read !is ToolkitOutcome.Done) return stop(read)
+                // The value the user decided against must still be there; the write's own CAS uses this read.
+                val seen = action.expectedBefore
+                if (seen != null && norm(read.value.raw) != norm(seen.raw)) {
+                    return Prep.Stop(ToolkitOutcome.Refused(ToolkitRefusal.STALE, ToolkitCode.STALE))
+                }
                 val overCustom = action.profile == DozeProfile.STANDARD && (read.value.isCustom || customDozeOriginal(read.value.raw))
                 Prep.Ok(static, if (overCustom) listOf(ToolkitWarning.DOZE_OVER_CUSTOM) else emptyList(), read.value.raw, false, null)
             }

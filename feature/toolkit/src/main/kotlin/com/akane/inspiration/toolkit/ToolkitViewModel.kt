@@ -13,6 +13,7 @@ import com.akane.inspiration.telemetry.store.ToolkitActionRecord
 import com.akane.inspiration.telemetry.toolkit.BgDexoptStatus
 import com.akane.inspiration.telemetry.toolkit.DozeState
 import com.akane.inspiration.telemetry.toolkit.Override
+import com.akane.inspiration.telemetry.toolkit.SeenDoze
 import com.akane.inspiration.telemetry.toolkit.ToolkitAction
 import com.akane.inspiration.telemetry.toolkit.ToolkitOutcome
 import com.akane.inspiration.telemetry.toolkit.ToolkitPlan
@@ -368,7 +369,12 @@ class ToolkitViewModel(
                 }
 
                 is ToolkitPlan.Refused -> {
-                    finish(prepared, ToolkitNotice.Rejected(Problem.Refused(plan.reason)))
+                    if (plan.reason == ToolkitRefusal.STALE && request is ToolkitRequest.ApplyDoze) {
+                        // The doze value on screen is out of date already: show the current one and ask with it.
+                        if (attempt { askAgain(prepared) } == null) finish(prepared, CALL_FAILED)
+                    } else {
+                        finish(prepared, ToolkitNotice.Rejected(Problem.Refused(plan.reason)))
+                    }
                 }
             }
         }
@@ -404,7 +410,9 @@ class ToolkitViewModel(
                 ?.packageName
         return when (request) {
             is ToolkitRequest.ApplyDoze -> {
-                ToolkitAction.ApplyDoze(request.profile)
+                // Pinned to the value on screen: if it changes before the write, the user is asked again (F-18).
+                val shown = (_state.value.doze.load as? DozeLoad.Loaded)?.info?.raw
+                ToolkitAction.ApplyDoze(request.profile, SeenDoze(shown))
             }
 
             is ToolkitRequest.SetAppOp -> {
@@ -528,13 +536,15 @@ class ToolkitViewModel(
     }
 
     /** The setting moved between plan and write: read it again and let the user decide with the value that is there now. */
-    private suspend fun askAgain(prepared: PreparedRequest) {
-        val request = prepared.request
-        if (prepared.generation != generation) {
+    private suspend fun askAgain(stalePrepared: PreparedRequest) {
+        val request = stalePrepared.request
+        if (stalePrepared.generation != generation) {
             _state.update { it.copy(busy = false) }
             return
         }
         refresh(request)
+        // A doze action is pinned to the value on screen, which refresh just updated; other targets stay pinned.
+        val prepared = if (request is ToolkitRequest.ApplyDoze) stalePrepared.copy(action = actionOf(request)) else stalePrepared
         val plan = planOf(prepared)
         if (prepared.generation != generation) {
             _state.update { it.copy(busy = false) }

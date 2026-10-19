@@ -348,6 +348,43 @@ class ToolkitViewModelTest {
     }
 
     @Test
+    fun `a doze value changed while the confirmation was open is asked about again, not overwritten`() {
+        start { device.dozeRaw = "idle_to=1" }
+        act(ToolkitRequest.ApplyDoze(DozeProfile.STANDARD))
+        assertEquals(listOf(ToolkitWarning.DOZE_OVER_CUSTOM), state.confirmation?.warnings)
+
+        device.dozeRaw = "idle_to=2" // changed elsewhere while the user was deciding
+        confirm()
+
+        assertTrue("nothing may be written over the new value: ${device.writes}", device.writes.isEmpty())
+        assertEquals("idle_to=2", device.dozeRaw)
+        assertEquals("idle_to=2", dozeInfo.raw)
+        val again = state.confirmation
+        assertNotNull(again)
+        assertTrue(again!!.stale)
+        assertFalse(state.busy)
+
+        confirm()
+
+        assertEquals(listOf("applyDozeProfile"), device.writes)
+        assertNull(device.dozeRaw)
+    }
+
+    @Test
+    fun `a doze value changed before the plan is shown and asked about with the current value`() {
+        start()
+        device.dozeRaw = "idle_to=3" // the screen still shows Standard
+
+        act(ToolkitRequest.ApplyDoze(DozeProfile.BALANCED))
+
+        assertTrue(device.writes.isEmpty())
+        assertEquals("idle_to=3", dozeInfo.raw)
+        assertTrue(state.confirmation!!.stale)
+        confirm()
+        assertEquals(DozeProfile.BALANCED.constants, device.dozeRaw)
+    }
+
+    @Test
     fun `a stale refusal re-reads the setting and asks again with the new value`() {
         start { device.dozeStaleOnce = true }
 

@@ -23,8 +23,14 @@ sealed interface ToolkitAction {
         val bucket: StandbyBucket,
     ) : ToolkitAction
 
+    /**
+     * Applies [profile]. With [expectedBefore] (the value the user decided against) the action is refused as
+     * STALE when the setting now reads otherwise, so a change made while a confirmation was open is asked about
+     * again instead of being overwritten. Without it the value read at execute time is the expectation.
+     */
     data class ApplyDoze(
         val profile: DozeProfile,
+        val expectedBefore: SeenDoze? = null,
     ) : ToolkitAction
 
     data class ForceStop(
@@ -40,6 +46,11 @@ sealed interface ToolkitAction {
         val expectedCurrentRaw: String?,
     ) : ToolkitAction
 }
+
+/** A `device_idle_constants` value as the user saw it; [raw] null (or empty) is unset. */
+data class SeenDoze(
+    val raw: String?,
+)
 
 /** Why a plan or an attempt must be confirmed by the user first. The UI owns the (localized) wording. */
 enum class ToolkitWarning {

@@ -262,6 +262,30 @@ class ToolkitActionsTest {
             assertEquals(DozeProfile.BALANCED.constants, row.afterRaw)
         }
 
+    @Test
+    fun dozeApplyIsStaleWhenTheValueTheUserSawChangedAndWritesNothing() =
+        runTest {
+            backend.dozeRaw = "idle_to=2" // the user decided against "idle_to=1"
+            val action = ToolkitAction.ApplyDoze(DozeProfile.STANDARD, SeenDoze("idle_to=1"))
+
+            assertEquals(ToolkitPlan.Refused(ToolkitRefusal.STALE), actions.plan(action))
+            val outcome = actions.execute(action, confirmed = true)
+
+            assertEquals(ToolkitOutcome.Refused(ToolkitRefusal.STALE, ToolkitCode.STALE), outcome)
+            assertTrue(backend.writes.isEmpty())
+            assertEquals("idle_to=2", backend.dozeRaw)
+            assertEquals(ToolkitActionStatus.REFUSED, audit.rows.single().status)
+        }
+
+    @Test
+    fun dozeApplyWithTheSeenValueStillInPlaceWritesWithItAsTheExpectation() =
+        runTest {
+            val outcome = actions.execute(ToolkitAction.ApplyDoze(DozeProfile.BALANCED, SeenDoze(null)))
+
+            assertTrue(outcome is ToolkitOutcome.Done)
+            assertEquals(listOf("applyDoze(${DozeProfile.BALANCED.code},null)"), backend.writes)
+        }
+
     // ---- stale API / unavailable -----------------------------------------------------------
 
     @Test
