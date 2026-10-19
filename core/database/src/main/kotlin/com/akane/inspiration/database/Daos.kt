@@ -6,6 +6,7 @@ import androidx.room.OnConflictStrategy
 import androidx.room.Query
 import androidx.room.Transaction
 import androidx.room.Update
+import com.akane.inspiration.telemetry.store.RETENTION_WINDOW_MS
 import com.akane.inspiration.telemetry.toolkit.ToolkitAuditLog
 
 @Dao
@@ -419,6 +420,6 @@ interface MaintenanceDao {
 
     companion object {
         const val HOUR_MS = 60L * 60L * 1_000L
-        const val RETENTION_MS = 30L * 24L * HOUR_MS
+        const val RETENTION_MS = RETENTION_WINDOW_MS
     }
 }

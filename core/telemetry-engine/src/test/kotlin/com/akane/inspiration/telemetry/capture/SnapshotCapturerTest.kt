@@ -24,6 +24,7 @@ import com.akane.inspiration.telemetry.source.TelemetrySource
 import com.akane.inspiration.telemetry.store.ChargeSessionRecord
 import com.akane.inspiration.telemetry.store.HealthSample
 import com.akane.inspiration.telemetry.store.Marker
+import com.akane.inspiration.telemetry.store.RETENTION_WINDOW_MS
 import com.akane.inspiration.telemetry.store.SnapshotStore
 import com.akane.inspiration.telemetry.store.TelemetrySample
 import com.akane.inspiration.telemetry.store.ToolkitActionRecord
@@ -278,6 +279,49 @@ class SnapshotCapturerTest {
         }
 
     @Test
+    fun `a relabelled re-page does not bring back history the retention already pruned`() =
+        runTest {
+            val nowMs = 400L * DAY_MS
+            val cutoffMs = nowMs - RETENTION_WINDOW_MS
+            // A charge that started before the cutoff and is still running: the prune deleted its PLUGGED row and
+            // kept the rest. Re-inserted, that PLUGGED would open the new run and pair with its first UNPLUGGED.
+            val plugged = HistoryEvent(100, cutoffMs - 1, HistoryKind.PLUGGED, 40, 1_000_000, 250, 4000, 1)
+            val level = HistoryEvent(200, cutoffMs, HistoryKind.LEVEL, 60, 1_500_000, 250, 4100, 1)
+            val unplugged = HistoryEvent(300, nowMs - 1, HistoryKind.UNPLUGGED, 90, 2_000_000, 250, 4200, 0)
+            val store = FakeStore()
+            store.insertHistory(listOf(level), statsStartMs = 10L)
+            store.cursor = 10L to 200L
+            val source =
+                FakeSource(
+                    history = listOf(page(truncated = false, plugged, level, unplugged, statsStartMs = 20L, sessionChanged = true)),
+                )
+
+            SnapshotCapturer(source, store, TestClocks(wallMs = nowMs))
+                .captureFull(CaptureTrigger.APP_OPEN, deadlineMs = 100, ingestHistory = true)
+
+            assertEquals(listOf(level, unplugged), store.history)
+            assertEquals(20L to 300L, store.cursor)
+        }
+
+    @Test
+    fun `the ingest measures the retention in the prune's boot frame after a forward clock jump`() =
+        runTest {
+            val realNowMs = 400L * DAY_MS
+            val elapsedMs = 10L * DAY_MS
+            // This boot's earliest snapshot puts "now" at realNowMs; the wall clock has since jumped a year ahead.
+            val store = FakeStore().apply { minClockOffsetMs = realNowMs - elapsedMs }
+            val keptByPrune = historyEvent(5).copy(wallMs = realNowMs - RETENTION_WINDOW_MS)
+            val prunedByPrune = historyEvent(6).copy(wallMs = realNowMs - RETENTION_WINDOW_MS - 1)
+            val source = FakeSource(history = listOf(page(truncated = false, prunedByPrune, keptByPrune)))
+            val clocks = TestClocks(wallMs = realNowMs + 365L * DAY_MS, elapsedMs = elapsedMs)
+
+            SnapshotCapturer(source, store, clocks).ingestHistory(CaptureTrigger.APP_OPEN, deadlineMs = 100)
+
+            assertEquals(listOf(keptByPrune), store.history)
+            assertEquals(10L to 5L, store.cursor)
+        }
+
+    @Test
     fun `overlapping history ingests run one at a time, each from the cursor the last one left`() =
         runTest {
             val store = FakeStore()
@@ -472,6 +516,7 @@ class SnapshotCapturerTest {
 
     private class FakeStore : SnapshotStore {
         var cursor: Pair<Long, Long>? = null
+        var minClockOffsetMs: Long? = null
         val history = mutableListOf<HistoryEvent>()
         private val historyKeys = mutableSetOf<Triple<Long, Int, Long>>()
         val misses = mutableListOf<Pair<CaptureTrigger, String>>()
@@ -557,6 +602,8 @@ class SnapshotCapturerTest {
             misses += trigger to reason
         }
 
+        override suspend fun minClockOffsetMs(bootCount: Int): Long? = minClockOffsetMs
+
         override suspend fun prune(nowWallMs: Long) = Unit
 
         override suspend fun markers(): List<Marker> = emptyList()
@@ -581,10 +628,13 @@ class SnapshotCapturerTest {
         override suspend fun pendingToolkitActions(): List<ToolkitActionRecord> = emptyList()
     }
 
-    private class TestClocks : Clocks {
-        override fun wallMs(): Long = 1L
+    private class TestClocks(
+        private val wallMs: Long = 1L,
+        private val elapsedMs: Long = 2L,
+    ) : Clocks {
+        override fun wallMs(): Long = wallMs
 
-        override fun elapsedRealtimeMs(): Long = 2L
+        override fun elapsedRealtimeMs(): Long = elapsedMs
 
         override fun uptimeMs(): Long = 3L
 
@@ -606,4 +656,8 @@ class SnapshotCapturerTest {
     )
 
     private fun historyEvent(time: Long) = HistoryEvent(time, time, HistoryKind.LEVEL, 70, 1_000_000, 250, 4000, 0)
+
+    private companion object {
+        const val DAY_MS = 24L * 60L * 60L * 1_000L
+    }
 }

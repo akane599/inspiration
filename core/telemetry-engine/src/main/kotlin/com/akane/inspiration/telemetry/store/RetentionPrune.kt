@@ -2,6 +2,9 @@ package com.akane.inspiration.telemetry.store
 
 import com.akane.inspiration.telemetry.common.Clocks
 
+/** How long the store keeps what it captured, counted back from [retentionNowMs]. */
+const val RETENTION_WINDOW_MS = 30L * 24L * 60L * 60L * 1_000L
+
 /**
  * Prunes the retention at a "now" that a forward wall-clock jump cannot move ahead of this boot's monotonic clock.
  *
@@ -18,9 +21,14 @@ import com.akane.inspiration.telemetry.common.Clocks
  * A snapshot taken before the clock was corrected forward only delays pruning, until it ages out by elapsedRealtime.
  */
 suspend fun SnapshotStore.pruneRetention(clocks: Clocks) {
+    prune(retentionNowMs(clocks))
+}
+
+/** The "now" [pruneRetention] prunes at; the history ingest skips what that prune would delete. */
+suspend fun SnapshotStore.retentionNowMs(clocks: Clocks): Long {
     val wallMs = clocks.wallMs()
     val elapsedMs = clocks.elapsedRealtimeMs()
     val bootCount = clocks.bootCount()
     val bootFrameNowMs = if (bootCount > 0) minClockOffsetMs(bootCount)?.let { it + elapsedMs } else null
-    prune(if (bootFrameNowMs == null) wallMs else minOf(wallMs, bootFrameNowMs))
+    return if (bootFrameNowMs == null) wallMs else minOf(wallMs, bootFrameNowMs)
 }
