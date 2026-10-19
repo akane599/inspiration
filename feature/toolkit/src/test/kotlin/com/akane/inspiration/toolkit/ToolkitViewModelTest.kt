@@ -463,6 +463,40 @@ class ToolkitViewModelTest {
     }
 
     @Test
+    fun `restricted flags and unlaunchable restricted apps come from the screen's own override read`() {
+        start()
+        restrict(MAIL)
+        // installedApps() lists launchable packages only and does not read overrides itself (F-19): Mail has no
+        // launcher, and a stale flag on an entry is not trusted.
+        deps.apps =
+            DEFAULT_APPS
+                .filter { it.launchable }
+                .map { it.copy(restricted = it.packageName == CHATTY) }
+        vm.onIntent(ToolkitIntent.Reload)
+
+        assertEquals(listOf(MAIL, CALC, CHATTY, MAPS), state.apps.items.map { it.packageName })
+        assertEquals(
+            listOf(MAIL),
+            state.apps.items
+                .filter { it.restricted }
+                .map { it.packageName },
+        )
+        assertEquals(4, state.apps.total)
+        assertEquals(
+            "Mail",
+            state.apps.items
+                .first()
+                .label,
+        )
+
+        // Restoring the override drops the unlaunchable app from the picker again.
+        act(ToolkitRequest.Restore(state.overrides.single().actionId))
+
+        assertEquals(listOf(CALC, CHATTY, MAPS), state.apps.items.map { it.packageName })
+        assertTrue(state.apps.items.none { it.restricted })
+    }
+
+    @Test
     fun `an entry without a label gets one from the label source`() {
         start { apps = listOf(AppEntry("com.example.nolabel", "", launchable = true, restricted = false)) }
 

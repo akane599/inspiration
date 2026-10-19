@@ -63,7 +63,6 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.filterNotNull
-import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.util.Locale
@@ -251,15 +250,11 @@ class AppContainer(
                     .queryIntentActivities(launcher, 0)
                     .map { it.activityInfo.packageName }
                     .toSet()
-            val restricted =
-                toolkit
-                    .activeOverrides()
-                    .first()
-                    .mapNotNull { it.pkg }
-                    .toSet()
+            // No override read here: the Toolkit screen merges restricted apps from its own activeOverrides()
+            // collector, so a load reconciles and computes the overrides once under the toolkit mutex (F-19).
             AppEntries.build(
                 launchable = launchable,
-                restricted = restricted,
+                restricted = emptySet(),
                 excluded = setOf(appContext.packageName, SHIZUKU_PACKAGE),
                 locale = Locale.getDefault(),
                 label = appLabels::label,

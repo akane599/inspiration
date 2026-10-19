@@ -21,7 +21,10 @@ interface ToolkitDependencies {
     /** Shows the Shizuku permission dialog; this is the only way to grant it from the app. */
     fun requestShizukuPermission()
 
-    /** Launchable packages plus the ones the user already restricted. */
+    /**
+     * Launchable packages. The screen adds the ones with an override still in effect, and sets every restricted
+     * flag, from its own `toolkit.activeOverrides()` read; an implementation does not read overrides (F-19).
+     */
     suspend fun installedApps(): List<AppEntry>
 
     /** Keeps the Shizuku service bound (a running bg-dexopt job needs it); close it when done. */

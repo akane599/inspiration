@@ -61,6 +61,15 @@ class ToolkitViewModel(
     private var detailJob: Job? = null
     private var allApps: List<AppItem> = emptyList()
 
+    /** What `installedApps()` last answered (launchable packages); null until it did. */
+    private var installed: List<AppItem>? = null
+
+    /**
+     * Packages with an override in effect, from this screen's own `activeOverrides()` collector: the only source
+     * of the restricted flags, so a load computes the overrides once (F-19).
+     */
+    private var restrictedPackages: Set<String> = emptySet()
+
     private data class PreparedRequest(
         val request: ToolkitRequest,
         val action: ToolkitAction?,
@@ -156,6 +165,8 @@ class ToolkitViewModel(
         invalidatePlanning()
         detailJob?.cancel()
         allApps = emptyList()
+        installed = null
+        restrictedPackages = emptySet()
         _state.update {
             it.copy(
                 status = ToolkitPhase.BLOCKED,
@@ -231,9 +242,31 @@ class ToolkitViewModel(
             _state.update { it.copy(apps = it.apps.copy(phase = AppsPhase.FAILED)) }
             return
         }
+        installed = entries.map { appItem(it) }
+        _state.update { it.copy(apps = it.apps.copy(phase = AppsPhase.READY)) }
+        rebuildApps()
+    }
+
+    private suspend fun appItem(entry: AppEntry): AppItem =
+        AppItem(
+            packageName = entry.packageName,
+            label = entry.label.ifBlank { deps.appLabels.label(entry.packageName) },
+            restricted = false,
+        )
+
+    /**
+     * The picker is the installed list plus any restricted package it lacks (no launcher, but listed so it can be
+     * restored, H15), flagged from [restrictedPackages]. It works in either order of the two reads.
+     */
+    private suspend fun rebuildApps() {
+        val base = installed ?: return
+        val listed = base.mapTo(HashSet()) { it.packageName }
+        val extra =
+            restrictedPackages
+                .filter { it !in listed }
+                .map { pkg -> AppItem(packageName = pkg, label = deps.appLabels.label(pkg), restricted = true) }
         allApps =
-            entries
-                .map { appItem(it) }
+            (base.map { it.copy(restricted = it.packageName in restrictedPackages) } + extra)
                 .sortedWith(
                     compareByDescending<AppItem> { it.restricted }
                         .thenBy(
@@ -241,16 +274,8 @@ class ToolkitViewModel(
                         ) { it.label }
                         .thenBy { it.packageName },
                 )
-        _state.update { it.copy(apps = it.apps.copy(phase = AppsPhase.READY)) }
         applyQuery()
     }
-
-    private suspend fun appItem(entry: AppEntry): AppItem =
-        AppItem(
-            packageName = entry.packageName,
-            label = entry.label.ifBlank { deps.appLabels.label(entry.packageName) },
-            restricted = entry.restricted,
-        )
 
     private fun setQuery(query: String) {
         _state.update { it.copy(apps = it.apps.copy(query = query)) }
@@ -278,18 +303,8 @@ class ToolkitViewModel(
     private suspend fun showOverrides(all: List<Override>) {
         val items = all.map { override -> overrideItem(override) }
         _state.update { it.copy(overrides = items.toImmutableList()) }
-        val restrictedPackages = all.mapNotNull { it.pkg }.toSet()
-        allApps =
-            allApps
-                .map { it.copy(restricted = it.packageName in restrictedPackages) }
-                .sortedWith(
-                    compareByDescending<AppItem> { it.restricted }
-                        .thenBy(
-                            String.CASE_INSENSITIVE_ORDER,
-                        ) { it.label }
-                        .thenBy { it.packageName },
-                )
-        applyQuery()
+        restrictedPackages = all.mapNotNull { it.pkg }.toSet()
+        rebuildApps()
     }
 
     private suspend fun overrideItem(override: Override): OverrideItem =
