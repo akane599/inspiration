@@ -29,9 +29,9 @@ import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalLocale
 import androidx.compose.ui.platform.LocalResources
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.TextLayoutResult
 import androidx.compose.ui.text.TextMeasurer
@@ -50,7 +50,8 @@ import com.akane.inspiration.designsystem.chart.draw.SELECTION_DIM_ALPHA
 import com.akane.inspiration.designsystem.chart.draw.TimeTick
 import com.akane.inspiration.designsystem.chart.draw.drawTimeAxis
 import com.akane.inspiration.designsystem.chart.math.TimeScale
-import com.akane.inspiration.designsystem.chart.math.niceTimeTicks
+import com.akane.inspiration.designsystem.chart.math.isStartOfDay
+import com.akane.inspiration.designsystem.chart.math.niceTimeTickSet
 import com.akane.inspiration.designsystem.chart.model.HypnogramData
 import com.akane.inspiration.designsystem.chart.model.HypnogramStage
 import com.akane.inspiration.designsystem.chart.model.TimeRange
@@ -119,11 +120,12 @@ fun SleepHypnogram(
     val density = LocalDensity.current
     val textDensity = remember(density) { Density(density.density, minOf(density.fontScale, MAX_CHART_FONT_SCALE)) }
     val labelStyle = MaterialTheme.typography.labelSmall.withTabularFigures()
-    val minHeight = with(textDensity) {
-        val lineHeight = if (labelStyle.lineHeight.isSp) labelStyle.lineHeight.toDp() else 16.dp
-        val rowHeight = maxOf(MinRowHeight, lineHeight + ColumnGap)
-        PulseZone + rowHeight * HypnogramStage.entries.size + TickLength + TickLabelGap + lineHeight
-    }
+    val minHeight =
+        with(textDensity) {
+            val lineHeight = if (labelStyle.lineHeight.isSp) labelStyle.lineHeight.toDp() else 16.dp
+            val rowHeight = maxOf(MinRowHeight, lineHeight + ColumnGap)
+            PulseZone + rowHeight * HypnogramStage.entries.size + TickLength + TickLabelGap + lineHeight
+        }
 
     if (data.segments.isEmpty() || data.window.durationMs <= 0L) {
         Box(modifier.fillMaxWidth().heightIn(min = minHeight), contentAlignment = Alignment.Center) {
@@ -141,45 +143,49 @@ fun SleepHypnogram(
     val telemetry = MaterialTheme.telemetryColors
     val scheme = MaterialTheme.colorScheme
     val textMeasurer = rememberTextMeasurer()
-    val palette = remember(telemetry, scheme.background, scheme.surfaceContainer, scheme.onSurface, scheme.primary) {
-        val maintenanceAlpha = if (scheme.background.luminance() < 0.5f) MAINTENANCE_ALPHA_DARK else MAINTENANCE_ALPHA_LIGHT
-        HypnogramPalette(
-            stage = arrayOf(
-                telemetry.awake,
-                telemetry.awake.copy(alpha = maintenanceAlpha),
-                telemetry.lightSleep,
-                telemetry.deepSleep,
-            ),
-            pulse = telemetry.critical,
-            grid = telemetry.chartGrid,
-            connector = telemetry.chartAxisLabel.copy(alpha = CONNECTOR_ALPHA),
-            gapHatch = telemetry.chartAxisLabel.copy(alpha = GAP_HATCH_ALPHA),
-            label = telemetry.chartAxisLabel,
-            dim = scheme.surfaceContainer.copy(alpha = SELECTION_DIM_ALPHA),
-            cursor = scheme.onSurface,
-            edge = scheme.primary,
-        )
-    }
+    val palette =
+        remember(telemetry, scheme.background, scheme.surfaceContainer, scheme.onSurface, scheme.primary) {
+            val maintenanceAlpha = if (scheme.background.luminance() < 0.5f) MAINTENANCE_ALPHA_DARK else MAINTENANCE_ALPHA_LIGHT
+            HypnogramPalette(
+                stage =
+                    arrayOf(
+                        telemetry.awake,
+                        telemetry.awake.copy(alpha = maintenanceAlpha),
+                        telemetry.lightSleep,
+                        telemetry.deepSleep,
+                    ),
+                pulse = telemetry.critical,
+                grid = telemetry.chartGrid,
+                connector = telemetry.chartAxisLabel.copy(alpha = CONNECTOR_ALPHA),
+                gapHatch = telemetry.chartAxisLabel.copy(alpha = GAP_HATCH_ALPHA),
+                label = telemetry.chartAxisLabel,
+                dim = scheme.surfaceContainer.copy(alpha = SELECTION_DIM_ALPHA),
+                cursor = scheme.onSurface,
+                edge = scheme.primary,
+            )
+        }
     val stageNames = remember(resources) { HypnogramStage.entries.map { resources.getString(it.labelRes) } }
     val durationsMs = remember(data) { stageDurationsMs(data) }
     val format = rememberTelemetryFormat()
     // The composition's locale, the one rememberTelemetryFormat uses, so axis and a11y dates match the rest of the UI.
     val locale = LocalLocale.current.platformLocale
     val durationTexts = remember(durationsMs, format) { durationsMs.map(format::duration) }
-    val description = remember(data, zone, locale, stageNames, durationTexts, resources) {
-        describe(resources, data.window, zone, locale, stageNames, durationTexts)
-    }
-    val selectionDescription = remember(selection, zone, locale, resources, format) {
-        selection?.let {
-            val formatter = clockFormatter(data.window, locale)
-            resources.getString(
-                R.string.chart_a11y_selection,
-                formatClock(formatter, it.startMs, zone),
-                formatClock(formatter, it.endMs, zone),
-                format.duration(it.durationMs),
-            )
+    val description =
+        remember(data, zone, locale, stageNames, durationTexts, resources) {
+            describe(resources, data.window, zone, locale, stageNames, durationTexts)
         }
-    }
+    val selectionDescription =
+        remember(selection, data.window, zone, locale, resources, format) {
+            selection?.let {
+                val formatter = clockFormatter(data.window, locale)
+                resources.getString(
+                    R.string.chart_a11y_selection,
+                    formatClock(formatter, it.startMs, zone),
+                    formatClock(formatter, it.endMs, zone),
+                    format.duration(it.durationMs),
+                )
+            }
+        }
 
     // Selection and cursor reach the draw lambda through State, so a change redraws only and neither
     // rebuilds the cache below nor, for the cursor, recomposes anything.
@@ -193,28 +199,32 @@ fun SleepHypnogram(
             .semantics {
                 contentDescription = description
                 selectionDescription?.let { stateDescription = it }
-            }
-            .drawWithCache {
-                val layer = buildLayer(
-                    density = this,
-                    textDensity = textDensity,
-                    layoutDirection = layoutDirection,
-                    size = size,
-                    data = data,
-                    zone = zone,
-                    locale = locale,
-                    palette = palette,
-                    stageNames = stageNames,
-                    durationTexts = durationTexts,
-                    textStyle = labelStyle,
-                    measurer = textMeasurer,
-                )
+            }.drawWithCache {
+                val layer =
+                    buildLayer(
+                        density = this,
+                        textDensity = textDensity,
+                        layoutDirection = layoutDirection,
+                        size = size,
+                        data = data,
+                        zone = zone,
+                        locale = locale,
+                        palette = palette,
+                        stageNames = stageNames,
+                        durationTexts = durationTexts,
+                        textStyle = labelStyle,
+                        measurer = textMeasurer,
+                    )
                 // Static data in its own offscreen layer: a cursor frame redraws only the overlay.
-                val dataLayer = obtainGraphicsLayer().apply {
-                    compositingStrategy = CompositingStrategy.Offscreen
-                    record { drawHypnogramData(layer) }
+                val dataLayer =
+                    obtainGraphicsLayer().apply {
+                        compositingStrategy = CompositingStrategy.Offscreen
+                        record { drawHypnogramData(layer) }
+                    }
+                onDrawBehind {
+                    drawLayer(dataLayer)
+                    drawHypnogramOverlay(layer, selectionState, cursorState)
                 }
-                onDrawBehind { drawLayer(dataLayer); drawHypnogramOverlay(layer, selectionState, cursorState) }
             },
     )
 }
@@ -267,140 +277,148 @@ private fun buildLayer(
     durationTexts: List<String>,
     textStyle: TextStyle,
     measurer: TextMeasurer,
-): HypnogramLayer = with(density) {
-    fun measure(text: String, maxWidthPx: Int = Constraints.Infinity) = measurer.measure(
-        text = text,
-        style = textStyle,
-        overflow = TextOverflow.Ellipsis,
-        softWrap = false,
-        maxLines = 1,
-        constraints = Constraints(maxWidth = maxWidthPx),
-        layoutDirection = layoutDirection,
-        density = textDensity,
-    )
-
-    val stages = HypnogramStage.entries
-    val nameLayouts = stages.map { measure(stageNames[it.ordinal], (size.width * LABEL_COLUMN_FRACTION).toInt()) }
-    val durationLayouts = stages.map { measure(durationTexts[it.ordinal], (size.width * DURATION_COLUMN_FRACTION).toInt()) }
-    val plotLeft = nameLayouts.maxOf { it.size.width } + ColumnGap.toPx()
-    val plotRight = size.width - durationLayouts.maxOf { it.size.width } - TotalsGutter.toPx()
-    val plotWidth = maxOf(1f, plotRight - plotLeft)
-    val scale = TimeScale(data.window, plotWidth)
-
-    // Time axis: ticks and labels measured here, once.
-    val sample = measure("00:00")
-    val maxTicks = maxOf(2, (plotWidth / (sample.size.width + MinTickSpacing.toPx())).toInt())
-    val formatter = clockFormatter(data.window, locale)
-    val ticks = niceTimeTicks(data.window, maxTicks, zone).map { TimeTick(it, measure(formatClock(formatter, it, zone))) }
-    val tickLength = TickLength.toPx()
-    val axisHeight = tickLength + TickLabelGap.toPx() + sample.size.height
-
-    val rowsTop = PulseZone.toPx()
-    val rowsBottom = maxOf(rowsTop, size.height - axisHeight)
-    val rowHeight = (rowsBottom - rowsTop) / stages.size
-    val barHeight = minOf(rowHeight * BAR_FRACTION, BarMaxHeight.toPx())
-    val connectorInset = maxOf(0f, barHeight / 2f - BarRadius.toPx())
-    fun centerY(stage: HypnogramStage) = rowsTop + rowHeight * (stage.ordinal + 0.5f)
-    fun xOf(tMs: Long) = plotLeft + scale.toX(tMs).coerceIn(0f, plotWidth)
-
-    val stagePaths = Array(stages.size) { Path() }
-    val connectorPath = Path()
-    val gridPath = Path()
-    for (stage in stages) {
-        gridPath.moveTo(plotLeft, centerY(stage))
-        gridPath.lineTo(plotLeft + plotWidth, centerY(stage))
-    }
-
-    // Segments clip to the window; connectors join only segments that touch, so a gap breaks the step line.
-    var previousStage: HypnogramStage? = null
-    var previousEndX = 0f
-    for (segment in data.segments) {
-        if (segment.endMs <= data.window.startMs || segment.startMs >= data.window.endMs) continue
-        val startX = xOf(segment.startMs)
-        val endX = maxOf(xOf(segment.endMs), minOf(startX + MIN_VISIBLE_PX, plotLeft + plotWidth))
-        val top = centerY(segment.stage) - barHeight / 2f
-        val radius = minOf(BarRadius.toPx(), (endX - startX) / 2f, barHeight / 2f)
-        stagePaths[segment.stage.ordinal].addRoundRect(
-            RoundRect(startX, top, endX, top + barHeight, CornerRadius(radius)),
+): HypnogramLayer =
+    with(density) {
+        fun measure(
+            text: String,
+            maxWidthPx: Int = Constraints.Infinity,
+        ) = measurer.measure(
+            text = text,
+            style = textStyle,
+            overflow = TextOverflow.Ellipsis,
+            softWrap = false,
+            maxLines = 1,
+            constraints = Constraints(maxWidth = maxWidthPx),
+            layoutDirection = layoutDirection,
+            density = textDensity,
         )
-        val before = previousStage
-        if (before != null && before != segment.stage && abs(startX - previousEndX) <= MIN_VISIBLE_PX) {
-            // Stop short of the bar centers so a translucent bar (maintenance) never shows the line through it.
-            val direction = if (segment.stage.ordinal > before.ordinal) 1f else -1f
-            connectorPath.moveTo(startX, centerY(before) + direction * connectorInset)
-            connectorPath.lineTo(startX, centerY(segment.stage) - direction * connectorInset)
-        }
-        previousStage = segment.stage
-        previousEndX = endX
-    }
 
-    val gapFillPath = Path()
-    val gapHatchPath = Path()
-    val hatchSpacing = HatchSpacing.toPx()
-    val rowsHeight = rowsBottom - rowsTop
-    for (gap in hypnogramGaps(data)) {
-        val left = xOf(gap.startMs)
-        val right = xOf(gap.endMs)
-        if (right - left < MIN_VISIBLE_PX) continue
-        gapFillPath.addRect(Rect(left, rowsTop, right, rowsBottom))
-        // 45 degree lines, analytically clipped to the band so no clip is needed per frame.
-        var x = left - rowsHeight
-        while (x < right) {
-            val lo = maxOf(x, left)
-            val hi = minOf(x + rowsHeight, right)
-            if (hi > lo) {
-                gapHatchPath.moveTo(lo, rowsBottom - (lo - x))
-                gapHatchPath.lineTo(hi, rowsBottom - (hi - x))
+        val stages = HypnogramStage.entries
+        val nameLayouts = stages.map { measure(stageNames[it.ordinal], (size.width * LABEL_COLUMN_FRACTION).toInt()) }
+        val durationLayouts = stages.map { measure(durationTexts[it.ordinal], (size.width * DURATION_COLUMN_FRACTION).toInt()) }
+        val plotLeft = nameLayouts.maxOf { it.size.width } + ColumnGap.toPx()
+        val plotRight = size.width - durationLayouts.maxOf { it.size.width } - TotalsGutter.toPx()
+        val plotWidth = maxOf(1f, plotRight - plotLeft)
+        val scale = TimeScale(data.window, plotWidth)
+
+        // Time axis: ticks and labels measured here, once.
+        val sample = measure("00:00")
+        val maxTicks = maxOf(2, (plotWidth / (sample.size.width + MinTickSpacing.toPx())).toInt())
+        val tickSet = niceTimeTickSet(data.window, maxTicks, zone)
+        val ticks = tickSet.ticksMs.map { TimeTick(it, measure(tickLabel(it, zone, data.window, tickSet.dayAligned, locale))) }
+        val tickLength = TickLength.toPx()
+        val axisHeight = tickLength + TickLabelGap.toPx() + sample.size.height
+
+        val rowsTop = PulseZone.toPx()
+        val rowsBottom = maxOf(rowsTop, size.height - axisHeight)
+        val rowHeight = (rowsBottom - rowsTop) / stages.size
+        val barHeight = minOf(rowHeight * BAR_FRACTION, BarMaxHeight.toPx())
+        val connectorInset = maxOf(0f, barHeight / 2f - BarRadius.toPx())
+
+        fun centerY(stage: HypnogramStage) = rowsTop + rowHeight * (stage.ordinal + 0.5f)
+
+        fun xOf(tMs: Long) = plotLeft + scale.toX(tMs).coerceIn(0f, plotWidth)
+
+        val stagePaths = Array(stages.size) { Path() }
+        val connectorPath = Path()
+        val gridPath = Path()
+        for (stage in stages) {
+            gridPath.moveTo(plotLeft, centerY(stage))
+            gridPath.lineTo(plotLeft + plotWidth, centerY(stage))
+        }
+
+        // Segments clip to the window; connectors join only segments that touch, so a gap breaks the step line.
+        var previousStage: HypnogramStage? = null
+        var previousEndX = 0f
+        for (segment in data.segments) {
+            if (segment.endMs <= data.window.startMs || segment.startMs >= data.window.endMs) continue
+            val startX = xOf(segment.startMs)
+            val endX = maxOf(xOf(segment.endMs), minOf(startX + MIN_VISIBLE_PX, plotLeft + plotWidth))
+            val top = centerY(segment.stage) - barHeight / 2f
+            val radius = minOf(BarRadius.toPx(), (endX - startX) / 2f, barHeight / 2f)
+            stagePaths[segment.stage.ordinal].addRoundRect(
+                RoundRect(startX, top, endX, top + barHeight, CornerRadius(radius)),
+            )
+            val before = previousStage
+            if (before != null && before != segment.stage && abs(startX - previousEndX) <= MIN_VISIBLE_PX) {
+                // Stop short of the bar centers so a translucent bar (maintenance) never shows the line through it.
+                val direction = if (segment.stage.ordinal > before.ordinal) 1f else -1f
+                connectorPath.moveTo(startX, centerY(before) + direction * connectorInset)
+                connectorPath.lineTo(startX, centerY(segment.stage) - direction * connectorInset)
             }
-            x += hatchSpacing
+            previousStage = segment.stage
+            previousEndX = endX
         }
-    }
 
-    val pulsePath = Path()
-    val pulseHalf = PulseWidth.toPx() / 2f
-    val pulseBottom = rowsTop - PulseGap.toPx()
-    val pulseTop = pulseBottom - PulseHeight.toPx()
-    for (t in data.wakePulsesMs) {
-        if (t < data.window.startMs || t > data.window.endMs) continue
-        val x = xOf(t)
-        pulsePath.addRect(Rect(x - pulseHalf, pulseTop, x + pulseHalf, pulseBottom))
-    }
+        val gapFillPath = Path()
+        val gapHatchPath = Path()
+        val hatchSpacing = HatchSpacing.toPx()
+        val rowsHeight = rowsBottom - rowsTop
+        for (gap in hypnogramGaps(data)) {
+            val left = xOf(gap.startMs)
+            val right = xOf(gap.endMs)
+            if (right - left < MIN_VISIBLE_PX) continue
+            gapFillPath.addRect(Rect(left, rowsTop, right, rowsBottom))
+            // 45 degree lines, analytically clipped to the band so no clip is needed per frame.
+            var x = left - rowsHeight
+            while (x < right) {
+                val lo = maxOf(x, left)
+                val hi = minOf(x + rowsHeight, right)
+                if (hi > lo) {
+                    gapHatchPath.moveTo(lo, rowsBottom - (lo - x))
+                    gapHatchPath.lineTo(hi, rowsBottom - (hi - x))
+                }
+                x += hatchSpacing
+            }
+        }
 
-    // Row labels at the start, totals right-aligned at the end, both centered on the row.
-    val textLayouts = Array(stages.size * 2) { if (it < stages.size) nameLayouts[it] else durationLayouts[it - stages.size] }
-    val textOffsets = Array(stages.size * 2) {
-        val layout = textLayouts[it]
-        val y = centerY(stages[it % stages.size]) - layout.size.height / 2f
-        if (it < stages.size) Offset(0f, y) else Offset(size.width - layout.size.width, y)
-    }
+        val pulsePath = Path()
+        val pulseHalf = PulseWidth.toPx() / 2f
+        val pulseBottom = rowsTop - PulseGap.toPx()
+        val pulseTop = pulseBottom - PulseHeight.toPx()
+        for (t in data.wakePulsesMs) {
+            if (t < data.window.startMs || t > data.window.endMs) continue
+            val x = xOf(t)
+            pulsePath.addRect(Rect(x - pulseHalf, pulseTop, x + pulseHalf, pulseBottom))
+        }
 
-    HypnogramLayer(
-        palette = palette,
-        plotLeft = plotLeft,
-        plotWidth = plotWidth,
-        rowsBottom = rowsBottom,
-        scale = scale,
-        stagePaths = stagePaths,
-        gridPath = gridPath,
-        gapFillPath = gapFillPath,
-        gapHatchPath = gapHatchPath,
-        connectorPath = connectorPath,
-        pulsePath = pulsePath,
-        hairStroke = Stroke(width = HairStroke.toPx()),
-        cursorStrokePx = CursorStroke.toPx(),
-        edgeStrokePx = EdgeStroke.toPx(),
-        textLayouts = textLayouts,
-        textOffsets = textOffsets,
-        ticks = ticks,
-        axisStyle = AxisStyle(
-            tickColor = palette.grid,
-            labelColor = palette.label,
-            tickLengthPx = tickLength,
-            strokePx = HairStroke.toPx(),
-            labelGapPx = TickLabelGap.toPx(),
-        ),
-    )
-}
+        // Row labels at the start, totals right-aligned at the end, both centered on the row.
+        val textLayouts = Array(stages.size * 2) { if (it < stages.size) nameLayouts[it] else durationLayouts[it - stages.size] }
+        val textOffsets =
+            Array(stages.size * 2) {
+                val layout = textLayouts[it]
+                val y = centerY(stages[it % stages.size]) - layout.size.height / 2f
+                if (it < stages.size) Offset(0f, y) else Offset(size.width - layout.size.width, y)
+            }
+
+        HypnogramLayer(
+            palette = palette,
+            plotLeft = plotLeft,
+            plotWidth = plotWidth,
+            rowsBottom = rowsBottom,
+            scale = scale,
+            stagePaths = stagePaths,
+            gridPath = gridPath,
+            gapFillPath = gapFillPath,
+            gapHatchPath = gapHatchPath,
+            connectorPath = connectorPath,
+            pulsePath = pulsePath,
+            hairStroke = Stroke(width = HairStroke.toPx()),
+            cursorStrokePx = CursorStroke.toPx(),
+            edgeStrokePx = EdgeStroke.toPx(),
+            textLayouts = textLayouts,
+            textOffsets = textOffsets,
+            ticks = ticks,
+            axisStyle =
+                AxisStyle(
+                    tickColor = palette.grid,
+                    labelColor = palette.label,
+                    tickLengthPx = tickLength,
+                    strokePx = HairStroke.toPx(),
+                    labelGapPx = TickLabelGap.toPx(),
+                ),
+        )
+    }
 
 /** The data-only part, recorded once per cache build into its own layer. It reads no snapshot state. */
 private fun DrawScope.drawHypnogramData(layer: HypnogramLayer) {
@@ -450,12 +468,33 @@ private fun DrawScope.drawHypnogramOverlay(
     }
 }
 
-/** Axis and a11y clock labels in [locale]: the date for a window of two days or more, else the time. */
-internal fun clockFormatter(window: TimeRange, locale: Locale): DateTimeFormatter =
-    DateTimeFormatter.ofPattern(if (window.durationMs >= TWO_DAYS_MS) "d MMM" else "HH:mm", locale)
+/** A11y clock labels in [locale]: date and time for a window of two days or more, else the time. */
+internal fun clockFormatter(
+    window: TimeRange,
+    locale: Locale,
+): DateTimeFormatter = DateTimeFormatter.ofPattern(if (window.durationMs >= TWO_DAYS_MS) "d MMM HH:mm" else "HH:mm", locale)
 
-private fun formatClock(formatter: DateTimeFormatter, tMs: Long, zone: ZoneId): String =
-    formatter.format(Instant.ofEpochMilli(tMs).atZone(zone))
+/**
+ * Axis tick label in [locale], chosen from the tick step rather than the window length: day-step ticks show the
+ * date; sub-day ticks show the time, except that on a window of two days or more a tick at the start of a day
+ * shows its date, so the days stay identifiable without widening every label.
+ */
+internal fun tickLabel(
+    tMs: Long,
+    zone: ZoneId,
+    window: TimeRange,
+    dayAligned: Boolean,
+    locale: Locale,
+): String {
+    val dateTick = dayAligned || (window.durationMs >= TWO_DAYS_MS && isStartOfDay(tMs, zone))
+    return formatClock(DateTimeFormatter.ofPattern(if (dateTick) "d MMM" else "HH:mm", locale), tMs, zone)
+}
+
+private fun formatClock(
+    formatter: DateTimeFormatter,
+    tMs: Long,
+    zone: ZoneId,
+): String = formatter.format(Instant.ofEpochMilli(tMs).atZone(zone))
 
 private fun describe(
     resources: Resources,
@@ -466,13 +505,15 @@ private fun describe(
     durationTexts: List<String>,
 ): String {
     val formatter = clockFormatter(window, locale)
-    val span = resources.getString(
-        R.string.chart_a11y_window,
-        formatClock(formatter, window.startMs, zone),
-        formatClock(formatter, window.endMs, zone),
-    )
-    val totals = stageNames.indices.joinToString(", ") {
-        resources.getString(R.string.chart_stage_total, stageNames[it], durationTexts[it])
-    }
+    val span =
+        resources.getString(
+            R.string.chart_a11y_window,
+            formatClock(formatter, window.startMs, zone),
+            formatClock(formatter, window.endMs, zone),
+        )
+    val totals =
+        stageNames.indices.joinToString(", ") {
+            resources.getString(R.string.chart_stage_total, stageNames[it], durationTexts[it])
+        }
     return "$span. $totals"
 }

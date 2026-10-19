@@ -27,7 +27,7 @@ import com.akane.inspiration.designsystem.chart.draw.drawTimeAxis
 import com.akane.inspiration.designsystem.chart.math.TimeScale
 import com.akane.inspiration.designsystem.chart.math.ValueScale
 import com.akane.inspiration.designsystem.chart.math.decimateMinMax
-import com.akane.inspiration.designsystem.chart.math.niceTimeTicks
+import com.akane.inspiration.designsystem.chart.math.niceTimeTickSet
 import com.akane.inspiration.designsystem.chart.model.LaneKind
 import com.akane.inspiration.designsystem.chart.model.ScrubChartData
 import com.akane.inspiration.designsystem.chart.model.SeriesKind
@@ -53,12 +53,13 @@ internal data class ScrubPalette(
     val accent: Color,
     val surface: Color,
 ) {
-    fun laneColor(kind: LaneKind): Color = when (kind) {
-        LaneKind.SCREEN_ON -> screenOn
-        LaneKind.DEEP_SLEEP -> deepSleep
-        LaneKind.AWAKE -> awake
-        LaneKind.CHARGING -> charging
-    }
+    fun laneColor(kind: LaneKind): Color =
+        when (kind) {
+            LaneKind.SCREEN_ON -> screenOn
+            LaneKind.DEEP_SLEEP -> deepSleep
+            LaneKind.AWAKE -> awake
+            LaneKind.CHARGING -> charging
+        }
 }
 
 /** Value-axis labels, measured once per data/style (their width sets the gutters). */
@@ -80,9 +81,11 @@ internal fun measureValueAxisLabels(
 ): ValueAxisLabels {
     fun measure(text: String) = measurer.measure(text, style, maxLines = 1, softWrap = false)
     val battery = listOf("0%", "50%", "100%").map(::measure)
-    val temp = temperature?.let { axis ->
-        listOf(axis.min, axis.mid, axis.max).map { measure("${it.toInt()}$NBSP$temperatureUnit") }
-    }.orEmpty()
+    val temp =
+        temperature
+            ?.let { axis ->
+                listOf(axis.min, axis.mid, axis.max).map { measure("${it.toInt()}$NBSP$temperatureUnit") }
+            }.orEmpty()
     return ValueAxisLabels(
         battery = battery,
         temperature = temp,
@@ -132,8 +135,16 @@ internal fun CacheDrawScope.buildScrubRenderer(c: ScrubRenderConfig): ScrubRende
     val temperatureScale = c.temperatureAxis?.let { ValueScale(it.min, it.max, innerHeight) }
     val buckets = (plotWidth / 2f).toInt().coerceAtLeast(1)
 
-    val battery = c.data.series.firstOrNull { it.kind == SeriesKind.BATTERY_PERCENT }?.points.orEmpty()
-    val temperature = c.data.series.firstOrNull { it.kind == SeriesKind.TEMPERATURE_C }?.points.orEmpty()
+    val battery =
+        c.data.series
+            .firstOrNull { it.kind == SeriesKind.BATTERY_PERCENT }
+            ?.points
+            .orEmpty()
+    val temperature =
+        c.data.series
+            .firstOrNull { it.kind == SeriesKind.TEMPERATURE_C }
+            ?.points
+            .orEmpty()
 
     val temperatureNormal = Path()
     val temperatureCritical = Path()
@@ -167,19 +178,24 @@ internal fun CacheDrawScope.buildScrubRenderer(c: ScrubRenderConfig): ScrubRende
     }
 
     val sampleLabel = if (c.data.window.usesDateTicks()) "00 May" else "00:00"
-    val sampleWidth = c.textMeasurer.measure(sampleLabel, c.tickLabelStyle, maxLines = 1, softWrap = false).size.width
+    val sampleWidth =
+        c.textMeasurer
+            .measure(sampleLabel, c.tickLabelStyle, maxLines = 1, softWrap = false)
+            .size.width
     val maxTicks = (plotWidth / (sampleWidth + c.tickGap.toPx())).toInt().coerceAtLeast(2)
-    val ticks = niceTimeTicks(c.data.window, maxTicks, c.zone).map { tMs ->
-        TimeTick(
-            tMs,
-            c.textMeasurer.measure(
-                formatTickLabel(tMs, c.zone, c.data.window, c.locale),
-                c.tickLabelStyle,
-                maxLines = 1,
-                softWrap = false,
-            ),
-        )
-    }
+    val tickSet = niceTimeTickSet(c.data.window, maxTicks, c.zone)
+    val ticks =
+        tickSet.ticksMs.map { tMs ->
+            TimeTick(
+                tMs,
+                c.textMeasurer.measure(
+                    formatTickLabel(tMs, c.zone, c.data.window, tickSet.dayAligned, c.locale),
+                    c.tickLabelStyle,
+                    maxLines = 1,
+                    softWrap = false,
+                ),
+            )
+        }
 
     return ScrubRenderer(
         palette = c.palette,
@@ -200,13 +216,14 @@ internal fun CacheDrawScope.buildScrubRenderer(c: ScrubRenderConfig): ScrubRende
         lanePaths = lanePaths,
         laneColors = Array(laneKinds.size) { c.palette.laneColor(laneKinds[it]) },
         ticks = ticks,
-        axisStyle = AxisStyle(
-            tickColor = c.palette.axisLabel.copy(alpha = TICK_ALPHA),
-            labelColor = c.palette.axisLabel,
-            tickLengthPx = ScrubChartMetrics.TickLength.toPx(),
-            strokePx = ScrubChartMetrics.HairlineWidth.toPx(),
-            labelGapPx = c.laneGap.toPx(),
-        ),
+        axisStyle =
+            AxisStyle(
+                tickColor = c.palette.axisLabel.copy(alpha = TICK_ALPHA),
+                labelColor = c.palette.axisLabel,
+                tickLengthPx = ScrubChartMetrics.TickLength.toPx(),
+                strokePx = ScrubChartMetrics.HairlineWidth.toPx(),
+                labelGapPx = c.laneGap.toPx(),
+            ),
         lineStroke = Stroke(ScrubChartMetrics.LineWidth.toPx(), cap = StrokeCap.Round, join = StrokeJoin.Round),
         hairline = ScrubChartMetrics.HairlineWidth.toPx(),
         edgeWidth = ScrubChartMetrics.EdgeWidth.toPx(),
@@ -225,7 +242,13 @@ internal fun CacheDrawScope.buildScrubRenderer(c: ScrubRenderConfig): ScrubRende
 
 private const val TICK_ALPHA = 0.5f
 
-private fun appendLine(path: Path, points: List<TimePoint>, scale: TimeScale, values: ValueScale, inset: Float) {
+private fun appendLine(
+    path: Path,
+    points: List<TimePoint>,
+    scale: TimeScale,
+    values: ValueScale,
+    inset: Float,
+) {
     if (points.size < 2) return
     path.moveTo(scale.toX(points[0].tMs), inset + values.toY(points[0].value))
     for (i in 1 until points.size) {
@@ -279,7 +302,11 @@ internal class ScrubRenderer(
     }
 
     /** The per-frame part (selection and cursor), drawn over [drawStatic]. */
-    fun drawOverlay(scope: DrawScope, state: ScrubInteractionState, inputs: ScrubDrawInputs) {
+    fun drawOverlay(
+        scope: DrawScope,
+        state: ScrubInteractionState,
+        inputs: ScrubDrawInputs,
+    ) {
         scope.translate(left = plotLeft, top = 0f) {
             drawSelection(state, inputs)
             drawCursor(state, inputs)
@@ -314,7 +341,10 @@ internal class ScrubRenderer(
         translate(left = 0f, top = axisTop) { drawTimeAxis(ticks, scale, axisStyle) }
     }
 
-    private fun DrawScope.drawSelection(state: ScrubInteractionState, inputs: ScrubDrawInputs) {
+    private fun DrawScope.drawSelection(
+        state: ScrubInteractionState,
+        inputs: ScrubDrawInputs,
+    ) {
         val previewStart = state.previewStartMs.longValue
         val selection = inputs.selection.value
         val startMs: Long
@@ -350,14 +380,18 @@ internal class ScrubRenderer(
         drawCircle(palette.accent, handleRadius, center)
     }
 
-    private fun DrawScope.drawCursor(state: ScrubInteractionState, inputs: ScrubDrawInputs) {
+    private fun DrawScope.drawCursor(
+        state: ScrubInteractionState,
+        inputs: ScrubDrawInputs,
+    ) {
         val local = state.cursorMs.longValue
-        val cursor: Long = if (local != NO_TIME) {
-            local
-        } else {
-            // The external lambda's Long? is boxed by its signature; it is only invoked while a caller drives the cursor.
-            inputs.fixedCursor.value ?: inputs.externalCursor.value() ?: return
-        }
+        val cursor: Long =
+            if (local != NO_TIME) {
+                local
+            } else {
+                // The external lambda's Long? is boxed by its signature; it is only invoked while a caller drives the cursor.
+                inputs.fixedCursor.value ?: inputs.externalCursor.value() ?: return
+            }
         val window = scale.window
         if (cursor < window.startMs || cursor > window.endMs) return
         val x = scale.toX(cursor)
@@ -374,7 +408,11 @@ internal class ScrubRenderer(
         }
     }
 
-    private fun DrawScope.drawMarker(x: Float, y: Float, color: Color) {
+    private fun DrawScope.drawMarker(
+        x: Float,
+        y: Float,
+        color: Color,
+    ) {
         val center = Offset(x, y)
         drawCircle(palette.surface, markerRadius + markerRing, center)
         drawCircle(color, markerRadius, center)

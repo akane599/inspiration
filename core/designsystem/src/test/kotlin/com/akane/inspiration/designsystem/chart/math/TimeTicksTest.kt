@@ -1,28 +1,61 @@
 package com.akane.inspiration.designsystem.chart.math
 
 import com.akane.inspiration.designsystem.chart.model.TimeRange
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
+import org.junit.Test
 import java.time.Instant
 import java.time.LocalDateTime
 import java.time.ZoneId
 import java.time.ZoneOffset
-import org.junit.Assert.assertEquals
-import org.junit.Assert.assertTrue
-import org.junit.Test
 
 class TimeTicksTest {
     private val utc: ZoneId = ZoneOffset.UTC
     private val berlin: ZoneId = ZoneId.of("Europe/Berlin")
     private val istanbul: ZoneId = ZoneId.of("Europe/Istanbul")
 
-    private fun ms(local: String, zone: ZoneId): Long =
-        LocalDateTime.parse(local).atZone(zone).toInstant().toEpochMilli()
+    private fun ms(
+        local: String,
+        zone: ZoneId,
+    ): Long =
+        LocalDateTime
+            .parse(local)
+            .atZone(zone)
+            .toInstant()
+            .toEpochMilli()
 
-    private fun local(tMs: Long, zone: ZoneId): LocalDateTime =
-        Instant.ofEpochMilli(tMs).atZone(zone).toLocalDateTime()
+    private fun local(
+        tMs: Long,
+        zone: ZoneId,
+    ): LocalDateTime = Instant.ofEpochMilli(tMs).atZone(zone).toLocalDateTime()
 
-    private fun assertStrictlyIncreasingInside(ticks: List<Long>, window: TimeRange) {
+    private fun assertStrictlyIncreasingInside(
+        ticks: List<Long>,
+        window: TimeRange,
+    ) {
         assertTrue(ticks.all { it in window.startMs..window.endMs })
         assertTrue(ticks.zipWithNext().all { (a, b) -> a < b })
+    }
+
+    @Test
+    fun fortyEightHourWindowCanFitSubDayStepAndReportsIt() {
+        val window = TimeRange.of(ms("2026-10-16T18:00:00", utc), ms("2026-10-18T18:00:00", utc))
+        val set = niceTimeTickSet(window, maxTicks = 4, zone = utc)
+        assertEquals(false, set.dayAligned)
+        assertEquals(
+            listOf("2026-10-17T00:00", "2026-10-17T12:00", "2026-10-18T00:00", "2026-10-18T12:00"),
+            set.ticksMs.map { local(it, utc).toString() },
+        )
+        val days = niceTimeTickSet(window, maxTicks = 2, zone = utc)
+        assertEquals(true, days.dayAligned)
+        assertEquals(listOf("2026-10-17T00:00", "2026-10-18T00:00"), days.ticksMs.map { local(it, utc).toString() })
+    }
+
+    @Test
+    fun startOfDayFollowsTheZone() {
+        assertTrue(isStartOfDay(ms("2026-10-17T00:00:00", istanbul), istanbul))
+        assertEquals(false, isStartOfDay(ms("2026-10-17T00:00:00", istanbul), utc))
+        assertEquals(false, isStartOfDay(ms("2026-10-17T12:00:00", utc), utc))
     }
 
     @Test

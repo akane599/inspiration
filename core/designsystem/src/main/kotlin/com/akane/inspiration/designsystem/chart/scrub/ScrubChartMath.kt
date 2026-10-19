@@ -1,5 +1,6 @@
 package com.akane.inspiration.designsystem.chart.scrub
 
+import com.akane.inspiration.designsystem.chart.math.isStartOfDay
 import com.akane.inspiration.designsystem.chart.model.TimePoint
 import com.akane.inspiration.designsystem.chart.model.TimeRange
 import com.akane.inspiration.designsystem.component.format.TelemetryFormat
@@ -18,13 +19,19 @@ private const val DAY_MS = 24 * 60 * 60_000L
 private const val TEMPERATURE_ALIGN_C = 5f
 
 /** A connected stretch of a series that is entirely below or entirely at/above a threshold. */
-internal class SeriesRun(val points: List<TimePoint>, val critical: Boolean)
+internal class SeriesRun(
+    val points: List<TimePoint>,
+    val critical: Boolean,
+)
 
 /**
  * Splits time-sorted [points] into runs below / at-or-above [threshold]. Where the line crosses the
  * threshold an interpolated point is added to both neighbouring runs so the pieces join without a gap.
  */
-internal fun splitAtThreshold(points: List<TimePoint>, threshold: Float): List<SeriesRun> {
+internal fun splitAtThreshold(
+    points: List<TimePoint>,
+    threshold: Float,
+): List<SeriesRun> {
     if (points.isEmpty()) return emptyList()
     val runs = ArrayList<SeriesRun>()
     var current = ArrayList<TimePoint>()
@@ -50,7 +57,10 @@ internal fun splitAtThreshold(points: List<TimePoint>, threshold: Float): List<S
 }
 
 /** Three evenly spaced labels `min`, `mid`, `max` for a value axis. */
-internal class ValueAxis(val min: Float, val max: Float) {
+internal class ValueAxis(
+    val min: Float,
+    val max: Float,
+) {
     val mid: Float get() = (min + max) / 2f
 }
 
@@ -59,7 +69,10 @@ internal class ValueAxis(val min: Float, val max: Float) {
  * battery gridlines, so one set of gridlines serves both value axes. Covers `minValue..maxValue`
  * with a span of at least 10.
  */
-internal fun temperatureAxis(minValue: Float, maxValue: Float): ValueAxis {
+internal fun temperatureAxis(
+    minValue: Float,
+    maxValue: Float,
+): ValueAxis {
     val lo = floor(minValue / TEMPERATURE_ALIGN_C) * TEMPERATURE_ALIGN_C
     val half = ceil((maxValue - lo) / 2f / TEMPERATURE_ALIGN_C) * TEMPERATURE_ALIGN_C
     return ValueAxis(lo, lo + 2f * maxOf(half, TEMPERATURE_ALIGN_C))
@@ -69,7 +82,11 @@ internal fun temperatureAxis(minValue: Float, maxValue: Float): ValueAxis {
  * Linear interpolation over parallel primitive arrays, so it can run every frame without boxing.
  * NaN when empty or [t] is outside the span.
  */
-internal fun interpolateAt(times: LongArray, values: FloatArray, t: Long): Float {
+internal fun interpolateAt(
+    times: LongArray,
+    values: FloatArray,
+    t: Long,
+): Float {
     val n = times.size
     if (n == 0 || t < times[0] || t > times[n - 1]) return Float.NaN
     var lo = 0
@@ -93,15 +110,29 @@ internal fun TimeRange.usesDateTicks(): Boolean = durationMs > 2 * DAY_MS
 private val clockFormats = ConcurrentHashMap<Locale, TelemetryFormat>()
 
 /** Only the date and time styles are used here, which take no units. */
-private fun clockFormat(locale: Locale): TelemetryFormat =
-    clockFormats.getOrPut(locale) { TelemetryFormat(locale, TelemetryUnits.English) }
+private fun clockFormat(locale: Locale): TelemetryFormat = clockFormats.getOrPut(locale) { TelemetryFormat(locale, TelemetryUnits.English) }
 
 /** "21:30", or "16 Oct 21:30" with [withDate]; the date-time is joined with no-break spaces (`TelemetryFormat`). */
-internal fun formatClock(tMs: Long, zone: ZoneId, withDate: Boolean, locale: Locale): String =
-    clockFormat(locale).let { if (withDate) it.dateTime(tMs, zone) else it.time(tMs, zone) }
+internal fun formatClock(
+    tMs: Long,
+    zone: ZoneId,
+    withDate: Boolean,
+    locale: Locale,
+): String = clockFormat(locale).let { if (withDate) it.dateTime(tMs, zone) else it.time(tMs, zone) }
 
-internal fun formatTickLabel(tMs: Long, zone: ZoneId, window: TimeRange, locale: Locale): String =
-    if (window.usesDateTicks()) {
+/**
+ * Chosen from the tick step, not only the window length: day-step ticks ([dayAligned]) show the date; sub-day
+ * ticks show the time, except that on a multi-day window ([usesDateTicks]) a tick at the start of a day shows
+ * its date, so a 2–3 day window with 12 h ticks reads "17 Oct, 12:00, 18 Oct" rather than repeating dates.
+ */
+internal fun formatTickLabel(
+    tMs: Long,
+    zone: ZoneId,
+    window: TimeRange,
+    dayAligned: Boolean,
+    locale: Locale,
+): String =
+    if (dayAligned || (window.usesDateTicks() && isStartOfDay(tMs, zone))) {
         clockFormat(locale).date(tMs, zone)
     } else {
         formatClock(tMs, zone, withDate = false, locale = locale)

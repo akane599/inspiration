@@ -17,31 +17,66 @@ private val MINUTE_STEPS = intArrayOf(1, 5, 10, 15, 30, 60, 120, 180, 360, 720)
 private val DAY_STEPS = intArrayOf(1, 2, 7)
 
 /**
+ * Ticks chosen by [niceTimeTickSet].
+ *
+ * @property dayAligned the chosen step is whole days, so every tick is a local midnight and is labelled with
+ *   its date; otherwise the step is sub-day and ticks need the time of day. Label formatters decide from this,
+ *   not from the window length, because a multi-day window can still fit a sub-day step.
+ */
+data class NiceTimeTicks(
+    val ticksMs: List<Long>,
+    val dayAligned: Boolean,
+)
+
+/**
  * Tick instants inside [window] (inclusive), at most [maxTicks], aligned to wall-clock boundaries of
  * [zone] (so 3-hour ticks land on 00:00, 03:00, ...), using the finest step that fits the budget.
  * A wall-clock time skipped by a DST gap is dropped or shifted by the zone rules, never duplicated.
  */
-fun niceTimeTicks(window: TimeRange, maxTicks: Int, zone: ZoneId): List<Long> {
-    if (maxTicks < 1 || window.durationMs <= 0L) return emptyList()
+fun niceTimeTickSet(
+    window: TimeRange,
+    maxTicks: Int,
+    zone: ZoneId,
+): NiceTimeTicks {
+    if (maxTicks < 1 || window.durationMs <= 0L) return NiceTimeTicks(emptyList(), dayAligned = false)
     for (minutes in MINUTE_STEPS) {
         // Cheap prune: a step this fine cannot fit and would only generate throw-away candidates.
         if (window.durationMs / (minutes * MINUTE_MS) >= maxTicks * 2L) continue
         val ticks = wallClockTicks(window, zone, minutes)
-        if (ticks.size <= maxTicks) return ticks
+        if (ticks.size <= maxTicks) return NiceTimeTicks(ticks, dayAligned = false)
     }
     var last = emptyList<Long>()
     for (days in DAY_STEPS) {
         last = dayTicks(window, zone, days)
-        if (last.size <= maxTicks) return last
+        if (last.size <= maxTicks) return NiceTimeTicks(last, dayAligned = true)
     }
     val stride = (last.size + maxTicks - 1) / maxTicks
-    return last.filterIndexed { index, _ -> index % stride == 0 }
+    return NiceTimeTicks(last.filterIndexed { index, _ -> index % stride == 0 }, dayAligned = true)
 }
 
-private fun localDate(epochMs: Long, zone: ZoneId): LocalDate =
-    Instant.ofEpochMilli(epochMs).atZone(zone).toLocalDate()
+/** The tick instants of [niceTimeTickSet]. */
+fun niceTimeTicks(
+    window: TimeRange,
+    maxTicks: Int,
+    zone: ZoneId,
+): List<Long> = niceTimeTickSet(window, maxTicks, zone).ticksMs
 
-private fun wallClockTicks(window: TimeRange, zone: ZoneId, stepMinutes: Int): List<Long> {
+/** True when [epochMs] is the start of a local day in [zone] (midnight, or the first instant after a DST gap). */
+fun isStartOfDay(
+    epochMs: Long,
+    zone: ZoneId,
+): Boolean = localDate(epochMs, zone).atStartOfDay(zone).toInstant().toEpochMilli() == epochMs
+
+private fun localDate(
+    epochMs: Long,
+    zone: ZoneId,
+): LocalDate = Instant.ofEpochMilli(epochMs).atZone(zone).toLocalDate()
+
+private fun wallClockTicks(
+    window: TimeRange,
+    zone: ZoneId,
+    stepMinutes: Int,
+): List<Long> {
     val out = ArrayList<Long>()
     var date = localDate(window.startMs, zone).minusDays(1)
     val lastDate = localDate(window.endMs, zone).plusDays(1)
@@ -57,7 +92,11 @@ private fun wallClockTicks(window: TimeRange, zone: ZoneId, stepMinutes: Int): L
     return out
 }
 
-private fun dayTicks(window: TimeRange, zone: ZoneId, stepDays: Int): List<Long> {
+private fun dayTicks(
+    window: TimeRange,
+    zone: ZoneId,
+    stepDays: Int,
+): List<Long> {
     val out = ArrayList<Long>()
     var date = localDate(window.startMs, zone).minusDays(1)
     val lastDate = localDate(window.endMs, zone).plusDays(1)

@@ -1,17 +1,21 @@
 package com.akane.inspiration.designsystem.chart.scrub
 
+import com.akane.inspiration.designsystem.chart.math.niceTimeTickSet
 import com.akane.inspiration.designsystem.chart.model.TimePoint
 import com.akane.inspiration.designsystem.chart.model.TimeRange
-import java.time.ZoneId
-import java.util.Locale
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import java.time.Instant
+import java.time.ZoneId
+import java.util.Locale
 
 class ScrubChartMathTest {
-
-    private fun p(t: Long, v: Float) = TimePoint(t, v)
+    private fun p(
+        t: Long,
+        v: Float,
+    ) = TimePoint(t, v)
 
     @Test
     fun `splitAtThreshold returns no runs for empty input`() {
@@ -117,13 +121,26 @@ class ScrubChartMathTest {
     }
 
     @Test
-    fun `formatTickLabel shows clock time for short windows and the date for long ones`() {
+    fun `formatTickLabel shows clock time for sub-day ticks and the date for day ticks`() {
         val t = 1_792_186_200_000L
         val zone = ZoneId.of("UTC")
         val oneDay = TimeRange.of(t, t + 24 * 3_600_000L)
         val week = TimeRange.of(t, t + 7 * 24 * 3_600_000L)
-        assertEquals("21:30", formatTickLabel(t, zone, oneDay, Locale.ENGLISH))
-        assertEquals("16\u00a0Oct", formatTickLabel(t, zone, week, Locale.ENGLISH))
+        assertEquals("21:30", formatTickLabel(t, zone, oneDay, dayAligned = false, locale = Locale.ENGLISH))
+        assertEquals("16\u00a0Oct", formatTickLabel(t, zone, week, dayAligned = true, locale = Locale.ENGLISH))
+    }
+
+    @Test
+    fun `a multi-day window with 12 h ticks labels times and dates at midnight`() {
+        val zone = ZoneId.of("UTC")
+        val start = Instant.parse("2026-10-16T18:00:00Z").toEpochMilli()
+        val window = TimeRange.of(start, start + 60 * 3_600_000L)
+        val set = niceTimeTickSet(window, maxTicks = 5, zone = zone)
+        assertFalse(set.dayAligned)
+        assertEquals(
+            listOf("17\u00a0Oct", "12:00", "18\u00a0Oct", "12:00", "19\u00a0Oct"),
+            set.ticksMs.map { formatTickLabel(it, zone, window, set.dayAligned, Locale.ENGLISH) },
+        )
     }
 
     @Test
@@ -136,8 +153,8 @@ class ScrubChartMathTest {
             assertEquals("16\u00a0Eki\u00a021:30", formatClock(t, zone, withDate = true, locale = tr))
             assertEquals("16\u00a0Oct\u00a021:30", formatClock(t, zone, withDate = true, locale = Locale.ENGLISH))
             assertEquals("21:30", formatClock(t, zone, withDate = false, locale = tr))
-            assertEquals("16\u00a0Eki", formatTickLabel(t, zone, week, tr))
-            assertEquals("16\u00a0Oct", formatTickLabel(t, zone, week, Locale.ENGLISH))
+            assertEquals("16\u00a0Eki", formatTickLabel(t, zone, week, dayAligned = true, locale = tr))
+            assertEquals("16\u00a0Oct", formatTickLabel(t, zone, week, dayAligned = true, locale = Locale.ENGLISH))
         }
     }
 }
