@@ -51,10 +51,17 @@ object DumpReader {
         fd: ParcelFileDescriptor,
         maxBytes: Int = MAX_BYTES,
         timeoutMs: Long = 2_000L,
-    ): ByteArray? = fd.use {
-        if (maxBytes < 0) return@use null
+    ): ByteArray? = (read(fd, maxBytes, timeoutMs) as? DumpParse.Ok)?.value
+
+    /** [readAll] that says why it got no bytes: "timeout" after [timeoutMs], "overflow" past [maxBytes], else "io". */
+    suspend fun read(
+        fd: ParcelFileDescriptor,
+        maxBytes: Int = MAX_BYTES,
+        timeoutMs: Long = 2_000L,
+    ): DumpParse<ByteArray> = fd.use {
+        if (maxBytes < 0) return@use DumpParse.Unavailable("overflow")
         withTimeoutOrNull(timeoutMs) {
-            withContext(Dispatchers.IO) {
+            withContext<DumpParse<ByteArray>>(Dispatchers.IO) {
                 try {
                     val descriptor = fd.fileDescriptor
                     val flags = Os.fcntlInt(descriptor, OsConstants.F_GETFL, 0)
@@ -74,15 +81,15 @@ object DumpReader {
                         if (read == 0) {
                             reachedEnd = true
                         } else {
-                            if (read > maxBytes - output.size()) return@withContext null
+                            if (read > maxBytes - output.size()) return@withContext DumpParse.Unavailable("overflow")
                             output.write(buffer, 0, read)
                         }
                     }
-                    output.toByteArray()
+                    DumpParse.Ok(output.toByteArray())
                 } catch (_: ErrnoException) {
-                    null
+                    DumpParse.Unavailable("io")
                 }
             }
-        }
+        } ?: DumpParse.Unavailable("timeout")
     }
 }

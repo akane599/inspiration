@@ -10,6 +10,7 @@ import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
 import org.junit.Assert.assertArrayEquals
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
@@ -61,6 +62,14 @@ class DumpReaderTest {
         PipeOs.data = byteArrayOf(1, 2, 3)
         descriptor().use { assertArrayEquals(PipeOs.data, DumpReader.readAll(it)) }
         descriptor().use { assertNull(DumpReader.readAll(it, maxBytes = 2)) }
+    }
+
+    @Test(timeout = 15_000)
+    fun `a failed read says whether it timed out or overflowed`() = runBlocking {
+        descriptor().use { assertEquals(DumpParse.Unavailable("timeout"), DumpReader.read(it, timeoutMs = 200)) }
+        PipeOs.data = byteArrayOf(1, 2, 3)
+        descriptor().use { assertEquals(DumpParse.Unavailable("overflow"), DumpReader.read(it, maxBytes = 2)) }
+        descriptor().use { assertArrayEquals(PipeOs.data, (DumpReader.read(it) as DumpParse.Ok).value) }
     }
 
     private fun descriptor(): ParcelFileDescriptor {

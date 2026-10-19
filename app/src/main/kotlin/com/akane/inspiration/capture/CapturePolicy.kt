@@ -4,6 +4,9 @@ import android.content.Intent
 import com.akane.inspiration.telemetry.capture.CaptureResult
 import com.akane.inspiration.telemetry.capture.SnapshotCapturer
 import com.akane.inspiration.telemetry.snapshot.CaptureTrigger
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.withContext
 
 sealed interface CapturePlan {
     data class Light(val trigger: CaptureTrigger) : CapturePlan
@@ -72,10 +75,18 @@ object CapturePolicy {
 
 /**
  * Captures one broadcast [plan]. A full capture that misses its deadline (the miss is recorded) falls back to a
- * light snapshot, so the trigger still has a row: the "since unplug" anchor and the charge job read it.
+ * light snapshot, so the trigger still has a row: the "since unplug" anchor and the charge job read it. The
+ * fallback also runs when the receiver's guard has already cancelled the capture.
  */
 internal suspend fun SnapshotCapturer.captureFor(plan: CapturePlan): CaptureResult = when (plan) {
     is CapturePlan.Light -> captureLight(plan.trigger)
-    is CapturePlan.Full -> captureFull(trigger = plan.trigger, deadlineMs = plan.deadlineMs, ingestHistory = false)
-        .let { result -> if (result is CaptureResult.Missed) captureLight(plan.trigger) else result }
+    is CapturePlan.Full -> try {
+        captureFull(trigger = plan.trigger, deadlineMs = plan.deadlineMs, ingestHistory = false)
+    } catch (cancelled: CancellationException) {
+        lightFallback(plan.trigger)
+        throw cancelled
+    }.let { result -> if (result is CaptureResult.Missed) lightFallback(plan.trigger) else result }
 }
+
+private suspend fun SnapshotCapturer.lightFallback(trigger: CaptureTrigger): CaptureResult =
+    withContext(NonCancellable) { captureLight(trigger) }

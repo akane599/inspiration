@@ -20,11 +20,20 @@ import com.akane.inspiration.telemetry.store.Marker
 import com.akane.inspiration.telemetry.store.SnapshotStore
 import com.akane.inspiration.telemetry.store.TelemetrySample
 import com.akane.inspiration.telemetry.store.ToolkitActionRecord
+import java.util.Collections
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.runTest
+import kotlinx.coroutines.withContext
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /** RuntimeCaptureReceiver's chain: BroadcastCaptureRunner guard -> SnapshotCapturer.captureFor(plan). */
@@ -64,6 +73,36 @@ class BroadcastFullCaptureTest {
         assertEquals(listOf(SnapshotKind.FULL to CaptureTrigger.POWER_DISCONNECTED), store.saved())
     }
 
+    /**
+     * The read holds its thread like a binder transaction, which neither the plan's deadline nor the guard can
+     * interrupt, so the guard has cancelled the capture by the time the miss is recorded. Real threads and time;
+     * the deadline is scaled down from [CapturePolicy.BROADCAST_FULL_DEADLINE_MS] to keep the test short.
+     */
+    @Test
+    fun `a full read that blocks past the receiver guard still leaves a light row for the trigger`() {
+        val quickPlan = CapturePlan.Full(CaptureTrigger.POWER_DISCONNECTED, deadlineMs = 300L)
+        val guardMs = CapturePolicy.broadcastGuardMs(quickPlan)
+        val store = FakeStore(insertMs = 50)
+        val errors = Collections.synchronizedList(mutableListOf<Exception>())
+        val finished = CountDownLatch(1)
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+        try {
+            BroadcastCaptureRunner { errors += it }.start(
+                scope = scope,
+                deadlineMs = guardMs,
+                capture = { SnapshotCapturer(FakeSource(blockMs = guardMs + 400L), store, FixedClocks).captureFor(quickPlan) },
+                finish = { finished.countDown() },
+            )
+            assertTrue("the broadcast was never finished", finished.await(10, TimeUnit.SECONDS))
+
+            assertEquals(emptyList<Exception>(), errors.toList())
+            assertEquals(listOf(CaptureTrigger.POWER_DISCONNECTED), store.misses)
+            assertEquals(listOf(SnapshotKind.LIGHT to CaptureTrigger.POWER_DISCONNECTED), store.saved())
+        } finally {
+            scope.cancel()
+        }
+    }
+
     @Test
     fun `light plans keep the plain broadcast guard`() {
         assertEquals(
@@ -72,9 +111,11 @@ class BroadcastFullCaptureTest {
         )
     }
 
-    private class FakeSource(private val readMs: Long) : TelemetrySource {
+    /** [readMs] is a cancellable wait; [blockMs] holds an IO thread, as an uninterruptible binder call does. */
+    private class FakeSource(private val readMs: Long = 0L, private val blockMs: Long = 0L) : TelemetrySource {
         override suspend fun full(trigger: CaptureTrigger, historyCursor: Pair<Long, Long>?): FullRead {
             delay(readMs)
+            if (blockMs > 0L) withContext(Dispatchers.IO) { Thread.sleep(blockMs) }
             return FullRead(
                 light = light(),
                 usage = null,

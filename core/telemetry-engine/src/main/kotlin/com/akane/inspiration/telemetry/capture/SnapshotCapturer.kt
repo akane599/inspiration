@@ -19,6 +19,7 @@ import com.akane.inspiration.telemetry.source.FullRead
 import com.akane.inspiration.telemetry.source.LightRead
 import com.akane.inspiration.telemetry.source.TelemetrySource
 import com.akane.inspiration.telemetry.store.SnapshotStore
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
@@ -35,22 +36,29 @@ class SnapshotCapturer(
         ingestHistory: Boolean,
     ): CaptureResult {
         val cursor = if (ingestHistory) store.historyCursor() ?: (0L to 0L) else null
-        val read = withTimeoutOrNull(deadlineMs) { source.full(trigger, cursor) }
+        val read = try {
+            withTimeoutOrNull(deadlineMs) {
+                if (ingestHistory) source.full(trigger, cursor) { persistPage(it) } else source.full(trigger, cursor)
+            }
+        } catch (cancelled: CancellationException) {
+            // The caller's guard ended a read that outlived this deadline: the miss is still worth recording.
+            missed(trigger, "cancelled")
+            throw cancelled
+        }
         if (read == null) return missed(trigger, "deadline_or_service_unavailable")
         val snapshot = mergeFull(trigger, read)
         val id = store.insert(snapshot)
-        if (ingestHistory) persistHistory(read.history)
         return CaptureResult.Saved(id, SnapshotKind.FULL)
     }
 
     /**
      * Reads once and persists only the history. The returned [HistoryIngest] keeps that read, so a caller that
-     * then decides to capture saves it with [captureFull] instead of making a second full read.
+     * then decides to capture saves it with [captureFull] instead of making a second full read. Each history page
+     * is persisted as it arrives, so the pages read before the deadline count even when the read misses it.
      */
     suspend fun ingestHistory(trigger: CaptureTrigger, deadlineMs: Long): HistoryIngest {
         val cursor = store.historyCursor() ?: (0L to 0L)
-        val read = withTimeoutOrNull(deadlineMs) { source.full(trigger, cursor) }
-        read?.let { persistHistory(it.history) }
+        val read = withTimeoutOrNull(deadlineMs) { source.full(trigger, cursor) { persistPage(it) } }
         return HistoryIngest(trigger, read)
     }
 
@@ -73,8 +81,10 @@ class SnapshotCapturer(
         return CaptureResult.Missed(reason)
     }
 
-    private suspend fun persistHistory(pages: List<com.akane.inspiration.ipc.model.BatteryHistorySnapshot>) {
-        pages.filter { it.available }.forEach { page ->
+    /** Stores one page and moves the cursor past it; a page that arrived in time is kept past the deadline. */
+    private suspend fun persistPage(page: com.akane.inspiration.ipc.model.BatteryHistorySnapshot) {
+        if (!page.available) return
+        withContext(NonCancellable) {
             store.insertHistory(page.events, page.statsStartMs)
             page.events.lastOrNull()?.let { store.setHistoryCursor(page.statsStartMs, it.historyTimeMs) }
         }

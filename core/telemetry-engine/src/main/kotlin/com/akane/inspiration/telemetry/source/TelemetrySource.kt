@@ -14,6 +14,16 @@ import com.akane.inspiration.telemetry.snapshot.SnapshotClock
 interface TelemetrySource {
     suspend fun full(trigger: CaptureTrigger, historyCursor: Pair<Long, Long>?): FullRead?
 
+    /**
+     * [full] that hands each history page to [onHistoryPage] as soon as it is read, so the pages read before a
+     * deadline are kept even when the read as a whole misses it. By default they are handed over at the end.
+     */
+    suspend fun full(
+        trigger: CaptureTrigger,
+        historyCursor: Pair<Long, Long>?,
+        onHistoryPage: suspend (BatteryHistorySnapshot) -> Unit,
+    ): FullRead? = full(trigger, historyCursor)?.also { read -> read.history.forEach { onHistoryPage(it) } }
+
     fun light(): LightRead
 
     suspend fun kernelReading(): KernelRead? = null
