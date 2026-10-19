@@ -6,44 +6,50 @@ import com.akane.inspiration.telemetry.proto.SystemProto
 import com.akane.inspiration.telemetry.proto.UidProto
 
 object DumpParser {
-    fun parseBatteryStats(bytes: ByteArray): DumpParse<DumpSnapshot> = try {
-        val root = BatteryStatsServiceDumpProto.parseFrom(bytes)
-        if (!root.hasBatterystats()) {
-            DumpParse.Unavailable("batterystats dump is missing its root message")
-        } else {
-            val stats = root.batterystats
-            when {
-                stats.reportVersion < MIN_BATTERYSTATS_REPORT_VERSION -> {
-                    DumpParse.Unavailable("unsupported batterystats report version ${stats.reportVersion}")
-                }
-
-                else -> DumpParse.Ok(stats.toSnapshot())
-            }
-        }
-    } catch (_: Exception) {
-        DumpParse.Unavailable("malformed batterystats dump")
-    }
-
-    fun parseAlarm(bytes: ByteArray): DumpParse<AlarmDump> = try {
-        val dump = AlarmManagerServiceDumpProto.parseFrom(bytes)
-        DumpParse.Ok(
-            AlarmDump(
-                filterStats = dump.alarmStatsList.flatMap { stat ->
-                    stat.filtersList.map { filter ->
-                        AlarmFilterStat(
-                            uid = stat.broadcast.uid,
-                            packageName = stat.broadcast.packageName,
-                            tag = filter.tag,
-                            count = filter.count.toLong(),
-                            wakeupCount = filter.wakeupCount.toLong(),
-                        )
+    fun parseBatteryStats(bytes: ByteArray): DumpParse<DumpSnapshot> =
+        try {
+            val root = BatteryStatsServiceDumpProto.parseFrom(bytes)
+            if (!root.hasBatterystats()) {
+                DumpParse.Unavailable("batterystats dump is missing its root message")
+            } else {
+                val stats = root.batterystats
+                when {
+                    stats.reportVersion < MIN_BATTERYSTATS_REPORT_VERSION -> {
+                        DumpParse.Unavailable("unsupported batterystats report version ${stats.reportVersion}")
                     }
-                },
-            ),
-        )
-    } catch (_: Exception) {
-        DumpParse.Unavailable("malformed alarm dump")
-    }
+
+                    else -> {
+                        DumpParse.Ok(stats.toSnapshot())
+                    }
+                }
+            }
+        } catch (_: Exception) {
+            DumpParse.Unavailable("malformed batterystats dump")
+        }
+
+    fun parseAlarm(bytes: ByteArray): DumpParse<AlarmDump> =
+        try {
+            require(bytes.isNotEmpty()) { "empty alarm dump" }
+            val dump = AlarmManagerServiceDumpProto.parseFrom(bytes)
+            DumpParse.Ok(
+                AlarmDump(
+                    filterStats =
+                        dump.alarmStatsList.flatMap { stat ->
+                            stat.filtersList.map { filter ->
+                                AlarmFilterStat(
+                                    uid = stat.broadcast.uid,
+                                    packageName = stat.broadcast.packageName,
+                                    tag = filter.tag,
+                                    count = filter.count.toLong(),
+                                    wakeupCount = filter.wakeupCount.toLong(),
+                                )
+                            }
+                        },
+                ),
+            )
+        } catch (_: Exception) {
+            DumpParse.Unavailable("malformed alarm dump")
+        }
 
     private fun com.akane.inspiration.telemetry.proto.BatteryStatsProto.toSnapshot(): DumpSnapshot {
         val system = system
@@ -52,49 +58,52 @@ object DumpParser {
         val discharge = system.batteryDischarge
         return DumpSnapshot(
             reportVersion = reportVersion,
-            system = SystemTimers(
-                startClockTimeMs = battery.startClockTimeMs,
-                totalRealtimeMs = battery.totalRealtimeMs,
-                totalUptimeMs = battery.totalUptimeMs,
-                batteryRealtimeMs = battery.batteryRealtimeMs,
-                batteryUptimeMs = battery.batteryUptimeMs,
-                screenOffRealtimeMs = battery.screenOffRealtimeMs,
-                screenOffUptimeMs = battery.screenOffUptimeMs,
-                screenDozeMs = battery.screenDozeDurationMs,
-                screenOnMs = misc.screenOnDurationMs,
-                interactiveMs = misc.interactiveDurationMs,
-                deepDozeMs = misc.deepDozeEnabledDurationMs,
-                deepDozeCount = misc.deepDozeCount.toLong(),
-                lightDozeMs = misc.lightDozeEnabledDurationMs,
-                dischargeTotalMah = discharge.totalMah.toDouble(),
-                dischargeScreenOffMah = discharge.totalMahScreenOff.toDouble(),
-                chargeTimeRemainingMs = system.knownChargeTimeRemainingMs(),
-                dischargeTimeRemainingMs = system.knownDischargeTimeRemainingMs(),
-                signalStrengthMs = system.phoneSignalStrengthList.toSignalBins(),
-                signalScanningMs = if (system.hasSignalScanning()) system.signalScanning.durationMs else null,
-                mobileRadioActiveMs = if (misc.hasMobileRadioActiveDurationMs()) misc.mobileRadioActiveDurationMs else null,
-            ),
+            system =
+                SystemTimers(
+                    startClockTimeMs = battery.startClockTimeMs,
+                    totalRealtimeMs = battery.totalRealtimeMs,
+                    totalUptimeMs = battery.totalUptimeMs,
+                    batteryRealtimeMs = battery.batteryRealtimeMs,
+                    batteryUptimeMs = battery.batteryUptimeMs,
+                    screenOffRealtimeMs = battery.screenOffRealtimeMs,
+                    screenOffUptimeMs = battery.screenOffUptimeMs,
+                    screenDozeMs = battery.screenDozeDurationMs,
+                    screenOnMs = misc.screenOnDurationMs,
+                    interactiveMs = misc.interactiveDurationMs,
+                    deepDozeMs = misc.deepDozeEnabledDurationMs,
+                    deepDozeCount = misc.deepDozeCount.toLong(),
+                    lightDozeMs = misc.lightDozeEnabledDurationMs,
+                    dischargeTotalMah = discharge.totalMah.toDouble(),
+                    dischargeScreenOffMah = discharge.totalMahScreenOff.toDouble(),
+                    chargeTimeRemainingMs = system.knownChargeTimeRemainingMs(),
+                    dischargeTimeRemainingMs = system.knownDischargeTimeRemainingMs(),
+                    signalStrengthMs = system.phoneSignalStrengthList.toSignalBins(),
+                    signalScanningMs = if (system.hasSignalScanning()) system.signalScanning.durationMs else null,
+                    mobileRadioActiveMs = if (misc.hasMobileRadioActiveDurationMs()) misc.mobileRadioActiveDurationMs else null,
+                ),
             kernelWakelocks = system.kernelWakelockList.toMergedKernelWakelocks(),
             wakeupReasons = system.wakeupReasonList.toMergedWakeupReasons(),
-            uids = uidsList.map { uid ->
-                UidDump(
-                    uid = uid.uid,
-                    partialWakelocks = uid.wakelocksList.map { wakelock ->
-                        UidWakelock(
-                            name = wakelock.name,
-                            durationMs = wakelock.partial.durationMs,
-                            bgDurationMs = wakelock.backgroundPartial.durationMs,
-                            count = wakelock.partial.count,
-                        )
-                    },
-                    wakeupAlarms = uid.wakeupAlarmList.sumByTag(),
-                    cpuUserMs = uid.cpu.userDurationMs,
-                    cpuSystemMs = uid.cpu.systemDurationMs,
-                    fgActivityMs = uid.foregroundActivity.durationMs,
-                    fgServiceMs = uid.foregroundService.durationMs,
-                    sensors = uid.sensorsList.toMergedSensors(),
-                )
-            },
+            uids =
+                uidsList.map { uid ->
+                    UidDump(
+                        uid = uid.uid,
+                        partialWakelocks =
+                            uid.wakelocksList.map { wakelock ->
+                                UidWakelock(
+                                    name = wakelock.name,
+                                    durationMs = wakelock.partial.durationMs,
+                                    bgDurationMs = wakelock.backgroundPartial.durationMs,
+                                    count = wakelock.partial.count,
+                                )
+                            },
+                        wakeupAlarms = uid.wakeupAlarmList.sumByTag(),
+                        cpuUserMs = uid.cpu.userDurationMs,
+                        cpuSystemMs = uid.cpu.systemDurationMs,
+                        fgActivityMs = uid.foregroundActivity.durationMs,
+                        fgServiceMs = uid.foregroundService.durationMs,
+                        sensors = uid.sensorsList.toMergedSensors(),
+                    )
+                },
         )
     }
 

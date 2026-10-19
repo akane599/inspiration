@@ -8,6 +8,7 @@ import android.content.pm.PackageManager
 import android.os.Binder
 import android.os.IBinder
 import android.os.Parcel
+import android.os.ParcelFileDescriptor
 import com.akane.inspiration.ipc.ITelemetryUserService
 import com.akane.inspiration.ipc.ShizukuFacade
 import com.akane.inspiration.ipc.ShizukuManager
@@ -16,19 +17,27 @@ import com.akane.inspiration.ipc.ShizukuState
 import com.akane.inspiration.ipc.model.BatteryHistorySnapshot
 import com.akane.inspiration.ipc.model.BatteryUsageSnapshot
 import com.akane.inspiration.ipc.model.DumpResult
+import com.akane.inspiration.ipc.model.DumpTarget
 import com.akane.inspiration.ipc.model.HistoryEvent
 import com.akane.inspiration.ipc.model.HistoryKind
 import com.akane.inspiration.ipc.model.KernelBatterySnapshot
+import com.akane.inspiration.ipc.model.UidUsage
 import com.akane.inspiration.telemetry.calibration.CalibrationInput
 import com.akane.inspiration.telemetry.capacity.ChargeSegment
 import com.akane.inspiration.telemetry.capacity.SegmentVerdict
 import com.akane.inspiration.telemetry.capture.CaptureResult
 import com.akane.inspiration.telemetry.capture.SnapshotCapturer
 import com.akane.inspiration.telemetry.common.Clocks
+import com.akane.inspiration.telemetry.diff.SnapshotDiffer
+import com.akane.inspiration.telemetry.dump.DumpReaderTest.PipeOs
+import com.akane.inspiration.telemetry.proto.AlarmManagerServiceDumpProto
+import com.akane.inspiration.telemetry.proto.BroadcastStatsProto
+import com.akane.inspiration.telemetry.proto.FilterStatsProto
 import com.akane.inspiration.telemetry.snapshot.BatterySnapshot
 import com.akane.inspiration.telemetry.snapshot.CaptureTrigger
 import com.akane.inspiration.telemetry.snapshot.LiveReading
 import com.akane.inspiration.telemetry.snapshot.SnapshotKind
+import com.akane.inspiration.telemetry.snapshot.SourceAvailability
 import com.akane.inspiration.telemetry.store.ChargeSessionRecord
 import com.akane.inspiration.telemetry.store.HealthSample
 import com.akane.inspiration.telemetry.store.Marker
@@ -245,27 +254,144 @@ class AndroidTelemetrySourceDeadlineTest {
             assertEquals("the next ingest pages on from the cursor", cursor.second, service.historyRequests.first())
         }
 
+    @Test
+    @Config(shadows = [PipeOs::class])
+    fun `closed alarm writer is unavailable at either endpoint without losing usage energy`() =
+        runBlocking {
+            val alarmBytes =
+                AlarmManagerServiceDumpProto
+                    .newBuilder()
+                    .addAlarmStats(
+                        AlarmManagerServiceDumpProto.AlarmStat
+                            .newBuilder()
+                            .setBroadcast(BroadcastStatsProto.newBuilder().setUid(12345).setPackageName("pkg"))
+                            .addFilters(
+                                FilterStatsProto
+                                    .newBuilder()
+                                    .setTag("sync")
+                                    .setCount(42)
+                                    .setWakeupCount(42),
+                            ),
+                    ).build()
+                    .toByteArray()
+
+            for (failedReference in listOf(true, false)) {
+                var elapsed = 1_000L
+                val clocks =
+                    object : Clocks {
+                        override fun wallMs(): Long = elapsed
+
+                        override fun elapsedRealtimeMs(): Long = elapsed
+
+                        override fun uptimeMs(): Long = elapsed
+
+                        override fun bootCount(): Int = 4
+                    }
+                val descriptors = mutableListOf<java.io.FileDescriptor>()
+                val service =
+                    object : ITelemetryUserService.Default() {
+                        override fun readBatteryUsage(maxAgeMs: Long): BatteryUsageSnapshot {
+                            val energy = elapsed / 1_000.0
+                            return BatteryUsageSnapshot(
+                                available = true,
+                                reason = null,
+                                statsStartMs = STATS_START_MS,
+                                statsEndMs = STATS_START_MS + elapsed,
+                                dischargedPowerMah = energy,
+                                batteryTimeRemainingMs = 0,
+                                chargeTimeRemainingMs = 0,
+                                uids = listOf(UidUsage(12345, "pkg", energy, mapOf("cpu" to energy), mapOf("FOREGROUND" to energy))),
+                                deviceComponents = mapOf("cpu" to energy),
+                            )
+                        }
+
+                        override fun openDump(target: Int): DumpResult {
+                            if (target != DumpTarget.ALARM_PROTO) return DumpResult.unavailable("not_under_test")
+                            // Reuse the reader's Os shadow to expose EOF or a complete payload deterministically.
+                            // The failed writer closes before writing, not by returning permission-denial text.
+                            val failed = (elapsed == 1_000L) == failedReference
+                            PipeOs.data = if (failed) byteArrayOf() else alarmBytes
+                            PipeOs.reads = 0
+                            PipeOs.nonblocking = false
+                            val pipe = ParcelFileDescriptor.createPipe()
+                            ParcelFileDescriptor.AutoCloseOutputStream(pipe[1]).use {
+                                if (!failed) it.write(alarmBytes)
+                            }
+                            descriptors += pipe[0].fileDescriptor
+                            return DumpResult(available = true, reason = null, fd = pipe[0])
+                        }
+                    }
+                val store = MemoryStore()
+                val capturer = SnapshotCapturer(source(service, clocks), store, clocks)
+
+                capturer.captureFull(CaptureTrigger.MARKER, deadlineMs = 5_000, ingestHistory = false)
+                elapsed = 2_000L
+                capturer.captureFull(CaptureTrigger.MARKER, deadlineMs = 5_000, ingestHistory = false)
+
+                val ref = store.snapshots[0]
+                val now = store.snapshots[1]
+                val failed = if (failedReference) ref else now
+                val successful = if (failedReference) now else ref
+                assertEquals(SourceAvailability(false, "malformed alarm dump"), failed.availability.getValue("alarm"))
+                assertEquals(SourceAvailability(true, null), successful.availability.getValue("alarm"))
+                assertTrue(
+                    failed.uids
+                        .single()
+                        .alarmDumpWakeups
+                        .isEmpty(),
+                )
+                assertEquals(
+                    42L,
+                    successful.uids
+                        .single()
+                        .alarmDumpWakeups
+                        .single()
+                        .count,
+                )
+                assertTrue("both dump descriptors are closed", descriptors.size == 2 && descriptors.none { it.valid() })
+
+                val diff = SnapshotDiffer.diff(ref, now)
+                assertTrue(diff.validity.batteryStats)
+                assertTrue(diff.validity.kernelCounters)
+                assertFalse(diff.validity.alarmDumpCounters)
+                assertTrue(diff.validity.problems.isEmpty())
+                val uid = diff.uids.single()
+                assertTrue(uid.valid)
+                assertTrue("no fabricated or negative alarm delta", uid.alarmDumpWakeups.isEmpty())
+                assertEquals(1.0, uid.totalMah, 0.0)
+                assertEquals(1.0, checkNotNull(uid.fgMah), 0.0)
+                assertEquals(mapOf("cpu" to 1.0), uid.componentsMah)
+                assertEquals(mapOf("cpu" to 1.0), diff.deviceComponentsMah)
+                assertEquals(1.0, checkNotNull(diff.dischargedMah), 0.0)
+            }
+        }
+
     private fun elapsedMs(startedNs: Long) = (System.nanoTime() - startedNs) / 1_000_000
 
-    private fun source(service: ITelemetryUserService) = source(DirectShizuku(service))
+    private fun source(
+        service: ITelemetryUserService,
+        clocks: Clocks = FixedClocks,
+    ) = source(DirectShizuku(service), clocks)
 
-    private fun source(shizuku: ShizukuManager) =
-        AndroidTelemetrySource(
-            context = RuntimeEnvironment.getApplication(),
-            shizuku = shizuku,
-            clocks = FixedClocks,
-            calibrationInputReader =
-                CalibrationInputReader {
-                    CalibrationInput(
-                        null,
-                        null,
-                        null,
-                        null,
-                        isCharging = false,
-                        plugged = false,
-                    )
-                },
-        )
+    private fun source(
+        shizuku: ShizukuManager,
+        clocks: Clocks = FixedClocks,
+    ) = AndroidTelemetrySource(
+        context = RuntimeEnvironment.getApplication(),
+        shizuku = shizuku,
+        clocks = clocks,
+        calibrationInputReader =
+            CalibrationInputReader {
+                CalibrationInput(
+                    null,
+                    null,
+                    null,
+                    null,
+                    isCharging = false,
+                    plugged = false,
+                )
+            },
+    )
 
     /** Real manager + AIDL proxy, with virtual time only for its 3 s idle-unbind cleanup. */
     private class KernelFixture(
@@ -492,6 +618,7 @@ class AndroidTelemetrySourceDeadlineTest {
         @Volatile var cursor: Pair<Long, Long>? = null
         val history: MutableList<HistoryEvent> = Collections.synchronizedList(mutableListOf())
         val misses: MutableList<CaptureTrigger> = Collections.synchronizedList(mutableListOf())
+        val snapshots = mutableListOf<BatterySnapshot>()
 
         override suspend fun insertHistory(
             events: List<HistoryEvent>,
@@ -522,7 +649,10 @@ class AndroidTelemetrySourceDeadlineTest {
             misses += trigger
         }
 
-        override suspend fun insert(snapshot: BatterySnapshot): Long = 1L
+        override suspend fun insert(snapshot: BatterySnapshot): Long {
+            snapshots += snapshot
+            return snapshots.size.toLong()
+        }
 
         override suspend fun byId(id: Long): BatterySnapshot? = null
 
