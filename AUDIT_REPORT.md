@@ -909,3 +909,52 @@ The archived **initial** audit counted 1,083 unit tests; its **post-remediation*
 This run's Mobile MCP/redroid check was deliberately nondestructive and covered the installed release 0.2.1 only. Its equivalence to the pinned current source is unverified, unlike any different build provenance claimed by the old report. Archived permission/settings experiments were **not** repeated or inherited as current runtime proof.
 
 **No new defect is added after freeze.** All 24 independent findings, including the two rediscovered variants above, were finalized before the archived report was opened. The old report's claims have not been imported as new findings. Frozen bytes remain authoritative; this delta changes no severity, finding count, proposed fix or independent verification claim. No application fixes, commits, pushes, releases, kit/map maintenance or device privileged writes were performed.
+
+## 6. Atomic remediation log — 2026-10-19
+
+This section records **subsequent requested remediation**, not changes to the frozen independent assessment or historical delta above. Status means the scoped checks below passed and the fix was committed on `audit-remediate-d-20261019`; it is not a zero-regression or physical-device guarantee. The final combined build/test/lint/screenshot/debug/R8 gate is **PENDING**. No release, push, APK delivery or privileged device mutation has been performed during remediation. User-dirty `.claude/settings.json` is preserved.
+
+<!-- remediation-batch-status -->
+**11/24 findings integrated; 13 remain in progress.**
+
+| ID | Verified integration commit | Files changed (within their existing modules) | Verification job(s), all final exits 0 |
+|---|---|---|---|
+| A-01 | [FIXED in 601fb92] | ShizukuManagerImpl.kt; ShizukuManagerImplTest.kt | b5tlf98h9: IPC manager + ready-wait tests; IPC lint |
+| A-02 | [FIXED in f849891] | AppContainer.kt; AndroidTelemetrySource.kt; source deadline/kernel tests; HealthKernelFallbackTest.kt | b9rg17ege: source, Health fallback, ChargeJobRun tests; telemetry/app lint |
+| A-03 | [FIXED in 5731392] | ToolkitActions.kt; ObservedChange/Retention/ResetAll tests | b5m4ycfci: ToolkitActions regression classes; telemetry lint |
+| A-06 | [FIXED in 1845040] | ToolkitExecutor.kt; ToolkitExecutorTest.kt | b6iyg4ntq: executor/package-name/service-toolkit tests; IPC lint |
+| A-07 | [FIXED in dca692f] | SnapshotDiffer.kt/test; DiagnosticRuleEngineTest.kt; XRayMapperTest.kt | bjlgu03b1: differ/diagnostics/XRay mapper tests; telemetry lint |
+| A-09 | [FIXED in 719ba02] | DumpParser.kt/test; AndroidTelemetrySourceDeadlineTest.kt | bg0wlfvel: parser/reader/source/capturer/differ + lint; b9pd6q68r: merged parser/source + lint |
+| A-11 | [FIXED in 76f7561] | ChargingCaptureRunner.kt; ChargeHealthPipelineTest.kt | bvwtiav2a: pipeline/runner/job/estimator tests; app lint |
+| A-15 | [FIXED in ab6a2a5] | HealthViewModel.kt; HealthViewModelTest.kt | bj6o0l40q: complete Health unit task + lint |
+| A-17 | [FIXED in 62a548f] | CachedAppLabels.kt; CachedAppLabelsTest.kt | bz35n187y: resolver tests; app lint |
+| A-21 | [FIXED in ab06895] | XRay VM/models/detail; EN/TR resources; target tests/fixtures; previews; three new references | b9hbwtpo0: VM tests/lint/render; bnnmmd28v: screenshot validation; three PNGs inspected |
+| A-22 | [FIXED in b2dbe9c] | SleepLabMappers.kt; SleepLabMappersTest.kt | be36wu0v4: mapper tests; Sleep Lab lint |
+
+A-04/A-05/A-08/A-10/A-12/A-13/A-14/A-16/A-18/A-19/A-20/A-23/A-24 remain **VERIFICATION PENDING**, not fixed. A-13's initial check failed test compilation; its first bounded repair awaits recheck. A-16's initial checks passed but visual review found cropped ready-dashboard previews; preview-only repair and rerender are required.
+<!-- /remediation-batch-status -->
+
+### Scoped verification commands
+
+Every job used its isolated worktree's absolute `gradlew -p <same-worktree>`, followed by the task/selector arguments below and `--console=plain -q --max-workers=4`. No more than two Gradle invocations ran concurrently. Job outputs are retained under `/tmp/claude-1000/-home-akane-projects-inspiration/d97c8ca1-83fc-45d8-860a-63aba97fe73e/tasks/<job>.output`; worker paths and commands are recorded in the coordinator ledger.
+
+- **A-01:** `:core:shizuku-ipc:testDebugUnitTest --tests 'com.akane.inspiration.ipc.ShizukuManagerImplTest' --tests 'com.akane.inspiration.ipc.ShizukuManagerReadyWaitTest' :core:shizuku-ipc:lintDebug`.
+- **A-02:** `:core:telemetry-engine:testDebugUnitTest --tests 'com.akane.inspiration.telemetry.source.AndroidTelemetrySource*Test' :feature:health:testDebugUnitTest --tests 'com.akane.inspiration.health.HealthKernelFallbackTest' :app:testDebugUnitTest --tests 'com.akane.inspiration.capture.ChargeJobRunTest' :core:telemetry-engine:lintDebug :app:lintDebug`.
+- **A-03:** `:core:telemetry-engine:testDebugUnitTest --tests 'com.akane.inspiration.telemetry.toolkit.ToolkitActions*Test' :core:telemetry-engine:lintDebug`.
+- **A-06:** `:core:shizuku-ipc:testDebugUnitTest --tests 'com.akane.inspiration.ipc.toolkit.ToolkitExecutorTest' --tests 'com.akane.inspiration.ipc.toolkit.PackageNamesTest' --tests 'com.akane.inspiration.ipc.service.TelemetryUserServiceToolkitTest' :core:shizuku-ipc:lintDebug`.
+- **A-07:** `:core:telemetry-engine:testDebugUnitTest --tests 'com.akane.inspiration.telemetry.diff.SnapshotDifferTest' :core:diagnostics:testDebugUnitTest --tests 'com.akane.inspiration.diagnostics.rules.DiagnosticRuleEngineTest' :feature:xray:testDebugUnitTest --tests 'com.akane.inspiration.xray.XRayMapperTest' :core:telemetry-engine:lintDebug`.
+- **A-09 initial:** `:core:telemetry-engine:testDebugUnitTest --tests 'com.akane.inspiration.telemetry.dump.DumpParserTest' --tests 'com.akane.inspiration.telemetry.dump.DumpReaderTest' --tests 'com.akane.inspiration.telemetry.source.AndroidTelemetrySourceDeadlineTest' --tests 'com.akane.inspiration.telemetry.capture.SnapshotCapturerTest' --tests 'com.akane.inspiration.telemetry.diff.SnapshotDifferTest' :core:telemetry-engine:lintDebug`; **after resolving A-02 test-helper integration:** `:core:telemetry-engine:testDebugUnitTest --tests 'com.akane.inspiration.telemetry.source.AndroidTelemetrySourceDeadlineTest' --tests 'com.akane.inspiration.telemetry.dump.DumpParserTest' :core:telemetry-engine:lintDebug`.
+- **A-11:** `:app:testDebugUnitTest --tests 'com.akane.inspiration.capture.ChargeHealthPipelineTest' --tests 'com.akane.inspiration.capture.ChargingCaptureRunnerTest' --tests 'com.akane.inspiration.capture.ChargeJobCaptureTest' :core:telemetry-engine:testDebugUnitTest --tests 'com.akane.inspiration.telemetry.capacity.CapacityEstimatorTest' :app:lintDebug`.
+- **A-15:** `:feature:health:testDebugUnitTest :feature:health:lintDebug`.
+- **A-17:** `:app:testDebugUnitTest --tests 'com.akane.inspiration.di.CachedAppLabelsTest' :app:lintDebug`.
+- **A-21:** `:feature:xray:testDebugUnitTest --tests 'com.akane.inspiration.xray.XRayViewModel*Test' :feature:xray:lintDebug :feature:xray:updateDebugScreenshotTest`, then `:feature:xray:validateDebugScreenshotTest`.
+- **A-22:** `:feature:sleeplab:testDebugUnitTest --tests 'com.akane.inspiration.sleeplab.SleepLabMappersTest' :feature:sleeplab:lintDebug`.
+
+### Review, failed checks and limits
+
+- A-01's initial job `blhcmns4m` failed one of 47 tests. Independent review and the implementer traced a test-helper refresh that independently rebound after injected transport death. The first bounded repair takes only the lock; the concurrency assertions remain. Final tests/lint passed. Actual pinned Shizuku-library replay is JVM evidence, not real-device handover. Already-disclosed timeout-fallback wrapper reuse is unchanged.
+- A-03's initial tests passed, but independent review found non-reflexive comparison for observed app-op `foreground`. The repair recognizes equal nonempty observed raws without expanding writable modes. New resetAll/pruning/recreation/stale controls and independent re-review passed. No atomic platform CAS is claimed.
+- A-11 tests-first job `bl1gcmfp3` failed seven assertions in 22 tests, exposing transient rejection/recovery/chronology paths. GREEN has 23 pipeline tests, including an additional shifted-wall/storage-key control. Independent review approved persisted-evidence priority, terminal immutability and strictly earlier history.
+- Independent read-only review covered A-01/A-03/A-11/A-15 and A-21 containment/Compose. A-21's confirmation-boundary test can also pass via the execution guard; both source guards were inspected, so the test does not independently mutation-test each layer. Profile toolkit operations are deliberately read-only/unsupported; analytics remain visible. No real multi-profile write was attempted.
+- A-02 releases callers/refcounts on timeout; it cannot interrupt an already-running native Binder transaction or bound repeated stuck native calls globally. A-07 still lacks a real dynamic parcel-budget→capture→Room acceptance replay. A-06 refuses newly unsupported originals, but already-deployed unsupported legacy originals remain refused by a fresh executor and need recovery policy. These limits must not be represented as verified physical-device recovery.
+- Installed PostToolUse formatting hooks mechanically reflowed existing code inside owned Kotlin files. Hooks/configuration were not disabled or changed; this accounts for substantial textual diff beyond semantic fixes. Audit skills, kit files and frozen `independent.md` were not changed.
