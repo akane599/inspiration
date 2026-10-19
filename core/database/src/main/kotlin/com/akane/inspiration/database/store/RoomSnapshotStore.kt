@@ -110,8 +110,14 @@ class RoomSnapshotStore(
         database.snapshotDao().latestByTrigger(trigger.name)?.let { readSnapshot(it) }
     }
 
+    override suspend fun latestClockByTrigger(trigger: CaptureTrigger): SnapshotClock? =
+        database.snapshotDao().latestByTrigger(trigger.name)?.toClock()
+
     override suspend fun snapshotsBetween(fromWallMs: Long, toWallMs: Long): List<BatterySnapshot> =
         database.snapshotDao().between(fromWallMs, toWallMs).map { it.toBareSnapshot() }
+
+    override suspend fun unplugWindowSnapshots(fromWallMs: Long, toWallMs: Long): List<BatterySnapshot> =
+        database.snapshotDao().unplugWindow(fromWallMs, toWallMs).map { it.toBareSnapshot() }
 
     override suspend fun insertHistory(events: List<HistoryEvent>, statsStartMs: Long) {
         database.withTransaction {
@@ -302,7 +308,7 @@ class RoomSnapshotStore(
         id = id,
         kind = SnapshotKind.valueOf(kind),
         trigger = CaptureTrigger.valueOf(trigger),
-        clock = SnapshotClock(wallMs, elapsedRealtimeMs, uptimeMs, bootCount, statsStartMs, statsDurationMs),
+        clock = toClock(),
         battery = BatteryState(
             levelPct = levelPct,
             plugged = plugged,
@@ -322,6 +328,9 @@ class RoomSnapshotStore(
         availability = emptyMap(),
         truncatedUids = truncatedUids,
     )
+
+    private fun SnapshotEntity.toClock() =
+        SnapshotClock(wallMs, elapsedRealtimeMs, uptimeMs, bootCount, statsStartMs, statsDurationMs)
 
     private fun BatterySnapshot.toEntity() = SnapshotEntity(
         kind = kind.name,

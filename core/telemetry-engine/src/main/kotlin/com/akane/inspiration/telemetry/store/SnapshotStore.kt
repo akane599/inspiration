@@ -6,7 +6,9 @@ import com.akane.inspiration.telemetry.capacity.SegmentVerdict
 import com.akane.inspiration.telemetry.snapshot.BatterySnapshot
 import com.akane.inspiration.telemetry.snapshot.CaptureTrigger
 import com.akane.inspiration.telemetry.snapshot.LiveReading
+import com.akane.inspiration.telemetry.snapshot.SnapshotClock
 import com.akane.inspiration.telemetry.snapshot.SnapshotKind
+import com.akane.inspiration.telemetry.status.UnplugSummaryCalculator
 
 interface SnapshotStore {
     suspend fun insert(snapshot: BatterySnapshot): Long
@@ -27,10 +29,27 @@ interface SnapshotStore {
     suspend fun latestByTrigger(trigger: CaptureTrigger): BatterySnapshot?
 
     /**
+     * The clock of [latestByTrigger], for callers that need only its times. The default derives it from the full
+     * read (for fakes); the Room store reads the snapshot row alone, never its per-UID or other child rows.
+     */
+    suspend fun latestClockByTrigger(trigger: CaptureTrigger): SnapshotClock? = latestByTrigger(trigger)?.clock
+
+    /**
      * Snapshots of both kinds with `from <= wallMs <= to`, oldest first. Only the snapshot and battery columns
      * are filled: the system timers are null and every per-UID, wakelock and cpu list is empty.
      */
     suspend fun snapshotsBetween(fromWallMs: Long, toWallMs: Long): List<BatterySnapshot>
+
+    /**
+     * The newest part of [snapshotsBetween] that [UnplugSummaryCalculator] needs for a "now" at [toWallMs], so the
+     * summary equals the one over the whole range. The newest plugged-in snapshot before [toWallMs] marks the
+     * unplug (else the newest [CaptureTrigger.POWER_DISCONNECTED] capture before it). The part starts at the
+     * newest screen or boot capture at or before that mark, which fixes the screen state the calculator carries
+     * forward, else at the mark; with no mark it is the whole range. The default returns the whole range (for
+     * fakes); the Room store bounds it in SQL.
+     */
+    suspend fun unplugWindowSnapshots(fromWallMs: Long, toWallMs: Long): List<BatterySnapshot> =
+        snapshotsBetween(fromWallMs, toWallMs)
 
     suspend fun insertHistory(events: List<HistoryEvent>, statsStartMs: Long)
 

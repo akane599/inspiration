@@ -47,14 +47,14 @@ internal suspend fun runChargeJobCapture(
         } else {
             null
         }
-    val lastPowerConnectedWallMs = store.latestByTrigger(CaptureTrigger.POWER_CONNECTED)?.clock?.wallMs
-    val lastChargeJob = store.latestByTrigger(CaptureTrigger.CHARGE_JOB)
+    val lastPowerConnectedWallMs = store.latestClockByTrigger(CaptureTrigger.POWER_CONNECTED)?.wallMs
+    val lastChargeJobClock = store.latestClockByTrigger(CaptureTrigger.CHARGE_JOB)
     runner.run(
         shouldCapture = CapturePolicy.chargeJobShouldRun(
             lastPluggedHistoryWallMs = lastPluggedHistoryWallMs,
             lastPowerConnectedWallMs = lastPowerConnectedWallMs,
-            lastChargeJobWallMs = lastChargeJob?.clock?.wallMs,
-            lastChargeJobBootCount = lastChargeJob?.clock?.bootCount,
+            lastChargeJobWallMs = lastChargeJobClock?.wallMs,
+            lastChargeJobBootCount = lastChargeJobClock?.bootCount,
             currentBootCount = clocks.bootCount(),
             historyAvailable = ingest.historyAvailable,
         ),

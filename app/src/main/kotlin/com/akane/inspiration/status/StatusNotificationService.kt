@@ -101,7 +101,8 @@ class StatusNotificationService : Service() {
             if (stopIfBlocked(container)) return
             val light = source.light()
             val nowMs = light.clock.wallMs
-            val history = container.store.snapshotsBetween(nowMs - HISTORY_WINDOW_MS, nowMs)
+            // The rows since the last unplug; the whole retention window is read only when it holds no unplug.
+            val history = container.store.unplugWindowSnapshots(nowMs - HISTORY_WINDOW_MS, nowMs)
             val summary = UnplugSummaryCalculator.compute(history, light.toSnapshot())
             val text =
                 StatusNotificationContent.build(

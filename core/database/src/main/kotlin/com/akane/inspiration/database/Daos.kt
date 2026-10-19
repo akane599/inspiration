@@ -92,6 +92,35 @@ interface SnapshotDao {
     @Query("SELECT * FROM snapshot WHERE wallMs BETWEEN :fromWallMs AND :toWallMs ORDER BY wallMs ASC, id ASC")
     suspend fun between(fromWallMs: Long, toWallMs: Long): List<SnapshotEntity>
 
+    /**
+     * The newest part of [between] that the status summary needs for a "now" at [toWallMs] (see
+     * `SnapshotStore.unplugWindowSnapshots`). `mark` is the newest plugged-in row before now, else the newest
+     * POWER_DISCONNECTED capture before now, else [fromWallMs]; the rows start at the newest screen or boot
+     * capture at or before `mark`, else at `mark`. Every bound stays inside the range.
+     */
+    @Query(
+        """
+        WITH mark(wallMs) AS (
+            SELECT COALESCE(
+                (SELECT wallMs FROM snapshot WHERE plugged = 1 AND wallMs >= :fromWallMs AND wallMs < :toWallMs
+                    ORDER BY wallMs DESC LIMIT 1),
+                (SELECT wallMs FROM snapshot WHERE trigger = 'POWER_DISCONNECTED'
+                    AND wallMs >= :fromWallMs AND wallMs < :toWallMs ORDER BY wallMs DESC LIMIT 1),
+                :fromWallMs
+            )
+        )
+        SELECT * FROM snapshot
+        WHERE wallMs BETWEEN :fromWallMs AND :toWallMs
+          AND wallMs >= COALESCE(
+              (SELECT s.wallMs FROM snapshot s, mark WHERE s.trigger IN ('SCREEN_ON', 'SCREEN_OFF', 'BOOT')
+                  AND s.wallMs >= :fromWallMs AND s.wallMs <= mark.wallMs ORDER BY s.wallMs DESC LIMIT 1),
+              (SELECT wallMs FROM mark)
+          )
+        ORDER BY wallMs ASC, id ASC
+        """,
+    )
+    suspend fun unplugWindow(fromWallMs: Long, toWallMs: Long): List<SnapshotEntity>
+
     @Query("SELECT * FROM snapshot_system WHERE snapshotId = :snapshotId")
     suspend fun systemForSnapshot(snapshotId: Long): SnapshotSystemEntity?
 

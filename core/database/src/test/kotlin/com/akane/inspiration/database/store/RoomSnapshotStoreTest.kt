@@ -23,6 +23,8 @@ import com.akane.inspiration.telemetry.snapshot.SnapshotClock
 import com.akane.inspiration.telemetry.snapshot.SnapshotKind
 import com.akane.inspiration.telemetry.snapshot.SourceAvailability
 import com.akane.inspiration.telemetry.snapshot.UidSnapshot
+import com.akane.inspiration.telemetry.status.UnplugSummary
+import com.akane.inspiration.telemetry.status.UnplugSummaryCalculator
 import com.akane.inspiration.telemetry.store.ChargeSessionRecord
 import com.akane.inspiration.telemetry.store.HealthSample
 import com.akane.inspiration.telemetry.store.Marker
@@ -495,6 +497,94 @@ class RoomSnapshotStoreTest {
         assertEquals(emptyList<BatterySnapshot>(), store.snapshotsBetween(5_000L, 6_000L))
     }
 
+    @Test
+    fun `latestClockByTrigger reads the clock of the newest capture of that trigger`() = runBlocking {
+        store.insert(fullSnapshot(trigger = CaptureTrigger.SCREEN_ON, wallMs = 1_000L, bootCount = 1))
+        store.insert(fullSnapshot(trigger = CaptureTrigger.SCREEN_ON, wallMs = 3_000L, bootCount = 2))
+        val newest = store.insert(fullSnapshot(trigger = CaptureTrigger.SCREEN_ON, wallMs = 3_000L, bootCount = 3))
+        store.insert(fullSnapshot(trigger = CaptureTrigger.APP_OPEN, wallMs = 5_000L, bootCount = 4))
+
+        val clock = store.latestClockByTrigger(CaptureTrigger.SCREEN_ON)
+
+        assertEquals(store.byId(newest)!!.clock, clock)
+        assertEquals(store.latestByTrigger(CaptureTrigger.SCREEN_ON)!!.clock, clock)
+        assertNull(store.latestClockByTrigger(CaptureTrigger.POWER_DISCONNECTED))
+    }
+
+    @Test
+    fun `unplugWindowSnapshots starts at the screen capture before the last plugged row and keeps the summary`() = runBlocking {
+        val base = 40L * DAY_MS
+        store.insert(statusPoint(CaptureTrigger.APP_OPEN, base, plugged = false, level = 95))
+        val screenOff = store.insert(statusPoint(CaptureTrigger.SCREEN_OFF, base + 10 * MINUTE_MS, plugged = false, level = 94))
+        val connected = store.insert(statusPoint(CaptureTrigger.POWER_CONNECTED, base + 20 * MINUTE_MS, plugged = true, level = 93))
+        val chargeJob = store.insert(statusPoint(CaptureTrigger.CHARGE_JOB, base + 80 * MINUTE_MS, plugged = true, level = 100))
+        val unplug = store.insert(statusPoint(CaptureTrigger.POWER_DISCONNECTED, base + 90 * MINUTE_MS, plugged = false, level = 100))
+        val screenOn = store.insert(statusPoint(CaptureTrigger.SCREEN_ON, base + 150 * MINUTE_MS, plugged = false, level = 97))
+        val screenOffAgain = store.insert(statusPoint(CaptureTrigger.SCREEN_OFF, base + 180 * MINUTE_MS, plugged = false, level = 94))
+        val now = statusPoint(CaptureTrigger.APP_OPEN, base + 240 * MINUTE_MS, plugged = false, level = 92)
+        val from = now.clock.wallMs - 30L * DAY_MS
+
+        val window = store.unplugWindowSnapshots(from, now.clock.wallMs)
+
+        assertEquals(listOf(screenOff, connected, chargeJob, unplug, screenOn, screenOffAgain), window.map { it.id })
+        val summary = UnplugSummaryCalculator.compute(window, now) as UnplugSummary.Discharging
+        assertEquals(UnplugSummaryCalculator.compute(store.snapshotsBetween(from, now.clock.wallMs), now), summary)
+        assertEquals(base + 90 * MINUTE_MS, summary.anchorWallMs)
+        // The screen-off state from before the charge rates the first hour after the unplug: 5 % over 2 h off.
+        assertEquals(2.5, summary.screenOffPctPerHour!!, 1e-9)
+    }
+
+    @Test
+    fun `unplugWindowSnapshots falls back to the newest disconnect and ignores marks outside the range`() = runBlocking {
+        val base = 40L * DAY_MS
+        val to = base + 240 * MINUTE_MS
+        val from = to - 30L * DAY_MS
+        store.insert(statusPoint(CaptureTrigger.CHARGE_JOB, from - MINUTE_MS, plugged = true, level = 100))
+        store.insert(statusPoint(CaptureTrigger.APP_OPEN, base, plugged = null, level = 90))
+        val screenOn = store.insert(statusPoint(CaptureTrigger.SCREEN_ON, base + 10 * MINUTE_MS, plugged = null, level = 89))
+        val unplug = store.insert(statusPoint(CaptureTrigger.POWER_DISCONNECTED, base + 30 * MINUTE_MS, plugged = null, level = 88))
+        val later = store.insert(statusPoint(CaptureTrigger.APP_OPEN, base + 90 * MINUTE_MS, plugged = null, level = 85))
+        // At "now" itself, which the calculator ignores, so it cannot be the mark either.
+        val atNow = store.insert(statusPoint(CaptureTrigger.POWER_CONNECTED, to, plugged = true, level = 84))
+        val now = statusPoint(CaptureTrigger.APP_OPEN, to, plugged = false, level = 84)
+
+        val window = store.unplugWindowSnapshots(from, to)
+
+        assertEquals(listOf(screenOn, unplug, later, atNow), window.map { it.id })
+        val summary = UnplugSummaryCalculator.compute(window, now) as UnplugSummary.Discharging
+        assertEquals(UnplugSummaryCalculator.compute(store.snapshotsBetween(from, to), now), summary)
+        assertEquals(base + 30 * MINUTE_MS, summary.anchorWallMs)
+    }
+
+    @Test
+    fun `unplugWindowSnapshots reads the whole range when it holds no unplug`() = runBlocking {
+        val to = 40L * DAY_MS
+        val from = to - 30L * DAY_MS
+        store.insert(statusPoint(CaptureTrigger.POWER_DISCONNECTED, from - 1L, plugged = false, level = 100))
+        store.insert(statusPoint(CaptureTrigger.APP_OPEN, from, plugged = null, level = 90))
+        store.insert(statusPoint(CaptureTrigger.SCREEN_OFF, from + HOUR_MS, plugged = null, level = 89))
+        store.insert(statusPoint(CaptureTrigger.APP_OPEN, to - HOUR_MS, plugged = null, level = 80))
+        val now = statusPoint(CaptureTrigger.APP_OPEN, to, plugged = false, level = 79)
+
+        val window = store.unplugWindowSnapshots(from, to)
+
+        assertEquals(store.snapshotsBetween(from, to), window)
+        assertEquals(3, window.size)
+        assertFalse((UnplugSummaryCalculator.compute(window, now) as UnplugSummary.Discharging).anchorIsUnplug)
+    }
+
+    private fun statusPoint(trigger: CaptureTrigger, wallMs: Long, plugged: Boolean?, level: Int) = fullSnapshot(
+        kind = SnapshotKind.LIGHT,
+        trigger = trigger,
+        wallMs = wallMs,
+        system = null,
+        uids = emptyList(),
+        deviceComponentsMah = emptyMap(),
+        kernelWakelocks = emptyList(),
+        wakeupReasons = emptyList(),
+        cpuFreq = emptyList(),
+    ).copy(battery = BatteryState(level, plugged, null, null, null, null, null, null))
+
     private fun fullSnapshot(
         kind: SnapshotKind = SnapshotKind.FULL,
         trigger: CaptureTrigger = CaptureTrigger.APP_OPEN,
@@ -579,6 +669,7 @@ class RoomSnapshotStoreTest {
     )
 
     private companion object {
+        const val MINUTE_MS = 60L * 1_000L
         const val HOUR_MS = 60L * 60L * 1_000L
         const val DAY_MS = 24L * HOUR_MS
     }

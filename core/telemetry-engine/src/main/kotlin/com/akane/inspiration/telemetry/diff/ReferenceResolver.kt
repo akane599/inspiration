@@ -43,11 +43,13 @@ class ReferenceResolver(
      * so a caller that needs that history too loads it once.
      */
     suspend fun resolve(kind: ReferenceKind, nowWallMs: Long, events: List<HistoryEvent>): ResolvedReference? {
-        store.lastAtOrBefore(nowWallMs, null) ?: return null
         val boundary = boundaryFor(kind, nowWallMs, events) ?: return null
         if (boundary.fromWallMs > boundary.toWallMs) return null
 
         val end = store.lastAtOrBefore(boundary.toWallMs, null) ?: return null
+        // Resolution needs a snapshot at or before now. `end` is one unless it lies past now (only a boundary that
+        // ends after now allows that), so a boundary ending at now loads that snapshot once, not twice.
+        if (end.clock.wallMs > nowWallMs && store.lastAtOrBefore(nowWallMs, null) == null) return null
         val ref = boundary.markerSnapshot ?: closestReference(boundary.fromWallMs, end) ?: return null
         if (ref.clock.wallMs > end.clock.wallMs) return null
 
@@ -79,7 +81,7 @@ class ReferenceResolver(
     ): Boundary? = when (kind) {
         ReferenceKind.SinceUnplugged -> {
             val boundary = events.lastOrNull { it.kind == HistoryKind.UNPLUGGED }?.wallMs
-                ?: store.latestByTrigger(CaptureTrigger.POWER_DISCONNECTED)?.clock?.wallMs
+                ?: store.latestClockByTrigger(CaptureTrigger.POWER_DISCONNECTED)?.wallMs
             boundary?.let { Boundary(it, nowWallMs) }
         }
 
@@ -88,7 +90,7 @@ class ReferenceResolver(
 
         ReferenceKind.ScreenOnSession -> {
             val boundary = events.lastOrNull { it.kind == HistoryKind.SCREEN_ON }?.wallMs
-                ?: store.latestByTrigger(CaptureTrigger.SCREEN_ON)?.clock?.wallMs
+                ?: store.latestClockByTrigger(CaptureTrigger.SCREEN_ON)?.wallMs
             boundary?.let { Boundary(it, nowWallMs) }
         }
 
@@ -133,10 +135,10 @@ class ReferenceResolver(
     }
 
     private suspend fun completedScreenOffFromSnapshots(nowWallMs: Long): Boundary? {
-        val screenOff = store.latestByTrigger(CaptureTrigger.SCREEN_OFF) ?: return null
-        val screenOn = store.latestByTrigger(CaptureTrigger.SCREEN_ON) ?: return null
-        return if (screenOff.clock.wallMs < screenOn.clock.wallMs && screenOn.clock.wallMs <= nowWallMs) {
-            Boundary(screenOff.clock.wallMs, screenOn.clock.wallMs)
+        val screenOff = store.latestClockByTrigger(CaptureTrigger.SCREEN_OFF) ?: return null
+        val screenOn = store.latestClockByTrigger(CaptureTrigger.SCREEN_ON) ?: return null
+        return if (screenOff.wallMs < screenOn.wallMs && screenOn.wallMs <= nowWallMs) {
+            Boundary(screenOff.wallMs, screenOn.wallMs)
         } else {
             null
         }
