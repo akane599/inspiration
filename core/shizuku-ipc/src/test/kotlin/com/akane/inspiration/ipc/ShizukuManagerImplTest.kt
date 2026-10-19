@@ -166,6 +166,74 @@ class ShizukuManagerImplTest {
             assertEquals(ShizukuState.Ready(2000, 13), fixture.manager.state.value)
         }
 
+    // A stopped Sui server is not an uninstall: once this process had a binder, its loss is NotRunning, and a call
+    // waits for the server instead of failing at once.
+    @Test
+    fun aSuiServerThatStopsIsNotRunningAndCallsWaitForItsReturn() =
+        runTest {
+            val fixture = Fixture(this, managerInstalled = false)
+            fixture.manager.start()
+            assertEquals(ShizukuState.Ready(2000, 13), fixture.manager.state.value)
+
+            fixture.facade.binderAlive = false
+            fixture.facade.deliverBinderDeath()
+            fixture.manager.refresh() // MainActivity.onStart while the server is down
+
+            assertSame(ShizukuState.NotRunning, fixture.manager.state.value)
+            val call = async { fixture.manager.withTelemetryService(2_000L) { "read" } }
+            runCurrent()
+            fixture.facade.binderAlive = true
+            fixture.facade.deliverBinderReceived() // the server is back
+            runCurrent()
+            fixture.facade.deliverServiceConnected()
+            assertEquals("read", call.await())
+        }
+
+    @Test
+    fun aBinderDeathAloneMarksTheBinderAsSeen() =
+        runTest {
+            // The binder came and died before the received listener could read it.
+            val fixture = Fixture(this, managerInstalled = false).apply { facade.binderAlive = false }
+            fixture.manager.start()
+            assertSame(ShizukuState.NotInstalled, fixture.manager.state.value)
+
+            fixture.facade.deliverBinderDeath()
+            fixture.manager.refresh()
+
+            assertSame(ShizukuState.NotRunning, fixture.manager.state.value)
+        }
+
+    @Test
+    fun aLiveBinderWithoutTheManagerAppStillAppliesTheServerVersionChecks() =
+        runTest {
+            val preV11 = Fixture(this, managerInstalled = false).apply { facade.preV11 = true }
+            preV11.manager.start()
+            assertSame(ShizukuState.NotRunning, preV11.manager.state.value)
+
+            val oldServer = Fixture(this, managerInstalled = false).apply { facade.serverVersion = 12 }
+            oldServer.manager.start()
+            assertEquals(ShizukuState.UnsupportedServer(12), oldServer.manager.state.value)
+
+            assertEquals(0, preV11.facade.bindCalls + oldServer.facade.bindCalls)
+        }
+
+    @Test
+    fun anUnreadableOwnPackageIsNotRunningAndNeverBinds() =
+        runTest {
+            val fixture =
+                Fixture(
+                    this,
+                    applicationInfoProvider = ShizukuApplicationInfoProvider { error("own package is not readable") },
+                )
+
+            fixture.manager.start()
+            fixture.manager.holdBinding().close()
+
+            assertSame(ShizukuState.NotRunning, fixture.manager.state.value)
+            assertNull(fixture.manager.withTelemetryService(1L) { Unit })
+            assertEquals(0, fixture.facade.bindCalls)
+        }
+
     @Test
     fun start_reportsNotRunningWhenBinderIsUnavailable() =
         runTest {
@@ -1291,6 +1359,7 @@ class ShizukuManagerImplTest {
     private class Fixture(
         scope: TestScope,
         managerInstalled: Boolean = true,
+        applicationInfoProvider: ShizukuApplicationInfoProvider = ShizukuApplicationInfoProvider { ShizukuApplicationInfo(42, true) },
     ) {
         val facade = FakeShizukuFacade()
         val manager =
@@ -1298,7 +1367,7 @@ class ShizukuManagerImplTest {
                 context = TestContext(),
                 facade = facade,
                 scope = scope,
-                applicationInfoProvider = ShizukuApplicationInfoProvider { ShizukuApplicationInfo(42, true) },
+                applicationInfoProvider = applicationInfoProvider,
                 managerApp = ShizukuManagerAppProbe { managerInstalled },
                 ioDispatcher = StandardTestDispatcher(scope.testScheduler),
             )

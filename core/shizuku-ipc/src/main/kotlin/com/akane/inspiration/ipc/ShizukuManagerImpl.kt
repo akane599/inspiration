@@ -73,6 +73,12 @@ class ShizukuManagerImpl private constructor(
     private var serviceArgs: Shizuku.UserServiceArgs? = null
 
     /**
+     * Whether this process has had a Shizuku binder. Once it has, a missing manager app (Sui) cannot mean "not
+     * installed": a lost binder is a stopped server, which may come back and which callers wait for (N-08).
+     */
+    @Volatile private var binderSeen = false
+
+    /**
      * Set by an unbind(remove=true) until the destroyed process's death reaches [userServiceConnection].
      * Shizuku keeps one connection stub per service class and remove=true does not clear it, so a bind
      * issued before that death would share the stub: the old death would then disconnect the new binding
@@ -150,6 +156,7 @@ class ShizukuManagerImpl private constructor(
      */
     private val binderDeadListener =
         Shizuku.OnBinderDeadListener {
+            binderSeen = true // it may die before the received listener ever read it
             synchronized(bindingLock) { transportLostLocked() }
         }
 
@@ -405,11 +412,14 @@ class ShizukuManagerImpl private constructor(
 
     private fun refreshState() {
         // The binder decides, not the manager app: Sui (root) hands ShizukuProvider a binder with no manager app
-        // installed (N-08). The manager app only tells NotInstalled from NotRunning while no binder has come.
+        // installed (N-08). The manager app only tells NotInstalled from NotRunning while this process has never
+        // had a binder; after one, its absence is a stopped server.
         if (!facade.pingBinder()) {
-            setUnavailableState(if (managerApp.isInstalled()) ShizukuState.NotRunning else ShizukuState.NotInstalled)
+            val canReturn = binderSeen || managerApp.isInstalled()
+            setUnavailableState(if (canReturn) ShizukuState.NotRunning else ShizukuState.NotInstalled)
             return
         }
+        binderSeen = true
         if (facade.isPreV11()) {
             logUnsupportedVersion("Shizuku versions before v11 are unsupported")
             setUnavailableState(ShizukuState.NotRunning)
