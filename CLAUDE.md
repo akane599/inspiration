@@ -2,7 +2,7 @@
 # CLAUDE.md — Inspiration
 
 Shizuku-powered battery analytics, diagnostics and optimization for Android power users: real Binder/kernel telemetry, plain-language insights, zero observer effect. Product spec: `TEMPLATE.md` (Turkish).
-Android, developed on Ubuntu from the CLI. Host: Ryzen 7 5800X3D (8C/16T, KVM) · 15 GiB RAM · 512 MiB swap · `/tmp` is RAM-backed tmpfs.
+Android, developed on Ubuntu from the CLI. Host: Ryzen 7 5800X3D (8C/16T, KVM) · 15 GiB RAM · 7.8 GiB zstd zram (prio 100) + 8 GiB swapfile (prio 10), swappiness 180 · `/tmp` is RAM-backed tmpfs.
 
 <!-- STACK:BEGIN (filled by /bootstrap) -->
 - Origin: new · Integration branch: main
