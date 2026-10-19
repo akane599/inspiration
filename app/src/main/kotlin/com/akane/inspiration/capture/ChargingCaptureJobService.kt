@@ -13,7 +13,7 @@ import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.launch
 
 class ChargingCaptureJobService : JobService() {
-    private val runningJobs = mutableMapOf<Int, Job>()
+    private val runningJobs = JobRegistry()
     private val runner = ChargingCaptureRunner()
 
     override fun onStartJob(params: JobParameters): Boolean {
@@ -49,26 +49,16 @@ class ChargingCaptureJobService : JobService() {
                         log = { message, error -> Log.w(TAG, message, error) },
                     )
                 } finally {
-                    val currentJob = currentCoroutineContext()[Job]
-                    synchronized(runningJobs) {
-                        if (runningJobs[params.jobId] === currentJob) {
-                            runningJobs.remove(params.jobId)
-                        }
-                    }
+                    runningJobs.removeIfSame(params.jobId, currentCoroutineContext()[Job])
                 }
             }
-        synchronized(runningJobs) {
-            runningJobs[params.jobId]?.cancel()
-            runningJobs[params.jobId] = job
-        }
+        runningJobs.put(params.jobId, job)
         job.start()
         return true
     }
 
     override fun onStopJob(params: JobParameters): Boolean {
-        synchronized(runningJobs) {
-            runningJobs.remove(params.jobId)?.cancel()
-        }
+        runningJobs.cancel(params.jobId)
         return false
     }
 
@@ -85,5 +75,39 @@ class ChargingCaptureJobService : JobService() {
     private companion object {
         const val FULL_CAPTURE_DEADLINE_MS = 10_000L
         const val TAG = "ChargingCaptureJob"
+    }
+}
+
+/**
+ * The running charge-job coroutines by job id; thread-safe. A new start cancels the run it replaces. A run that
+ * ends removes its entry only while it is still the registered one (identity, not just the id): the late `finally`
+ * of a replaced run must not drop the newer run, which `onStopJob` still has to cancel.
+ */
+internal class JobRegistry {
+    private val jobs = mutableMapOf<Int, Job>()
+
+    fun put(
+        jobId: Int,
+        job: Job,
+    ) {
+        synchronized(jobs) {
+            jobs[jobId]?.cancel()
+            jobs[jobId] = job
+        }
+    }
+
+    fun removeIfSame(
+        jobId: Int,
+        job: Job?,
+    ) {
+        synchronized(jobs) {
+            if (jobs[jobId] === job) jobs.remove(jobId)
+        }
+    }
+
+    fun cancel(jobId: Int) {
+        synchronized(jobs) {
+            jobs.remove(jobId)?.cancel()
+        }
     }
 }

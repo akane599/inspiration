@@ -54,30 +54,35 @@ class StatusNotificationService : Service() {
         flags: Int,
         startId: Int,
     ): Int {
-        // Every start must reach startForeground in time; a repeat start keeps the text already on screen.
+        val start =
+            StatusStartDecision.start(
+                enterForeground = ::enterForeground,
+                // A sticky restart bypasses the controller, so re-check here (e.g. POST_NOTIFICATIONS revoked meanwhile).
+                shouldRun = { shouldRun(container()) },
+                ensureCollector = {
+                    if (collector?.isActive != true) {
+                        val container = container()
+                        collector = scope.launch { collect(container) }
+                    }
+                },
+                stop = { stopSelf() },
+            )
+        return if (start == StatusStartDecision.Start.STICKY) START_STICKY else START_NOT_STICKY
+    }
+
+    /** Every start must reach startForeground in time; a repeat start keeps the text already on screen. */
+    private fun enterForeground(): Boolean {
         val shown = lastNotification ?: StatusNotifications.build(this, StatusNotifications.placeholder(this))
-        try {
+        return try {
             ServiceCompat.startForeground(this, NOTIFICATION_ID, shown, foregroundServiceType())
+            true
         } catch (e: RuntimeException) {
             Log.w(TAG, "Could not enter the foreground", e)
-            stopSelf()
-            return START_NOT_STICKY
+            false
         }
-        val container = (application as InspirationApplication).appContainer
-        // A sticky restart bypasses the controller, so re-check here (e.g. POST_NOTIFICATIONS revoked meanwhile).
-        if (!StatusNotificationController.shouldRun(
-                container.statusNotificationEnabled.value,
-                container.notificationsBlocked(),
-            )
-        ) {
-            stopSelf()
-            return START_NOT_STICKY
-        }
-        if (collector?.isActive != true) {
-            collector = scope.launch { collect(container) }
-        }
-        return START_STICKY
     }
+
+    private fun container(): AppContainer = (application as InspirationApplication).appContainer
 
     override fun onDestroy() {
         synchronized(postLock) { stopped = true }
@@ -112,10 +117,21 @@ class StatusNotificationService : Service() {
                 )
             val notification = StatusNotifications.build(this, text)
             synchronized(postLock) {
-                if (stopped) return
-                if (stopIfBlocked(container)) return
-                lastNotification = notification
-                getSystemService(NotificationManager::class.java).notify(NOTIFICATION_ID, notification)
+                when (StatusStartDecision.post(stopped) { shouldRun(container) }) {
+                    StatusStartDecision.Post.DROP -> {
+                        return
+                    }
+
+                    StatusStartDecision.Post.STOP -> {
+                        stopNow()
+                        return
+                    }
+
+                    StatusStartDecision.Post.SHOW -> {
+                        lastNotification = notification
+                        getSystemService(NotificationManager::class.java).notify(NOTIFICATION_ID, notification)
+                    }
+                }
             }
         } catch (e: CancellationException) {
             throw e
@@ -126,15 +142,18 @@ class StatusNotificationService : Service() {
     }
 
     private fun stopIfBlocked(container: AppContainer): Boolean {
-        if (StatusNotificationController.shouldRun(
-                container.statusNotificationEnabled.value,
-                container.notificationsBlocked(),
-            )
-        ) return false
-        synchronized(postLock) { stopped = true }
-        stopSelf()
+        if (shouldRun(container)) return false
+        stopNow()
         return true
     }
+
+    private fun stopNow() {
+        synchronized(postLock) { stopped = true }
+        stopSelf()
+    }
+
+    private fun shouldRun(container: AppContainer): Boolean =
+        StatusNotificationController.shouldRun(container.statusNotificationEnabled.value, container.notificationsBlocked())
 
     private fun foregroundServiceType(): Int =
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {

@@ -11,22 +11,21 @@ object StatusNotificationController {
     private const val TAG = "StatusNotification"
 
     /** An invisible resident service would be observer cost with no benefit, so a blocked notification means stopped. */
-    fun shouldRun(enabled: Boolean, blocked: Boolean): Boolean = enabled && !blocked
+    fun shouldRun(
+        enabled: Boolean,
+        blocked: Boolean,
+    ): Boolean = enabled && !blocked
 
     fun sync(context: Context) {
         val appContext = context.applicationContext
         val container = (appContext as InspirationApplication).appContainer
         val intent = Intent(appContext, StatusNotificationService::class.java)
-        try {
-            if (shouldRun(container.statusNotificationEnabled.value, container.notificationsBlocked())) {
-                ContextCompat.startForegroundService(appContext, intent)
-            } else {
-                appContext.stopService(intent)
-            }
-        } catch (e: IllegalStateException) {
+        StatusStartDecision.sync(
+            shouldRun = { shouldRun(container.statusNotificationEnabled.value, container.notificationsBlocked()) },
+            start = { ContextCompat.startForegroundService(appContext, intent) },
+            stop = { appContext.stopService(intent) },
             // Includes ForegroundServiceStartNotAllowedException: started from a background state with no exemption.
-            // The next app open or boot retries.
-            Log.w(TAG, "Could not sync the status service", e)
-        }
+            refused = { Log.w(TAG, "Could not sync the status service", it) },
+        )
     }
 }
