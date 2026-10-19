@@ -264,16 +264,42 @@ class CockpitMappersTest {
 
     @Test
     fun `a battery held at a charge limit or full is plugged in, not charging, with no time to empty`() {
-        for (status in listOf("not_charging", "full")) {
-            for (currentMa in listOf(0, 3, -2)) {
+        // 3,000,000 uAh at 20 mA would read 6 d 6 h, at 49 mA 2 d 13 h: a held battery's noise, not a drain.
+        for (status in listOf("not_charging", "full", "discharging")) {
+            for (currentMa in listOf(0, 3, -2, -18, -20, -49)) {
                 val reading = liveReading(currentMa = currentMa, plugged = true, chargeCounterUah = 3_000_000, status = status)
 
                 val live = liveUi(reading, systemEstimateMs = 42L)
 
                 assertEquals("$status at $currentMa mA", GaugeChargeState.PluggedNotCharging, live.chargeState)
-                assertNull("the system's discharge estimate is not shown on a charger", live.remainingMs)
+                assertNull("$status at $currentMa mA: no time to empty on a charger", live.remainingMs)
             }
         }
+    }
+
+    @Test
+    fun `a drain past the deadband on a charger has a time to empty`() {
+        // 3,000,000 uAh / 50 mA = 60 h
+        val reading = liveReading(currentMa = -50, plugged = true, chargeCounterUah = 3_000_000, status = "full")
+
+        assertEquals(60 * HOUR_MS, remainingMs(reading, systemEstimateMs = 42L))
+    }
+
+    @Test
+    fun `without a status the plug decides until the current clearly crosses the deadband`() {
+        for (currentMa in listOf(3, 0, -2, -20, -49)) {
+            val live = liveUi(liveReading(currentMa = currentMa, plugged = true, chargeCounterUah = 3_000_000, status = null), 42L)
+
+            assertEquals("plugged at $currentMa mA", GaugeChargeState.Charging, live.chargeState)
+            assertNull("plugged at $currentMa mA", live.remainingMs)
+        }
+        assertEquals(
+            GaugeChargeState.PluggedNotCharging,
+            chargeState(liveReading(currentMa = -50, plugged = true, status = null)),
+        )
+        // With the plug unknown as well, only a clear charge current reads as charging.
+        assertEquals(GaugeChargeState.Discharging, chargeState(liveReading(currentMa = 20, plugged = null, status = null)))
+        assertEquals(GaugeChargeState.Charging, chargeState(liveReading(currentMa = 50, plugged = null, status = null)))
     }
 
     @Test

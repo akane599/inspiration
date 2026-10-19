@@ -38,8 +38,8 @@ internal const val SYSTEM_ESTIMATE_MAX_AGE_MS = 10 * 60_000L
 private const val DECI = 10.0
 
 /**
- * A "charging" battery drawing less than this is within noise of zero (a taper ending, a charger regulating), so the
- * gauge keeps the battery's own status rather than flicker between labels.
+ * On a charger, a current within this of zero is noise (a taper ending, a charger regulating, a battery held at a
+ * limit): it neither turns the label away from charging nor has a time to empty.
  */
 private const val CHARGING_DRAIN_DEADBAND_MA = 50
 
@@ -159,11 +159,13 @@ internal fun sliceUi(
 
 /**
  * What the battery is doing, from its own status and the measured current, never from the plug alone: a plugged
- * battery can be full, held at a charge limit, or losing to the load. The plug decides only when both are unknown.
+ * battery can be full, held at a charge limit, or losing to the load. The plug decides only without a usable status,
+ * and then a drain past [CHARGING_DRAIN_DEADBAND_MA] still overrides it.
  */
 internal fun chargeState(reading: LiveReading): GaugeChargeState {
     val currentMa = reading.currentMa
     val plugged = reading.plugged
+    val drainingPastDeadband = currentMa != null && currentMa <= -CHARGING_DRAIN_DEADBAND_MA
     return when {
         // Unplugged, the battery can only discharge.
         plugged == false -> {
@@ -172,11 +174,7 @@ internal fun chargeState(reading: LiveReading): GaugeChargeState {
 
         // "Charging" means the charger is enabled; a weak one can still lose to the load.
         reading.status == STATUS_CHARGING -> {
-            if (currentMa != null && currentMa <= -CHARGING_DRAIN_DEADBAND_MA) {
-                GaugeChargeState.PluggedNotCharging
-            } else {
-                GaugeChargeState.Charging
-            }
+            if (drainingPastDeadband) GaugeChargeState.PluggedNotCharging else GaugeChargeState.Charging
         }
 
         reading.status == STATUS_DISCHARGING -> {
@@ -187,16 +185,13 @@ internal fun chargeState(reading: LiveReading): GaugeChargeState {
             GaugeChargeState.PluggedNotCharging
         }
 
-        // No usable status: the measured direction decides.
-        currentMa != null && currentMa > 0 -> {
-            GaugeChargeState.Charging
-        }
-
-        currentMa != null -> {
-            if (plugged == true) GaugeChargeState.PluggedNotCharging else GaugeChargeState.Discharging
-        }
-
+        // No usable status: the plug decides, with the same deadband for a measured drain.
         plugged == true -> {
+            if (drainingPastDeadband) GaugeChargeState.PluggedNotCharging else GaugeChargeState.Charging
+        }
+
+        // Neither plug nor status: only a clear charge current reads as charging.
+        currentMa != null && currentMa >= CHARGING_DRAIN_DEADBAND_MA -> {
             GaugeChargeState.Charging
         }
 
@@ -208,25 +203,31 @@ internal fun chargeState(reading: LiveReading): GaugeChargeState {
 
 /**
  * Time to empty whenever the battery is not charging: `chargeCounterUah / |currentMa|` while it drains, else the
- * system's own estimate. On a charger only a measured drain counts: a held battery has no time to empty, and the
- * system's discharge estimate was made off the charger. [systemEstimateMs] must already be checked for age by the
- * caller.
+ * system's own estimate. On a charger only a drain past [CHARGING_DRAIN_DEADBAND_MA] counts: a held battery has no
+ * time to empty (its few mA would extrapolate to days), and the system's discharge estimate was made off the charger.
+ * [systemEstimateMs] must already be checked for age by the caller.
  */
 internal fun remainingMs(
     reading: LiveReading,
     systemEstimateMs: Long?,
 ): Long? {
-    if (chargeState(reading) == GaugeChargeState.Charging) return null
-    val currentMa = reading.currentMa
+    val onCharger =
+        when (chargeState(reading)) {
+            GaugeChargeState.Charging -> return null
+            GaugeChargeState.PluggedNotCharging -> true
+            GaugeChargeState.Discharging -> false
+        }
+    val minDrainMa = if (onCharger) CHARGING_DRAIN_DEADBAND_MA else 1
+    val drainMa = reading.currentMa?.let { -it }?.takeIf { it >= minDrainMa }
     val counterUah = reading.chargeCounterUah
     val extrapolated =
-        if (currentMa != null && currentMa < 0 && counterUah != null && counterUah > 0) {
-            counterUah * UAH_PER_MA_TO_MS / -currentMa
+        if (drainMa != null && counterUah != null && counterUah > 0) {
+            counterUah * UAH_PER_MA_TO_MS / drainMa
         } else {
             null
         }
     return extrapolated?.takeIf { it <= MAX_EXTRAPOLATED_REMAINING_MS }
-        ?: systemEstimateMs?.takeIf { it > 0 && reading.plugged != true }
+        ?: systemEstimateMs?.takeIf { it > 0 && !onCharger }
 }
 
 internal fun liveUi(
