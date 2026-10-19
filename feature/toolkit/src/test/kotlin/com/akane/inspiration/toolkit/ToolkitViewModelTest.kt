@@ -10,6 +10,7 @@ import com.akane.inspiration.telemetry.store.ToolkitActionRecord
 import com.akane.inspiration.telemetry.store.ToolkitActionStatus
 import com.akane.inspiration.telemetry.toolkit.BgDexoptCancelReason
 import com.akane.inspiration.telemetry.toolkit.BgDexoptStatus
+import com.akane.inspiration.telemetry.toolkit.ToolkitAuditLog
 import com.akane.inspiration.telemetry.toolkit.ToolkitRefusal
 import com.akane.inspiration.telemetry.toolkit.ToolkitUnavailable
 import com.akane.inspiration.telemetry.toolkit.ToolkitWarning
@@ -698,6 +699,68 @@ class ToolkitViewModelTest {
 
         assertEquals("allow", device.app(CHATTY).ops[AppOp.RUN_ANY_IN_BACKGROUND])
         assertFalse(controls.ops.first { it.op == AppOp.RUN_ANY_IN_BACKGROUND }.ignored)
+    }
+
+    @Test
+    fun `an app an older release restored to default is flagged restricted and reset all writes allow`() {
+        // 0.2.2: restrict, then its Restore wrote `default`, which Android still enforces as restricted (F-01).
+        start {
+            val restrict =
+                device.store.rows.size + 1L
+            device.store.rows +=
+                ToolkitActionRecord(
+                    id = restrict,
+                    startedAt = 100,
+                    endedAt = 101,
+                    kind = ToolkitAuditLog.KIND_APP_OP,
+                    pkg = MAIL,
+                    op = AppOp.RUN_ANY_IN_BACKGROUND.argv,
+                    param = "ignore",
+                    status = ToolkitActionStatus.RESTORED,
+                    code = 0,
+                    beforeRaw = "default",
+                    afterRaw = "ignore",
+                )
+            device.store.rows +=
+                ToolkitActionRecord(
+                    id = restrict + 1,
+                    startedAt = 200,
+                    endedAt = 201,
+                    kind = ToolkitAuditLog.KIND_APP_OP,
+                    pkg = MAIL,
+                    op = AppOp.RUN_ANY_IN_BACKGROUND.argv,
+                    param = "default",
+                    status = ToolkitActionStatus.DONE,
+                    code = 0,
+                    beforeRaw = "ignore",
+                    afterRaw = "default",
+                    restoresId = restrict,
+                )
+            device.app(MAIL).ops[AppOp.RUN_ANY_IN_BACKGROUND] = "default"
+        }
+
+        assertEquals(
+            listOf(MAIL),
+            state.apps.items
+                .filter { it.restricted }
+                .map { it.packageName },
+        )
+        assertEquals(
+            MAIL,
+            state.apps.items
+                .first()
+                .packageName,
+        )
+        val override = state.overrides.single()
+        assertEquals(OverrideWhat.AppOpIgnored(AppOp.RUN_ANY_IN_BACKGROUND), override.what)
+        assertTrue(override.restorable)
+
+        act(ToolkitRequest.ResetAll)
+        confirm()
+
+        assertEquals("allow", device.app(MAIL).ops[AppOp.RUN_ANY_IN_BACKGROUND])
+        assertTrue(state.overrides.isEmpty())
+        assertTrue(state.apps.items.none { it.restricted })
     }
 
     @Test

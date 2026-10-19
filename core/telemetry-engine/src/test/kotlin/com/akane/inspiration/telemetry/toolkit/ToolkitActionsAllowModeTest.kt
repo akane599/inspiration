@@ -31,6 +31,8 @@ class ToolkitActionsAllowModeTest {
         before: String,
         after: String,
         param: String,
+        status: ToolkitActionStatus = ToolkitActionStatus.DONE,
+        restoresId: Long? = null,
     ): ToolkitActionRecord {
         val row =
             ToolkitActionRecord(
@@ -40,12 +42,19 @@ class ToolkitActionsAllowModeTest {
                 pkg = PKG,
                 op = op.argv,
                 param = param,
-                status = ToolkitActionStatus.DONE,
+                status = status,
                 code = 0,
                 beforeRaw = before,
                 afterRaw = after,
+                restoresId = restoresId,
             )
         return row.copy(id = audit.insert(row))
+    }
+
+    /** 0.2.2: restrict (before [original]), then its Restore or Reset all wrote `default` and marked it RESTORED. */
+    private suspend fun legacyRestrictThenDefaultRestore(original: String = "default"): ToolkitActionRecord {
+        val restrict = legacyRow(before = original, after = "ignore", param = "ignore", status = ToolkitActionStatus.RESTORED)
+        return legacyRow(before = "ignore", after = "default", param = "default", restoresId = restrict.id)
     }
 
     @Test
@@ -141,6 +150,113 @@ class ToolkitActionsAllowModeTest {
             assertEquals(listOf("setAppOp($PKG,${op.argv},allow)"), backend.writes)
             assertEquals("allow", opNow())
             assertTrue(actions.activeOverrides().first().isEmpty())
+        }
+
+    @Test
+    fun aLegacyDefaultRestoreLeftAtDefaultIsAnOverrideResetAllRepairsWithAllow() =
+        runTest {
+            val restore = legacyRestrictThenDefaultRestore()
+            backend.device(PKG)[op] = "default"
+
+            val override = actions.activeOverrides().first().single()
+            assertEquals(restore.id, override.actionId)
+            assertEquals(OverrideKind.APP_OP, override.kind)
+            assertEquals(op, override.appOp)
+            assertEquals("default", override.currentRaw)
+            assertEquals("allow", override.previousRaw)
+            assertTrue(override.restorable)
+
+            val report = actions.resetAll()
+
+            assertEquals(restore.id, report.single().override.actionId)
+            val repair = (report.single().outcome as ToolkitOutcome.Done).value
+            assertEquals(listOf("setAppOp($PKG,${op.argv},allow)"), backend.writes)
+            assertEquals("allow", opNow())
+            assertEquals(restore.id, repair.restoresId)
+            assertEquals("allow", repair.param)
+            assertEquals(ToolkitActionStatus.RESTORED, audit.byId(restore.id).status)
+            assertTrue(actions.activeOverrides().first().isEmpty())
+            backend.writes.clear()
+            assertTrue(actions.resetAll().isEmpty())
+            assertTrue(backend.writes.isEmpty())
+        }
+
+    @Test
+    fun aLegacyDefaultRestoreLeftAtDefaultIsRepairedByItsOwnRestore() =
+        runTest {
+            // an original recorded as an explicit `allow` repairs the same way
+            val restore = legacyRestrictThenDefaultRestore(original = "allow")
+            backend.device(PKG)[op] = "default"
+
+            assertEquals(ToolkitPlan.Ready, actions.planRestore(restore.id))
+            assertTrue(actions.restore(restore.id) is ToolkitOutcome.Done)
+
+            assertEquals(listOf("setAppOp($PKG,${op.argv},allow)"), backend.writes)
+            assertEquals("allow", opNow())
+            assertTrue(actions.activeOverrides().first().isEmpty())
+        }
+
+    @Test
+    fun aLegacyDefaultRestoreNowReadingAllowIsNoOverride() =
+        runTest {
+            val restore = legacyRestrictThenDefaultRestore()
+            backend.device(PKG)[op] = "allow"
+
+            assertTrue(actions.activeOverrides().first().isEmpty())
+            assertTrue(actions.resetAll().isEmpty())
+            assertEquals(ToolkitPlan.Refused(ToolkitRefusal.ALREADY_RESTORED), actions.planRestore(restore.id))
+            assertEquals(ToolkitOutcome.Refused(ToolkitRefusal.ALREADY_RESTORED), actions.restore(restore.id, confirmed = true))
+            assertTrue(backend.writes.isEmpty())
+            assertEquals("allow", opNow())
+        }
+
+    @Test
+    fun aLegacyDefaultRestoreRestrictedAgainElsewhereFollowsTheExternalChangeRules() =
+        runTest {
+            val restore = legacyRestrictThenDefaultRestore()
+            backend.device(PKG)[op] = "ignore" // the user re-restricted it outside the app
+
+            // not ours any more: not listed, and Reset all leaves it alone
+            assertTrue(actions.activeOverrides().first().isEmpty())
+            assertTrue(actions.resetAll().isEmpty())
+            assertTrue(backend.writes.isEmpty())
+            assertEquals("ignore", opNow())
+            // an explicit restore of that row is a restore over a changed target: it needs confirmation
+            assertEquals(ToolkitWarning.RESTORE_STATE_CHANGED, (actions.planRestore(restore.id) as ToolkitPlan.NeedsConfirmation).warning)
+            assertEquals(ToolkitRefusal.NOT_CONFIRMED, (actions.restore(restore.id) as ToolkitOutcome.Refused).reason)
+            assertTrue(backend.writes.isEmpty())
+        }
+
+    @Test
+    fun aLegacyDefaultRestoreStillAtDefaultOutlivesTheDisplayHistory() =
+        runTest {
+            val restore = legacyRestrictThenDefaultRestore()
+            backend.device(PKG)[op] = "default"
+            repeat(ToolkitAuditLog.RETAINED_ROWS) {
+                audit.insert(
+                    ToolkitActionRecord(
+                        startedAt = clock++,
+                        endedAt = clock,
+                        kind = ToolkitAuditLog.KIND_FORCE_STOP,
+                        pkg = "com.example.other",
+                        op = "force_stop",
+                        status = ToolkitActionStatus.REFUSED,
+                    ),
+                )
+            }
+
+            // any execute prunes closed chains
+            actions.execute(ToolkitAction.SetAppOp("com.example.trigger", AppOp.WAKE_LOCK, AppOpMode.ALLOW))
+
+            assertTrue("the open legacy restore is kept: ${audit.deleted}", restore.id !in audit.deleted)
+            assertEquals(
+                restore.id,
+                actions
+                    .activeOverrides()
+                    .first()
+                    .single { it.pkg == PKG }
+                    .actionId,
+            )
         }
 
     @Test

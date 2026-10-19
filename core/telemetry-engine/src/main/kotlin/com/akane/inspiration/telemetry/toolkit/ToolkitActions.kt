@@ -925,7 +925,7 @@ class ToolkitActions internal constructor(
         val record = all.firstOrNull { it.id == actionId } ?: return Decoded.No(ToolkitRefusal.UNKNOWN_ACTION)
         if (record.status == ToolkitActionStatus.RESTORED) return Decoded.No(ToolkitRefusal.ALREADY_RESTORED)
         // A write that moved its target to a third value is undone like a DONE one (see changedTarget).
-        if ((record.status != ToolkitActionStatus.DONE && !landedElsewhere(record)) || closesChain(record)) {
+        if ((record.status != ToolkitActionStatus.DONE && !landedElsewhere(record)) || endsOwnChain(record)) {
             return Decoded.No(ToolkitRefusal.NOT_RESTORABLE)
         }
         // An override row goes back to its chain's original, like resetAll; a chain whose own `after` already
@@ -979,6 +979,7 @@ class ToolkitActions internal constructor(
         row: ToolkitActionRecord,
         rows: List<ToolkitActionRecord>,
     ): String? {
+        if (legacyDefaultRestore(row)) return AppOpMode.ALLOW.argv
         partialRestore(row)?.let { return it.original }
         val key = targetKey(row)
         var original = row.beforeRaw
@@ -1024,6 +1025,23 @@ class ToolkitActions internal constructor(
     }
 
     private fun closesChain(row: ToolkitActionRecord): Boolean = row.restoresId != null && partialRestore(row) == null
+
+    /**
+     * A completed app-op restore by an older release, which wrote the mode `default` for Restore and Reset all.
+     * Android enforces `default` as restricted, so that restore never took effect: while the target still reads
+     * `default` back ([isActive]) the change it was meant to undo is still in place. The row starts no new chain
+     * for the rows above it ([closesChain] still holds), but it is itself an override whose original is `allow`
+     * ([chainOriginal]), so it is listed, restorable and repaired by Reset all. Any other read-back is not ours.
+     */
+    private fun legacyDefaultRestore(row: ToolkitActionRecord): Boolean =
+        row.kind == KIND_APPOP &&
+            row.status == ToolkitActionStatus.DONE &&
+            closesChain(row) &&
+            row.param == AppOpMode.DEFAULT.argv &&
+            norm(row.afterRaw) == AppOpMode.DEFAULT.argv
+
+    /** [closesChain] for the row itself: nothing it left can still be an override (see [legacyDefaultRestore]). */
+    private fun endsOwnChain(row: ToolkitActionRecord): Boolean = closesChain(row) && !legacyDefaultRestore(row)
 
     /**
      * Compare observed state, not just writable modes: app-op reads can also report e.g. "foreground".
@@ -1084,12 +1102,13 @@ class ToolkitActions internal constructor(
 
     private suspend fun computeOverrides(rows: List<ToolkitActionRecord>): List<Override> {
         // The newest write that changed each target decides; only a completed restore (or a RESTORED newest
-        // row) closes the chain. A partial restore still owns its observed after while it differs from original.
+        // row) closes the chain. A partial restore still owns its observed after while it differs from original,
+        // and a legacy `default` restore still owns a `default` read-back (see legacyDefaultRestore).
         val newest = LinkedHashMap<String, ToolkitActionRecord>()
         for (row in rows) newest.putIfAbsent(targetKey(row), row)
         val candidates =
             newest.values.filter {
-                !closesChain(it) && it.status != ToolkitActionStatus.RESTORED && mayBeActive(it, rows)
+                !endsOwnChain(it) && it.status != ToolkitActionStatus.RESTORED && mayBeActive(it, rows)
             }
         val result = mutableListOf<Override>()
         for ((pkg, group) in candidates.filter { it.kind != KIND_DOZE }.groupBy { it.pkg }) {
@@ -1235,7 +1254,7 @@ class ToolkitActions internal constructor(
             if (link.id >= keepFrom) break
             val next = links.getOrNull(i + 1)
             val closed = sameState(link.kind, link.afterRaw, originalState(link.kind, original))
-            val endsHere = if (next == null) closesChain(link) || closed else !continues(link, next) || closed
+            val endsHere = if (next == null) endsOwnChain(link) || closed else !continues(link, next) || closed
             if (endsHere) cut = i + 1
         }
         return links.take(cut)
