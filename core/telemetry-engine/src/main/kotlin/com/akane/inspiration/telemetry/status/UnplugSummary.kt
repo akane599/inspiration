@@ -122,12 +122,12 @@ object UnplugSummaryCalculator {
             to: BatterySnapshot,
             screen: Screen?,
         ) {
-            val wallMs = (to.clock.wallMs - from.clock.wallMs).coerceAtLeast(0L)
             val drop = drop(from, to)
             // A different boot cannot establish the screen state of this segment.
             when (screen.takeIf { from.clock.bootCount == to.clock.bootCount }) {
                 Screen.ON -> {
-                    onMs += wallMs
+                    // Same boot: elapsedRealtime, like screen-off, so a wall-clock change cannot stretch the segment.
+                    onMs += (to.clock.elapsedRealtimeMs - from.clock.elapsedRealtimeMs).coerceAtLeast(0L)
                     dropOn += drop
                 }
 

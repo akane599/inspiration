@@ -250,5 +250,26 @@ class UnplugSummaryCalculatorTest {
         )
     }
 
+    @Test
+    fun `a wall clock change during screen on does not stretch the screen on time`() {
+        val summary =
+            UnplugSummaryCalculator.compute(
+                listOf(
+                    statusSnapshot(minutes(0), level = 100, trigger = CaptureTrigger.POWER_DISCONNECTED),
+                    statusSnapshot(minutes(10), level = 100, trigger = CaptureTrigger.SCREEN_ON),
+                    // 30 minutes of screen-on later the wall clock has been set a day ahead.
+                    statusSnapshot(minutes(40) + DAY_MS, elapsedMs = minutes(40), level = 94, trigger = CaptureTrigger.SCREEN_OFF),
+                ),
+                statusSnapshot(minutes(100) + DAY_MS, elapsedMs = minutes(100), level = 93),
+            ) as UnplugSummary.Discharging
+
+        assertEquals("6 % over 30 min of elapsedRealtime", 12.0, summary.screenOnPctPerHour!!, 1e-9)
+        assertEquals(1.0, summary.screenOffPctPerHour!!, 1e-9)
+    }
+
     private fun minutes(n: Long) = n * 60_000L
+
+    private companion object {
+        const val DAY_MS = 24L * 60L * 60_000L
+    }
 }
