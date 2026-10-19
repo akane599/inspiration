@@ -60,8 +60,8 @@ class DumpParserTest {
             assertEquals(5, dump.alarmStatsCount)
             assertEquals(expectedPending[index], dump.pendingAlarmsCount)
             assertEquals(
-                expectedPending[index],
-                (DumpParser.parseAlarm(bytes) as DumpParse.Ok).value.pendingWakeups,
+                dump.alarmStatsList.sumOf { it.filtersList.size },
+                (DumpParser.parseAlarm(bytes) as DumpParse.Ok).value.filterStats.size,
             )
         }
     }
@@ -201,7 +201,7 @@ class DumpParserTest {
     )
 
     @Test
-    fun parserRejectsMalformedRootsAndWarnsForNewerReports() {
+    fun parserRejectsMalformedRootsAndAcceptsNewerReports() {
         assertTrue(DumpParser.parseBatteryStats(byteArrayOf()).isUnavailable())
         assertTrue(DumpParser.parseBatteryStats(byteArrayOf(0)).isUnavailable())
         assertTrue(DumpParser.parseBatteryStats("Permission Denial".encodeToByteArray()).isUnavailable())
@@ -211,7 +211,6 @@ class DumpParserTest {
             BatteryStatsServiceDumpProto.newBuilder().setBatterystats(futureStats).build().toByteArray(),
         )
         assertTrue(futureResult is DumpParse.Ok)
-        assertTrue((futureResult as DumpParse.Ok).value.warnings.single().contains("37"))
     }
 
     @Test

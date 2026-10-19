@@ -6,8 +6,6 @@ data class DumpSnapshot(
     val kernelWakelocks: List<KernelWakelock>,
     val wakeupReasons: List<KernelWakelock>,
     val uids: List<UidDump>,
-    val cpuFrequenciesKhz: List<Long>,
-    val warnings: List<String>,
 )
 
 data class SystemTimers(
@@ -57,7 +55,6 @@ data class UidDump(
     val cpuSystemMs: Long,
     val fgActivityMs: Long,
     val fgServiceMs: Long,
-    val processStateMs: Map<Int, Long>,
     val sensors: List<UidSensor>,
 )
 
@@ -89,7 +86,6 @@ data class HeldWakeLock(
 
 data class AlarmDump(
     val filterStats: List<AlarmFilterStat>,
-    val pendingWakeups: Int,
 )
 
 data class AlarmFilterStat(
@@ -98,7 +94,6 @@ data class AlarmFilterStat(
     val tag: String,
     val count: Long,
     val wakeupCount: Long,
-    val totalFlightMs: Long,
 )
 
 sealed interface DumpParse<out T> {

@@ -81,10 +81,8 @@ class SnapshotCapturerTest {
             kernelWakelocks = emptyList(),
             wakeupReasons = emptyList(),
             uids = listOf(
-                UidDump(12345, emptyList(), emptyList(), 0, 0, 0, 0, emptyMap(), sensors),
+                UidDump(12345, emptyList(), emptyList(), 0, 0, 0, 0, sensors),
             ),
-            cpuFrequenciesKhz = emptyList(),
-            warnings = emptyList(),
         )
         val usage = BatteryUsageSnapshot(
             available = true,
@@ -122,19 +120,16 @@ class SnapshotCapturerTest {
             kernelWakelocks = emptyList(),
             wakeupReasons = emptyList(),
             uids = listOf(
-                UidDump(12345, emptyList(), listOf(UidAlarm("sync", 5), UidAlarm("sync", 2)), 0, 0, 0, 0, emptyMap(), emptyList()),
+                UidDump(12345, emptyList(), listOf(UidAlarm("sync", 5), UidAlarm("sync", 2)), 0, 0, 0, 0, emptyList()),
             ),
-            cpuFrequenciesKhz = emptyList(),
-            warnings = emptyList(),
         )
         val alarm = AlarmDump(
             filterStats = listOf(
-                AlarmFilterStat(12345, "pkg", "sync", count = 9, wakeupCount = 4, totalFlightMs = 0),
-                AlarmFilterStat(12345, "pkg", "quiet", count = 3, wakeupCount = 0, totalFlightMs = 0),
+                AlarmFilterStat(12345, "pkg", "sync", count = 9, wakeupCount = 4),
+                AlarmFilterStat(12345, "pkg", "quiet", count = 3, wakeupCount = 0),
                 // A uid the dump never saw: it still gets a snapshot row for its alarm-dump wakeups.
-                AlarmFilterStat(20000, "other", "tick", count = 8, wakeupCount = 6, totalFlightMs = 0),
+                AlarmFilterStat(20000, "other", "tick", count = 8, wakeupCount = 6),
             ),
-            pendingWakeups = 0,
         )
         val capturer = SnapshotCapturer(
             FakeSource(batteryStats = DumpParse.Ok(dump), alarm = DumpParse.Ok(alarm)),

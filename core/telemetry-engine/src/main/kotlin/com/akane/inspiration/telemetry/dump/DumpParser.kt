@@ -58,11 +58,9 @@ object DumpParser {
                             tag = filter.tag,
                             count = filter.count.toLong(),
                             wakeupCount = filter.wakeupCount.toLong(),
-                            totalFlightMs = filter.totalFlightDurationMs,
                         )
                     }
                 },
-                pendingWakeups = dump.pendingAlarmsCount,
             ),
         )
     } catch (_: Exception) {
@@ -74,11 +72,6 @@ object DumpParser {
         val battery = system.battery
         val misc = system.misc
         val discharge = system.batteryDischarge
-        val warnings = buildList {
-            if (reportVersion > MAX_KNOWN_BATTERYSTATS_REPORT_VERSION) {
-                add("newer batterystats report version $reportVersion")
-            }
-        }
         return DumpSnapshot(
             reportVersion = reportVersion,
             system = SystemTimers(
@@ -121,18 +114,9 @@ object DumpParser {
                     cpuSystemMs = uid.cpu.systemDurationMs,
                     fgActivityMs = uid.foregroundActivity.durationMs,
                     fgServiceMs = uid.foregroundService.durationMs,
-                    processStateMs = uid.cpu.byProcessStateList
-                        .groupBy { it.processState }
-                        .mapValues { (_, states) ->
-                            states.sumOf { state ->
-                                state.byFrequencyList.sumOf { it.totalDurationMs }
-                            }
-                        },
                     sensors = uid.sensorsList.toMergedSensors(),
                 )
             },
-            cpuFrequenciesKhz = system.cpuFrequencyList,
-            warnings = warnings,
         )
     }
 
@@ -199,7 +183,6 @@ object DumpParser {
         }.map { (tag, count) -> UidAlarm(tag, count) }
 
     private const val MIN_BATTERYSTATS_REPORT_VERSION = 35
-    private const val MAX_KNOWN_BATTERYSTATS_REPORT_VERSION = 36
     private const val UNNAMED_WAKELOCK = "<unnamed>"
     private const val SIGNAL_BIN_COUNT = 5
 }
