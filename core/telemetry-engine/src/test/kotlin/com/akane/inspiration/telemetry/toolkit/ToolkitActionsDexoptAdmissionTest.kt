@@ -1,5 +1,6 @@
 package com.akane.inspiration.telemetry.toolkit
 
+import com.akane.inspiration.ipc.model.BgDexoptReason
 import com.akane.inspiration.ipc.model.BgDexoptState
 import com.akane.inspiration.ipc.model.ToolkitCode
 import com.akane.inspiration.ipc.model.ToolkitResult
@@ -230,8 +231,8 @@ class ToolkitActionsDexoptAdmissionTest {
 
                 assertEquals(ToolkitOutcome.Done(Unit), fixture.actions.cancelBgDexopt())
                 assertEquals(
-                    "the admitted owner's row is cancellable",
-                    ToolkitActionStatus.CANCELLED,
+                    "the cancel settles nothing itself, and a start still in admission masks the status",
+                    ToolkitActionStatus.PENDING,
                     fixture.audit.byId(secondRow.id).status,
                 )
                 assertEquals(
@@ -242,6 +243,16 @@ class ToolkitActionsDexoptAdmissionTest {
                 firstAdmission.refuse(ToolkitCode.BUSY)
                 assertEquals(ToolkitOutcome.Refused(ToolkitRefusal.BUSY, ToolkitCode.BUSY), first.await())
                 assertEquals(ToolkitActionStatus.REFUSED, fixture.audit.byId(firstRow.id).status)
+                assertEquals(
+                    BgDexoptStatus.Cancelled(BgDexoptCancelReason.USER, 2_000L),
+                    fixture.actions.bgDexoptStatus().first(),
+                )
+                assertEquals(
+                    "the admitted owner's row settles from the service status",
+                    ToolkitActionStatus.CANCELLED,
+                    fixture.audit.byId(secondRow.id).status,
+                )
+                assertEquals(BgDexoptReason.USER, fixture.audit.byId(secondRow.id).code)
                 fixture.status(BgDexoptState.IDLE)
                 assertEquals(BgDexoptStatus.Idle, fixture.actions.bgDexoptStatus().first())
             } finally {

@@ -4,6 +4,7 @@ import com.akane.inspiration.ipc.model.BgDexoptReason
 import com.akane.inspiration.ipc.model.BgDexoptState
 import com.akane.inspiration.ipc.model.ToolkitCode
 import com.akane.inspiration.ipc.model.ToolkitResult
+import com.akane.inspiration.ipc.model.ToolkitStatus
 import com.akane.inspiration.ipc.toolkit.AppOp
 import com.akane.inspiration.ipc.toolkit.AppOpMode
 import com.akane.inspiration.ipc.toolkit.DozeProfile
@@ -136,6 +137,13 @@ class FakeBackend : ToolkitBackend {
     /** Consumed one per status read; the last entry repeats. */
     val dexoptStatuses = ArrayDeque<ServiceBgDexoptStatus>().apply { add(serviceStatus(BgDexoptState.IDLE)) }
     var dexoptReads = 0
+
+    /**
+     * A successful cancel changes the next status read the way the service's controller does: a RUNNING job of
+     * ours reads CANCELLED (USER) once its client has exited, and a fresh UNKNOWN reads IDLE (a completed cancel
+     * proves nothing runs). False: our client outlived the cancel, so the status stays as it was.
+     */
+    var cancelEndsOurJob = true
 
     fun device(pkg: String): MutableMap<AppOp, String> = appOps.getOrPut(pkg) { AppOp.entries.associateWith { "allow" }.toMutableMap() }
 
@@ -286,7 +294,22 @@ class FakeBackend : ToolkitBackend {
             GatewayReply.Reply(next)
         }
 
-    override suspend fun cancelBgDexopt() = write("cancelBgDexopt") { cancelResult }
+    override suspend fun cancelBgDexopt() =
+        write("cancelBgDexopt") {
+            cancelResult.also { if (it.status == ToolkitStatus.DONE && cancelEndsOurJob) endJobByCancel() }
+        }
+
+    private fun endJobByCancel() {
+        val now = dexoptStatuses.first()
+        val next =
+            when {
+                now.state == BgDexoptState.RUNNING -> serviceStatus(BgDexoptState.CANCELLED, reason = BgDexoptReason.USER)
+                now.state == BgDexoptState.UNKNOWN && now.reason != BgDexoptReason.UNSUPPORTED_API -> serviceStatus(BgDexoptState.IDLE)
+                else -> return
+            }
+        dexoptStatuses.clear()
+        dexoptStatuses.add(next)
+    }
 }
 
 /** Counts binding holds like `ShizukuManager.holdBinding()`: [opened] total, [open] currently alive. */

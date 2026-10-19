@@ -259,7 +259,9 @@ internal class ToolkitExecutor(
             try {
                 val out = runner.run(argv)
                 confirmed = out.ok
-                if (out.ok) ToolkitResult.done() else ToolkitResult.failed(execCode(out))
+                // A cancel that timed out (the platform waits for the running pass to stop) may still take effect,
+                // so it is unverified rather than failed; the status read settles it.
+                if (out.ok) ToolkitResult.done() else writeFailed(out, before = null)
             } finally {
                 dexopt.endUserCancel(confirmed)
             }

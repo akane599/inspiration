@@ -679,13 +679,83 @@ class ToolkitActionsTest {
         }
 
     @Test
-    fun userCancelReleasesTheHoldAndFinalizesTheRow() =
+    fun userCancelReleasesTheHoldAndFinalizesTheRowOnceTheServiceReportsOurJobCancelled() =
         runTest {
             val started = (actions.startBgDexopt() as ToolkitOutcome.Done).value
+            backend.dexoptStatuses.clear()
+            backend.dexoptStatuses.add(serviceStatus(BgDexoptState.RUNNING))
+            assertEquals(1, holds.open)
+
             assertEquals(ToolkitOutcome.Done(Unit), actions.cancelBgDexopt())
+
             assertEquals(0, holds.open)
             assertEquals(ToolkitActionStatus.CANCELLED, audit.byId(started.id).status)
             assertEquals(BgDexoptReason.USER, audit.byId(started.id).code)
+            assertEquals(BgDexoptStatus.Cancelled(BgDexoptCancelReason.USER, 2_000L), actions.bgDexoptStatus().first())
+        }
+
+    @Test
+    fun aSuccessfulUserCancelThatOurJobOutlivedKeepsTheRowPendingAndTheCardUnknown() =
+        runTest {
+            val started = (actions.startBgDexopt() as ToolkitOutcome.Done).value
+            // The cancel stopped a job ours was waiting behind; our client outlived every resend.
+            backend.cancelEndsOurJob = false
+            backend.dexoptStatuses.clear()
+            backend.dexoptStatuses.add(serviceStatus(BgDexoptState.UNKNOWN, reason = BgDexoptReason.USER))
+
+            assertEquals(ToolkitOutcome.Done(Unit), actions.cancelBgDexopt())
+
+            assertEquals(ToolkitActionStatus.PENDING, audit.byId(started.id).status)
+            assertEquals("not Idle: the card keeps its Cancel", BgDexoptStatus.Unknown, actions.bgDexoptStatus().first())
+            assertEquals(ToolkitActionStatus.PENDING, audit.byId(started.id).status)
+        }
+
+    @Test
+    fun aUserCancelKeepsTheHoldWhileOurJobStillRunsAndSettlesOnceTheServiceSaysItStopped() =
+        runTest {
+            val started = (actions.startBgDexopt() as ToolkitOutcome.Done).value
+            // The worker has not seen our client exit yet when the cancel returns.
+            backend.cancelEndsOurJob = false
+            backend.dexoptStatuses.clear()
+            backend.dexoptStatuses.addAll(
+                listOf(
+                    serviceStatus(BgDexoptState.RUNNING),
+                    serviceStatus(BgDexoptState.CANCELLED, reason = BgDexoptReason.USER),
+                ),
+            )
+
+            assertEquals(ToolkitOutcome.Done(Unit), actions.cancelBgDexopt())
+
+            assertEquals("the hold follows the status, as after a start", 1, holds.open)
+            assertEquals(ToolkitActionStatus.PENDING, audit.byId(started.id).status)
+
+            assertEquals(BgDexoptStatus.Cancelled(BgDexoptCancelReason.USER, 2_000L), actions.bgDexoptStatus().first())
+            assertEquals(0, holds.open)
+            assertEquals(1, holds.opened)
+            assertEquals(ToolkitActionStatus.CANCELLED, audit.byId(started.id).status)
+            assertEquals(BgDexoptReason.USER, audit.byId(started.id).code)
+        }
+
+    @Test
+    fun aTimedOutUserCancelIsUnverifiedAndFollowedByTheStatusLikeASentOne() =
+        runTest {
+            val started = (actions.startBgDexopt() as ToolkitOutcome.Done).value
+            backend.cancelResult = ToolkitResult.unavailable(ToolkitCode.UNVERIFIED)
+            backend.dexoptStatuses.clear()
+            backend.dexoptStatuses.add(serviceStatus(BgDexoptState.RUNNING))
+
+            assertEquals(
+                ToolkitOutcome.Unavailable(ToolkitUnavailable.UNVERIFIED, ToolkitCode.UNVERIFIED),
+                actions.cancelBgDexopt(),
+            )
+
+            assertEquals("still running: the hold stays", 1, holds.open)
+            assertEquals(ToolkitActionStatus.PENDING, audit.byId(started.id).status)
+            backend.dexoptStatuses.clear()
+            backend.dexoptStatuses.add(serviceStatus(BgDexoptState.CANCELLED, reason = BgDexoptReason.USER))
+            assertEquals(BgDexoptStatus.Cancelled(BgDexoptCancelReason.USER, 2_000L), actions.bgDexoptStatus().first())
+            assertEquals(ToolkitActionStatus.CANCELLED, audit.byId(started.id).status)
+            assertEquals(0, holds.open)
         }
 
     @Test

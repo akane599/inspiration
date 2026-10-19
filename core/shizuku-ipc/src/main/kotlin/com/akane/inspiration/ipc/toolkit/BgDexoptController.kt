@@ -48,8 +48,8 @@ internal fun bgDexoptCancelArgv(sdkInt: Int): List<String>? =
  * still alive after that is reported UNKNOWN.
  *
  * The unplug/cap guard lives only in this process, so two things keep it honest across service
- * restarts. [cancelIfRunning] is the destroy hook: a job still RUNNING is cancelled (bounded) before
- * the process exits. And a freshly created controller starts UNKNOWN, not IDLE: an earlier service
+ * restarts. [cancelIfRunning] is the destroy hook: a job of ours still running is cancelled (bounded)
+ * before the process exits. And a freshly created controller starts UNKNOWN, not IDLE: an earlier service
  * instance may have died without cancelling, and there is no status query for the system job. It
  * stays UNKNOWN until a start (this controller then owns the guard) or a completed cancel
  * ([endUserCancel]) proves nothing is running. The cancel is deliberately not issued blindly at
@@ -155,8 +155,9 @@ internal class BgDexoptController(
 
     /**
      * The destroy hook. Closes admission even if the worker is queued or the plugged probe has not returned yet,
-     * then cancels a running job within [SHUTDOWN_CANCEL_TIMEOUT_MS] in all, sending the cancel again while
-     * our client outlives it.
+     * then cancels a job of ours within [SHUTDOWN_CANCEL_TIMEOUT_MS] in all, sending the cancel again while
+     * our client outlives it. Before the worker has started our client nothing of ours runs, so no cancel is
+     * sent: it could only stop the system's own job.
      */
     fun cancelIfRunning() {
         val running =
@@ -165,7 +166,8 @@ internal class BgDexoptController(
                 cancelGeneration += 1
                 userCancelRequested = true
                 if (state != BgDexoptState.RUNNING) return
-                client
+                // runJob starts the client under this lock only while shuttingDown is false, so none will start.
+                client ?: return
             }
         // Without a cancel command nothing was ever started here, so the state is never RUNNING.
         val argv = cancelArgv ?: return
@@ -174,8 +176,6 @@ internal class BgDexoptController(
             val left = deadline - elapsedMs()
             if (left <= 0) return
             runner.run(argv, left)
-            // No client yet: shuttingDown keeps the queued worker from ever starting one; nothing to wait for.
-            if (running == null) return
             val wait = minOf(deadline - elapsedMs(), WAIT_SLICE_MS)
             if (wait <= 0 || running.awaitExit(wait)) return
         }

@@ -1081,6 +1081,27 @@ class ToolkitExecutorTest {
     }
 
     @Test
+    fun `a cancel that times out is unverified rather than failed, and a cancel that errors is failed`() {
+        for (sdk in 33..36) {
+            val executor = dexoptExecutor(FakeDexoptShell(sdk), sdk)
+            // The platform's cancel waits for the running pass to stop; it may still take effect after our bound.
+            runner.handler = { CommandOutput(exitCode = -1, text = "", timedOut = true) }
+
+            val timedOut = executor.cancelBgDexopt()
+
+            assertEquals("API $sdk", ToolkitStatus.UNAVAILABLE, timedOut.status)
+            assertEquals("API $sdk", ToolkitCode.UNVERIFIED, timedOut.code)
+
+            runner.handler = { failure() }
+
+            val errored = executor.cancelBgDexopt()
+
+            assertEquals("API $sdk", ToolkitStatus.FAILED, errored.status)
+            assertEquals("API $sdk", ToolkitCode.EXEC, errored.code)
+        }
+    }
+
+    @Test
     fun `below API 33 start and cancel are refused and run nothing`() {
         for (sdk in listOf(31, 32)) {
             runner.calls.clear()

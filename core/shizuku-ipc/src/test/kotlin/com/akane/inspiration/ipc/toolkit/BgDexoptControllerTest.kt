@@ -214,18 +214,27 @@ class BgDexoptControllerTest {
     }
 
     @Test
-    fun `from API 33 the destroy hook cancels a running system job with a bounded wait`() {
+    fun `from API 33 the destroy hook cancels our running pass with a bounded wait`() {
         for (sdk in 33..36) {
             onApi(sdk)
             val controller = controller()
-            controller.tryStart()
-            shell.running = true // the worker has the job under way
+            var destroyed = false
+            userCancelNote = {
+                if (!destroyed) {
+                    destroyed = true
+                    controller.cancelIfRunning() // the service is destroyed while the worker supervises
+                }
+            }
 
-            controller.cancelIfRunning()
+            controller.tryStart()
+            threads.single().run()
 
             assertEquals("API $sdk", 1, shell.cancels)
-            assertEquals("API $sdk: the cancel itself ran no pass", 0, shell.passes)
+            assertEquals("API $sdk: only our own pass ran", 1, shell.passes)
             assertFalse("API $sdk", shell.running)
+            val budgetMs = BgDexoptController.SHUTDOWN_CANCEL_TIMEOUT_MS
+            assertTrue("API $sdk: cancel waits $cancelWaits", cancelWaits.single() in 1L..budgetMs)
+            assertEquals("API $sdk", BgDexoptState.CANCELLED, controller.status().state)
         }
     }
 
@@ -562,22 +571,29 @@ class BgDexoptControllerTest {
     }
 
     @Test
-    fun `cancelIfRunning cancels only a running job`() {
+    fun `cancelIfRunning cancels only a job of ours`() {
         val controller = controller()
         controller.cancelIfRunning()
         assertTrue("unknown state: nothing to cancel", calls.isEmpty())
-
         assertEquals(ToolkitCode.BUSY, controller.tryStart().code)
         assertTrue(calls.isEmpty())
-        val running = controller()
-        running.tryStart()
-        running.cancelIfRunning()
-        threads.single().run()
-        assertEquals("only the cancel ran; the queued worker never started the job", 1, calls.size)
-        assertEquals(1, shell.cancels)
-        assertEquals(0, shell.passes)
-        assertEquals(BgDexoptState.CANCELLED, running.status().state)
-        assertEquals(ToolkitCode.BUSY, running.tryStart().code)
+
+        for (sdk in 33..36) {
+            onApi(sdk)
+            shell.jobAhead = true // the system's own idle or post-boot job
+            val admitted = controller()
+            admitted.tryStart()
+
+            admitted.cancelIfRunning() // destroyed before the worker started our client
+            threads.single().run()
+
+            assertTrue("API $sdk: no cancel and no start: $calls", calls.isEmpty())
+            assertTrue("API $sdk: the system's own job was left alone", shell.jobAhead)
+            assertEquals("API $sdk", 0, shell.cancels)
+            assertEquals("API $sdk", 0, shell.passes)
+            assertEquals("API $sdk", BgDexoptState.CANCELLED, admitted.status().state)
+            assertEquals("API $sdk", ToolkitCode.BUSY, admitted.tryStart().code)
+        }
     }
 
     private fun cancel(

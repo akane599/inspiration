@@ -12,8 +12,14 @@ internal class FakeRunner(
 ) : CommandRunner {
     val calls = mutableListOf<List<String>>()
 
-    /** The wait bound each command was given, parallel to [calls]. */
+    /** The wait bound each command was given, parallel to [calls] while each process is waited on once. */
     val timeouts = mutableListOf<Long>()
+
+    /**
+     * When set, answers every wait on a started process (its argv and the bound) instead of the output's timeout
+     * flag, so a test can keep a client alive (a running dexopt pass) and act while something waits on it.
+     */
+    var onAwaitExit: ((argv: List<String>, timeoutMs: Long) -> Boolean)? = null
 
     override fun start(argv: List<String>): CommandProcess {
         calls += argv
@@ -21,7 +27,7 @@ internal class FakeRunner(
         return object : CommandProcess {
             override fun awaitExit(timeoutMs: Long): Boolean {
                 timeouts += timeoutMs
-                return !out.timedOut
+                return onAwaitExit?.invoke(argv, timeoutMs) ?: !out.timedOut
             }
 
             override fun output(timedOut: Boolean): CommandOutput = out

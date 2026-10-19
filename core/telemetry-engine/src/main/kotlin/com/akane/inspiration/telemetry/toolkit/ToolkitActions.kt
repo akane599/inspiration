@@ -422,15 +422,19 @@ class ToolkitActions internal constructor(
             }
         }
 
-    /** Cancel is system-side and idempotent, so it is valid whether or not this process started the job. */
+    /**
+     * Cancel is system-side and idempotent, so it is valid whether or not this process started the job. A successful
+     * cancel settles nothing by itself: it may have stopped a job ours was waiting behind. The service's status
+     * settles the row, as for the cap or an unplug (CANCELLED once our job's client has exited, UNKNOWN when it
+     * outlived every cancel), and the binding hold follows that status as it does after a start. A timed-out cancel
+     * (UNVERIFIED) may still take effect, so it is followed the same way.
+     */
     suspend fun cancelBgDexopt(): ToolkitOutcome<Unit> =
         mutex.withLock {
             val read = readOutcome(backend.cancelBgDexopt())
             val outcome: ToolkitOutcome<Unit> = if (read is ToolkitOutcome.Done) ToolkitOutcome.Done(Unit) else failure(read)
-            if (outcome is ToolkitOutcome.Done) {
-                // The job is being cancelled; nothing needs the service kept alive any more.
-                syncHold(running = false)
-                finalizeDexoptRows(ToolkitActionStatus.CANCELLED, BgDexoptReason.USER, afterRaw = "cancelled")
+            if (outcome is ToolkitOutcome.Done || (outcome as? ToolkitOutcome.Unavailable)?.reason == ToolkitUnavailable.UNVERIFIED) {
+                refreshDexoptLocked()
                 dexoptEvents.value += 1
                 changes.value += 1
             }
@@ -1734,10 +1738,24 @@ class ToolkitActions internal constructor(
 
             is GatewayReply.Reply -> {
                 when (reply.value.status) {
-                    ToolkitStatus.DONE -> ToolkitOutcome.Done(reply.value)
-                    ToolkitStatus.REFUSED -> ToolkitOutcome.Refused(refusalFor(reply.value.code), reply.value.code)
-                    ToolkitStatus.UNAVAILABLE -> ToolkitOutcome.Unavailable(ToolkitUnavailable.NOT_EFFECTIVE, reply.value.code)
-                    else -> ToolkitOutcome.Failed(reply.value.code)
+                    ToolkitStatus.DONE -> {
+                        ToolkitOutcome.Done(reply.value)
+                    }
+
+                    ToolkitStatus.REFUSED -> {
+                        ToolkitOutcome.Refused(refusalFor(reply.value.code), reply.value.code)
+                    }
+
+                    ToolkitStatus.UNAVAILABLE -> {
+                        // UNVERIFIED: issued, outcome unknown (a timed-out dexopt cancel); reads never answer it.
+                        val unverified = reply.value.code == ToolkitCode.UNVERIFIED
+                        val why = if (unverified) ToolkitUnavailable.UNVERIFIED else ToolkitUnavailable.NOT_EFFECTIVE
+                        ToolkitOutcome.Unavailable(why, reply.value.code)
+                    }
+
+                    else -> {
+                        ToolkitOutcome.Failed(reply.value.code)
+                    }
                 }
             }
         }

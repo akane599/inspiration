@@ -7,6 +7,7 @@ import com.akane.inspiration.ipc.model.ToolkitApi
 import com.akane.inspiration.ipc.model.ToolkitCode
 import com.akane.inspiration.ipc.model.ToolkitResult
 import com.akane.inspiration.ipc.model.ToolkitStatus
+import com.akane.inspiration.ipc.toolkit.BG_DEXOPT_ARGV
 import com.akane.inspiration.ipc.toolkit.BgDexoptController
 import com.akane.inspiration.ipc.toolkit.CMD
 import com.akane.inspiration.ipc.toolkit.CommandRunner
@@ -23,6 +24,7 @@ import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.io.File
+import java.io.IOException
 
 class TelemetryUserServiceToolkitTest {
     private val spawn = ThrowingRunner()
@@ -117,18 +119,33 @@ class TelemetryUserServiceToolkitTest {
 
     /**
      * One ordered log shared by the fake runner and the exit hook, so ordering is observable. The runner answers
-     * like `cmd package` on [sdkInt] and logs what each command did there ("cancel", "pass", ...).
+     * like `cmd package` on [sdkInt] and logs what each command did there ("cancel", "pass", ...); a cancel that
+     * cannot be spawned (`cancelSpawns` false) logs "cancel-not-spawned". The bg-dexopt worker runs only when a
+     * test calls [runWorker].
      */
     private class Harness(
         sdkInt: Int,
     ) {
         val events = mutableListOf<String>()
         val shell = FakeDexoptShell(sdkInt)
+        var cancelSpawns = true
         val runner =
             FakeRunner { argv ->
-                events += shell.effect(argv).name.lowercase()
+                val effect = shell.effect(argv)
+                if (effect == FakeDexoptShell.Effect.CANCEL && !cancelSpawns) {
+                    events += "cancel-not-spawned"
+                    throw IOException("cannot spawn $argv")
+                }
+                events += effect.name.lowercase()
                 shell.handle(argv)
             }
+
+        /** The controller's clock: it moves only while a wait on our live client times out. */
+        var elapsedMs = 0L
+        var worker: Runnable? = null
+
+        /** The bound of each wait on a cancel command. */
+        val cancelWaits = mutableListOf<Long>()
         var caller = APP_UID
         val service =
             TelemetryUserService(
@@ -139,30 +156,69 @@ class TelemetryUserServiceToolkitTest {
                     ToolkitExecutor(
                         runner,
                         FakeInspector(),
-                        BgDexoptController(runner, { true }, { 0L }, { }, sdkInt),
+                        BgDexoptController(runner, { true }, { elapsedMs }, { worker = it }, sdkInt),
                         "com.akane.inspiration",
                     ) { },
                 exitProcess = { events += "exit" },
             )
+
+        /**
+         * Runs the admitted worker: our `cmd` client stays alive while our pass runs, and [whileOurPassRuns] is
+         * called once while the worker waits on it. The worker's cap still ends a pass nothing cancelled.
+         */
+        fun runWorker(whileOurPassRuns: () -> Unit) {
+            var called = false
+            runner.onAwaitExit = { argv, timeoutMs ->
+                if (shell.effect(argv) == FakeDexoptShell.Effect.CANCEL) cancelWaits += timeoutMs
+                if (argv != BG_DEXOPT_ARGV) {
+                    true
+                } else {
+                    if (!called && shell.clientAlive) {
+                        called = true
+                        whileOurPassRuns()
+                    }
+                    shell.clientAlive.also { alive -> if (alive) elapsedMs += timeoutMs }.not()
+                }
+            }
+            checkNotNull(worker) { "no bg-dexopt job was admitted" }.run()
+        }
     }
 
     private fun harness(sdkInt: Int = TEST_SDK_INT) = Harness(sdkInt)
 
     @Test
-    fun `destroy cancels a running bg-dexopt job with a bounded wait before exiting`() {
+    fun `destroy cancels our running bg-dexopt pass with a bounded wait before exiting`() {
         for (sdk in 33..36) {
             val h = harness(sdk)
             h.service.startBgDexopt()
             assertEquals(BgDexoptState.RUNNING, h.service.getBgDexoptStatus().state)
-            h.shell.running = true // the worker has the job under way
+
+            h.runWorker { h.service.destroy() }
+
+            assertEquals("API $sdk: cancel runs before the exit hook", listOf("pass", "cancel", "exit"), h.events)
+            assertEquals("API $sdk: our pass was cancelled", 1, h.shell.cancels)
+            assertFalse("API $sdk", h.shell.running)
+            val budgetMs = BgDexoptController.SHUTDOWN_CANCEL_TIMEOUT_MS
+            assertTrue("API $sdk: cancel wait ${h.cancelWaits} is bounded", h.cancelWaits.single() in 1L..budgetMs)
+            assertEquals("API $sdk", BgDexoptState.CANCELLED, h.service.getBgDexoptStatus().state)
+        }
+    }
+
+    @Test
+    fun `destroy before the worker started our client sends no cancel, so the system's own job keeps running`() {
+        for (sdk in 33..36) {
+            val h = harness(sdk)
+            h.shell.jobAhead = true // the system's idle or post-boot job
+            assertEquals(ToolkitStatus.DONE, h.service.startBgDexopt().status)
 
             h.service.destroy()
+            checkNotNull(h.worker).run() // the queued worker runs only after the hook
 
-            assertEquals("API $sdk", 1, h.runner.calls.size)
-            assertEquals("API $sdk: the system job was cancelled", 1, h.shell.cancels)
-            assertFalse("API $sdk", h.shell.running)
-            assertTrue("cancel wait is bounded to about 3 s", h.runner.timeouts.single() in 1L..3_000L)
-            assertEquals("cancel runs before the exit hook", listOf("cancel", "exit"), h.events)
+            assertEquals("API $sdk: no cancel, no start", listOf("exit"), h.events)
+            assertTrue("API $sdk", h.runner.calls.isEmpty())
+            assertTrue("API $sdk: the system's own job was not stopped", h.shell.jobAhead)
+            assertEquals("API $sdk", 0, h.shell.passes)
+            assertEquals("API $sdk", BgDexoptState.CANCELLED, h.service.getBgDexoptStatus().state)
         }
     }
 
@@ -197,22 +253,17 @@ class TelemetryUserServiceToolkitTest {
 
     @Test
     fun `destroy still exits when the cancel cannot be spawned`() {
-        val spawnFails = ThrowingRunner()
-        var exited = false
-        val service =
-            TelemetryUserService(
-                appUid = APP_UID,
-                fileRoot = File("/"),
-                callingUid = { APP_UID },
-                toolkit = toolkit(spawnFails),
-                exitProcess = { exited = true },
-            )
-        service.startBgDexopt()
+        val h = harness()
+        h.service.startBgDexopt()
+        h.cancelSpawns = false
 
-        service.destroy()
+        h.runWorker { h.service.destroy() }
 
-        assertEquals("the cancel was attempted", 1, spawnFails.starts)
-        assertTrue(exited)
+        val exitAt = h.events.indexOf("exit")
+        assertTrue("it exited: ${h.events}", exitAt > 0)
+        assertEquals("pass", h.events.first())
+        assertTrue("the cancel was attempted before the exit: ${h.events}", "cancel-not-spawned" in h.events.take(exitAt))
+        assertEquals(1, h.events.count { it == "exit" })
     }
 
     @Test
@@ -220,18 +271,19 @@ class TelemetryUserServiceToolkitTest {
         val h = harness()
         h.service.startBgDexopt()
 
-        h.caller = APP_UID + 1
-        h.service.destroy()
-        h.caller = Process.myUid() + 1
-        h.service.destroy()
-        h.caller = -1
-        h.service.destroy()
-        assertTrue("refused callers neither cancel nor exit", h.events.isEmpty())
-        assertTrue(h.runner.calls.isEmpty())
+        h.runWorker {
+            h.caller = APP_UID + 1
+            h.service.destroy()
+            h.caller = Process.myUid() + 1
+            h.service.destroy()
+            h.caller = -1
+            h.service.destroy()
+            assertEquals("refused callers neither cancel nor exit", listOf("pass"), h.events)
 
-        h.caller = APP_UID
-        h.service.destroy()
-        assertEquals(listOf("cancel", "exit"), h.events)
+            h.caller = APP_UID
+            h.service.destroy()
+        }
+        assertEquals(listOf("pass", "cancel", "exit"), h.events)
 
         h.events.clear()
         h.caller = Process.myUid()
