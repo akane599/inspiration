@@ -2,6 +2,17 @@
   "version": 1,
   "rules": [
     {
+      "path": "rules/agent-worktree-base.md",
+      "hash": "0202db092dee676a0cf138f0134337a5e043573e971a5ea8ea02753f689b934c",
+      "description": "Base commit for isolated agent worktrees",
+      "globs": [],
+      "dirs": [],
+      "prompt": [],
+      "priority": 15,
+      "enabled": true,
+      "include": []
+    },
+    {
       "path": "rules/android-build.md",
       "hash": "2584a4f2ab4503e08133df92c8e54c69d9cf9f00abb1c69c1cebe9536c6373dd",
       "description": "Android build, test and dependency rules",
@@ -38,6 +49,17 @@
       "path": "rules/file-writes.md",
       "hash": "5606a7d43d93722852603b19f383babbd933ae5a1b11866530a6dd5a0e45e4ba",
       "description": "File writes go through Write/Edit",
+      "globs": [],
+      "dirs": [],
+      "prompt": [],
+      "priority": 20,
+      "enabled": true,
+      "include": []
+    },
+    {
+      "path": "rules/redroid-gradle-memory.md",
+      "hash": "d25e85cc22164ef870d235f617c79f4410b3fea64a8db42c1081fa944f6a7d80",
+      "description": "Gradle memory while the redroid container runs",
       "globs": [],
       "dirs": [],
       "prompt": [],

@@ -9,6 +9,7 @@ _Work items, stories and blockers live on the Sidequest board. This file keeps w
 - 2026-10-17 @ end of Phase 3 (b74c3a2): build ok incl. minifyReleaseWithR8; 260 unit tests (app 8, shizuku-ipc 78, telemetry-engine 59, database 13, diagnostics 102), 0 failing; screenshot refs validate.
 - 2026-10-17 @ end of Phase 4 (91beb5a): build ok incl. minifyReleaseWithR8; 336 unit tests (app 15, shizuku-ipc 78, telemetry-engine 59, database 13, diagnostics 102, designsystem 69), 0 failing; 36 screenshot refs validate (app + designsystem).
 - 2026-10-17 @ Phase 5 gate (4a7e857, SQ-112): build ok incl. minifyReleaseWithR8 and signed assembleRelease; 893 unit tests (app 53, database 23, designsystem 100, diagnostics 130, shizuku-ipc 170, telemetry-engine 194, dashboard 35, health 56, sleeplab 51, toolkit 39, xray 42), 0 failing; all screenshot refs validate; lint 0 errors / 10 warnings. SQ-114/115/118 then added 14 tests (shizuku-ipc 182).
+- 2026-10-19 @ 0.2.1 (3fa4f1b; full gate at e788e1e): build ok incl. minifyReleaseWithR8 and signed assembleRelease; 1,238 unit tests (app 115, database 47, designsystem 109, diagnostics 150, shizuku-ipc 226, telemetry-engine 285, dashboard 41, health 66, sleeplab 61, toolkit 68, xray 70), 0 failing; 168 screenshots validate; lint 0 errors / 9 warnings.
 
 ## Decision log (never delete; one line each)
 - 2026-10-17: scaffolded with android-kit snapshot — Gradle 9.8.0, AGP 9.4.1, Kotlin 2.4.20, Compose BOM 2026.09.00, lifecycle 2.11.0, core-ktx 1.19.1, screenshot 0.0.1-alpha16. (bootstrap)
@@ -78,16 +79,18 @@ _Work items, stories and blockers live on the Sidequest board. This file keeps w
   - Pinned-surface changes: `SnapshotStore.snapshotsBetween`, `ToolkitDependencies` +3 defaulted members, and `AppLabels.packageForUid` (default null; SQ-122 X-Ray UID→package fix).
   - Delivered as branch feat/status-notification with a PR to main. (US-6)
 - 2026-10-17: Chart perf (SQ-60): cursor/selection reads shared a draw node with static content, so every drag frame re-rasterized all paths on the RenderThread (the UI thread blocked in postAndWait). Static data is now recorded once per cache build into an Offscreen GraphicsLayer, and the overlay draws on top. New charts must keep that split. On the API 36 emulator (software rendering via SwiftShader, so read the numbers as relative): drag frames p50 34 → 17 ms, p90 40 → 23 ms, and janky 17% → 0.7% (final run, `build/gfx-final-api36.txt`). Drags trigger 0 recompositions, and a committed brush 1/1. (US-4)
+- 2026-10-19: Kept the fixed 24-hour clock over following the system hour cycle (audit F-23), because TelemetryFormat's single date-time style is a product choice and switching would widen every time label and re-baseline every screenshot module.
 
 ## Audit status
 | Area | Last run | Result | How |
 |---|---|---|---|
 | Plan audit | 2026-10-18 | Status notification: approve with fixes (3 blockers, applied in rev 2). Phase 5: approve with fixes (5 + 4 security blockers, all applied in rev 2); Phase 1–4 likewise | SQ-121 (status notification); SQ-64 + SQ-65 security (Phase 4: SQ-51; Phase 3: SQ-37/38; Phase 2: SQ-18/19/20) |
+| Full-repo audit | 2026-10-19 | 23 findings (2 HIGH, 9 MEDIUM, 12 LOW); all fixed (F-23 locale only) and shipped in 0.2.1 | `/full-repo-audit` + `/audit-remediate`, AUDIT_REPORT.md |
 | Bug hunt | — | — | `/bug-hunt` |
 | Security | — | — | `/claude-security` |
 | UI / design | 2026-10-17 | Phase 4 design system + charts: approve with fixes; F1–F6 applied (SQ-59), readout truncation fixed (SQ-61); F7 + nits deferred to Phase 5 | SQ-58 visual-evaluation (Opus) |
-| Lint | 2026-10-17 | 0 errors, 10 warnings (after SQ-109 fixed MissingClass ShizukuProvider) | `:app:lintDebug` in SQ-112 gate |
-| Device QA | 2026-10-18 | Phase 5 release build on API 36: SQ-113 found the binding-handover defect (→ SQ-114/118) and the dexopt idle card (→ SQ-115); SQ-119 re-QA all 5 scenarios pass. Phase 4 DesignGalleryActivity drag frame stats on API 36: pass after SQ-60 (p50 17 ms, 0.7% janky, software renderer); Phase 3 PROBE_INSIGHTS pass on API 36/37 (2 defects → SQ-49); Phase 2 capture/diff/job pass on API 35/36/37 (SQ-34/35) | `.claude/skills/device-probe` (`device-probe.sh --probe PROBE_INSIGHTS --extras "--es reference_kind since_unplugged"`) |
+| Lint | 2026-10-19 | 0 errors, 9 warnings (8 version notices + NotShrinkingResources) | `:app:lintDebug` in the 0.2.1 gate |
+| Device QA | 2026-10-19 | 2026-10-19 redroid (Android 15, Shizuku 13.5): F-03 grant/deny/external-grant flow and the 0.2.0 → 0.2.1 in-place upgrade (DB v1 → v4) pass. Phase 5 release build on API 36 (2026-10-18): SQ-113 found the binding-handover defect (→ SQ-114/118) and the dexopt idle card (→ SQ-115); SQ-119 re-QA all 5 scenarios pass. Phase 4 DesignGalleryActivity drag frame stats on API 36: pass after SQ-60 (p50 17 ms, 0.7% janky, software renderer); Phase 3 PROBE_INSIGHTS pass on API 36/37 (2 defects → SQ-49); Phase 2 capture/diff/job pass on API 35/36/37 (SQ-34/35) | `.claude/skills/device-probe` (`device-probe.sh --probe PROBE_INSIGHTS --extras "--es reference_kind since_unplugged"`) |
 | Content review | 2026-10-17 | Dictionary en/tr wording: 7 findings applied (SQ-48) | SQ-47 review-audit |
 
 ## Environment notes
