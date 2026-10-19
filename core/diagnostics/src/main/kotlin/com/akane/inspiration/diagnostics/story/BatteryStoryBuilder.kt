@@ -1,7 +1,6 @@
 package com.akane.inspiration.diagnostics.story
 
 import com.akane.inspiration.diagnostics.model.DiagnosticReport
-import com.akane.inspiration.telemetry.diff.ReferenceKind
 import com.akane.inspiration.telemetry.interval.IntervalMetrics
 import com.akane.inspiration.telemetry.snapshot.SleepStats
 
@@ -10,59 +9,50 @@ import com.akane.inspiration.telemetry.snapshot.SleepStats
  * deep-sleep share measured over less than [MIN_SLEEP_WINDOW_MS] of screen-off.
  */
 class BatteryStoryBuilder {
-    /** [endsNow] says whether the interval runs up to the analysis time (see [ReferenceKind.endsNow]). */
+    /** [endsNow] is true only for confirmed current coverage; stored or cached analyses pass false. */
     fun build(
         metrics: IntervalMetrics?,
         sleep: SleepStats?,
         report: DiagnosticReport?,
         endsNow: Boolean = true,
     ): BatteryStory {
-        val sentences = buildList {
-            if (metrics != null) {
-                val duration = metrics.toWallMs - metrics.fromWallMs
-                val measured = metrics.screenOnMs + metrics.screenOffMs + metrics.chargingMs
-                if (duration > 0 && metrics.startLevel != null && metrics.endLevel != null &&
-                    metrics.unknownMs == 0L && metrics.discontinuities.isEmpty() && measured == duration
-                ) {
-                    add(StorySentence.Summary(duration / MS_PER_HOUR, metrics.levelUsedPct, endsNow))
+        val sentences =
+            buildList {
+                if (metrics != null) {
+                    val duration = metrics.toWallMs - metrics.fromWallMs
+                    val measured = metrics.screenOnMs + metrics.screenOffMs + metrics.chargingMs
+                    if (duration > 0 && metrics.startLevel != null && metrics.endLevel != null &&
+                        metrics.unknownMs == 0L && metrics.discontinuities.isEmpty() && measured == duration
+                    ) {
+                        add(StorySentence.Summary(duration / MS_PER_HOUR, metrics.levelUsedPct, endsNow))
+                    }
+                    metrics.screenOnPctPerHour?.let { add(StorySentence.ScreenOnRate(it, screenOnRating(it))) }
+                    metrics.screenOffPctPerHour?.let { add(StorySentence.ScreenOffRate(it, screenOffRating(it))) }
                 }
-                metrics.screenOnPctPerHour?.let { add(StorySentence.ScreenOnRate(it, screenOnRating(it))) }
-                metrics.screenOffPctPerHour?.let { add(StorySentence.ScreenOffRate(it, screenOffRating(it))) }
+                sleep?.reportableDeepSleepRatio()?.let { add(StorySentence.DeepSleep(it)) }
+                if (report != null && (report.insights.isNotEmpty() || report.notEvaluable.isEmpty())) {
+                    add(StorySentence.Anomalies(report.insights.size, report.insights.firstOrNull()?.rule))
+                }
             }
-            sleep?.reportableDeepSleepRatio()?.let { add(StorySentence.DeepSleep(it)) }
-            if (report != null && (report.insights.isNotEmpty() || report.notEvaluable.isEmpty())) {
-                add(StorySentence.Anomalies(report.insights.size, report.insights.firstOrNull()?.rule))
-            }
-        }
         return BatteryStory(sentences)
     }
 
-    internal fun screenOnRating(pctPerHour: Double): UsageRating = when {
-        pctPerHour <= 10.0 -> UsageRating.NORMAL
-        pctPerHour <= 15.0 -> UsageRating.HIGH
-        else -> UsageRating.VERY_HIGH
-    }
+    internal fun screenOnRating(pctPerHour: Double): UsageRating =
+        when {
+            pctPerHour <= 10.0 -> UsageRating.NORMAL
+            pctPerHour <= 15.0 -> UsageRating.HIGH
+            else -> UsageRating.VERY_HIGH
+        }
 
-    internal fun screenOffRating(pctPerHour: Double): UsageRating = when {
-        pctPerHour <= 0.8 -> UsageRating.EXCELLENT
-        pctPerHour <= 2.0 -> UsageRating.NORMAL
-        pctPerHour <= 4.0 -> UsageRating.HIGH
-        else -> UsageRating.VERY_HIGH
-    }
+    internal fun screenOffRating(pctPerHour: Double): UsageRating =
+        when {
+            pctPerHour <= 0.8 -> UsageRating.EXCELLENT
+            pctPerHour <= 2.0 -> UsageRating.NORMAL
+            pctPerHour <= 4.0 -> UsageRating.HIGH
+            else -> UsageRating.VERY_HIGH
+        }
 
     private companion object {
         const val MS_PER_HOUR = 3.6e6
     }
 }
-
-/**
- * Whether the interval of this reference runs up to the analysis time, following how ReferenceResolver picks its
- * end: since unplugged, the screen-on session, the last 24 h and a marker end now; a completed screen-off ends at
- * the screen-on that closed it and a time slice where it was brushed, both in the past.
- */
-internal val ReferenceKind.endsNow: Boolean
-    get() = when (this) {
-        ReferenceKind.SinceUnplugged, ReferenceKind.ScreenOnSession, ReferenceKind.Last24h,
-        is ReferenceKind.CustomMarker -> true
-        ReferenceKind.SinceScreenOff, is ReferenceKind.TimeSlice -> false
-    }

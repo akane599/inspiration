@@ -5,7 +5,6 @@ import com.akane.inspiration.diagnostics.rules.DiagnosticInput
 import com.akane.inspiration.diagnostics.rules.DiagnosticRuleEngine
 import com.akane.inspiration.diagnostics.story.BatteryStory
 import com.akane.inspiration.diagnostics.story.BatteryStoryBuilder
-import com.akane.inspiration.diagnostics.story.endsNow
 import com.akane.inspiration.telemetry.diff.ReferenceKind
 import com.akane.inspiration.telemetry.diff.ReferenceResolver
 import com.akane.inspiration.telemetry.diff.ResolvedReference
@@ -33,7 +32,10 @@ class IntervalAnalyzer(
     private val resolver = ReferenceResolver(store)
 
     /** Null when [kind] has no resolvable interval at [nowWallMs]. */
-    suspend fun analyze(kind: ReferenceKind, nowWallMs: Long): IntervalAnalysis? {
+    suspend fun analyze(
+        kind: ReferenceKind,
+        nowWallMs: Long,
+    ): IntervalAnalysis? {
         // One history load serves both the boundary resolution and the interval metrics.
         val events = resolver.historyUpTo(nowWallMs)
         val resolved = resolver.resolve(kind, nowWallMs, events) ?: return null
@@ -43,7 +45,8 @@ class IntervalAnalyzer(
         val diff = SnapshotDiffer.diff(resolved.ref, resolved.now)
         val metrics = IntervalMetricsCalculator.compute(events, resolved.coveredFromWallMs, resolved.coveredToWallMs)
         val report = ruleEngine.evaluate(DiagnosticInput(diff, metrics, resolved.perUidAvailable))
-        val story = storyBuilder.build(metrics, diff.sleep, report, endsNow = kind.endsNow)
+        // Stored coverage can lag the requested end, and a cached story can outlive analysis time.
+        val story = storyBuilder.build(metrics, diff.sleep, report, endsNow = false)
         return IntervalAnalysis(resolved, diff, metrics, report, story)
     }
 }

@@ -1,13 +1,11 @@
 package com.akane.inspiration.diagnostics.story
 
-import com.akane.inspiration.diagnostics.model.RuleId
 import com.akane.inspiration.diagnostics.model.DiagnosticReport
-import com.akane.inspiration.telemetry.diff.ReferenceKind
+import com.akane.inspiration.diagnostics.model.RuleId
 import com.akane.inspiration.telemetry.diff.SnapshotDiffer
 import com.akane.inspiration.telemetry.interval.IntervalMetricsCalculator
-import org.junit.Assert.assertFalse
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertTrue
+import org.junit.Assert.assertFalse
 import org.junit.Test
 
 class BatteryStoryBuilderTest {
@@ -74,16 +72,17 @@ class BatteryStoryBuilderTest {
     fun twentySecondsOfScreenOffGiveNoDeepSleepSentence() {
         // A 10-minute interval: 9 min 40 s screen on, then 20 s screen off with the CPU still awake.
         val ref = fullSnapshot(2 * MINUTE_MS, systemTimers(0, 0, 0, 0, 0))
-        val now = fullSnapshot(
-            12 * MINUTE_MS,
-            systemTimers(
-                batteryRealtimeMs = 10 * MINUTE_MS,
-                batteryUptimeMs = 10 * MINUTE_MS,
-                screenOffRealtimeMs = 20_000,
-                screenOffUptimeMs = 20_000,
-                screenOnMs = 10 * MINUTE_MS - 20_000,
-            ),
-        )
+        val now =
+            fullSnapshot(
+                12 * MINUTE_MS,
+                systemTimers(
+                    batteryRealtimeMs = 10 * MINUTE_MS,
+                    batteryUptimeMs = 10 * MINUTE_MS,
+                    screenOffRealtimeMs = 20_000,
+                    screenOffUptimeMs = 20_000,
+                    screenOnMs = 10 * MINUTE_MS - 20_000,
+                ),
+            )
         val sleep = SnapshotDiffer.diff(ref, now).sleep
         assertEquals("the differ measures a 0% share over the 20 s", 0.0, sleep?.deepSleepRatio ?: -1.0, 0.0)
 
@@ -132,21 +131,13 @@ class BatteryStoryBuilderTest {
     }
 
     @Test
-    fun summaryCarriesWhetherTheIntervalEndsNow() {
-        val past = builder.build(metrics(), null, null, endsNow = false).sentences.first()
-        assertEquals(StorySentence.Summary(hours = 14.0, levelUsedPct = 48, endsNow = false), past)
-        val current = builder.build(metrics(), null, null, endsNow = true).sentences.first()
-        assertEquals(StorySentence.Summary(hours = 14.0, levelUsedPct = 48, endsNow = true), current)
-    }
+    fun summaryCarriesWhetherTheIntervalEndsNowWithoutChangingOtherSentences() {
+        val past = builder.build(metrics(), sleep(), report(nightVampire), endsNow = false).sentences
+        val current = builder.build(metrics(), sleep(), report(nightVampire), endsNow = true).sentences
 
-    @Test
-    fun onlyReferencesThatRunUpToTheAnalysisEndNow() {
-        assertTrue(ReferenceKind.SinceUnplugged.endsNow)
-        assertTrue(ReferenceKind.ScreenOnSession.endsNow)
-        assertTrue(ReferenceKind.Last24h.endsNow)
-        assertTrue(ReferenceKind.CustomMarker(markerId = 1).endsNow)
-        assertFalse("a completed screen-off ends at its screen-on", ReferenceKind.SinceScreenOff.endsNow)
-        assertFalse("a slice ends where it was brushed", ReferenceKind.TimeSlice(fromWallMs = 0, toWallMs = HOUR_MS).endsNow)
+        assertEquals(StorySentence.Summary(hours = 14.0, levelUsedPct = 48, endsNow = false), past.first())
+        assertEquals(StorySentence.Summary(hours = 14.0, levelUsedPct = 48, endsNow = true), current.first())
+        assertEquals(past.drop(1), current.drop(1))
     }
 
     @Test
