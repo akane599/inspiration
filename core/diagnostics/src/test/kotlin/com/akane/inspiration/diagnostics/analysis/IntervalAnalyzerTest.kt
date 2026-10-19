@@ -8,6 +8,7 @@ import com.akane.inspiration.telemetry.snapshot.CaptureTrigger
 import com.akane.inspiration.telemetry.snapshot.SnapshotKind
 import com.akane.inspiration.telemetry.snapshot.SourceAvailability
 import com.akane.inspiration.telemetry.store.HISTORY_SOURCE
+import com.akane.inspiration.telemetry.store.SnapshotStore
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -89,6 +90,43 @@ class IntervalAnalyzerTest {
                     .analyze(ReferenceKind.TimeSlice(fromWallMs = 1 * hour, toWallMs = 5 * hour), nowWallMs = 9 * hour)
 
             assertEquals(5 * hour, analysis!!.resolved.coveredToWallMs)
+        }
+
+    /** [stored] whose marker 1 is [snapshot], set at that snapshot's wall time. */
+    private fun withMarker(
+        stored: FakeSnapshotStore,
+        snapshot: BatterySnapshot,
+    ) = object : SnapshotStore by stored {
+        override suspend fun marker(id: Long) = (snapshot.clock.wallMs to snapshot).takeIf { id == 1L }
+    }
+
+    @Test
+    fun `a marker selected right after it was set is empty, not a zero-length analysis`() =
+        runTest {
+            // "Mark now" stores a FULL MARKER capture; until the next capture it is the newest snapshot too.
+            val marked = lightSnapshot(wallMs = 5 * hour, level = 70, trigger = CaptureTrigger.MARKER).copy(kind = SnapshotKind.FULL)
+            val stored = FakeSnapshotStore(snapshots = listOf(lightSnapshot(wallMs = 1 * hour, level = 90), marked))
+            val analyzer = IntervalAnalyzer(withMarker(stored, marked), ruleEngine())
+
+            assertNull(analyzer.analyze(ReferenceKind.CustomMarker(1), nowWallMs = 5 * hour))
+
+            stored.snapshots += lightSnapshot(wallMs = 6 * hour, level = 68)
+            val analysis = analyzer.analyze(ReferenceKind.CustomMarker(1), nowWallMs = 6 * hour)!!
+            assertEquals(marked, analysis.resolved.ref)
+            assertEquals(1 * hour, analysis.diff.durationMs)
+        }
+
+    @Test
+    fun `a pair with no wall time between its snapshots is empty`() =
+        runTest {
+            // A marker from the previous boot and the first capture after the reboot share a wall-clock instant.
+            val marked = lightSnapshot(wallMs = 5 * hour, level = 70, trigger = CaptureTrigger.MARKER)
+            val afterReboot = lightSnapshot(wallMs = 5 * hour, elapsedMs = 60_000L, level = 70, trigger = CaptureTrigger.BOOT)
+            val rebooted = afterReboot.copy(clock = afterReboot.clock.copy(bootCount = 2))
+            val stored = FakeSnapshotStore(snapshots = listOf(rebooted, marked))
+            val analyzer = IntervalAnalyzer(withMarker(stored, marked), ruleEngine())
+
+            assertNull(analyzer.analyze(ReferenceKind.CustomMarker(1), nowWallMs = 5 * hour))
         }
 
     @Test

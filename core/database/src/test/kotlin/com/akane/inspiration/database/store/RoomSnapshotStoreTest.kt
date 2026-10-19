@@ -615,10 +615,16 @@ class RoomSnapshotStoreTest {
             assertEquals(wallMs, store.marker(markerId)!!.first)
             assertEquals(snapshotId, store.marker(markerId)!!.second.id)
             val resolver = ReferenceResolver(store)
-            val resolved = resolver.resolve(ReferenceKind.CustomMarker(markerId), wallMs)!!
+            // Right after "Mark now" the marker's snapshot is still the newest: no zero-length self-pair.
+            assertNull(resolver.resolve(ReferenceKind.CustomMarker(markerId), wallMs))
+            assertNull(resolver.resolve(ReferenceKind.CustomMarker(futureId), wallMs))
+
+            val nextId = store.insert(fullSnapshot(wallMs = wallMs + 1_000L))
+            val resolved = resolver.resolve(ReferenceKind.CustomMarker(markerId), wallMs + 1_000L)!!
+            assertEquals(snapshotId, resolved.ref.id)
+            assertEquals(nextId, resolved.now.id)
             assertEquals(wallMs, resolved.boundaryFromWallMs)
             assertEquals(0L, resolved.gapMs)
-            assertNull(resolver.resolve(ReferenceKind.CustomMarker(futureId), wallMs))
         }
 
     @Test

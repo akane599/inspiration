@@ -62,6 +62,10 @@ class ReferenceResolver(
         // ends after now allows that), so a boundary ending at now loads that snapshot once, not twice.
         if (end.clock.wallMs > nowWallMs && store.lastAtOrBefore(nowWallMs, null) == null) return null
         val ref = boundary.markerSnapshot ?: closestReference(boundary.fromWallMs, end) ?: return null
+        // A marker's own snapshot must precede `end` like a closestReference result: right after "Mark now" it is
+        // still the newest snapshot, and pairing it with itself is a zero-length interval, not a measurement.
+        // Across a reboot elapsed time is not comparable, so that pair stays and the differ flags it.
+        if (ref.clock.bootCount == end.clock.bootCount && !ref.precedes(end)) return null
         if (ref.clock.wallMs > end.clock.wallMs) return null
 
         val coveredFrom = ref.clock.wallMs
@@ -143,7 +147,10 @@ class ReferenceResolver(
                 bootCount = end.clock.bootCount,
             )?.takeIf { it.precedes(end) }
 
-    /** Strictly earlier than [end] in the same boot; [end] itself, or a row captured at the same instant, is not. */
+    /**
+     * Strictly earlier than [end] in the same boot; [end] itself, or a row captured at the same instant, is not.
+     * Every same-boot reference must satisfy it, a marker's snapshot included.
+     */
     private fun BatterySnapshot.precedes(end: BatterySnapshot): Boolean =
         clock.wallMs <= end.clock.wallMs &&
             clock.bootCount == end.clock.bootCount &&

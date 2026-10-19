@@ -40,8 +40,9 @@ class IntervalAnalyzer(
         // One history load serves both the boundary resolution and the interval metrics.
         val events = resolver.historyUpTo(nowWallMs)
         val resolved = resolver.resolve(kind, nowWallMs, events) ?: return null
-        // IntervalMetricsCalculator.compute requires to >= from.
-        if (resolved.coveredToWallMs < resolved.coveredFromWallMs) return null
+        // IntervalMetricsCalculator.compute requires to >= from, and a pair with no wall time between its
+        // snapshots measures nothing: Empty, not a Ready analysis of all-zero deltas.
+        if (resolved.coveredToWallMs <= resolved.coveredFromWallMs) return null
 
         val diff = SnapshotDiffer.diff(resolved.ref, resolved.now)
         // State past the last successful history ingest is unknown, not the last known state: a newer LIGHT or
