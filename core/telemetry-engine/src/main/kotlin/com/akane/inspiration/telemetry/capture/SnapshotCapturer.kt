@@ -283,7 +283,7 @@ class SnapshotCapturer(
         const val SOURCE_KERNEL = "kernel"
         const val SOURCE_CPU = "cpu"
         const val SOURCE_ALARM = "alarm"
-        const val SOURCE_HISTORY = "history"
+        const val SOURCE_HISTORY = com.akane.inspiration.telemetry.store.HISTORY_SOURCE
         const val SOURCE_LIGHT = "light"
         const val PROCESS_FOREGROUND = "FOREGROUND"
         const val PROCESS_BACKGROUND = "BACKGROUND"

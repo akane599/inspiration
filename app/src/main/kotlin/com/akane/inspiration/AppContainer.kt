@@ -52,6 +52,7 @@ import com.akane.inspiration.telemetry.store.HealthSample
 import com.akane.inspiration.telemetry.store.Marker
 import com.akane.inspiration.telemetry.store.SnapshotStore
 import com.akane.inspiration.telemetry.store.TelemetrySample
+import com.akane.inspiration.telemetry.store.historyHorizonWallMs
 import com.akane.inspiration.telemetry.store.pruneRetention
 import com.akane.inspiration.telemetry.toolkit.ToolkitActions
 import com.akane.inspiration.telemetry.toolkit.ToolkitGateway
@@ -180,7 +181,8 @@ class AppContainer(
                     before = store.lastHistoryOfEachKindBefore(from),
                     inWindow = store.historyBetween(from, to),
                 )
-            TimelineBuilder.build(events, from, to)
+            // Lanes end at the last successful history ingest, so a failed refresh does not stretch stale state.
+            TimelineBuilder.build(events, from, to, store.historyHorizonWallMs() ?: Long.MIN_VALUE)
         }
 
     override suspend fun historyBetween(

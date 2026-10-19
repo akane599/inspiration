@@ -8,6 +8,8 @@ import com.akane.inspiration.ipc.model.HistoryKind
 import com.akane.inspiration.telemetry.diff.ReferenceKind
 import com.akane.inspiration.telemetry.snapshot.CpuFreqTime
 import com.akane.inspiration.telemetry.snapshot.SnapshotKind
+import com.akane.inspiration.telemetry.snapshot.SourceAvailability
+import com.akane.inspiration.telemetry.store.HISTORY_SOURCE
 import com.akane.inspiration.telemetry.store.SnapshotStore
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
@@ -38,6 +40,10 @@ class IntervalAnalyzerStoryTest {
             battery = snapshot.battery.copy(dischargedMah = energyMah),
             deviceComponentsMah = mapOf("cpu" to energyMah),
             cpuFreq = listOf(CpuFreqTime(policy = 0, freqKhz = 1_000_000L, timeMs = wallMs / 100)),
+            // An app-open capture that read the whole battery history, as a successful refresh does.
+            availability =
+                listOf("usage", "dump", "kernel", "alarm", "cpu", HISTORY_SOURCE)
+                    .associateWith { SourceAvailability(true, null) },
         )
     }
 

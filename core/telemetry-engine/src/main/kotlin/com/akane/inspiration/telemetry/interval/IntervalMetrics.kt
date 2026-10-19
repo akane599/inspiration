@@ -5,7 +5,8 @@ import com.akane.inspiration.ipc.model.HistoryKind
 
 /**
  * Screen/charging time split and attributed level drops over `(fromWallMs, toWallMs]`
- * (docs/plans/phase-3.md F3). [unknownMs] is non-charging time before any SCREEN event was seen.
+ * (docs/plans/phase-3.md F3). [unknownMs] is non-charging time before any SCREEN event was seen, plus all
+ * time after the stored history's horizon (the last successful ingest), plugged or not.
  * [levelUsedPct] is the sum of attributed drops, so it can exceed `startLevel - endLevel` when the
  * interval contains charging. Rates are `%/h`, null for a state with under 15 min of time.
  */
@@ -34,8 +35,18 @@ object IntervalMetricsCalculator {
      * [events] must be sorted by wall time and start from wall 0: events at or before [fromWallMs]
      * only seed state, events after [toWallMs] are ignored. With no event at or before
      * [toWallMs] there is nothing to measure and everything is zero/null.
+     *
+     * [historyHorizonWallMs] is the wall time up to which the stored history is known to be complete
+     * (the last successful ingest). The last known state is carried only up to it, or to the newest event
+     * when that is later; the rest of the interval is [IntervalMetrics.unknownMs]. The default, `toWallMs`,
+     * and any horizon at or after it carry the last state to [toWallMs].
      */
-    fun compute(events: List<HistoryEvent>, fromWallMs: Long, toWallMs: Long): IntervalMetrics {
+    fun compute(
+        events: List<HistoryEvent>,
+        fromWallMs: Long,
+        toWallMs: Long,
+        historyHorizonWallMs: Long = toWallMs,
+    ): IntervalMetrics {
         require(toWallMs >= fromWallMs) { "to ($toWallMs) before from ($fromWallMs)" }
         // Stable sort: a LEVEL runs after the SCREEN/PLUG transitions that share its timestamp.
         val ordered = events
@@ -43,12 +54,16 @@ object IntervalMetricsCalculator {
             .sortedWith(compareBy<HistoryEvent> { it.wallMs }.thenBy { it.kind == HistoryKind.LEVEL })
         val walk = Walk(fromWallMs)
         ordered.forEach(walk::apply)
-        if (ordered.isNotEmpty()) walk.advanceTo(toWallMs)
+        if (ordered.isNotEmpty()) {
+            walk.advanceTo(maxOf(historyHorizonWallMs.coerceIn(fromWallMs, toWallMs), walk.cursorMs))
+            walk.advanceUnknownTo(toWallMs)
+        }
         return walk.toMetrics(toWallMs)
     }
 
     private class Walk(private val fromWallMs: Long) {
-        private var cursorMs = fromWallMs
+        var cursorMs = fromWallMs
+            private set
         private var screenOn: Boolean? = null
         private var plugged = false
         private var prevLevel: Int? = null
@@ -111,6 +126,12 @@ object IntervalMetricsCalculator {
                 screenOn == false -> offMs += span
                 else -> unknownMs += span
             }
+        }
+
+        /** Past the history horizon nothing is known, whatever the last state was. */
+        fun advanceUnknownTo(wallMs: Long) {
+            unknownMs += wallMs - cursorMs
+            cursorMs = wallMs
         }
 
         fun toMetrics(toWallMs: Long) = IntervalMetrics(

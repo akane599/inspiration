@@ -12,7 +12,8 @@ import com.akane.inspiration.ipc.model.HistoryKind
  *   OFF-then-ON. Every state (screen, plug, doze) is off before the first event, so a caller that
  *   wants the state open at `from` includes the last event before `from`; those earlier events
  *   only seed state, and everything emitted is clamped to [from, to].
- * - **Maintenance.** A *gap* runs from an `*_IDLE_OFF` to the next `*_IDLE_ON` (or to `to` when none
+ * - **Horizon.** Open states end at the history horizon (see [build]), not at `to`, when it is earlier.
+ * - **Maintenance.** A *gap* runs from an `*_IDLE_OFF` to the next `*_IDLE_ON` (or to the lane end when none
  *   was seen). A gap of at most [MAINTENANCE_MAX_GAP_MS] that overlaps no screen-on or charging span
  *   is MAINTENANCE; any other non-empty gap is AWAKE. The gap length is measured unclamped, so a
  *   gap that began before `from` keeps its true length. A SHUTDOWN ends every open state and starts no gap.
@@ -28,10 +29,21 @@ object TimelineBuilder {
     /** An idle re-entry this soon (inclusive) after a DEEP_IDLE_OFF means it was not a wake pulse. */
     const val WAKE_PULSE_REENTRY_MS = 60_000L
 
-    fun build(events: List<HistoryEvent>, from: Long, to: Long): Timeline {
+    /**
+     * [historyHorizonMs] is the wall time up to which the stored history is known to be complete (the last
+     * successful ingest). Open lanes close there, or at the newest event when that is later, so the stale last
+     * state is not drawn on to [to]; the window past it stays empty. The default, [to], keeps every lane open to it.
+     */
+    fun build(
+        events: List<HistoryEvent>,
+        from: Long,
+        to: Long,
+        historyHorizonMs: Long = to,
+    ): Timeline {
         if (to < from) return Timeline(emptyList(), emptyList(), emptyList(), emptyList(), from, to)
         val ordered = events.filter { it.wallMs in 0..to }.sortedBy { it.wallMs }
-        val spans = Spans.scan(ordered, to)
+        val laneEnd = maxOf(historyHorizonMs.coerceIn(from, to), ordered.lastOrNull()?.wallMs ?: from)
+        val spans = Spans.scan(ordered, laneEnd)
         // A set, so sorting the remaining gaps into AWAKE is one lookup per gap; it keeps the gaps' time order.
         val maintenance = spans.gaps.filterTo(LinkedHashSet()) { it.isMaintenance(spans) }
         return Timeline(
@@ -48,9 +60,18 @@ object TimelineBuilder {
         endMs - startMs <= MAINTENANCE_MAX_GAP_MS &&
             spans.screen.none { overlaps(it) } && spans.charging.none { overlaps(it) }
 
-    private fun segments(spans: Spans, maintenance: Set<Span>, from: Long, to: Long): List<TimelineSegment> {
+    private fun segments(
+        spans: Spans,
+        maintenance: Set<Span>,
+        from: Long,
+        to: Long,
+    ): List<TimelineSegment> {
         val all = ArrayList<TimelineSegment>()
-        fun add(kind: SegmentKind, list: Collection<Span>) {
+
+        fun add(
+            kind: SegmentKind,
+            list: Collection<Span>,
+        ) {
             list.forEach { span ->
                 val start = maxOf(span.startMs, from)
                 val end = minOf(span.endMs, to)
@@ -71,19 +92,30 @@ object TimelineBuilder {
         from: Long,
         to: Long,
         value: (HistoryEvent) -> Float,
-    ): List<TimelinePoint> = ordered
-        .filter { it.kind == HistoryKind.LEVEL && it.wallMs in from..to }
-        .map { TimelinePoint(it.wallMs, value(it)) }
+    ): List<TimelinePoint> =
+        ordered
+            .filter { it.kind == HistoryKind.LEVEL && it.wallMs in from..to }
+            .map { TimelinePoint(it.wallMs, value(it)) }
 
-    private fun wakePulses(ordered: List<HistoryEvent>, maintenance: Set<Span>, from: Long, to: Long): List<Long> {
-        val idleOns = ordered.filter { it.kind == HistoryKind.DEEP_IDLE_ON || it.kind == HistoryKind.LIGHT_IDLE_ON }
-            .map { it.wallMs }
+    private fun wakePulses(
+        ordered: List<HistoryEvent>,
+        maintenance: Set<Span>,
+        from: Long,
+        to: Long,
+    ): List<Long> {
+        val idleOns =
+            ordered
+                .filter { it.kind == HistoryKind.DEEP_IDLE_ON || it.kind == HistoryKind.LIGHT_IDLE_ON }
+                .map { it.wallMs }
         var next = 0
         val pulses = ArrayList<Long>()
         for (event in ordered) {
             val t = event.wallMs
             when (event.kind) {
-                HistoryKind.SCREEN_ON -> pulses += t
+                HistoryKind.SCREEN_ON -> {
+                    pulses += t
+                }
+
                 HistoryKind.DEEP_IDLE_OFF -> {
                     // `ordered` is time-sorted, so the first idle entry at or after t only moves forward.
                     while (next < idleOns.size && idleOns[next] < t) next++
@@ -92,13 +124,17 @@ object TimelineBuilder {
                 }
             }
         }
-        return pulses.filter { t -> t in from..to && maintenance.none { t >= it.startMs && t < it.endMs } }
+        return pulses
+            .filter { t -> t in from..to && maintenance.none { t >= it.startMs && t < it.endMs } }
             .distinct()
     }
 }
 
 /** A half-open `[startMs, endMs)` span; unclamped, as seen in the events. */
-private data class Span(val startMs: Long, val endMs: Long) {
+private data class Span(
+    val startMs: Long,
+    val endMs: Long,
+) {
     fun overlaps(other: Span): Boolean = startMs < other.endMs && other.startMs < endMs
 }
 
@@ -119,7 +155,6 @@ private class StateLane {
         openAt?.let { closed += Span(it, t) }
         openAt = null
     }
-
 }
 
 /** Every lane's spans for one event list; open spans end at the window end. */
@@ -131,7 +166,10 @@ private class Spans(
     val gaps: List<Span>,
 ) {
     companion object {
-        fun scan(ordered: List<HistoryEvent>, end: Long): Spans {
+        fun scan(
+            ordered: List<HistoryEvent>,
+            end: Long,
+        ): Spans {
             val screen = StateLane()
             val plug = StateLane()
             val deep = StateLane()
@@ -140,33 +178,54 @@ private class Spans(
             for (event in ordered) {
                 val t = event.wallMs
                 when (event.kind) {
-                    HistoryKind.SCREEN_ON -> screen.open(t)
-                    HistoryKind.SCREEN_OFF -> screen.close(t)
-                    HistoryKind.PLUGGED -> plug.open(t)
-                    HistoryKind.UNPLUGGED -> plug.close(t)
+                    HistoryKind.SCREEN_ON -> {
+                        screen.open(t)
+                    }
+
+                    HistoryKind.SCREEN_OFF -> {
+                        screen.close(t)
+                    }
+
+                    HistoryKind.PLUGGED -> {
+                        plug.open(t)
+                    }
+
+                    HistoryKind.UNPLUGGED -> {
+                        plug.close(t)
+                    }
+
                     HistoryKind.RESET, HistoryKind.START -> {
                         // The fresh baseline carries plug state, but no screen or idle state.
                         listOf(screen, plug, deep, light, gaps).forEach { it.close(t) }
                         if (event.plugType != 0) plug.open(t)
                     }
+
                     HistoryKind.DEEP_IDLE_ON -> {
                         light.close(t)
                         deep.open(t)
                         gaps.close(t)
                     }
+
                     HistoryKind.LIGHT_IDLE_ON -> {
                         deep.close(t)
                         light.open(t)
                         gaps.close(t)
                     }
-                    HistoryKind.DEEP_IDLE_OFF -> if (deep.isOpen) {
-                        deep.close(t)
-                        gaps.open(t)
+
+                    HistoryKind.DEEP_IDLE_OFF -> {
+                        if (deep.isOpen) {
+                            deep.close(t)
+                            gaps.open(t)
+                        }
                     }
-                    HistoryKind.LIGHT_IDLE_OFF -> if (light.isOpen) {
-                        light.close(t)
-                        gaps.open(t)
+
+                    HistoryKind.LIGHT_IDLE_OFF -> {
+                        if (light.isOpen) {
+                            light.close(t)
+                            gaps.open(t)
+                        }
                     }
+
                     HistoryKind.SHUTDOWN -> {
                         listOf(screen, plug, deep, light).forEach { it.close(t) }
                         gaps.close(t) // Preserve the observed gap, without opening a new one.

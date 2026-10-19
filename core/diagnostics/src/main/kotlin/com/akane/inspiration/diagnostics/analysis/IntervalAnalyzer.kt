@@ -13,6 +13,8 @@ import com.akane.inspiration.telemetry.interval.IntervalMetrics
 import com.akane.inspiration.telemetry.interval.IntervalMetricsCalculator
 import com.akane.inspiration.telemetry.snapshot.SnapshotDiff
 import com.akane.inspiration.telemetry.store.SnapshotStore
+import com.akane.inspiration.telemetry.store.historyHorizonWallMs
+import com.akane.inspiration.telemetry.store.ingestedHistory
 
 /** Everything one interval produces: the resolved snapshot pair, its diff, metrics, rule report and story. */
 data class IntervalAnalysis(
@@ -43,7 +45,12 @@ class IntervalAnalyzer(
         if (resolved.coveredToWallMs < resolved.coveredFromWallMs) return null
 
         val diff = SnapshotDiffer.diff(resolved.ref, resolved.now)
-        val metrics = IntervalMetricsCalculator.compute(events, resolved.coveredFromWallMs, resolved.coveredToWallMs)
+        // State past the last successful history ingest is unknown, not the last known state: a newer LIGHT or
+        // broadcast endpoint must not stretch it. An endpoint that ingested history itself needs no further read.
+        val horizon =
+            if (resolved.now.ingestedHistory()) resolved.now.clock.wallMs else store.historyHorizonWallMs() ?: Long.MIN_VALUE
+        val metrics =
+            IntervalMetricsCalculator.compute(events, resolved.coveredFromWallMs, resolved.coveredToWallMs, horizon)
         val report = ruleEngine.evaluate(DiagnosticInput(diff, metrics, resolved.perUidAvailable))
         // Stored coverage can lag the requested end, and a cached story can outlive analysis time.
         val story = storyBuilder.build(metrics, diff.sleep, report, endsNow = false)
