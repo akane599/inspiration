@@ -8,7 +8,6 @@ import com.akane.inspiration.telemetry.calibration.CalibrationInput
 import com.akane.inspiration.telemetry.dump.AlarmDump
 import com.akane.inspiration.telemetry.dump.DumpParse
 import com.akane.inspiration.telemetry.dump.DumpSnapshot
-import com.akane.inspiration.telemetry.dump.PowerDump
 import com.akane.inspiration.telemetry.snapshot.CaptureTrigger
 import com.akane.inspiration.telemetry.snapshot.SnapshotClock
 
@@ -24,7 +23,6 @@ data class FullRead(
     val light: LightRead,
     val usage: BatteryUsageSnapshot?,
     val batteryStats: DumpParse<DumpSnapshot>,
-    val power: DumpParse<PowerDump>,
     val alarm: DumpParse<AlarmDump>,
     val kernel: KernelBatterySnapshot?,
     val cpuTimes: List<ClusterFreqTime>,

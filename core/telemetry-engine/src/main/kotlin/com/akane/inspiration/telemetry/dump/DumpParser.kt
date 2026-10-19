@@ -2,7 +2,6 @@ package com.akane.inspiration.telemetry.dump
 
 import com.akane.inspiration.telemetry.proto.AlarmManagerServiceDumpProto
 import com.akane.inspiration.telemetry.proto.BatteryStatsServiceDumpProto
-import com.akane.inspiration.telemetry.proto.PowerManagerServiceDumpProto
 import com.akane.inspiration.telemetry.proto.SystemProto
 import com.akane.inspiration.telemetry.proto.UidProto
 
@@ -23,27 +22,6 @@ object DumpParser {
         }
     } catch (_: Exception) {
         DumpParse.Unavailable("malformed batterystats dump")
-    }
-
-    fun parsePower(bytes: ByteArray): DumpParse<PowerDump> = try {
-        val dump = PowerManagerServiceDumpProto.parseFrom(bytes)
-        DumpParse.Ok(
-            PowerDump(
-                wakefulness = dump.wakefulness,
-                heldWakeLocks = dump.wakeLocksList.map { wakeLock ->
-                    HeldWakeLock(
-                        tag = wakeLock.tag,
-                        uid = wakeLock.uid,
-                        levelFlags = wakeLock.lockLevel,
-                        acquiredMs = wakeLock.acqMs,
-                    )
-                },
-                lastWakeMs = dump.lastWakeTimeMs,
-                lastSleepMs = dump.lastSleepTimeMs,
-            ),
-        )
-    } catch (_: Exception) {
-        DumpParse.Unavailable("malformed power dump")
     }
 
     fun parseAlarm(bytes: ByteArray): DumpParse<AlarmDump> = try {

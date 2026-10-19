@@ -36,7 +36,6 @@ class AndroidTelemetrySource(
         shizuku.withTelemetryService(serviceTimeoutMs) { service ->
             val usage = runCatching { service.readBatteryUsage(0L) }.getOrNull()
             val batteryStats = readBatteryStats(service)
-            val power = readPower(service)
             val alarm = readAlarm(service)
             val kernel = runCatching { service.readKernelBattery() }.getOrNull()
             val cpu = runCatching { service.readCpuTimeInState() }.getOrNull()
@@ -47,7 +46,6 @@ class AndroidTelemetrySource(
                 light = light,
                 usage = usage,
                 batteryStats = batteryStats,
-                power = power,
                 alarm = alarm,
                 kernel = kernel,
                 cpuTimes = cpu?.entries.orEmpty(),
@@ -110,9 +108,6 @@ class AndroidTelemetrySource(
 
     private suspend fun readBatteryStats(service: com.akane.inspiration.ipc.ITelemetryUserService): DumpParse<com.akane.inspiration.telemetry.dump.DumpSnapshot> =
         readDump(service, DumpTarget.BATTERYSTATS_PROTO, DumpParser::parseBatteryStats)
-
-    private suspend fun readPower(service: com.akane.inspiration.ipc.ITelemetryUserService): DumpParse<com.akane.inspiration.telemetry.dump.PowerDump> =
-        readDump(service, DumpTarget.POWER_PROTO, DumpParser::parsePower)
 
     private suspend fun readAlarm(service: com.akane.inspiration.ipc.ITelemetryUserService): DumpParse<com.akane.inspiration.telemetry.dump.AlarmDump> =
         readDump(service, DumpTarget.ALARM_PROTO, DumpParser::parseAlarm)

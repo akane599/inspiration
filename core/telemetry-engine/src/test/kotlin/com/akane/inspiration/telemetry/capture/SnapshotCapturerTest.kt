@@ -299,7 +299,6 @@ class SnapshotCapturerTest {
                 light = light(),
                 usage = usage,
                 batteryStats = batteryStats,
-                power = DumpParse.Unavailable("not_needed"),
                 alarm = alarm,
                 kernel = null,
                 cpuTimes = emptyList(),

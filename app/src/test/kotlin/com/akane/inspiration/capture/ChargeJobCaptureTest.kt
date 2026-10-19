@@ -103,7 +103,6 @@ class ChargeJobCaptureTest {
                 light = light(),
                 usage = null,
                 batteryStats = DumpParse.Unavailable("not_needed"),
-                power = DumpParse.Unavailable("not_needed"),
                 alarm = DumpParse.Unavailable("not_needed"),
                 kernel = null,
                 cpuTimes = emptyList(),

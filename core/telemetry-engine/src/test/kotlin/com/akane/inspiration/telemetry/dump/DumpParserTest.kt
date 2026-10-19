@@ -44,10 +44,6 @@ class DumpParserTest {
             val dump = PowerManagerServiceDumpProto.parseFrom(bytes)
             assertEquals(expectedWakeLocks[index], dump.wakeLocksCount)
             assertEquals(5, dump.suspendBlockersCount)
-            assertEquals(
-                expectedWakeLocks[index],
-                ((DumpParser.parsePower(bytes) as DumpParse.Ok).value.heldWakeLocks.size),
-            )
         }
     }
 

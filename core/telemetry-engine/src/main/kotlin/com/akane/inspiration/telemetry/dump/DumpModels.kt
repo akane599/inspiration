@@ -70,20 +70,6 @@ data class UidAlarm(
     val count: Long,
 )
 
-data class PowerDump(
-    val wakefulness: Int,
-    val heldWakeLocks: List<HeldWakeLock>,
-    val lastWakeMs: Long,
-    val lastSleepMs: Long,
-)
-
-data class HeldWakeLock(
-    val tag: String,
-    val uid: Int,
-    val levelFlags: Int,
-    val acquiredMs: Long,
-)
-
 data class AlarmDump(
     val filterStats: List<AlarmFilterStat>,
 )
