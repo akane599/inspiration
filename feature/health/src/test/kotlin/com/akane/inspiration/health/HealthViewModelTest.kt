@@ -8,8 +8,10 @@ import com.akane.inspiration.telemetry.app.RefreshResult
 import com.akane.inspiration.telemetry.snapshot.LiveReading
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.Runnable
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.flow
@@ -29,6 +31,7 @@ import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
+import kotlin.coroutines.CoroutineContext
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class HealthViewModelTest {
@@ -46,13 +49,14 @@ class HealthViewModelTest {
         Dispatchers.resetMain()
     }
 
-    private fun TestScope.viewModel(): HealthViewModel = HealthViewModel(deps).also { runCurrent() }
+    private fun TestScope.viewModel(): HealthViewModel = HealthViewModel(deps, shapingDispatcher = dispatcher).also { runCurrent() }
 
     private fun TestScope.viewModel(readings: Flow<LiveReading>): HealthViewModel =
         HealthViewModel(
             object : HealthDependencies by deps {
                 override fun liveReadings(periodMs: Long): Flow<LiveReading> = readings
             },
+            shapingDispatcher = dispatcher,
         ).also { runCurrent() }
 
     // ---- H13: visibility-scoped reads ------------------------------------------------------------
@@ -221,7 +225,7 @@ class HealthViewModelTest {
     fun `clearing the view model closes a held binding`() =
         runTest(dispatcher) {
             val store = ViewModelStore()
-            val vm = ViewModelProvider(store, HealthViewModel.factory(deps))[HealthViewModel::class.java]
+            val vm = ViewModelProvider(store, testFactory(deps, dispatcher))[HealthViewModel::class.java]
             runCurrent()
             vm.onIntent(HealthIntent.Visible)
             vm.onIntent(HealthIntent.PlugChanged(true))
@@ -240,7 +244,7 @@ class HealthViewModelTest {
                 object : HealthDependencies by deps {
                     override fun liveReadings(periodMs: Long): Flow<LiveReading> = flow { error("kernel read failed") }
                 }
-            val vm = HealthViewModel(failing)
+            val vm = HealthViewModel(failing, shapingDispatcher = dispatcher)
             vm.onIntent(HealthIntent.Visible)
             vm.onIntent(HealthIntent.PlugChanged(true))
             runCurrent()
@@ -579,6 +583,7 @@ class HealthViewModelTest {
                 vm.onIntent(HealthIntent.PlugChanged(false))
                 runCurrent()
                 vm.onIntent(HealthIntent.Hidden)
+                runCurrent()
                 assertEquals(CurveUi.None, vm.state.value.curve)
                 assertEquals(1, deps.bindingsClosed)
 
@@ -835,6 +840,7 @@ class HealthViewModelTest {
             } finally {
                 vm.onIntent(HealthIntent.Hidden)
             }
+            runCurrent()
             assertEquals("Hidden clears the live evidence", HealthPhase.Error, vm.state.value.phase)
         }
 
@@ -892,7 +898,7 @@ class HealthViewModelTest {
                         override suspend fun chargeSessions() = deps.chargeSessions().also { sessionReads++ }
                     }
                 val store = ViewModelStore()
-                val vm = ViewModelProvider(store, HealthViewModel.factory(source))[HealthViewModel::class.java]
+                val vm = ViewModelProvider(store, testFactory(source, dispatcher))[HealthViewModel::class.java]
                 try {
                     val refreshesBefore = deps.refreshCalls
                     vm.onIntent(HealthIntent.Visible)
@@ -1178,4 +1184,86 @@ class HealthViewModelTest {
 
             assertEquals("nothing persisted in the fake, so nothing to draw", CurveUi.None, vm.state.value.curve)
         }
+
+    // ---- shaping off the main thread --------------------------------------------------------------
+
+    @Test
+    fun `the stored day is shaped once per load and every frame off the main thread`() =
+        runTest(dispatcher) {
+            val stored = CountingList((0 until 60).map { sample(NOW_MS - 2 * MIN_MS + it * SEC_MS, level = 30 + it / 10) })
+            deps.samples = stored
+            val shaping = HeldDispatcher()
+            val readings = MutableSharedFlow<LiveReading>()
+            val vm =
+                HealthViewModel(
+                    object : HealthDependencies by deps {
+                        override fun liveReadings(periodMs: Long): Flow<LiveReading> = readings
+                    },
+                    shapingDispatcher = shaping,
+                ).also { runCurrent() }
+            try {
+                vm.onIntent(HealthIntent.Visible)
+                vm.onIntent(HealthIntent.PlugChanged(true))
+                runCurrent()
+                assertEquals("the main thread shapes nothing", HealthPhase.Loading, vm.state.value.phase)
+                assertEquals(0, stored.iterations)
+
+                settle(shaping)
+                val recorded = vm.state.value.curve as CurveUi.Ready
+                assertEquals(CurveSource.Recorded, recorded.source)
+                val readsPerLoad = stored.iterations
+
+                readings.emit(liveReading(NOW_MS, levelPct = 37))
+                runCurrent()
+                assertEquals("a live frame waits for the shaping dispatcher", recorded, vm.state.value.curve)
+
+                settle(shaping)
+                assertEquals(CurveSource.Live, (vm.state.value.curve as CurveUi.Ready).source)
+                deps.clocks.wall = NOW_MS + 3 * SEC_MS
+                readings.emit(liveReading(deps.clocks.wall, levelPct = 38))
+                settle(shaping)
+                assertEquals(38, (vm.state.value.curve as CurveUi.Ready).endLevelPct)
+                assertEquals("a live tick never re-reads the stored day", readsPerLoad, stored.iterations)
+            } finally {
+                vm.onIntent(HealthIntent.Hidden)
+                settle(shaping)
+            }
+        }
+
+    private fun TestScope.settle(shaping: HeldDispatcher) {
+        runCurrent()
+        while (shaping.pending > 0) {
+            shaping.drain()
+            runCurrent()
+        }
+    }
+}
+
+/** Holds what is dispatched to it until [drain], so a test sees exactly the work sent to it. */
+private class HeldDispatcher : CoroutineDispatcher() {
+    private val held = ArrayDeque<Runnable>()
+    val pending: Int get() = held.size
+
+    override fun dispatch(
+        context: CoroutineContext,
+        block: Runnable,
+    ) {
+        held += block
+    }
+
+    fun drain() {
+        while (held.isNotEmpty()) held.removeFirst().run()
+    }
+}
+
+/** A list that counts how often it is walked. */
+private class CountingList<T>(
+    private val items: List<T>,
+) : List<T> by items {
+    var iterations = 0
+
+    override fun iterator(): Iterator<T> {
+        iterations++
+        return items.iterator()
+    }
 }

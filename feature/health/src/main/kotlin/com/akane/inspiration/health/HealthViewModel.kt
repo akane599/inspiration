@@ -13,6 +13,8 @@ import com.akane.inspiration.telemetry.snapshot.LiveReading
 import com.akane.inspiration.telemetry.store.ChargeSessionRecord
 import com.akane.inspiration.telemetry.store.HealthSample
 import com.akane.inspiration.telemetry.store.TelemetrySample
+import kotlinx.coroutines.CoroutineDispatcher
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.delay
@@ -24,6 +26,7 @@ import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 /**
  * How long the curve stays live after its newest point: three periods plus the service bind timeout (5 s) a single
@@ -32,7 +35,11 @@ import kotlinx.coroutines.launch
  */
 internal const val LIVE_STALE_MS = 3 * CURVE_PERIOD_MS + 5_000L
 
-/** What the last load read. A null read failed; an empty list is a real "nothing recorded". */
+/**
+ * What the last load read, and everything derived from it alone. A null read failed; an empty list is a real "nothing
+ * recorded". The derived values are computed on construction, which happens once per load and off the main thread, so
+ * a live tick never maps, sorts or summarises the stored day again.
+ */
 private class HealthInputs(
     val kernel: KernelCapacitySnapshot?,
     val healthSamples: List<HealthSample>?,
@@ -43,6 +50,65 @@ private class HealthInputs(
 ) {
     val everyReadFailed: Boolean
         get() = kernel == null && healthSamples == null && sessions == null && history == null && samples == null
+
+    /** The persisted charging points in time order, one per time (the first stored wins). */
+    val persistedPoints: List<CurvePoint> =
+        samples
+            .orEmpty()
+            .mapNotNull { it.toCurvePoint() }
+            .distinctBy { it.wallMs }
+            .sortedBy { it.wallMs }
+    val historyPoints: List<CurvePoint> = history.orEmpty().mapNotNull { it.toCurvePoint() }
+    val historySpan: ChargeSpan? = history?.let(::lastChargeSpan)
+    val card: HealthCardUi = healthCard(kernel, healthSamples.orEmpty(), sessions.orEmpty())
+    val wear: WearUi = wearUi(healthSamples.orEmpty())
+}
+
+/**
+ * One frame from the last load and a snapshot of the screen's own state (taken on the main thread). It reads nothing
+ * mutable, so it runs on the shaping dispatcher.
+ */
+private fun shapeFrame(
+    loaded: HealthInputs,
+    live: List<CurvePoint>,
+    charging: Boolean,
+    observedPlugMs: Long?,
+    observedUnplugMs: Long?,
+    liveActive: Boolean,
+    nowMs: Long,
+): (HealthState) -> HealthState {
+    val sampled = mergeByTime(loaded.persistedPoints, live)
+    val inferredSpan = effectiveChargeSpan(loaded.historySpan, sampled, hasLive = live.isNotEmpty())
+    // Observed edges outrank stale history and gap heuristics, for persisted points as well as live ones.
+    val observedSpan =
+        observedPlugMs?.let { start ->
+            ChargeSpan(start, observedUnplugMs?.coerceAtLeast(start))
+        } ?: observedUnplugMs?.let { end ->
+            inferredSpan?.let { ChargeSpan(minOf(it.startMs, end), end) }
+        }
+    val span = observedSpan ?: inferredSpan
+    val session = chargeSession(span, sampled, loaded.historyPoints, hasLive = observedSpan == null && live.isNotEmpty())
+    val curve = curveUi(session, liveActive)
+    val analysis = if (curve is CurveUi.Ready) wearAnalysis(session, span, nowMs, liveActive) else null
+    val nothing =
+        loaded.kernel == null && loaded.healthSamples.orEmpty().isEmpty() &&
+            loaded.sessions.orEmpty().isEmpty() && curve is CurveUi.None && !charging
+    val phase =
+        when {
+            loaded.everyReadFailed && live.isEmpty() -> HealthPhase.Error
+            nothing -> HealthPhase.Empty
+            else -> HealthPhase.Ready
+        }
+    return { state ->
+        state.copy(
+            phase = phase,
+            charging = charging,
+            curve = curve,
+            card = loaded.card,
+            wear = loaded.wear,
+            analysis = analysis,
+        )
+    }
 }
 
 /**
@@ -50,10 +116,12 @@ private class HealthInputs(
  * is therefore tied to [HealthIntent.Visible] / [HealthIntent.Hidden] and the plug state, never to the ViewModel's
  * lifetime (H13): the live readings job and the Shizuku binding exist only while the screen is visible *and* the
  * phone is charging. Background charging is not recorded here; it shows up as battery-history events (H9). The stored
- * data is read on enter, on a pull, after an observed unplug and on every refresh tick while visible.
+ * data is read on enter, on a pull, after an observed unplug and on every refresh tick while visible, and shaped on
+ * [shapingDispatcher]: once per load for the stored day, then per frame (each live tick) merging the live points in.
  */
 class HealthViewModel(
     private val deps: HealthDependencies,
+    private val shapingDispatcher: CoroutineDispatcher = Dispatchers.Default,
 ) : ViewModel() {
     private val _state = MutableStateFlow(HealthState.Initial)
     val state: StateFlow<HealthState> = _state.asStateFlow()
@@ -78,6 +146,9 @@ class HealthViewModel(
 
     /** The load in flight. A newer load replaces it, so an older read can never land after a newer one. */
     private var loadJob: Job? = null
+
+    /** The frame being shaped. A newer render replaces it, so an older frame can never land after a newer one. */
+    private var renderJob: Job? = null
 
     /** The user asked for the running refresh (main thread only, like every intent). */
     private var userWaiting = false
@@ -247,15 +318,21 @@ class HealthViewModel(
         val to = deps.clocks.wallMs()
         val from = to - DATA_WINDOW_MS
         val kernel = attempt { deps.kernelBattery() }
+        val healthSamples = attempt { deps.healthSamples() }
+        val sessions = attempt { deps.chargeSessions() }
+        val history = attempt { deps.historyBetween(from, to) }
+        val samples = attempt { deps.samplesBetween(from, to) }
         inputs =
-            HealthInputs(
-                kernel = kernel,
-                healthSamples = attempt { deps.healthSamples() },
-                sessions = attempt { deps.chargeSessions() },
-                history = attempt { deps.historyBetween(from, to) },
-                samples = attempt { deps.samplesBetween(from, to) },
-                loadedAtMs = to,
-            )
+            withContext(shapingDispatcher) {
+                HealthInputs(
+                    kernel = kernel,
+                    healthSamples = healthSamples,
+                    sessions = sessions,
+                    history = history,
+                    samples = samples,
+                    loadedAtMs = to,
+                )
+            }
         render()
     }
 
@@ -265,45 +342,22 @@ class HealthViewModel(
             _state.update { it.copy(charging = charging) }
             return
         }
-        val nowMs = deps.clocks.wallMs()
+        // The screen's own state is read here, on the main thread; only immutable snapshots go to the shaping.
+        val live = live.toList()
+        val charging = charging
+        val observedPlugMs = observedPlugMs
+        val observedUnplugMs = observedUnplugMs
         val liveActive = liveFresh
-        val sampled =
-            (loaded.samples.orEmpty().mapNotNull { it.toCurvePoint() } + live)
-                .distinctBy { it.wallMs }
-                .sortedBy { it.wallMs }
-        val historyPoints = loaded.history.orEmpty().mapNotNull { it.toCurvePoint() }
-        val inferredSpan = effectiveChargeSpan(loaded.history?.let(::lastChargeSpan), sampled, hasLive = live.isNotEmpty())
-        // Observed edges outrank stale history and gap heuristics, for persisted points as well as live ones.
-        val observedSpan =
-            observedPlugMs?.let { start ->
-                ChargeSpan(start, observedUnplugMs?.coerceAtLeast(start))
-            } ?: observedUnplugMs?.let { end ->
-                inferredSpan?.let { ChargeSpan(minOf(it.startMs, end), end) }
+        val nowMs = deps.clocks.wallMs()
+        renderJob?.cancel()
+        renderJob =
+            viewModelScope.launch {
+                val frame =
+                    withContext(shapingDispatcher) {
+                        shapeFrame(loaded, live, charging, observedPlugMs, observedUnplugMs, liveActive, nowMs)
+                    }
+                _state.update(frame)
             }
-        val span = observedSpan ?: inferredSpan
-        val session = chargeSession(span, sampled, historyPoints, hasLive = observedSpan == null && live.isNotEmpty())
-        val curve = curveUi(session, liveActive)
-        val card = healthCard(loaded.kernel, loaded.healthSamples.orEmpty(), loaded.sessions.orEmpty())
-        val wear = wearUi(loaded.healthSamples.orEmpty())
-        val analysis = if (curve is CurveUi.Ready) wearAnalysis(session, span, nowMs, liveActive) else null
-        val nothing =
-            loaded.kernel == null && loaded.healthSamples.orEmpty().isEmpty() &&
-                loaded.sessions.orEmpty().isEmpty() && curve is CurveUi.None && !charging
-        _state.update {
-            it.copy(
-                phase =
-                    when {
-                        loaded.everyReadFailed && live.isEmpty() -> HealthPhase.Error
-                        nothing -> HealthPhase.Empty
-                        else -> HealthPhase.Ready
-                    },
-                charging = charging,
-                curve = curve,
-                card = card,
-                wear = wear,
-                analysis = analysis,
-            )
-        }
     }
 
     override fun onCleared() {

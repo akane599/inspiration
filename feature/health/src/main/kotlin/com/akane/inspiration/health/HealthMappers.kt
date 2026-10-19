@@ -185,6 +185,47 @@ internal fun lastRun(points: List<CurvePoint>): List<CurvePoint> {
     return sorted.subList(start, sorted.size)
 }
 
+/**
+ * [persisted] (in time order, one point per time) and [live] (strictly increasing times) as one list in time order,
+ * where a persisted point wins over a live point at the same time. It is
+ * `(persisted + live).distinctBy { it.wallMs }.sortedBy { it.wallMs }` in one linear pass, so a live tick never
+ * re-sorts the stored day.
+ */
+internal fun mergeByTime(
+    persisted: List<CurvePoint>,
+    live: List<CurvePoint>,
+): List<CurvePoint> {
+    if (live.isEmpty()) return persisted
+    val merged = ArrayList<CurvePoint>(persisted.size + live.size)
+    var i = 0
+    var j = 0
+    while (i < persisted.size || j < live.size) {
+        when {
+            j == live.size -> {
+                merged += persisted[i++]
+            }
+
+            i == persisted.size -> {
+                merged += live[j++]
+            }
+
+            persisted[i].wallMs < live[j].wallMs -> {
+                merged += persisted[i++]
+            }
+
+            persisted[i].wallMs > live[j].wallMs -> {
+                merged += live[j++]
+            }
+
+            else -> {
+                merged += persisted[i++]
+                j++
+            }
+        }
+    }
+    return merged
+}
+
 /** Resolve the same span for both the curve points and their duration analysis. */
 internal fun effectiveChargeSpan(
     span: ChargeSpan?,

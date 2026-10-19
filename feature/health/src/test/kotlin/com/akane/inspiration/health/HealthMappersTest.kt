@@ -10,6 +10,7 @@ import org.junit.Test
 import java.io.File
 import java.util.Locale
 import javax.xml.parsers.DocumentBuilderFactory
+import kotlin.random.Random
 
 class HealthMappersTest {
     @Test
@@ -186,6 +187,28 @@ class HealthMappersTest {
         assertEquals(span, effectiveChargeSpan(span, buffered, hasLive = true))
         val history = listOf(point(0, fromHistory = true), point(5 * MIN_MS, fromHistory = true))
         assertEquals(0L, chargeSession(span, buffered, history, true).first().wallMs)
+    }
+
+    @Test
+    fun `merging live points into the stored day equals sorting their union with a stored point winning a tie`() {
+        for (seed in 0 until 200) {
+            val random = Random(seed)
+            // Unsorted, with repeated times, as a store may return them; the two sources differ in temperature.
+            val stored = List(random.nextInt(0, 40)) { point(random.nextLong(0, 60) * SEC_MS, level = random.nextInt(0, 101)) }
+            val live =
+                buildList {
+                    var at = random.nextLong(-5, 70)
+                    repeat(random.nextInt(0, 25)) {
+                        add(point(at * SEC_MS, level = random.nextInt(0, 101), tempC = 35.0))
+                        at += random.nextLong(1, 4)
+                    }
+                }
+
+            val before = (stored + live).distinctBy { it.wallMs }.sortedBy { it.wallMs }
+            val prepared = stored.distinctBy { it.wallMs }.sortedBy { it.wallMs }
+
+            assertEquals("seed $seed", before, mergeByTime(prepared, live))
+        }
     }
 
     @Test

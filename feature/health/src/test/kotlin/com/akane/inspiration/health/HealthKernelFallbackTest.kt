@@ -52,7 +52,7 @@ class HealthKernelFallbackTest {
                     override suspend fun kernelBattery(): KernelCapacitySnapshot? = kernelResult.await()
                 }
             val store = ViewModelStore()
-            val vm = ViewModelProvider(store, HealthViewModel.factory(deps))[HealthViewModel::class.java]
+            val vm = ViewModelProvider(store, testFactory(deps, dispatcher))[HealthViewModel::class.java]
             try {
                 vm.onIntent(HealthIntent.Visible)
                 runCurrent()

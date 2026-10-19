@@ -1,5 +1,8 @@
 package com.akane.inspiration.health
 
+import androidx.lifecycle.ViewModelProvider
+import androidx.lifecycle.viewmodel.initializer
+import androidx.lifecycle.viewmodel.viewModelFactory
 import com.akane.inspiration.ipc.model.HistoryEvent
 import com.akane.inspiration.ipc.model.HistoryKind
 import com.akane.inspiration.telemetry.app.KernelCapacitySnapshot
@@ -10,6 +13,7 @@ import com.akane.inspiration.telemetry.store.ChargeSessionRecord
 import com.akane.inspiration.telemetry.store.HealthSample
 import com.akane.inspiration.telemetry.store.TelemetrySample
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -19,6 +23,12 @@ internal const val HOUR_MS = 3_600_000L
 internal const val MIN_MS = 60_000L
 internal const val SEC_MS = 1_000L
 internal const val NOW_MS = 1_000L * HOUR_MS
+
+/** [HealthViewModel.factory] with the shaping on the test's dispatcher, so `runCurrent` runs it. */
+internal fun testFactory(
+    deps: HealthDependencies,
+    shaping: CoroutineDispatcher,
+): ViewModelProvider.Factory = viewModelFactory { initializer { HealthViewModel(deps, shaping) } }
 
 internal class FakeClocks(
     var wall: Long = NOW_MS,
