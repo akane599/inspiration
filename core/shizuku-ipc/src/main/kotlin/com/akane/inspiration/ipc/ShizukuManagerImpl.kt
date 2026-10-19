@@ -230,12 +230,20 @@ class ShizukuManagerImpl private constructor(
      * Acquires a service use, first waiting while Shizuku is NotRunning: in a cold process that is the state
      * before the binder push, which a call made right away must outlast. Any other state that is not Ready
      * (no permission, not installed, a state added later) cannot turn into Ready by itself, so it fails at once.
+     *
+     * The decision is made under [bindingLock], where Ready is published: a state read after a separate failed
+     * acquire could see a Ready that arrived in between and give up although the use was available (F-16).
      */
     private suspend fun awaitServiceUse(): Boolean {
         while (true) {
-            if (acquireServiceUse()) return true
-            if (!started || mutableState.value !is ShizukuState.NotRunning) return false
-            mutableState.first { it !is ShizukuState.NotRunning }
+            when (acquireServiceUse()) {
+                ServiceUse.ACQUIRED -> return true
+
+                ServiceUse.UNAVAILABLE -> return false
+
+                // StateFlow.first sees the current value, so a Ready published after the decision is not missed.
+                ServiceUse.AWAIT_RUNNING -> mutableState.first { it !is ShizukuState.NotRunning }
+            }
         }
     }
 
@@ -268,16 +276,26 @@ class ShizukuManagerImpl private constructor(
         }
     }
 
-    private fun acquireServiceUse(): Boolean =
+    private fun acquireServiceUse(): ServiceUse =
         synchronized(bindingLock) {
-            if (mutableState.value !is ShizukuState.Ready || applicationInfo == null) {
-                false
-            } else {
-                activeServiceUsers += 1
-                bindIfRequiredLocked()
-                true
+            when {
+                mutableState.value is ShizukuState.Ready && applicationInfo != null -> {
+                    activeServiceUsers += 1
+                    bindIfRequiredLocked()
+                    ServiceUse.ACQUIRED
+                }
+
+                started && mutableState.value is ShizukuState.NotRunning -> {
+                    ServiceUse.AWAIT_RUNNING
+                }
+
+                else -> {
+                    ServiceUse.UNAVAILABLE
+                }
             }
         }
+
+    private enum class ServiceUse { ACQUIRED, AWAIT_RUNNING, UNAVAILABLE }
 
     private fun releaseServiceUse() {
         synchronized(bindingLock) {
