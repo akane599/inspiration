@@ -3,34 +3,6 @@
     {
       "commit": null,
       "definitions": {
-        ".claude-plugin/plugin.json": "d9cee345b2fb6c6a11974547b7e091b47ef784494278278e7d650bbba8ef8222"
-      },
-      "id": "android-emulator-qa@android-claude",
-      "scope": "project",
-      "version": "1.0.0"
-    },
-    {
-      "commit": null,
-      "definitions": {
-        ".claude-plugin/plugin.json": "d9cee345b2fb6c6a11974547b7e091b47ef784494278278e7d650bbba8ef8222"
-      },
-      "id": "android-emulator-qa@android-hybrid",
-      "scope": "project",
-      "version": "1.0.0"
-    },
-    {
-      "commit": null,
-      "definitions": {
-        ".claude-plugin/marketplace.json": "e8f07c47faefa54e1447754094d169ee7b13a4f0227d72d47a758e44ecac0b27",
-        ".claude-plugin/plugin.json": "4966eb8dfba988cde7225a02571ba9a022602f99fd2ebf745f2ca5ecd1fbbd21"
-      },
-      "id": "android-kmp-playbook@android-claude",
-      "scope": "project",
-      "version": "1.0.0"
-    },
-    {
-      "commit": null,
-      "definitions": {
         ".claude-plugin/marketplace.json": "e8f07c47faefa54e1447754094d169ee7b13a4f0227d72d47a758e44ecac0b27",
         ".claude-plugin/plugin.json": "4966eb8dfba988cde7225a02571ba9a022602f99fd2ebf745f2ca5ecd1fbbd21"
       },
@@ -81,28 +53,6 @@
         "hooks/post-version-bump.md": "d6730157252b15ac2885eb302ec77ad962dab45bd7208c8058bd597910a85a70",
         "hooks/pre-build-check.md": "ac7dc1da08bb1bef194d7cfd4f06f6eb70bd6a5bd3f2f91be723e1421583025e"
       },
-      "id": "droidforge@android-claude",
-      "scope": "project",
-      "version": "1.0.0"
-    },
-    {
-      "commit": null,
-      "definitions": {
-        ".claude-plugin/marketplace.json": "491418fbd2d5416ba24956ed5b67e3ce7eb639cac0d7df302dc0a580a54cbb6a",
-        ".claude-plugin/plugin.json": "1279f7ff5a1ab11e00e5865bb4f7048acb247223f2490b51b074d1a6cb5759bd",
-        "agents/gradle-agent.md": "850038b630fdb96ce419240dd2f9dff6e2c10cb1afa85cb05110e0811e43ba2c",
-        "agents/release-agent.md": "49a3614cbc1c41924477699f3f75482caf8e046f8ecdd6c202106f91a09cab8d",
-        "agents/setup-agent.md": "b8865550d715ddc9d62061f1c26bd29036d9c50737f6f86f21397a757de62706",
-        "commands/gradle-update.md": "69e02f8f5730495f503d7047c4ea1d071dbddcdb9afbd2524b7926e4e7d0be68",
-        "commands/keystore.md": "d767d439ee0aa58371df5672b8ff2567f191dc5b94b383d93d2e5d351e0fb9f2",
-        "commands/new-app.md": "79a57c2171a3ad7854961546b63c6587b3dd4a41d23890d9fb86ba5c7eb3aac1",
-        "commands/release-checklist.md": "ae1d57ef144e5fb6aad78a9795e7a63931d535548a39075f4681793fc6307818",
-        "commands/setup.md": "1171df161b695862b13be097d2b76c5bc7e660994f75172c4ba308c472344840",
-        "commands/signing-config.md": "e256ebdd519d43b7642db02aa6165016fc37f06662b7535881ec780b23d675cb",
-        "commands/version-bump.md": "71b349014ecb4fdeb1664a14c3f5642f5a33353d4e7404dc5edae1042b134b3c",
-        "hooks/post-version-bump.md": "d6730157252b15ac2885eb302ec77ad962dab45bd7208c8058bd597910a85a70",
-        "hooks/pre-build-check.md": "ac7dc1da08bb1bef194d7cfd4f06f6eb70bd6a5bd3f2f91be723e1421583025e"
-      },
       "id": "droidforge@android-hybrid",
       "scope": "project",
       "version": "1.0.0"
@@ -111,15 +61,6 @@
       "commit": null,
       "definitions": {},
       "id": "jdtls-lsp@claude-plugins-official",
-      "scope": "project",
-      "version": "1.0.0"
-    },
-    {
-      "commit": null,
-      "definitions": {
-        ".claude-plugin/plugin.json": "1d0ac5c5130445ef678225003ec569ce6f0ceb2d90f3ef14a93531a8aa01017c"
-      },
-      "id": "kotlin-lsp-android@android-claude",
       "scope": "project",
       "version": "1.0.0"
     },
@@ -286,5 +227,5 @@
     }
   ],
   "policy": "Drift record; not a package resolver or shared-cache downgrade.",
-  "recorded": "20261018T215029.159576Z"
+  "recorded": "20261019T013740.875413Z"
 }
