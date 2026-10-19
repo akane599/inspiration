@@ -25,6 +25,7 @@ internal class Gutters(
 
 /** Everything the gesture loop reads at event time. All are `rememberUpdatedState` values. */
 internal class ScrubGestureInputs(
+    val window: State<TimeRange>,
     val selection: State<TimeRange?>,
     val minSelectionMs: State<Long>,
     val gutters: State<Gutters>,
@@ -36,14 +37,15 @@ internal class ScrubGestureInputs(
 /**
  * One `pointerInput` with a single [awaitEachGesture] loop feeding [ScrubGestureReducer].
  * Long press is detected here with [withTimeoutOrNull]; the reducer decides everything else.
- * Keyed on the window only: callbacks and selection are read through [inputs].
+ * Keyed only on the chart-lifetime [state] and [inputs], so a data reload (a new window) never restarts
+ * the loop and cancels a gesture in progress. The window, callbacks and selection are read through
+ * [inputs]; each gesture keeps the [TimeScale] built from the window current at its Down.
  */
 internal fun Modifier.scrubGestures(
-    window: TimeRange,
     state: ScrubInteractionState,
     inputs: ScrubGestureInputs,
 ): Modifier =
-    pointerInput(window) {
+    pointerInput(state, inputs) {
         // HandleHit is the 48 dp target's diameter; the reducer takes a radius.
         val handleHitPx = ScrubChartMetrics.HandleHit.toPx() / 2f
         val slopPx = viewConfiguration.touchSlop
@@ -55,7 +57,7 @@ internal fun Modifier.scrubGestures(
             val driver =
                 ScrubGestureDriver(
                     reducer = ScrubGestureReducer(inputs.minSelectionMs.value, slopPx, handleHitPx),
-                    scale = TimeScale(window, plotWidth),
+                    scale = TimeScale(inputs.window.value, plotWidth),
                     state = state,
                     inputs = inputs,
                 )

@@ -231,7 +231,8 @@ private fun ScrubPlot(
         }
 
     // Each rememberUpdatedState keeps one State instance for the chart's lifetime, so the gesture loop
-    // (keyed on the window only) always reads the latest callbacks and selection through it.
+    // (never restarted by a data reload) always reads the latest window, callbacks and selection through it.
+    val windowState = rememberUpdatedState(data.window)
     val currentOnSelectionChange = rememberUpdatedState(onSelectionChange)
     val minSelectionState = rememberUpdatedState(minSelectionMs)
     val guttersState = rememberUpdatedState(gutters)
@@ -240,6 +241,7 @@ private fun ScrubPlot(
     val gestureInputs =
         remember {
             ScrubGestureInputs(
+                window = windowState,
                 selection = drawInputs.selection,
                 minSelectionMs = minSelectionState,
                 gutters = guttersState,
@@ -291,7 +293,7 @@ private fun ScrubPlot(
                     }
                 }.systemGestureExclusion { coordinates ->
                     Rect(0f, 0f, coordinates.size.width.toFloat(), exclusionHeightPx)
-                }.then(if (isEmpty) Modifier else Modifier.scrubGestures(data.window, interaction, gestureInputs))
+                }.then(if (isEmpty) Modifier else Modifier.scrubGestures(interaction, gestureInputs))
                 .drawWithCache {
                     val renderer = buildScrubRenderer(config)
                     // The data layer is recorded once per cache build into its own offscreen layer, so a drag frame
