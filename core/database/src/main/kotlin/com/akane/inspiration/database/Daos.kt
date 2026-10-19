@@ -249,10 +249,16 @@ interface ToolkitActionDao {
     @Query("SELECT * FROM toolkit_action WHERE status = :status ORDER BY id")
     suspend fun withStatus(status: String): List<ToolkitActionEntity>
 
-    /** Display history may expire; pending writes and successful restore chains must remain recoverable. */
+    /**
+     * Display history may expire; pending writes and override chains must remain recoverable. A chain also
+     * holds failed writes that moved their target to a third value (a known `afterRaw` other than `beforeRaw`);
+     * this keeps a superset of those, the toolkit decides exactly.
+     */
     @Query(
         "DELETE FROM toolkit_action WHERE status != 'pending' " +
             "AND NOT (status IN ('done', 'restored') AND kind IN ('appop', 'bucket', 'doze')) " +
+            "AND NOT (status = 'failed' AND kind IN ('appop', 'bucket', 'doze') AND afterRaw IS NOT NULL " +
+            "AND afterRaw != '' AND (beforeRaw IS NULL OR afterRaw != beforeRaw)) " +
             "AND id NOT IN (SELECT id FROM toolkit_action ORDER BY id DESC LIMIT :keep)",
     )
     suspend fun pruneTo(keep: Int): Int

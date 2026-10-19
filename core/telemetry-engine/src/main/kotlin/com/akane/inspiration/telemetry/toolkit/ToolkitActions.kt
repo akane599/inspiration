@@ -286,7 +286,8 @@ class ToolkitActions internal constructor(
     /**
      * Finalizes rows left PENDING by a crash or kill, a lost reply, or a write the service could not verify
      * (those of an override target are also settled before that target is used again). The state is read back: DONE when it matches the
-     * intended `after`, otherwise FAILED (a job whose status is gone is CANCELLED instead). A row whose
+     * intended `after`, otherwise FAILED (a job whose status is gone is CANCELLED instead; a FAILED override row
+     * whose read-back left its `before` stays in its chain, see [changedTarget]). A row whose
      * state cannot be read (service unreachable, or a dexopt status that is UNKNOWN or still RUNNING)
      * stays PENDING and is retried on the next call.
      */
@@ -737,7 +738,8 @@ class ToolkitActions internal constructor(
         val all = audit.recent(MAX_ROWS)
         val record = all.firstOrNull { it.id == actionId } ?: return Decoded.No(ToolkitRefusal.UNKNOWN_ACTION)
         if (record.status == ToolkitActionStatus.RESTORED) return Decoded.No(ToolkitRefusal.ALREADY_RESTORED)
-        if (record.status != ToolkitActionStatus.DONE || record.restoresId != null) {
+        // A write that moved its target to a third value is undone like a DONE one (see changedTarget).
+        if ((record.status != ToolkitActionStatus.DONE && !landedElsewhere(record)) || record.restoresId != null) {
             return Decoded.No(ToolkitRefusal.NOT_RESTORABLE)
         }
         // An override row goes back to its chain's original, like resetAll; a chain whose own `after` already
@@ -796,27 +798,48 @@ class ToolkitActions internal constructor(
     // ---- active overrides ------------------------------------------------------------------
 
     /**
-     * Successful override-kind rows, newest first: DONE rows, plus RESTORED ones. A RESTORED row is a
+     * Override-kind rows that changed their target ([changedTarget]), newest first. A RESTORED row is a
      * change that did happen and was undone by a newer restore row, so it still belongs to its chain;
      * dropping it would break the chain and make [chainOriginal] stop at an intermediate value.
      */
     private suspend fun overrideRows(): List<ToolkitActionRecord> = overrideRows(audit.recent(MAX_ROWS))
 
     private fun overrideRows(all: List<ToolkitActionRecord>): List<ToolkitActionRecord> = all
-        .filter {
-            (it.status == ToolkitActionStatus.DONE || it.status == ToolkitActionStatus.RESTORED) &&
-                it.kind in OVERRIDE_KINDS
-        }
+        .filter { it.kind in OVERRIDE_KINDS && changedTarget(it) }
         .sortedByDescending { it.id }
+
+    /**
+     * Chain membership comes from the values read back around a write, not from how the write was reported:
+     * DONE and RESTORED rows changed their target, and so did a FAILED row that [landedElsewhere]. Such a
+     * write is still reported as not effective, but the device was changed, so overrides, Reset all and
+     * restore must see it, and a chain it continues must not break at it.
+     */
+    private fun changedTarget(row: ToolkitActionRecord): Boolean = when (row.status) {
+        ToolkitActionStatus.DONE, ToolkitActionStatus.RESTORED -> true
+        ToolkitActionStatus.FAILED -> landedElsewhere(row)
+        else -> false
+    }
+
+    /**
+     * A FAILED override row whose known `after` is not its known `before`: the target moved to a third value
+     * (NOT_EFFECTIVE, e.g. a standby bucket clamped to the app's minimum). A doze `before` of null is "unset";
+     * a null `after` is unknown (a FAILED doze reply does not tell unset from unread).
+     */
+    private fun landedElsewhere(row: ToolkitActionRecord): Boolean {
+        if (row.status != ToolkitActionStatus.FAILED || row.kind !in OVERRIDE_KINDS) return false
+        val after = norm(row.afterRaw) ?: return false
+        if (row.kind != KIND_DOZE && row.beforeRaw == null) return false
+        return after != norm(row.beforeRaw) && !sameState(row.kind, after, row.beforeRaw)
+    }
 
     private suspend fun computeOverrides(): List<Override> = computeOverrides(overrideRows())
 
     private suspend fun computeOverrides(rows: List<ToolkitActionRecord>): List<Override> {
-        // The newest successful write per target decides; a newer restore row (or a RESTORED newest row)
+        // The newest write that changed each target decides; a newer restore row (or a RESTORED newest row)
         // means nothing is overridden.
         val newest = LinkedHashMap<String, ToolkitActionRecord>()
         for (row in rows) newest.putIfAbsent(targetKey(row), row)
-        val candidates = newest.values.filter { it.restoresId == null && it.status == ToolkitActionStatus.DONE }
+        val candidates = newest.values.filter { it.restoresId == null && it.status != ToolkitActionStatus.RESTORED }
         val result = mutableListOf<Override>()
         for ((pkg, group) in candidates.filter { it.kind != KIND_DOZE }.groupBy { it.pkg }) {
             val name = pkg ?: continue
@@ -851,10 +874,15 @@ class ToolkitActions internal constructor(
     private fun targetKey(kind: String, pkg: String?, op: String): String =
         if (kind == KIND_DOZE) KIND_DOZE else "$kind|$pkg|${if (kind == KIND_APPOP) op else ""}"
 
-    /** Still ours when the value read back equals what we wrote, and that differs from what was there. */
+    /**
+     * Still ours when the value read back equals what [row] left (an unset doze value is never an override).
+     * Whether that differs from what was there is the chain's question, not this row's: a write of the value
+     * already in place (`before` == `after`) repeats the override below it, so [activeOverride] compares with
+     * [chainOriginal] instead of with this row's own `before`.
+     */
     private fun isActive(row: ToolkitActionRecord, current: String?): Boolean {
         val after = norm(row.afterRaw)
-        if (norm(current) != after || after == norm(row.beforeRaw)) return false
+        if (norm(current) != after) return false
         return row.kind != KIND_DOZE || after != null
     }
 
@@ -920,7 +948,7 @@ class ToolkitActions internal constructor(
                     row.copy(status = ToolkitActionStatus.DONE, endedAt = now, code = ToolkitCode.OK, afterRaw = verdict.current),
                 )
                 val original = row.restoresId?.let { id -> audit.recent(MAX_ROWS).firstOrNull { it.id == id } }
-                if (original != null && original.status == ToolkitActionStatus.DONE) {
+                if (original != null && (original.status == ToolkitActionStatus.DONE || landedElsewhere(original))) {
                     audit.update(original.copy(status = ToolkitActionStatus.RESTORED))
                 }
             }
