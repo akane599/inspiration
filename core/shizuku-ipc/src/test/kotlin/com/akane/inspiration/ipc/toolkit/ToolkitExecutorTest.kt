@@ -222,7 +222,7 @@ class ToolkitExecutorTest {
     }
 
     @Test
-    fun `a force-stop whose read-back fails is unverified, not failed`() {
+    fun `a force-stop whose command succeeded is done even when the lookup after it fails`() {
         val executor = executor()
         val base = runner.handler
         runner.handler = { argv ->
@@ -234,7 +234,8 @@ class ToolkitExecutorTest {
 
         val result = executor.forceStop(APP)
 
-        assertEquals(ToolkitResult.unavailable(ToolkitCode.UNVERIFIED, before = "stopped=false"), result)
+        // Not unverified: nothing could read a stop back later, so the client would settle it as failed.
+        assertEquals(ToolkitResult.done(before = "stopped=false", after = null), result)
     }
 
     @Test

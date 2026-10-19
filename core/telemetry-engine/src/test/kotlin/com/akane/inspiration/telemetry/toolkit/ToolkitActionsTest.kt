@@ -110,6 +110,22 @@ class ToolkitActionsTest {
         }
 
     @Test
+    fun aForceStopThatRanButCouldNotBeLookedUpAfterIsDone() =
+        runTest {
+            // The service ran the stop, then its package lookup failed: DONE without an after (N-15).
+            backend.scriptedWrite = ToolkitResult.done(before = "stopped=false", after = null)
+
+            val outcome = actions.execute(ToolkitAction.ForceStop(PKG), confirmed = true)
+
+            val row = (outcome as ToolkitOutcome.Done).value
+            assertEquals(ToolkitActionStatus.DONE, row.status)
+            assertEquals(ToolkitCode.OK, row.code)
+            assertEquals("stopped=false", row.beforeRaw)
+            assertNull(row.afterRaw)
+            assertEquals(ToolkitActionStatus.DONE, audit.byId(row.id).status)
+        }
+
+    @Test
     fun invalidPackageIsRefusedWithoutTouchingTheService() =
         runTest {
             val outcome = actions.execute(ToolkitAction.SetBucket("--user 5\n", StandbyBucket.RARE))
@@ -375,6 +391,8 @@ class ToolkitActionsTest {
     @Test
     fun reconcileMarksUnverifiableForceStopFailedAndUnknownKindFailed() =
         runTest {
+            // A force-stop stays PENDING only when its command timed out or its reply was lost (a stop whose command
+            // succeeded is DONE even without a lookup after it). Nothing can read a stop back, so it settles FAILED.
             val stop = audit.insert(pendingRow("force_stop", "force_stop", null, before = null))
             val odd = audit.insert(pendingRow("from_a_newer_build", "x", null))
             actions.reconcile()

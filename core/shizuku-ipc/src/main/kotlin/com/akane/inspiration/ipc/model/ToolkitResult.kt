@@ -5,8 +5,9 @@ import kotlinx.parcelize.Parcelize
 /**
  * Outcome of a typed privileged action. Only ints and strings cross the binder (no enums).
  *
- * [beforeRaw]/[afterRaw] are read back inside the service. On a DONE result, null means the
- * underlying value is unset (doze constants); a failed read-back never yields DONE.
+ * [beforeRaw]/[afterRaw] are read back inside the service. On a DONE result, a null [afterRaw] means the
+ * underlying value is unset (doze constants), or, for a force-stop only, that the stop ran but the package
+ * lookup after it failed. Otherwise a failed read-back never yields DONE (see [ToolkitCode.UNVERIFIED]).
  */
 @Parcelize
 data class ToolkitResult(
@@ -121,8 +122,9 @@ object ToolkitCode {
 
     /**
      * UNAVAILABLE: the write was issued but its outcome is unknown (the command timed out after it may have
-     * committed, the read-back failed, or a doze rollback did not land). The client keeps the audit row
-     * PENDING and reads the target back later instead of recording a failure.
+     * committed, an app-op or bucket read-back failed, or a doze rollback did not land). The client keeps the
+     * audit row PENDING and reads the target back later instead of recording a failure. A force-stop is
+     * UNVERIFIED only when it timed out: one whose command succeeded is DONE even if the lookup after it failed.
      */
     const val UNVERIFIED = 35
 
