@@ -124,7 +124,6 @@ internal fun resolvedOf(
     fromMs: Long = 0,
     toMs: Long = HOUR_MS,
     perUidAvailable: Boolean = true,
-    gapMs: Long = 0,
 ) = ResolvedReference(
     ref = snapshotAt(fromMs),
     now = snapshotAt(toMs),
@@ -132,7 +131,7 @@ internal fun resolvedOf(
     boundaryToWallMs = toMs,
     coveredFromWallMs = fromMs,
     coveredToWallMs = toMs,
-    gapMs = gapMs,
+    gapMs = 0,
     perUidAvailable = perUidAvailable,
 )
 

@@ -85,7 +85,7 @@ data class AppRow(
 
 /**
  * The time slice the figures describe (H14). [coveredFromMs]/[coveredToMs] are null while the data does
- * not cover it at all; [gapMs] is only set when the uncovered part is over five minutes.
+ * not cover it at all.
  */
 @Immutable
 data class SliceInfo(
@@ -93,7 +93,6 @@ data class SliceInfo(
     val requestedToMs: Long,
     val coveredFromMs: Long?,
     val coveredToMs: Long?,
-    val gapMs: Long?,
 )
 
 enum class BlockedReason { NOT_INSTALLED, NOT_RUNNING, PERMISSION_REQUIRED, PERMISSION_DENIED, UNSUPPORTED_SERVER }

@@ -130,9 +130,6 @@ class ToolkitGateway(
     /** Idempotent and system-side: valid whether or not this process started the job. */
     internal suspend fun cancelBgDexopt(): GatewayReply<ToolkitResult> = call { it.cancelBgDexopt() }
 
-    /** For container teardown; normally the bridge lapses by itself. */
-    fun release() = releaseHold()
-
     private suspend fun <T : Any> call(block: (ITelemetryUserService) -> T?): GatewayReply<T> {
         // Set right before the typed transaction. While it is false nothing but the API check reached the service,
         // so a failure then (no service, a bind timeout, a dead binder on the API check, a stale API) left the

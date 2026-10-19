@@ -467,9 +467,6 @@ class ToolkitActions internal constructor(
             }
         }.distinctUntilChanged()
 
-    /** For container teardown; normally the hold ends via [bgDexoptStatus]. */
-    fun release() = syncHold(running = false)
-
     // ---- planning --------------------------------------------------------------------------
 
     private suspend fun planLocked(

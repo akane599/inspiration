@@ -548,11 +548,8 @@ class ToolkitViewModelTest {
         start()
         restrict(MAIL)
         // installedApps() lists launchable packages only and does not read overrides itself (F-19): Mail has no
-        // launcher, and a stale flag on an entry is not trusted.
-        deps.apps =
-            DEFAULT_APPS
-                .filter { it.launchable }
-                .map { it.copy(restricted = it.packageName == CHATTY) }
+        // launcher, so only the screen's override read can list it.
+        deps.apps = DEFAULT_APPS.filter { it.packageName != MAIL }
         vm.onIntent(ToolkitIntent.Reload)
 
         assertEquals(listOf(MAIL, CALC, CHATTY, MAPS), state.apps.items.map { it.packageName })
@@ -619,7 +616,7 @@ class ToolkitViewModelTest {
 
     @Test
     fun `an entry without a label gets one from the label source`() {
-        start { apps = listOf(AppEntry("com.example.nolabel", "", launchable = true, restricted = false)) }
+        start { apps = listOf(AppEntry("com.example.nolabel", "")) }
 
         assertEquals(
             "Label of com.example.nolabel",
@@ -903,7 +900,7 @@ class ToolkitViewModelTest {
         // Case-insensitive code-point order would put `Çay` and `Ölçer` after `Zil` (N-20).
         val labels = listOf("Zil", "Çay", "Dergi", "Ölçer", "arşiv")
         start(locale = Locale.forLanguageTag("tr")) {
-            apps = labels.mapIndexed { i, label -> AppEntry("com.example.app$i", label, launchable = true, restricted = false) }
+            apps = labels.mapIndexed { i, label -> AppEntry("com.example.app$i", label) }
         }
 
         assertEquals(listOf("arşiv", "Çay", "Dergi", "Ölçer", "Zil"), state.apps.items.map { it.label })
@@ -1151,14 +1148,14 @@ class ToolkitViewModelTest {
     }
 
     @Test
-    fun `a started job shows as running and the screen takes no binding hold of its own`() {
+    fun `a started job shows as running and the toolkit holds its binding`() {
         start()
 
         vm.onIntent(ToolkitIntent.StartDexopt)
 
         assertEquals(ToolkitNotice.Applied(Change.DexoptStarted), state.dexopt.notice)
         assertTrue(state.dexopt.status is BgDexoptStatus.Running)
-        assertEquals(0, deps.screenHolds)
+        // ToolkitDependencies has no holdBinding(): the only hold is the one ToolkitActions takes.
         assertEquals(1, device.holds)
 
         vm.onIntent(ToolkitIntent.StartDexopt)

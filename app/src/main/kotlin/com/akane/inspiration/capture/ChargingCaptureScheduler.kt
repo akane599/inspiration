@@ -21,11 +21,9 @@ object ChargingCaptureScheduler {
         )
     }
 
-    fun arm(
-        context: Context,
-        reArmFromJob: Boolean = false,
-    ) {
-        arm(reArmFromJob, schedule = { jobId, latencyMs -> schedule(context, jobId, latencyMs) })
+    /** An immediate arm; only [reArmIfUnchanged] schedules the delayed re-arm, so a caller cannot skip the count. */
+    fun arm(context: Context) {
+        arm(schedule = { jobId, latencyMs -> schedule(context, jobId, latencyMs) })
     }
 
     internal fun reArmIfUnchanged(

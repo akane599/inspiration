@@ -46,7 +46,6 @@ private class HealthInputs(
     val sessions: List<ChargeSessionRecord>?,
     val history: List<HistoryEvent>?,
     val samples: List<TelemetrySample>?,
-    val loadedAtMs: Long,
     /** The previous load's [persistedPoints], drawn again when this load's samples read failed. */
     previousPoints: List<CurvePoint>,
 ) {
@@ -385,7 +384,6 @@ class HealthViewModel(
                     sessions = sessions,
                     history = history,
                     samples = samples,
-                    loadedAtMs = to,
                     previousPoints = previousPoints,
                 )
             }.also { live.dropStored(it.persistedPoints) }

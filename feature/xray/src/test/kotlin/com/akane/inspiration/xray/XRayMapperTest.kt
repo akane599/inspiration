@@ -283,12 +283,13 @@ class XRayMapperTest {
     }
 
     @Test
-    fun `the slice banner only exists for a time slice, and a gap shows past five minutes`() {
+    fun `the slice banner only exists for a time slice`() {
         val slice = ReferenceKind.TimeSlice(1_000L, 9_000L)
 
         assertNull(XRayMapper.slice(ReferenceKind.SinceUnplugged, resolvedOf()))
-        assertNull(XRayMapper.slice(slice, resolvedOf(1_000L, 9_000L, gapMs = 5 * 60_000L))?.gapMs)
-        assertEquals(6 * 60_000L, XRayMapper.slice(slice, resolvedOf(1_000L, 9_000L, gapMs = 6 * 60_000L))?.gapMs)
+        val covered = XRayMapper.slice(slice, resolvedOf(2_000L, 9_000L))!!
+        assertEquals(2_000L, covered.coveredFromMs)
+        assertEquals(9_000L, covered.coveredToMs)
         // while nothing resolves, the request is shown and no covered range is claimed
         val pending = XRayMapper.slice(slice, null)!!
         assertEquals(1_000L, pending.requestedFromMs)

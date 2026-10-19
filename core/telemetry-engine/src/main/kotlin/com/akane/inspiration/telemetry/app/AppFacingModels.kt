@@ -10,13 +10,19 @@ import com.akane.inspiration.telemetry.live.KernelUnits
  */
 sealed interface RefreshResult {
     /** A capture was taken and stored at [wallMs]. */
-    data class Refreshed(val wallMs: Long) : RefreshResult
+    data class Refreshed(
+        val wallMs: Long,
+    ) : RefreshResult
 
     /** A refresh succeeded less than a minute ago ([lastRefreshWallMs]); nothing was captured now. */
-    data class Debounced(val lastRefreshWallMs: Long) : RefreshResult
+    data class Debounced(
+        val lastRefreshWallMs: Long,
+    ) : RefreshResult
 
     /** The capture did not complete (deadline, Shizuku not ready, service unavailable). Retrying is allowed. */
-    data class Failed(val reason: String) : RefreshResult
+    data class Failed(
+        val reason: String,
+    ) : RefreshResult
 }
 
 /**
@@ -49,14 +55,12 @@ data class KernelCapacitySnapshot(
 }
 
 /**
- * One row of the Toolkit app picker. [launchable] apps have a launcher activity; [restricted] apps are ones
- * the user already restricted through the toolkit (listed even without a launcher so they can be restored).
+ * One installed package with a launcher activity, as the Toolkit app picker receives it. The picker adds the
+ * restricted packages and sets every restricted flag from its own override read (F-19), so this row carries none.
  */
 data class AppEntry(
     val packageName: String,
     val label: String,
-    val launchable: Boolean,
-    val restricted: Boolean,
 )
 
 /**
@@ -85,7 +89,10 @@ interface AppLabels {
  * Null when no visible package runs as [uid] (system and shared platform UIDs included): the result is always a
  * package `PackageManager` lists for the UID, never the reported name itself.
  */
-suspend fun AppLabels.packageForUid(uid: Int, reported: String?): String? {
+suspend fun AppLabels.packageForUid(
+    uid: Int,
+    reported: String?,
+): String? {
     val owners = packagesForUid(uid)
     return reported?.substringBefore(':')?.takeIf { it in owners } ?: owners.minOrNull()
 }

@@ -275,7 +275,6 @@ class AppContainer(
             // collector, so a load reconciles and computes the overrides once under the toolkit mutex (F-19).
             AppEntries.build(
                 launchable = launchable,
-                restricted = emptySet(),
                 excluded = setOf(appContext.packageName, SHIZUKU_PACKAGE),
                 locale = Locale.getDefault(),
                 label = appLabels::label,

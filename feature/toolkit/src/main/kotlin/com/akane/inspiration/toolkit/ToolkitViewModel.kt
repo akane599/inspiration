@@ -50,7 +50,7 @@ private val DOZE_CHANGED = ToolkitNotice.Rejected(Problem.Refused(ToolkitRefusal
  *
  * Work follows visibility ([ToolkitIntent.Visible] to [ToolkitIntent.Hidden], H13): the history, the active
  * overrides and the bg-dexopt status are collected only meanwhile. The binding of a running dexopt job is held
- * by `ToolkitActions` itself, so this class never calls `holdBinding()`. The package an action targets is the
+ * by `ToolkitActions` itself; [ToolkitDependencies] has no binding hold. The package an action targets is the
  * one of the app opened from the in-app list, and a restore only takes an id of a shown override (H12).
  */
 class ToolkitViewModel(

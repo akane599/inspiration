@@ -46,10 +46,11 @@ internal const val CALC = "com.example.calc"
 
 internal val DEFAULT_APPS =
     listOf(
-        AppEntry(CHATTY, "Chatty", launchable = true, restricted = false),
-        AppEntry(MAPS, "Maps", launchable = true, restricted = false),
-        AppEntry(CALC, "Calculator", launchable = true, restricted = false),
-        AppEntry(MAIL, "Mail", launchable = false, restricted = true),
+        AppEntry(CHATTY, "Chatty"),
+        AppEntry(MAPS, "Maps"),
+        AppEntry(CALC, "Calculator"),
+        // Has no launcher in the restriction tests, which drop it from the installed list.
+        AppEntry(MAIL, "Mail"),
     )
 
 private const val DEFAULT_EFFECTIVE = "inactive_to=1800000,light_after_inactive_to=60000"
@@ -451,9 +452,6 @@ internal class FakeToolkitDeps(
     var appsFailure = false
     var grantRequests = 0
 
-    /** Holds the screen took itself. It must stay 0: `ToolkitActions` holds the binding of a running job. */
-    var screenHolds = 0
-
     override fun requestShizukuPermission() {
         grantRequests += 1
     }
@@ -478,10 +476,5 @@ internal class FakeToolkitDeps(
     override fun notificationsBlocked(): Boolean {
         notificationsBlockedReads += 1
         return notificationsBlocked
-    }
-
-    override fun holdBinding(): AutoCloseable {
-        screenHolds += 1
-        return AutoCloseable {}
     }
 }

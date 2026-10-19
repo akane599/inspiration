@@ -27,9 +27,6 @@ interface ToolkitDependencies {
      */
     suspend fun installedApps(): List<AppEntry>
 
-    /** Keeps the Shizuku service bound (a running bg-dexopt job needs it); close it when done. */
-    fun holdBinding(): AutoCloseable
-
     /** The status-notification switch. Defaults keep an implementation that has no such notification compiling. */
     val statusNotificationEnabled: StateFlow<Boolean> get() = StatusNotificationDefaults.OFF
 

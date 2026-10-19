@@ -100,7 +100,6 @@ internal object XRayPreviewData {
             requestedToMs = TO_MS,
             coveredFromMs = FROM_MS + 25 * 60_000L,
             coveredToMs = TO_MS,
-            gapMs = 25 * 60_000L,
         )
 
     val needsSnapshots = ready.copy(tab = XRayTab.APPS, perUidAvailable = false, apps = persistentListOf(), slice = slice)

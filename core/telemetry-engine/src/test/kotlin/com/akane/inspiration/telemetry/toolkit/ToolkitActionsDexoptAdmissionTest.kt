@@ -64,7 +64,6 @@ class ToolkitActionsDexoptAdmissionTest {
                 } finally {
                     admission.abandon()
                     start.join()
-                    fixture.actions.release()
                 }
             }
         }
@@ -119,7 +118,6 @@ class ToolkitActionsDexoptAdmissionTest {
                 } finally {
                     admission.abandon()
                     start.join()
-                    fixture.actions.release()
                 }
             }
         }
@@ -156,7 +154,6 @@ class ToolkitActionsDexoptAdmissionTest {
             } finally {
                 admission.abandon()
                 start.join()
-                fixture.actions.release()
             }
         }
 
@@ -195,7 +192,6 @@ class ToolkitActionsDexoptAdmissionTest {
                 collector.cancel()
                 admission.abandon()
                 start.join()
-                fixture.actions.release()
             }
         }
 
@@ -260,7 +256,6 @@ class ToolkitActionsDexoptAdmissionTest {
                 secondAdmission.abandon()
                 first.join()
                 second.join()
-                fixture.actions.release()
             }
         }
 
@@ -291,7 +286,6 @@ class ToolkitActionsDexoptAdmissionTest {
             } finally {
                 admission.abandon()
                 start.join()
-                fixture.actions.release()
             }
         }
 
@@ -324,7 +318,6 @@ class ToolkitActionsDexoptAdmissionTest {
             } finally {
                 admission.abandon()
                 start.join()
-                fixture.actions.release()
             }
         }
 
@@ -359,7 +352,6 @@ class ToolkitActionsDexoptAdmissionTest {
             } finally {
                 admission.abandon()
                 caller.join()
-                fixture.actions.release()
             }
         }
 

@@ -4,10 +4,13 @@ import com.akane.inspiration.ipc.model.BgDexoptState
 import com.akane.inspiration.telemetry.store.ToolkitActionRecord
 import com.akane.inspiration.telemetry.store.ToolkitActionStatus
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.advanceTimeBy
 import kotlinx.coroutines.test.currentTime
@@ -117,8 +120,6 @@ class ToolkitActionsHoldSupervisorTest {
             runCurrent()
             assertEquals(readsAfterCancellation, queryingAudit.pendingReads)
             assertEquals(0, backend.dexoptReads)
-            actions.release()
-            assertEquals(0, holds.open)
             supervisionJob.cancel()
         }
 
@@ -131,17 +132,28 @@ class ToolkitActionsHoldSupervisorTest {
             val started = (actions.startBgDexopt() as ToolkitOutcome.Done).value
             runCurrent()
             val oldSupervisor = supervisionJob.children.single()
-            backend.dexoptStatuses.clear()
-            backend.dexoptStatuses.add(serviceStatus(BgDexoptState.RUNNING))
+            // A status read holds the client lock (its pending query waits on the gate) when the old
+            // supervisor's tick comes due, so the old iteration waits for the lock, already NonCancellable.
+            val gate = CompletableDeferred<Unit>()
             queryingAudit.onPending = {
                 queryingAudit.onPending = {}
-                // The old iteration is already NonCancellable. Its subsequent RUNNING read takes a new
-                // holder; cleanup of the cancelled generation must not close that replacement holder.
-                actions.release()
+                gate.await()
             }
+            backend.dexoptStatuses.clear()
+            // The reader cannot confirm the job, so it drops the hold and cancels the old supervisor. The old
+            // iteration then reads RUNNING and takes a new holder; cleanup of the cancelled generation must
+            // not close that replacement holder.
+            backend.dexoptStatuses.add(serviceStatus(BgDexoptState.UNKNOWN))
+            backend.dexoptStatuses.add(serviceStatus(BgDexoptState.RUNNING))
+            val reader = launch { actions.bgDexoptStatus().first() }
+            runCurrent()
 
             advanceTimeBy(MINUTE_MS)
             runCurrent()
+            assertEquals("the old iteration is waiting for the lock", 1, holds.open)
+            gate.complete(Unit)
+            runCurrent()
+            reader.join()
 
             assertTrue(oldSupervisor.isCancelled)
             assertEquals(2, holds.opened)
