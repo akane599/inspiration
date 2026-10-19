@@ -3,6 +3,7 @@ package com.akane.inspiration.database.store
 import androidx.room.withTransaction
 import com.akane.inspiration.database.CaptureMissEntity
 import com.akane.inspiration.database.ChargeSessionEntity
+import com.akane.inspiration.database.HealthSampleEntity
 import com.akane.inspiration.database.HistoryCursorEntity
 import com.akane.inspiration.database.HistoryEventEntity
 import com.akane.inspiration.database.InspirationDatabase
@@ -16,7 +17,6 @@ import com.akane.inspiration.database.SnapshotSystemEntity
 import com.akane.inspiration.database.SnapshotUidEntity
 import com.akane.inspiration.database.SnapshotUidSensorEntity
 import com.akane.inspiration.database.SnapshotWakelockEntity
-import com.akane.inspiration.database.HealthSampleEntity
 import com.akane.inspiration.database.TelemetrySampleEntity
 import com.akane.inspiration.database.ToolkitActionEntity
 import com.akane.inspiration.ipc.model.HistoryEvent
@@ -46,101 +46,130 @@ import com.akane.inspiration.telemetry.store.ToolkitActionStatus
 
 class RoomSnapshotStore(
     private val database: InspirationDatabase,
+    private val currentBootCount: () -> Int? = { null },
 ) : SnapshotStore {
-    override suspend fun insert(snapshot: BatterySnapshot): Long = database.withTransaction {
-        val snapshotId = database.snapshotDao().insert(snapshot.toEntity())
-        val snapshotDao = database.snapshotDao()
+    override suspend fun insert(snapshot: BatterySnapshot): Long =
+        database.withTransaction {
+            val snapshotId = database.snapshotDao().insert(snapshot.toEntity())
+            val snapshotDao = database.snapshotDao()
 
-        snapshot.system?.let { snapshotDao.insertSystem(it.toEntity(snapshotId)) }
-        snapshotDao.insertAvailability(
-            snapshot.availability.map { (source, availability) ->
-                SnapshotAvailabilityEntity(
-                    snapshotId = snapshotId,
-                    source = source,
-                    available = availability.available,
-                    reason = availability.reason,
-                )
-            },
-        )
-        snapshotDao.insertUids(snapshot.uids.map { it.toEntity(snapshotId) })
-        snapshotDao.insertComponents(snapshot.componentEntities(snapshotId))
-        snapshotDao.mergeWakelocks(snapshot.wakelockEntities(snapshotId))
-        snapshotDao.insertAlarms(snapshot.alarmEntities(snapshotId))
-        snapshotDao.insertUidSensors(snapshot.sensorEntities(snapshotId))
-        snapshotDao.insertCpuFrequencies(
-            snapshot.cpuFreq.map {
-                SnapshotCpuFreqEntity(
-                    snapshotId = snapshotId,
-                    policy = it.policy,
-                    freqKhz = it.freqKhz,
-                    timeMs = it.timeMs,
-                )
-            },
-        )
-        snapshotId
-    }
+            snapshot.system?.let { snapshotDao.insertSystem(it.toEntity(snapshotId)) }
+            snapshotDao.insertAvailability(
+                snapshot.availability.map { (source, availability) ->
+                    SnapshotAvailabilityEntity(
+                        snapshotId = snapshotId,
+                        source = source,
+                        available = availability.available,
+                        reason = availability.reason,
+                    )
+                },
+            )
+            snapshotDao.insertUids(snapshot.uids.map { it.toEntity(snapshotId) })
+            snapshotDao.insertComponents(snapshot.componentEntities(snapshotId))
+            snapshotDao.mergeWakelocks(snapshot.wakelockEntities(snapshotId))
+            snapshotDao.insertAlarms(snapshot.alarmEntities(snapshotId))
+            snapshotDao.insertUidSensors(snapshot.sensorEntities(snapshotId))
+            snapshotDao.insertCpuFrequencies(
+                snapshot.cpuFreq.map {
+                    SnapshotCpuFreqEntity(
+                        snapshotId = snapshotId,
+                        policy = it.policy,
+                        freqKhz = it.freqKhz,
+                        timeMs = it.timeMs,
+                    )
+                },
+            )
+            snapshotId
+        }
 
-    override suspend fun byId(id: Long): BatterySnapshot? = database.withTransaction {
-        database.snapshotDao().byId(id)?.let { readSnapshot(it) }
-    }
+    override suspend fun byId(id: Long): BatterySnapshot? =
+        database.withTransaction {
+            database.snapshotDao().byId(id)?.let { readSnapshot(it) }
+        }
 
-    override suspend fun latest(kind: SnapshotKind?): BatterySnapshot? = database.withTransaction {
-        database.snapshotDao().latest(kind?.name)?.let { readSnapshot(it) }
-    }
+    override suspend fun latest(kind: SnapshotKind?): BatterySnapshot? =
+        database.withTransaction {
+            database.snapshotDao().latest(kind?.name)?.let { readSnapshot(it) }
+        }
 
     override suspend fun firstAtOrAfter(
         wallMs: Long,
         kind: SnapshotKind?,
         statsStartMs: Long?,
         bootCount: Int?,
-    ): BatterySnapshot? = database.withTransaction {
-        database.snapshotDao().firstAtOrAfter(
-            wallMs = wallMs,
-            kind = kind?.name,
-            statsStartMs = statsStartMs,
-            bootCount = bootCount,
-        )?.let { readSnapshot(it) }
-    }
+    ): BatterySnapshot? =
+        database.withTransaction {
+            database
+                .snapshotDao()
+                .firstAtOrAfter(
+                    wallMs = wallMs,
+                    kind = kind?.name,
+                    statsStartMs = statsStartMs,
+                    bootCount = bootCount,
+                )?.let { readSnapshot(it) }
+        }
 
-    override suspend fun lastAtOrBefore(wallMs: Long, kind: SnapshotKind?): BatterySnapshot? = database.withTransaction {
-        database.snapshotDao().lastAtOrBefore(wallMs, kind?.name)?.let { readSnapshot(it) }
-    }
+    override suspend fun lastAtOrBefore(
+        wallMs: Long,
+        kind: SnapshotKind?,
+    ): BatterySnapshot? =
+        database.withTransaction {
+            database.snapshotDao().lastAtOrBefore(wallMs, kind?.name)?.let { readSnapshot(it) }
+        }
 
-    override suspend fun latestByTrigger(trigger: CaptureTrigger): BatterySnapshot? = database.withTransaction {
-        database.snapshotDao().latestByTrigger(trigger.name)?.let { readSnapshot(it) }
-    }
+    override suspend fun latestByTrigger(trigger: CaptureTrigger): BatterySnapshot? =
+        database.withTransaction {
+            latestTriggerRow(trigger)?.let { readSnapshot(it) }
+        }
 
-    override suspend fun latestClockByTrigger(trigger: CaptureTrigger): SnapshotClock? =
-        database.snapshotDao().latestByTrigger(trigger.name)?.toClock()
+    override suspend fun latestClockByTrigger(trigger: CaptureTrigger): SnapshotClock? = latestTriggerRow(trigger)?.toClock()
 
-    override suspend fun snapshotsBetween(fromWallMs: Long, toWallMs: Long): List<BatterySnapshot> =
-        database.snapshotDao().between(fromWallMs, toWallMs).map { it.toBareSnapshot() }
+    private suspend fun latestTriggerRow(trigger: CaptureTrigger): SnapshotEntity? =
+        database.snapshotDao().latestByTrigger(trigger.name, currentBootCount()?.takeIf { it > 0 })
 
-    override suspend fun unplugWindowSnapshots(fromWallMs: Long, toWallMs: Long): List<BatterySnapshot> =
-        database.snapshotDao().unplugWindow(fromWallMs, toWallMs).map { it.toBareSnapshot() }
+    override suspend fun snapshotsBetween(
+        fromWallMs: Long,
+        toWallMs: Long,
+    ): List<BatterySnapshot> = database.snapshotDao().between(fromWallMs, toWallMs).map { it.toBareSnapshot() }
 
-    override suspend fun insertHistory(events: List<HistoryEvent>, statsStartMs: Long) {
+    override suspend fun unplugWindowSnapshots(
+        fromWallMs: Long,
+        toWallMs: Long,
+    ): List<BatterySnapshot> = database.snapshotDao().unplugWindow(fromWallMs, toWallMs).map { it.toBareSnapshot() }
+
+    override suspend fun insertHistory(
+        events: List<HistoryEvent>,
+        statsStartMs: Long,
+    ) {
         database.withTransaction {
             database.historyDao().insertIgnore(events.map { it.toEntity(statsStartMs) })
         }
     }
 
-    override suspend fun historyBetween(fromWallMs: Long, toWallMs: Long): List<HistoryEvent> =
-        database.historyDao().between(fromWallMs, toWallMs).map { it.toDomain() }
+    override suspend fun historyBetween(
+        fromWallMs: Long,
+        toWallMs: Long,
+    ): List<HistoryEvent> = database.historyDao().between(fromWallMs, toWallMs).map { it.toDomain() }
 
     override suspend fun historySessions(): Map<Long, List<HistoryEvent>> =
-        database.historyDao().between(0L, Long.MAX_VALUE)
+        database
+            .historyDao()
+            .between(0L, Long.MAX_VALUE)
             .groupBy { it.statsStartMs }
             .mapValues { (_, events) -> events.map { it.toDomain() } }
 
     override suspend fun lastHistoryOfEachKindBefore(wallMs: Long): List<HistoryEvent> =
         database.historyDao().lastOfEachKindBefore(wallMs).map { it.toDomain() }
 
-    override suspend fun historyCursor(): Pair<Long, Long>? =database.historyDao().cursor()?.let {
-        it.statsStartMs to it.lastHistoryTimeMs
-    }
+    override suspend fun historyCursor(): Pair<Long, Long>? =
+        database.historyDao().cursor()?.let {
+            it.statsStartMs to it.lastHistoryTimeMs
+        }
 
-    override suspend fun setHistoryCursor(statsStartMs: Long, lastHistoryTimeMs: Long) {
+    override suspend fun setHistoryCursor(
+        statsStartMs: Long,
+        lastHistoryTimeMs: Long,
+    ) {
         database.withTransaction {
             // Forward only within a stats session (a late, older write must not undo a newer one); a new session
             // starts its own cursor.
@@ -157,24 +186,30 @@ class RoomSnapshotStore(
         }
     }
 
-    override suspend fun addMarker(snapshotId: Long, label: String, wallMs: Long): Long = database.withTransaction {
-        database.markerDao().insert(MarkerEntity(snapshotId = snapshotId, label = label, wallMs = wallMs))
-    }
-
-    override suspend fun marker(id: Long): Pair<Long, BatterySnapshot>? = database.withTransaction {
-        database.markerDao().byId(id)?.let { marker ->
-            database.snapshotDao().byId(marker.snapshotId)?.let { marker.wallMs to readSnapshot(it) }
+    override suspend fun addMarker(
+        snapshotId: Long,
+        label: String,
+        wallMs: Long,
+    ): Long =
+        database.withTransaction {
+            database.markerDao().insert(MarkerEntity(snapshotId = snapshotId, label = label, wallMs = wallMs))
         }
-    }
 
-    override suspend fun markers(): List<Marker> =
-        database.markerDao().all().map { Marker(it.id, it.snapshotId, it.label, it.wallMs) }
+    override suspend fun marker(id: Long): Pair<Long, BatterySnapshot>? =
+        database.withTransaction {
+            database.markerDao().byId(id)?.let { marker ->
+                database.snapshotDao().byId(marker.snapshotId)?.let { marker.wallMs to readSnapshot(it) }
+            }
+        }
 
-    override suspend fun samplesBetween(from: Long, to: Long): List<TelemetrySample> =
-        database.telemetryDao().between(from, to).map { it.toDomain() }
+    override suspend fun markers(): List<Marker> = database.markerDao().all().map { Marker(it.id, it.snapshotId, it.label, it.wallMs) }
 
-    override suspend fun chargeSessions(): List<ChargeSessionRecord> =
-        database.chargeSessionDao().all().map { it.toDomain() }
+    override suspend fun samplesBetween(
+        from: Long,
+        to: Long,
+    ): List<TelemetrySample> = database.telemetryDao().between(from, to).map { it.toDomain() }
+
+    override suspend fun chargeSessions(): List<ChargeSessionRecord> = database.chargeSessionDao().all().map { it.toDomain() }
 
     override suspend fun healthSamples(): List<HealthSample> =
         database.healthDao().all().map { HealthSample(it.wallMs, it.fccMah, it.designMah, it.cycleCount, it.measuredMah) }
@@ -238,7 +273,11 @@ class RoomSnapshotStore(
     override suspend fun acceptedEstimatesChronological(limit: Int): List<Double> =
         database.chargeSessionDao().acceptedEstimatesChronological(limit)
 
-    override suspend fun recordMiss(wallMs: Long, trigger: CaptureTrigger, reason: String) {
+    override suspend fun recordMiss(
+        wallMs: Long,
+        trigger: CaptureTrigger,
+        reason: String,
+    ) {
         database.withTransaction {
             database.captureMissDao().insert(
                 CaptureMissEntity(
@@ -271,169 +310,181 @@ class RoomSnapshotStore(
             id = snapshot.id,
             kind = SnapshotKind.valueOf(snapshot.kind),
             trigger = CaptureTrigger.valueOf(snapshot.trigger),
-            clock = SnapshotClock(
-                wallMs = snapshot.wallMs,
-                elapsedRealtimeMs = snapshot.elapsedRealtimeMs,
-                uptimeMs = snapshot.uptimeMs,
-                bootCount = snapshot.bootCount,
-                statsStartMs = snapshot.statsStartMs,
-                statsDurationMs = snapshot.statsDurationMs,
-            ),
-            battery = BatteryState(
-                levelPct = snapshot.levelPct,
-                plugged = snapshot.plugged,
-                status = snapshot.statusText,
-                temperatureDeciC = snapshot.temperatureDeciC,
-                voltageMv = snapshot.voltageMv,
-                currentMa = snapshot.currentMa,
-                chargeCounterUah = snapshot.chargeCounterUah,
-                dischargedMah = snapshot.dischargedMah,
-            ),
+            clock =
+                SnapshotClock(
+                    wallMs = snapshot.wallMs,
+                    elapsedRealtimeMs = snapshot.elapsedRealtimeMs,
+                    uptimeMs = snapshot.uptimeMs,
+                    bootCount = snapshot.bootCount,
+                    statsStartMs = snapshot.statsStartMs,
+                    statsDurationMs = snapshot.statsDurationMs,
+                ),
+            battery =
+                BatteryState(
+                    levelPct = snapshot.levelPct,
+                    plugged = snapshot.plugged,
+                    status = snapshot.statusText,
+                    temperatureDeciC = snapshot.temperatureDeciC,
+                    voltageMv = snapshot.voltageMv,
+                    currentMa = snapshot.currentMa,
+                    chargeCounterUah = snapshot.chargeCounterUah,
+                    dischargedMah = snapshot.dischargedMah,
+                ),
             system = snapshotDao.systemForSnapshot(snapshot.id)?.toDomain(),
-            uids = snapshotDao.uidsForSnapshot(snapshot.id).map { uid ->
-                uid.toDomain(
-                    components = componentsByUid[uid.uid].orEmpty(),
-                    wakelocks = partialWakelocksByUid[uid.uid].orEmpty(),
-                    alarms = alarmsByUid[uid.uid].orEmpty(),
-                    sensors = sensorsByUid[uid.uid].orEmpty(),
-                )
-            },
+            uids =
+                snapshotDao.uidsForSnapshot(snapshot.id).map { uid ->
+                    uid.toDomain(
+                        components = componentsByUid[uid.uid].orEmpty(),
+                        wakelocks = partialWakelocksByUid[uid.uid].orEmpty(),
+                        alarms = alarmsByUid[uid.uid].orEmpty(),
+                        sensors = sensorsByUid[uid.uid].orEmpty(),
+                    )
+                },
             deviceComponentsMah = componentsByUid[DEVICE_UID].orEmpty().associate { it.component to it.mah },
-            kernelWakelocks = wakelocks
-                .filter { it.kind == KERNEL_WAKELOCK }
-                .map { KernelWakelock(it.name, it.durationMs, it.count) },
-            wakeupReasons = wakelocks
-                .filter { it.kind == WAKEUP_REASON }
-                .map { KernelWakelock(it.name, it.durationMs, it.count) },
-            cpuFreq = snapshotDao.cpuFrequenciesForSnapshot(snapshot.id).map {
-                CpuFreqTime(policy = it.policy, freqKhz = it.freqKhz, timeMs = it.timeMs)
-            },
-            availability = snapshotDao.availabilityForSnapshot(snapshot.id).associate {
-                it.source to SourceAvailability(it.available, it.reason)
-            },
+            kernelWakelocks =
+                wakelocks
+                    .filter { it.kind == KERNEL_WAKELOCK }
+                    .map { KernelWakelock(it.name, it.durationMs, it.count) },
+            wakeupReasons =
+                wakelocks
+                    .filter { it.kind == WAKEUP_REASON }
+                    .map { KernelWakelock(it.name, it.durationMs, it.count) },
+            cpuFreq =
+                snapshotDao.cpuFrequenciesForSnapshot(snapshot.id).map {
+                    CpuFreqTime(policy = it.policy, freqKhz = it.freqKhz, timeMs = it.timeMs)
+                },
+            availability =
+                snapshotDao.availabilityForSnapshot(snapshot.id).associate {
+                    it.source to SourceAvailability(it.available, it.reason)
+                },
             truncatedUids = snapshot.truncatedUids,
         )
     }
 
     /** The snapshot and battery columns only; system timers and every per-UID or kernel list stay empty. */
-    private fun SnapshotEntity.toBareSnapshot() = BatterySnapshot(
-        id = id,
-        kind = SnapshotKind.valueOf(kind),
-        trigger = CaptureTrigger.valueOf(trigger),
-        clock = toClock(),
-        battery = BatteryState(
-            levelPct = levelPct,
-            plugged = plugged,
-            status = statusText,
-            temperatureDeciC = temperatureDeciC,
-            voltageMv = voltageMv,
-            currentMa = currentMa,
-            chargeCounterUah = chargeCounterUah,
-            dischargedMah = dischargedMah,
-        ),
-        system = null,
-        uids = emptyList(),
-        deviceComponentsMah = emptyMap(),
-        kernelWakelocks = emptyList(),
-        wakeupReasons = emptyList(),
-        cpuFreq = emptyList(),
-        availability = emptyMap(),
-        truncatedUids = truncatedUids,
-    )
+    private fun SnapshotEntity.toBareSnapshot() =
+        BatterySnapshot(
+            id = id,
+            kind = SnapshotKind.valueOf(kind),
+            trigger = CaptureTrigger.valueOf(trigger),
+            clock = toClock(),
+            battery =
+                BatteryState(
+                    levelPct = levelPct,
+                    plugged = plugged,
+                    status = statusText,
+                    temperatureDeciC = temperatureDeciC,
+                    voltageMv = voltageMv,
+                    currentMa = currentMa,
+                    chargeCounterUah = chargeCounterUah,
+                    dischargedMah = dischargedMah,
+                ),
+            system = null,
+            uids = emptyList(),
+            deviceComponentsMah = emptyMap(),
+            kernelWakelocks = emptyList(),
+            wakeupReasons = emptyList(),
+            cpuFreq = emptyList(),
+            availability = emptyMap(),
+            truncatedUids = truncatedUids,
+        )
 
-    private fun SnapshotEntity.toClock() =
-        SnapshotClock(wallMs, elapsedRealtimeMs, uptimeMs, bootCount, statsStartMs, statsDurationMs)
+    private fun SnapshotEntity.toClock() = SnapshotClock(wallMs, elapsedRealtimeMs, uptimeMs, bootCount, statsStartMs, statsDurationMs)
 
-    private fun BatterySnapshot.toEntity() = SnapshotEntity(
-        kind = kind.name,
-        trigger = trigger.name,
-        wallMs = clock.wallMs,
-        elapsedRealtimeMs = clock.elapsedRealtimeMs,
-        uptimeMs = clock.uptimeMs,
-        bootCount = clock.bootCount,
-        statsStartMs = clock.statsStartMs,
-        statsDurationMs = clock.statsDurationMs,
-        levelPct = battery.levelPct,
-        plugged = battery.plugged,
-        statusText = battery.status,
-        temperatureDeciC = battery.temperatureDeciC,
-        voltageMv = battery.voltageMv,
-        currentMa = battery.currentMa,
-        chargeCounterUah = battery.chargeCounterUah,
-        dischargedMah = battery.dischargedMah,
-        truncatedUids = truncatedUids,
-    )
+    private fun BatterySnapshot.toEntity() =
+        SnapshotEntity(
+            kind = kind.name,
+            trigger = trigger.name,
+            wallMs = clock.wallMs,
+            elapsedRealtimeMs = clock.elapsedRealtimeMs,
+            uptimeMs = clock.uptimeMs,
+            bootCount = clock.bootCount,
+            statsStartMs = clock.statsStartMs,
+            statsDurationMs = clock.statsDurationMs,
+            levelPct = battery.levelPct,
+            plugged = battery.plugged,
+            statusText = battery.status,
+            temperatureDeciC = battery.temperatureDeciC,
+            voltageMv = battery.voltageMv,
+            currentMa = battery.currentMa,
+            chargeCounterUah = battery.chargeCounterUah,
+            dischargedMah = battery.dischargedMah,
+            truncatedUids = truncatedUids,
+        )
 
-    private fun SystemTimers.toEntity(snapshotId: Long) = SnapshotSystemEntity(
-        snapshotId = snapshotId,
-        startClockTimeMs = startClockTimeMs,
-        totalRealtimeMs = totalRealtimeMs,
-        totalUptimeMs = totalUptimeMs,
-        batteryRealtimeMs = batteryRealtimeMs,
-        batteryUptimeMs = batteryUptimeMs,
-        screenOffRealtimeMs = screenOffRealtimeMs,
-        screenOffUptimeMs = screenOffUptimeMs,
-        screenDozeMs = screenDozeMs,
-        screenOnMs = screenOnMs,
-        interactiveMs = interactiveMs,
-        deepDozeMs = deepDozeMs,
-        deepDozeCount = deepDozeCount,
-        lightDozeMs = lightDozeMs,
-        dischargeTotalMah = dischargeTotalMah,
-        dischargeScreenOffMah = dischargeScreenOffMah,
-        chargeTimeRemainingMs = chargeTimeRemainingMs,
-        dischargeTimeRemainingMs = dischargeTimeRemainingMs,
-        signalBin0Ms = signalStrengthMs.getOrNull(0),
-        signalBin1Ms = signalStrengthMs.getOrNull(1),
-        signalBin2Ms = signalStrengthMs.getOrNull(2),
-        signalBin3Ms = signalStrengthMs.getOrNull(3),
-        signalBin4Ms = signalStrengthMs.getOrNull(4),
-        signalScanningMs = signalScanningMs,
-        mobileRadioActiveMs = mobileRadioActiveMs,
-    )
+    private fun SystemTimers.toEntity(snapshotId: Long) =
+        SnapshotSystemEntity(
+            snapshotId = snapshotId,
+            startClockTimeMs = startClockTimeMs,
+            totalRealtimeMs = totalRealtimeMs,
+            totalUptimeMs = totalUptimeMs,
+            batteryRealtimeMs = batteryRealtimeMs,
+            batteryUptimeMs = batteryUptimeMs,
+            screenOffRealtimeMs = screenOffRealtimeMs,
+            screenOffUptimeMs = screenOffUptimeMs,
+            screenDozeMs = screenDozeMs,
+            screenOnMs = screenOnMs,
+            interactiveMs = interactiveMs,
+            deepDozeMs = deepDozeMs,
+            deepDozeCount = deepDozeCount,
+            lightDozeMs = lightDozeMs,
+            dischargeTotalMah = dischargeTotalMah,
+            dischargeScreenOffMah = dischargeScreenOffMah,
+            chargeTimeRemainingMs = chargeTimeRemainingMs,
+            dischargeTimeRemainingMs = dischargeTimeRemainingMs,
+            signalBin0Ms = signalStrengthMs.getOrNull(0),
+            signalBin1Ms = signalStrengthMs.getOrNull(1),
+            signalBin2Ms = signalStrengthMs.getOrNull(2),
+            signalBin3Ms = signalStrengthMs.getOrNull(3),
+            signalBin4Ms = signalStrengthMs.getOrNull(4),
+            signalScanningMs = signalScanningMs,
+            mobileRadioActiveMs = mobileRadioActiveMs,
+        )
 
-    private fun SnapshotSystemEntity.toDomain() = SystemTimers(
-        startClockTimeMs = startClockTimeMs,
-        totalRealtimeMs = totalRealtimeMs,
-        totalUptimeMs = totalUptimeMs,
-        batteryRealtimeMs = batteryRealtimeMs,
-        batteryUptimeMs = batteryUptimeMs,
-        screenOffRealtimeMs = screenOffRealtimeMs,
-        screenOffUptimeMs = screenOffUptimeMs,
-        screenDozeMs = screenDozeMs,
-        screenOnMs = screenOnMs,
-        interactiveMs = interactiveMs,
-        deepDozeMs = deepDozeMs,
-        deepDozeCount = deepDozeCount,
-        lightDozeMs = lightDozeMs,
-        dischargeTotalMah = dischargeTotalMah,
-        dischargeScreenOffMah = dischargeScreenOffMah,
-        chargeTimeRemainingMs = chargeTimeRemainingMs,
-        dischargeTimeRemainingMs = dischargeTimeRemainingMs,
-        signalStrengthMs = signalBins(),
-        signalScanningMs = signalScanningMs,
-        mobileRadioActiveMs = mobileRadioActiveMs,
-    )
+    private fun SnapshotSystemEntity.toDomain() =
+        SystemTimers(
+            startClockTimeMs = startClockTimeMs,
+            totalRealtimeMs = totalRealtimeMs,
+            totalUptimeMs = totalUptimeMs,
+            batteryRealtimeMs = batteryRealtimeMs,
+            batteryUptimeMs = batteryUptimeMs,
+            screenOffRealtimeMs = screenOffRealtimeMs,
+            screenOffUptimeMs = screenOffUptimeMs,
+            screenDozeMs = screenDozeMs,
+            screenOnMs = screenOnMs,
+            interactiveMs = interactiveMs,
+            deepDozeMs = deepDozeMs,
+            deepDozeCount = deepDozeCount,
+            lightDozeMs = lightDozeMs,
+            dischargeTotalMah = dischargeTotalMah,
+            dischargeScreenOffMah = dischargeScreenOffMah,
+            chargeTimeRemainingMs = chargeTimeRemainingMs,
+            dischargeTimeRemainingMs = dischargeTimeRemainingMs,
+            signalStrengthMs = signalBins(),
+            signalScanningMs = signalScanningMs,
+            mobileRadioActiveMs = mobileRadioActiveMs,
+        )
 
     private fun SnapshotSystemEntity.signalBins(): List<Long> {
         val bins = listOf(signalBin0Ms, signalBin1Ms, signalBin2Ms, signalBin3Ms, signalBin4Ms)
         return if (bins.all { it == null }) emptyList() else bins.map { it ?: 0L }
     }
 
-    private fun UidSnapshot.toEntity(snapshotId: Long) = SnapshotUidEntity(
-        snapshotId = snapshotId,
-        uid = uid,
-        packageName = packageName,
-        totalMah = totalMah,
-        fgMah = fgMah,
-        bgMah = bgMah,
-        fgsMah = fgsMah,
-        cachedMah = cachedMah,
-        cpuUserMs = cpuUserMs,
-        cpuSystemMs = cpuSystemMs,
-        fgActivityMs = fgActivityMs,
-        fgServiceMs = fgServiceMs,
-    )
+    private fun UidSnapshot.toEntity(snapshotId: Long) =
+        SnapshotUidEntity(
+            snapshotId = snapshotId,
+            uid = uid,
+            packageName = packageName,
+            totalMah = totalMah,
+            fgMah = fgMah,
+            bgMah = bgMah,
+            fgsMah = fgsMah,
+            cachedMah = cachedMah,
+            cpuUserMs = cpuUserMs,
+            cpuSystemMs = cpuSystemMs,
+            fgActivityMs = fgActivityMs,
+            fgServiceMs = fgServiceMs,
+        )
 
     private fun SnapshotUidEntity.toDomain(
         components: List<SnapshotComponentEntity>,
@@ -460,77 +511,83 @@ class RoomSnapshotStore(
         alarmDumpWakeups = alarms.filter { it.alarmDumpWakeups > 0L }.map { UidAlarm(it.tag, it.alarmDumpWakeups) },
     )
 
-    private fun BatterySnapshot.componentEntities(snapshotId: Long): List<SnapshotComponentEntity> = buildList {
-        deviceComponentsMah.forEach { (component, mah) ->
-            add(SnapshotComponentEntity(snapshotId, DEVICE_UID, component, mah))
-        }
-        uids.forEach { uid ->
-            uid.componentsMah.forEach { (component, mah) ->
-                add(SnapshotComponentEntity(snapshotId, uid.uid, component, mah))
+    private fun BatterySnapshot.componentEntities(snapshotId: Long): List<SnapshotComponentEntity> =
+        buildList {
+            deviceComponentsMah.forEach { (component, mah) ->
+                add(SnapshotComponentEntity(snapshotId, DEVICE_UID, component, mah))
+            }
+            uids.forEach { uid ->
+                uid.componentsMah.forEach { (component, mah) ->
+                    add(SnapshotComponentEntity(snapshotId, uid.uid, component, mah))
+                }
             }
         }
-    }
 
     /** One row per (kind, uid, name) after blank names become [UNNAMED_WAKELOCK], durations and counts summed. */
-    private fun BatterySnapshot.wakelockEntities(snapshotId: Long): List<SnapshotWakelockEntity> = buildList {
-        uids.forEach { uid ->
-            uid.partialWakelocks.forEach { wakelock ->
+    private fun BatterySnapshot.wakelockEntities(snapshotId: Long): List<SnapshotWakelockEntity> =
+        buildList {
+            uids.forEach { uid ->
+                uid.partialWakelocks.forEach { wakelock ->
+                    add(
+                        SnapshotWakelockEntity(
+                            snapshotId = snapshotId,
+                            kind = PARTIAL_WAKELOCK,
+                            uid = uid.uid,
+                            name = wakelock.name.ifBlank { UNNAMED_WAKELOCK },
+                            durationMs = wakelock.durationMs,
+                            bgDurationMs = wakelock.bgDurationMs,
+                            count = wakelock.count,
+                        ),
+                    )
+                }
+            }
+            kernelWakelocks.forEach { wakelock ->
                 add(
                     SnapshotWakelockEntity(
                         snapshotId = snapshotId,
-                        kind = PARTIAL_WAKELOCK,
-                        uid = uid.uid,
+                        kind = KERNEL_WAKELOCK,
+                        uid = DEVICE_UID,
                         name = wakelock.name.ifBlank { UNNAMED_WAKELOCK },
                         durationMs = wakelock.durationMs,
-                        bgDurationMs = wakelock.bgDurationMs,
+                        bgDurationMs = 0L,
                         count = wakelock.count,
                     ),
                 )
             }
+            wakeupReasons.forEach { wakelock ->
+                add(
+                    SnapshotWakelockEntity(
+                        snapshotId = snapshotId,
+                        kind = WAKEUP_REASON,
+                        uid = DEVICE_UID,
+                        name = wakelock.name.ifBlank { UNNAMED_WAKELOCK },
+                        durationMs = wakelock.durationMs,
+                        bgDurationMs = 0L,
+                        count = wakelock.count,
+                    ),
+                )
+            }
+        }.groupBy { Triple(it.kind, it.uid, it.name) }.values.map { rows ->
+            rows.reduce { merged, row ->
+                merged.copy(
+                    durationMs = merged.durationMs + row.durationMs,
+                    bgDurationMs = merged.bgDurationMs + row.bgDurationMs,
+                    count = merged.count + row.count,
+                )
+            }
         }
-        kernelWakelocks.forEach { wakelock ->
-            add(
-                SnapshotWakelockEntity(
-                    snapshotId = snapshotId,
-                    kind = KERNEL_WAKELOCK,
-                    uid = DEVICE_UID,
-                    name = wakelock.name.ifBlank { UNNAMED_WAKELOCK },
-                    durationMs = wakelock.durationMs,
-                    bgDurationMs = 0L,
-                    count = wakelock.count,
-                ),
-            )
-        }
-        wakeupReasons.forEach { wakelock ->
-            add(
-                SnapshotWakelockEntity(
-                    snapshotId = snapshotId,
-                    kind = WAKEUP_REASON,
-                    uid = DEVICE_UID,
-                    name = wakelock.name.ifBlank { UNNAMED_WAKELOCK },
-                    durationMs = wakelock.durationMs,
-                    bgDurationMs = 0L,
-                    count = wakelock.count,
-                ),
-            )
-        }
-    }.groupBy { Triple(it.kind, it.uid, it.name) }.values.map { rows ->
-        rows.reduce { merged, row ->
-            merged.copy(
-                durationMs = merged.durationMs + row.durationMs,
-                bgDurationMs = merged.bgDurationMs + row.bgDurationMs,
-                count = merged.count + row.count,
-            )
-        }
-    }
 
     private fun BatterySnapshot.alarmEntities(snapshotId: Long): List<SnapshotAlarmEntity> {
-        val counts = uids.flatMap { uid -> uid.wakeupAlarms.map { alarm -> (uid.uid to alarm.tag) to alarm.count } }
-            .groupBy({ it.first }, { it.second })
-            .mapValues { it.value.sum() }
-        val dumpWakeups = uids.flatMap { uid -> uid.alarmDumpWakeups.map { alarm -> (uid.uid to alarm.tag) to alarm.count } }
-            .groupBy({ it.first }, { it.second })
-            .mapValues { it.value.sum() }
+        val counts =
+            uids
+                .flatMap { uid -> uid.wakeupAlarms.map { alarm -> (uid.uid to alarm.tag) to alarm.count } }
+                .groupBy({ it.first }, { it.second })
+                .mapValues { it.value.sum() }
+        val dumpWakeups =
+            uids
+                .flatMap { uid -> uid.alarmDumpWakeups.map { alarm -> (uid.uid to alarm.tag) to alarm.count } }
+                .groupBy({ it.first }, { it.second })
+                .mapValues { it.value.sum() }
         return (counts.keys + dumpWakeups.keys).map { key ->
             SnapshotAlarmEntity(snapshotId, key.first, key.second, counts[key] ?: 0L, dumpWakeups[key] ?: 0L)
         }
@@ -541,85 +598,91 @@ class RoomSnapshotStore(
             uid.sensors.map { SnapshotUidSensorEntity(snapshotId, uid.uid, it.handle, it.totalMs, it.bgMs, it.count) }
         }
 
-    private fun HistoryEvent.toEntity(statsStartMs: Long) = HistoryEventEntity(
-        statsStartMs = statsStartMs,
-        historyTimeMs = historyTimeMs,
-        wallMs = wallMs,
-        kind = kind.toString(),
-        levelPct = levelPct,
-        chargeUah = chargeUah,
-        temperatureDeciC = temperatureDeciC,
-        voltageMv = voltageMv,
-        plugType = plugType.toString(),
-    )
+    private fun HistoryEvent.toEntity(statsStartMs: Long) =
+        HistoryEventEntity(
+            statsStartMs = statsStartMs,
+            historyTimeMs = historyTimeMs,
+            wallMs = wallMs,
+            kind = kind.toString(),
+            levelPct = levelPct,
+            chargeUah = chargeUah,
+            temperatureDeciC = temperatureDeciC,
+            voltageMv = voltageMv,
+            plugType = plugType.toString(),
+        )
 
-    private fun HistoryEventEntity.toDomain() = HistoryEvent(
-        historyTimeMs = historyTimeMs,
-        wallMs = wallMs,
-        kind = kind.toInt(),
-        levelPct = levelPct ?: 0,
-        chargeUah = chargeUah ?: -1L,
-        temperatureDeciC = temperatureDeciC ?: 0,
-        voltageMv = voltageMv ?: 0,
-        plugType = plugType?.toInt() ?: 0,
-    )
+    private fun HistoryEventEntity.toDomain() =
+        HistoryEvent(
+            historyTimeMs = historyTimeMs,
+            wallMs = wallMs,
+            kind = kind.toInt(),
+            levelPct = levelPct ?: 0,
+            chargeUah = chargeUah ?: -1L,
+            temperatureDeciC = temperatureDeciC ?: 0,
+            voltageMv = voltageMv ?: 0,
+            plugType = plugType?.toInt() ?: 0,
+        )
 
-    private fun LiveReading.toEntity() = TelemetrySampleEntity(
-        wallMs = wallMs,
-        elapsedRealtimeMs = elapsedRealtimeMs,
-        bootCount = bootCount,
-        currentMa = currentMa,
-        voltageMv = voltageMv,
-        watts = watts,
-        temperatureDeciC = temperatureDeciC,
-        levelPct = levelPct,
-        plugged = plugged,
-        thermalStatus = thermalStatus,
-    )
+    private fun LiveReading.toEntity() =
+        TelemetrySampleEntity(
+            wallMs = wallMs,
+            elapsedRealtimeMs = elapsedRealtimeMs,
+            bootCount = bootCount,
+            currentMa = currentMa,
+            voltageMv = voltageMv,
+            watts = watts,
+            temperatureDeciC = temperatureDeciC,
+            levelPct = levelPct,
+            plugged = plugged,
+            thermalStatus = thermalStatus,
+        )
 
-    private fun TelemetrySampleEntity.toDomain() = TelemetrySample(
-        wallMs = wallMs,
-        elapsedRealtimeMs = elapsedRealtimeMs,
-        bootCount = bootCount,
-        currentMa = currentMa,
-        voltageMv = voltageMv,
-        watts = watts,
-        temperatureDeciC = temperatureDeciC,
-        levelPct = levelPct,
-        plugged = plugged,
-        thermalStatus = thermalStatus,
-    )
+    private fun TelemetrySampleEntity.toDomain() =
+        TelemetrySample(
+            wallMs = wallMs,
+            elapsedRealtimeMs = elapsedRealtimeMs,
+            bootCount = bootCount,
+            currentMa = currentMa,
+            voltageMv = voltageMv,
+            watts = watts,
+            temperatureDeciC = temperatureDeciC,
+            levelPct = levelPct,
+            plugged = plugged,
+            thermalStatus = thermalStatus,
+        )
 
-    private fun ChargeSessionEntity.toDomain() = ChargeSessionRecord(
-        statsStartMs = statsStartMs,
-        startHistoryTimeMs = startHistoryTimeMs,
-        startWallMs = startWallMs,
-        endWallMs = endWallMs,
-        startPct = startPct,
-        endPct = endPct,
-        deltaChargeUah = deltaChargeUah,
-        integratedMah = integratedMah,
-        maxTemperatureDeciC = maxTemperatureDeciC,
-        estimateMah = estimateMah,
-        independent = independent,
-        accepted = accepted,
-        rejectReason = rejectReason,
-    )
+    private fun ChargeSessionEntity.toDomain() =
+        ChargeSessionRecord(
+            statsStartMs = statsStartMs,
+            startHistoryTimeMs = startHistoryTimeMs,
+            startWallMs = startWallMs,
+            endWallMs = endWallMs,
+            startPct = startPct,
+            endPct = endPct,
+            deltaChargeUah = deltaChargeUah,
+            integratedMah = integratedMah,
+            maxTemperatureDeciC = maxTemperatureDeciC,
+            estimateMah = estimateMah,
+            independent = independent,
+            accepted = accepted,
+            rejectReason = rejectReason,
+        )
 
-    private fun ToolkitActionRecord.toEntity() = ToolkitActionEntity(
-        id = id,
-        startedAt = startedAt,
-        endedAt = endedAt,
-        kind = kind,
-        pkg = pkg,
-        op = op,
-        param = param,
-        status = status.code,
-        code = code,
-        beforeRaw = beforeRaw,
-        afterRaw = afterRaw,
-        restoresId = restoresId,
-    )
+    private fun ToolkitActionRecord.toEntity() =
+        ToolkitActionEntity(
+            id = id,
+            startedAt = startedAt,
+            endedAt = endedAt,
+            kind = kind,
+            pkg = pkg,
+            op = op,
+            param = param,
+            status = status.code,
+            code = code,
+            beforeRaw = beforeRaw,
+            afterRaw = afterRaw,
+            restoresId = restoresId,
+        )
 
     /** Null when the stored status code is unknown, so a row written by a newer build is skipped, not mislabelled. */
     private fun ToolkitActionEntity.toDomain(): ToolkitActionRecord? {

@@ -91,7 +91,7 @@ class AppContainer(
             scope = applicationScope,
         )
     val database: InspirationDatabase = InspirationDatabase.create(appContext)
-    val store: SnapshotStore = RoomSnapshotStore(database)
+    val store: SnapshotStore = RoomSnapshotStore(database, currentBootCount = { clocks.bootCount() })
     private val telemetrySource = AndroidTelemetrySource(appContext, shizukuManager, clocks)
     val capturer =
         SnapshotCapturer(

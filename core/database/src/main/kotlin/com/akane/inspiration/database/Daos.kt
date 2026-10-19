@@ -111,13 +111,31 @@ interface SnapshotDao {
     ): SnapshotEntity?
 
     @Query("SELECT * FROM snapshot WHERE wallMs <= :wallMs AND (:kind IS NULL OR kind = :kind) ORDER BY wallMs DESC, id DESC LIMIT 1")
-    suspend fun lastAtOrBefore(wallMs: Long, kind: String? = null): SnapshotEntity?
+    suspend fun lastAtOrBefore(
+        wallMs: Long,
+        kind: String? = null,
+    ): SnapshotEntity?
 
-    @Query("SELECT * FROM snapshot WHERE trigger = :trigger ORDER BY wallMs DESC, id DESC LIMIT 1")
-    suspend fun latestByTrigger(trigger: String): SnapshotEntity?
+    /** Current-boot elapsed chronology first; saved order is the best effort when that boot has no row. */
+    @Query(
+        """
+        SELECT * FROM snapshot WHERE trigger = :trigger
+        ORDER BY CASE WHEN :currentBootCount IS NOT NULL AND bootCount = :currentBootCount THEN 0 ELSE 1 END,
+            CASE WHEN :currentBootCount IS NOT NULL AND bootCount = :currentBootCount THEN elapsedRealtimeMs END DESC,
+            id DESC
+        LIMIT 1
+        """,
+    )
+    suspend fun latestByTrigger(
+        trigger: String,
+        currentBootCount: Int? = null,
+    ): SnapshotEntity?
 
     @Query("SELECT * FROM snapshot WHERE wallMs BETWEEN :fromWallMs AND :toWallMs ORDER BY wallMs ASC, id ASC")
-    suspend fun between(fromWallMs: Long, toWallMs: Long): List<SnapshotEntity>
+    suspend fun between(
+        fromWallMs: Long,
+        toWallMs: Long,
+    ): List<SnapshotEntity>
 
     /**
      * The newest part of [between] that the status summary needs for a "now" at [toWallMs] (see
@@ -146,7 +164,10 @@ interface SnapshotDao {
         ORDER BY wallMs ASC, id ASC
         """,
     )
-    suspend fun unplugWindow(fromWallMs: Long, toWallMs: Long): List<SnapshotEntity>
+    suspend fun unplugWindow(
+        fromWallMs: Long,
+        toWallMs: Long,
+    ): List<SnapshotEntity>
 
     @Query("SELECT * FROM snapshot_system WHERE snapshotId = :snapshotId")
     suspend fun systemForSnapshot(snapshotId: Long): SnapshotSystemEntity?
@@ -194,7 +215,10 @@ interface HistoryDao {
     suspend fun insertIgnore(events: List<HistoryEventEntity>): List<Long>
 
     @Query("SELECT * FROM history_event WHERE wallMs BETWEEN :fromWallMs AND :toWallMs ORDER BY wallMs, id")
-    suspend fun between(fromWallMs: Long, toWallMs: Long): List<HistoryEventEntity>
+    suspend fun between(
+        fromWallMs: Long,
+        toWallMs: Long,
+    ): List<HistoryEventEntity>
 
     /**
      * The newest event of each `kind` with `wallMs < beforeWallMs`, oldest first: at most one row per kind,
@@ -221,7 +245,10 @@ interface TelemetryDao {
     suspend fun insertSamples(samples: List<TelemetrySampleEntity>): List<Long>
 
     @Query("SELECT * FROM telemetry_sample WHERE wallMs BETWEEN :fromWallMs AND :toWallMs ORDER BY wallMs, id")
-    suspend fun between(fromWallMs: Long, toWallMs: Long): List<TelemetrySampleEntity>
+    suspend fun between(
+        fromWallMs: Long,
+        toWallMs: Long,
+    ): List<TelemetrySampleEntity>
 
     @Query("SELECT * FROM telemetry_hourly WHERE hourStartWallMs = :hourStartWallMs")
     suspend fun hourly(hourStartWallMs: Long): TelemetryHourlyEntity?
@@ -338,7 +365,10 @@ interface MaintenanceDao {
         GROUP BY (wallMs / :hourMs) * :hourMs
         """,
     )
-    suspend fun downsampleSamples(cutoffWallMs: Long, hourMs: Long = HOUR_MS)
+    suspend fun downsampleSamples(
+        cutoffWallMs: Long,
+        hourMs: Long = HOUR_MS,
+    )
 
     @Query("DELETE FROM telemetry_sample WHERE wallMs < :cutoffWallMs")
     suspend fun deleteSamplesBefore(cutoffWallMs: Long): Int
