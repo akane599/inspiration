@@ -9,12 +9,15 @@ import com.akane.inspiration.telemetry.snapshot.SleepStats
  * deep-sleep share measured over less than [MIN_SLEEP_WINDOW_MS] of screen-off.
  */
 class BatteryStoryBuilder {
-    /** [endsNow] is true only for confirmed current coverage; stored or cached analyses pass false. */
+    /**
+     * [endsNow] is true only for confirmed current coverage; stored or cached analyses pass false. It has no default,
+     * so every caller states which summary wording it means.
+     */
     fun build(
         metrics: IntervalMetrics?,
         sleep: SleepStats?,
         report: DiagnosticReport?,
-        endsNow: Boolean = true,
+        endsNow: Boolean,
     ): BatteryStory {
         val sentences =
             buildList {

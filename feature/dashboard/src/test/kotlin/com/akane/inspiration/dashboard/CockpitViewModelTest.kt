@@ -752,7 +752,7 @@ class CockpitViewModelTest {
         runTest(dispatcher) {
             val vm = viewModel()
             val sliceA = ReferenceKind.TimeSlice(NOW_MS - 8 * HOUR_MS, NOW_MS - 6 * HOUR_MS)
-            val storyA = BatteryStory(listOf(StorySentence.Summary(hours = 2.0, levelUsedPct = 9)))
+            val storyA = BatteryStory(listOf(StorySentence.Summary(hours = 2.0, levelUsedPct = 9, endsNow = true)))
             visit(vm) {
                 vm.onIntent(CockpitIntent.CommitBrush(sliceA.fromWallMs, sliceA.toWallMs))
                 deps.analysis.value =

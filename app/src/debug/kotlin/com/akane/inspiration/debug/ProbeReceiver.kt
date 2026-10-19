@@ -353,7 +353,7 @@ class ProbeReceiver : BroadcastReceiver() {
         val events = container.store.historyBetween(0, Long.MAX_VALUE).sortedBy { it.wallMs }
         val metrics = IntervalMetricsCalculator.compute(events, input.coveredFromWallMs, input.coveredToWallMs)
         val report = container.ruleEngine.evaluate(DiagnosticInput(diff, metrics, input.perUidAvailable))
-        val story = BatteryStoryBuilder().build(metrics, diff.sleep, report)
+        val story = BatteryStoryBuilder().build(metrics, diff.sleep, report, endsNow = true)
 
         log(JSONObject().put("insightsMetrics", metrics.toJson().put("perUidAvailable", input.perUidAvailable)))
         report.insights.forEach { log(JSONObject().put("insight", it.toJson())) }
