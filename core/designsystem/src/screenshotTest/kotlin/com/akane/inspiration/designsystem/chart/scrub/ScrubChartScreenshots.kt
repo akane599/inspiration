@@ -93,6 +93,11 @@ fun ScrubChartCursor() = ScrubChartSheet(darkTheme = true, fixedCursorMs = Scrub
 fun ScrubChartEmpty() = ScrubChartSheet(darkTheme = true, data = ScrubPreviewData.empty)
 
 @PreviewTest
+@Preview(name = "single-point", showBackground = true, widthDp = 412, heightDp = 512)
+@Composable
+fun ScrubChartSinglePoint() = ScrubChartSheet(darkTheme = true, data = ScrubPreviewData.singlePoint)
+
+@PreviewTest
 @Preview(name = "selection-narrow-large-font", showBackground = true, widthDp = 360, heightDp = 840, fontScale = 1.5f)
 @Composable
 fun ScrubChartSelectionNarrowLargeFont() = ScrubChartSheet(darkTheme = true, selection = ScrubPreviewData.selection)

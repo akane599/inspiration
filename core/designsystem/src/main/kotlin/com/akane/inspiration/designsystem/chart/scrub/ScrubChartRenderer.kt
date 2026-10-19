@@ -5,6 +5,7 @@ import androidx.compose.runtime.State
 import androidx.compose.ui.draw.CacheDrawScope
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.geometry.RoundRect
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
@@ -146,15 +147,21 @@ internal fun CacheDrawScope.buildScrubRenderer(c: ScrubRenderConfig): ScrubRende
             ?.points
             .orEmpty()
 
+    // A series with one point is stroked as a dot this wide (the line stroke's width), so it stays visible.
+    val singlePointDotRadius = ScrubChartMetrics.LineWidth.toPx()
     val temperatureNormal = Path()
     val temperatureCritical = Path()
     if (temperatureScale != null) {
         val runs = splitAtThreshold(decimateMinMax(temperature, scale, buckets), CRITICAL_TEMPERATURE_C)
         for (run in runs) {
-            appendLine(if (run.critical) temperatureCritical else temperatureNormal, run.points, scale, temperatureScale, inset)
+            val target = if (run.critical) temperatureCritical else temperatureNormal
+            appendLine(target, run.points, scale, temperatureScale, inset, singlePointDotRadius)
         }
     }
-    val batteryPath = Path().also { appendLine(it, decimateMinMax(battery, scale, buckets), scale, batteryScale, inset) }
+    val batteryPath =
+        Path().also {
+            appendLine(it, decimateMinMax(battery, scale, buckets), scale, batteryScale, inset, singlePointDotRadius)
+        }
 
     val laneKinds = LaneKind.entries
     val laneTop = FloatArray(laneKinds.size) { plotHeight + laneGap * (it + 1) + laneHeight * it }
@@ -248,8 +255,16 @@ private fun appendLine(
     scale: TimeScale,
     values: ValueScale,
     inset: Float,
+    dotRadius: Float,
 ) {
-    if (points.size < 2) return
+    if (points.isEmpty()) return
+    if (points.size == 1) {
+        // A lone point has no segment to stroke; add a tiny circle so the stroke paints a solid dot
+        // (radius = stroke width, the same as the stroke's own reach either side of the circle).
+        val center = Offset(scale.toX(points[0].tMs), inset + values.toY(points[0].value))
+        path.addOval(Rect(center, dotRadius / 2f))
+        return
+    }
     path.moveTo(scale.toX(points[0].tMs), inset + values.toY(points[0].value))
     for (i in 1 until points.size) {
         path.lineTo(scale.toX(points[i].tMs), inset + values.toY(points[i].value))
