@@ -333,7 +333,12 @@ class ToolkitViewModel(
     // ---- app detail ------------------------------------------------------------------------
 
     private fun openApp(packageName: String) {
-        if (_state.value.status != ToolkitPhase.READY) return
+        val current = _state.value
+        if (current.status != ToolkitPhase.READY) return
+        // With no sheet open, a request in flight is a doze apply, an override restore, reset all or the write of a
+        // sheet already closed. Opening an app would drop it, or its result, without a word (N-16): the list waits,
+        // as the rest of the screen does while busy. A sheet's own requests are still dropped by switching apps.
+        if (current.busy && current.detail == null) return
         val app = allApps.firstOrNull { it.packageName == packageName } ?: return
         invalidatePlanning()
         _state.update { it.copy(detail = AppDetail(app = app, controls = ControlsState.Loading), confirmation = null) }

@@ -66,32 +66,49 @@ import java.util.Locale
 
 // ---- picker --------------------------------------------------------------------------------------
 
-internal fun LazyGridScope.appsSection(apps: AppsSection, onIntent: (ToolkitIntent) -> Unit, loadIcon: AppIconLoader) {
+/** [enabled] is false while a request is in flight: opening an app then would drop it (N-16). */
+internal fun LazyGridScope.appsSection(
+    apps: AppsSection,
+    enabled: Boolean,
+    onIntent: (ToolkitIntent) -> Unit,
+    loadIcon: AppIconLoader,
+) {
     fullWidth { AppsHeader(query = apps.query, onIntent = onIntent) }
     when (apps.phase) {
-        AppsPhase.LOADING -> fullWidth { LoadingLine(stringResource(R.string.toolkit_apps_loading)) }
-        AppsPhase.FAILED -> fullWidth {
-            EmptyState(
-                title = stringResource(R.string.toolkit_apps_failed_title),
-                body = stringResource(R.string.toolkit_apps_failed_body),
-                action = EmptyStateAction(stringResource(R.string.toolkit_error_action)) { onIntent(ToolkitIntent.Reload) },
-            )
+        AppsPhase.LOADING -> {
+            fullWidth { LoadingLine(stringResource(R.string.toolkit_apps_loading)) }
         }
-        AppsPhase.READY -> if (apps.items.isEmpty()) {
-            fullWidth { NoApps(apps) }
-        } else {
+
+        AppsPhase.FAILED -> {
             fullWidth {
-                InfoText(pluralStringResource(R.plurals.toolkit_apps_count, apps.items.size, apps.items.size), small = true)
+                EmptyState(
+                    title = stringResource(R.string.toolkit_apps_failed_title),
+                    body = stringResource(R.string.toolkit_apps_failed_body),
+                    action = EmptyStateAction(stringResource(R.string.toolkit_error_action)) { onIntent(ToolkitIntent.Reload) },
+                )
             }
-            items(items = apps.items, key = { it.packageName }, span = { GridItemSpan(maxLineSpan) }) { app ->
-                AppRow(app = app, loadIcon = loadIcon, onOpen = { onIntent(ToolkitIntent.OpenApp(app.packageName)) })
+        }
+
+        AppsPhase.READY -> {
+            if (apps.items.isEmpty()) {
+                fullWidth { NoApps(apps) }
+            } else {
+                fullWidth {
+                    InfoText(pluralStringResource(R.plurals.toolkit_apps_count, apps.items.size, apps.items.size), small = true)
+                }
+                items(items = apps.items, key = { it.packageName }, span = { GridItemSpan(maxLineSpan) }) { app ->
+                    AppRow(app = app, enabled = enabled, loadIcon = loadIcon, onOpen = { onIntent(ToolkitIntent.OpenApp(app.packageName)) })
+                }
             }
         }
     }
 }
 
 @Composable
-private fun AppsHeader(query: String, onIntent: (ToolkitIntent) -> Unit) {
+private fun AppsHeader(
+    query: String,
+    onIntent: (ToolkitIntent) -> Unit,
+) {
     val spacing = MaterialTheme.spacing
     Column(verticalArrangement = Arrangement.spacedBy(spacing.sm)) {
         CardTitle(stringResource(R.string.toolkit_apps_title))
@@ -111,25 +128,32 @@ private fun AppsHeader(query: String, onIntent: (ToolkitIntent) -> Unit) {
 private fun NoApps(apps: AppsSection) {
     EmptyState(
         title = stringResource(R.string.toolkit_apps_empty_title),
-        body = if (apps.query.isBlank()) {
-            stringResource(R.string.toolkit_apps_empty_none)
-        } else {
-            stringResource(R.string.toolkit_apps_empty_no_match, apps.query)
-        },
+        body =
+            if (apps.query.isBlank()) {
+                stringResource(R.string.toolkit_apps_empty_none)
+            } else {
+                stringResource(R.string.toolkit_apps_empty_no_match, apps.query)
+            },
         action = null,
     )
 }
 
 @Composable
-private fun AppRow(app: AppItem, loadIcon: AppIconLoader, onOpen: () -> Unit) {
+private fun AppRow(
+    app: AppItem,
+    enabled: Boolean,
+    loadIcon: AppIconLoader,
+    onOpen: () -> Unit,
+) {
     val spacing = MaterialTheme.spacing
     Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clip(MaterialTheme.shapes.medium)
-            .clickable(role = Role.Button, onClick = onOpen)
-            .heightIn(min = spacing.xxl)
-            .padding(horizontal = spacing.sm, vertical = spacing.sm),
+        modifier =
+            Modifier
+                .fillMaxWidth()
+                .clip(MaterialTheme.shapes.medium)
+                .clickable(enabled = enabled, role = Role.Button, onClick = onOpen)
+                .heightIn(min = spacing.xxl)
+                .padding(horizontal = spacing.sm, vertical = spacing.sm),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(spacing.ms),
     ) {
@@ -165,7 +189,11 @@ private fun AppRow(app: AppItem, loadIcon: AppIconLoader, onOpen: () -> Unit) {
 
 /** The icon is loaded when the row is composed (lazily), with the app's initial on a quiet tile until then or when there is none. */
 @Composable
-internal fun AppIcon(app: AppItem, loadIcon: AppIconLoader, modifier: Modifier = Modifier) {
+internal fun AppIcon(
+    app: AppItem,
+    loadIcon: AppIconLoader,
+    modifier: Modifier = Modifier,
+) {
     val icon by produceState<ImageBitmap?>(initialValue = null, app.packageName) { value = loadIcon(app.packageName) }
     val shape = MaterialTheme.shapes.small
     val size = MaterialTheme.spacing.xl
@@ -187,8 +215,10 @@ internal fun AppIcon(app: AppItem, loadIcon: AppIconLoader, modifier: Modifier =
 }
 
 /** The tile's letter: the first letter or digit of [label], upper-cased by [locale]'s rules (Turkish `i` becomes `İ`). */
-internal fun monogram(label: String, locale: Locale): String =
-    label.firstOrNull { it.isLetterOrDigit() }?.uppercase(locale).orEmpty()
+internal fun monogram(
+    label: String,
+    locale: Locale,
+): String = label.firstOrNull { it.isLetterOrDigit() }?.uppercase(locale).orEmpty()
 
 // ---- detail sheet --------------------------------------------------------------------------------
 
@@ -230,10 +260,11 @@ fun AppDetailContent(
 ) {
     val spacing = MaterialTheme.spacing
     Column(
-        modifier = modifier
-            .fillMaxWidth()
-            .verticalScroll(rememberScrollState())
-            .padding(start = spacing.md, end = spacing.md, bottom = spacing.lg),
+        modifier =
+            modifier
+                .fillMaxWidth()
+                .verticalScroll(rememberScrollState())
+                .padding(start = spacing.md, end = spacing.md, bottom = spacing.lg),
         verticalArrangement = Arrangement.spacedBy(spacing.lg),
     ) {
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(spacing.ms)) {
@@ -246,19 +277,29 @@ fun AppDetailContent(
         detail.notice?.let { NoticeLine(it) }
         if (busy) LoadingLine(stringResource(R.string.toolkit_busy))
         when (val controls = detail.controls) {
-            ControlsState.Loading -> LoadingLine(stringResource(R.string.toolkit_controls_loading))
+            ControlsState.Loading -> {
+                LoadingLine(stringResource(R.string.toolkit_controls_loading))
+            }
+
             is ControlsState.Unavailable -> {
                 InfoText(problemText(controls.problem))
                 RetryButton(label = stringResource(R.string.toolkit_error_action), onClick = { onIntent(ToolkitIntent.ReloadApp) })
             }
-            is ControlsState.Loaded -> Controls(controls = controls.controls, enabled = !busy, onIntent = onIntent)
+
+            is ControlsState.Loaded -> {
+                Controls(controls = controls.controls, enabled = !busy, onIntent = onIntent)
+            }
         }
     }
 }
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-private fun Controls(controls: AppControls, enabled: Boolean, onIntent: (ToolkitIntent) -> Unit) {
+private fun Controls(
+    controls: AppControls,
+    enabled: Boolean,
+    onIntent: (ToolkitIntent) -> Unit,
+) {
     val spacing = MaterialTheme.spacing
     Column(
         modifier = Modifier.filterTouchesWhenObscured(),
@@ -276,7 +317,14 @@ private fun Controls(controls: AppControls, enabled: Boolean, onIntent: (Toolkit
                         onClick = { if (controls.bucket != bucket) onIntent(ToolkitIntent.Act(ToolkitRequest.SetBucket(bucket))) },
                         label = { Text(stringResource(bucketLabelRes(bucket))) },
                         enabled = enabled,
-                        leadingIcon = if (controls.bucket == bucket) ({ CheckMark(modifier = Modifier.size(FilterChipDefaults.IconSize)) }) else null,
+                        leadingIcon =
+                            if (controls.bucket ==
+                                bucket
+                            ) {
+                                ({ CheckMark(modifier = Modifier.size(FilterChipDefaults.IconSize)) })
+                            } else {
+                                null
+                            },
                     )
                 }
             }
@@ -289,10 +337,11 @@ private fun Controls(controls: AppControls, enabled: Boolean, onIntent: (Toolkit
             FilledTonalButton(
                 onClick = { onIntent(ToolkitIntent.Act(ToolkitRequest.ForceStop)) },
                 enabled = enabled,
-                colors = ButtonDefaults.filledTonalButtonColors(
-                    containerColor = MaterialTheme.colorScheme.errorContainer,
-                    contentColor = MaterialTheme.colorScheme.onErrorContainer,
-                ),
+                colors =
+                    ButtonDefaults.filledTonalButtonColors(
+                        containerColor = MaterialTheme.colorScheme.errorContainer,
+                        contentColor = MaterialTheme.colorScheme.onErrorContainer,
+                    ),
             ) {
                 Text(stringResource(R.string.toolkit_force_stop))
             }
@@ -307,20 +356,25 @@ private fun Controls(controls: AppControls, enabled: Boolean, onIntent: (Toolkit
 
 /** One app op. The switch is on while the system reports the op as ignored: it shows what was read back, never a guess. */
 @Composable
-private fun OpSwitchRow(control: OpControl, enabled: Boolean, onIntent: (ToolkitIntent) -> Unit) {
+private fun OpSwitchRow(
+    control: OpControl,
+    enabled: Boolean,
+    onIntent: (ToolkitIntent) -> Unit,
+) {
     val spacing = MaterialTheme.spacing
     val editable = enabled && control.editable
     Column(verticalArrangement = Arrangement.spacedBy(spacing.xs)) {
         Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .heightIn(min = spacing.xxl)
-                .toggleable(
-                    value = control.ignored,
-                    enabled = editable,
-                    role = Role.Switch,
-                    onValueChange = { onIntent(ToolkitIntent.Act(ToolkitRequest.SetAppOp(control.op, it))) },
-                ),
+            modifier =
+                Modifier
+                    .fillMaxWidth()
+                    .heightIn(min = spacing.xxl)
+                    .toggleable(
+                        value = control.ignored,
+                        enabled = editable,
+                        role = Role.Switch,
+                        onValueChange = { onIntent(ToolkitIntent.Act(ToolkitRequest.SetAppOp(control.op, it))) },
+                    ),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(spacing.md),
         ) {
@@ -341,7 +395,10 @@ private fun OpSwitchRow(control: OpControl, enabled: Boolean, onIntent: (Toolkit
 }
 
 @Composable
-private fun WarningLine(text: String, modifier: Modifier = Modifier) {
+private fun WarningLine(
+    text: String,
+    modifier: Modifier = Modifier,
+) {
     Row(modifier = modifier.fillMaxWidth(), verticalAlignment = Alignment.Top) {
         LineDot(color = MaterialTheme.statusColors.warning, style = MaterialTheme.typography.bodySmall)
         Text(
@@ -362,12 +419,13 @@ private const val CHECK_STROKE_FRACTION = 0.11f
 private fun CheckMark(modifier: Modifier = Modifier) {
     val color = LocalContentColor.current
     Canvas(modifier = modifier) {
-        val path = Path().apply {
-            CheckPoints.forEachIndexed { i, (x, y) ->
-                val point = Offset(x * size.width, y * size.height)
-                if (i == 0) moveTo(point.x, point.y) else lineTo(point.x, point.y)
+        val path =
+            Path().apply {
+                CheckPoints.forEachIndexed { i, (x, y) ->
+                    val point = Offset(x * size.width, y * size.height)
+                    if (i == 0) moveTo(point.x, point.y) else lineTo(point.x, point.y)
+                }
             }
-        }
         drawPath(
             path = path,
             color = color,

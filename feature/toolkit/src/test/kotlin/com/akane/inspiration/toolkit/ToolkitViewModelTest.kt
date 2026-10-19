@@ -284,7 +284,7 @@ class ToolkitViewModelTest {
     }
 
     @Test
-    fun `a doze write finishing after opening an app refreshes the card without a stale notice`() {
+    fun `an app tapped while a doze write runs waits and the write reports on its card`() {
         start()
         val gate = CompletableDeferred<Unit>()
         device.store.insertGate = gate
@@ -293,15 +293,55 @@ class ToolkitViewModelTest {
         assertTrue(state.busy)
         assertEquals(DozeProfile.STANDARD, dozeInfo.profile)
 
+        // N-16: opening the app would hide the write's result; the list waits for it instead.
         open(CHATTY)
         gate.complete(Unit)
 
         assertEquals(DozeProfile.BALANCED.constants, device.dozeRaw)
         assertEquals(DozeProfile.BALANCED, dozeInfo.profile)
-        assertEquals(CHATTY, detail.app.packageName)
-        assertNull(state.doze.notice)
-        assertNull(detail.notice)
+        assertEquals(ToolkitNotice.Applied(Change.DozeApplied(DozeProfile.BALANCED)), state.doze.notice)
+        assertNull(state.detail)
         assertNull(state.confirmation)
+        assertFalse(state.busy)
+
+        open(CHATTY)
+        assertEquals(CHATTY, detail.app.packageName)
+    }
+
+    @Test
+    fun `an app tapped while a doze plan is pending does not drop the apply`() {
+        start()
+        val gate = CompletableDeferred<Unit>()
+        device.gate = gate
+
+        act(ToolkitRequest.ApplyDoze(DozeProfile.BALANCED))
+        assertTrue(state.busy)
+        open(CHATTY)
+        gate.complete(Unit)
+
+        assertEquals(DozeProfile.BALANCED.constants, device.dozeRaw)
+        assertEquals(ToolkitNotice.Applied(Change.DozeApplied(DozeProfile.BALANCED)), state.doze.notice)
+        assertNull(state.detail)
+        assertFalse(state.busy)
+    }
+
+    @Test
+    fun `an app tapped while a restore plan is pending does not drop the restore`() {
+        start()
+        restrict(CHATTY)
+        val override = state.overrides.single()
+        val gate = CompletableDeferred<Unit>()
+        device.gate = gate
+
+        act(ToolkitRequest.Restore(override.actionId))
+        assertTrue(state.busy)
+        open(MAPS)
+        gate.complete(Unit)
+
+        assertEquals("allow", device.app(CHATTY).ops[AppOp.RUN_ANY_IN_BACKGROUND])
+        assertTrue(state.overrides.isEmpty())
+        assertEquals(ToolkitNotice.Applied(Change.Restored), state.overridesNotice)
+        assertNull(state.detail)
         assertFalse(state.busy)
     }
 

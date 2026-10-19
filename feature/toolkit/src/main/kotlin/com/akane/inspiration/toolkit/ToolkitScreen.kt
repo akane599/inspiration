@@ -131,7 +131,7 @@ private fun LazyGridScope.ready(
     item { DozeCard(section = state.doze, busy = state.busy, onIntent = onIntent) }
     item { DexoptCard(section = state.dexopt, onIntent = onIntent, timeZone = timeZone) }
     fullWidth { OverridesCard(state = state, onIntent = onIntent, timeZone = timeZone) }
-    appsSection(state.apps, onIntent, loadIcon)
+    appsSection(state.apps, enabled = !state.busy, onIntent = onIntent, loadIcon = loadIcon)
 }
 
 /** Every change here outlives the app, so the warning is always on screen, next to the list that undoes it. */
