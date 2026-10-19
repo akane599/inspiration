@@ -293,6 +293,11 @@ data class TelemetrySampleEntity(
     val thermalStatus: Int? = null,
 )
 
+/**
+ * Hourly aggregates of expired `telemetry_sample` rows, written by `MaintenanceDao.prune` and kept for
+ * `MaintenanceDao.HOURLY_RETENTION_MS`. Specified by TEMPLATE.md §6.3 and phase-2 decision E9 as the long-horizon
+ * store; no screen reads it yet.
+ */
 @Entity(tableName = "telemetry_hourly")
 data class TelemetryHourlyEntity(
     @PrimaryKey val hourStartWallMs: Long,

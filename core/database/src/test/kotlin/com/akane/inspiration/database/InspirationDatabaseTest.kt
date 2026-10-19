@@ -266,7 +266,7 @@ class InspirationDatabaseTest {
                 assertTrue(it.moveToFirst())
                 assertEquals("wal", it.getString(0).lowercase())
             }
-            assertEquals(1, database.snapshotDao().deleteById(42))
+            assertEquals(1, database.maintenanceDao().deleteUnmarkedSnapshotsBefore(cutoffWallMs = 6L))
             assertTrue(database.snapshotDao().uidsForSnapshot(42).isEmpty())
             assertTrue(database.snapshotDao().componentsForSnapshot(42).isEmpty())
         }
@@ -289,10 +289,10 @@ class InspirationDatabaseTest {
         runBlocking {
             val snapshotId = database.snapshotDao().insert(snapshot(wallMs = 1L))
             database.snapshotDao().insertAvailability(
-                SnapshotAvailabilityEntity(snapshotId, source = "usage", available = true),
+                listOf(SnapshotAvailabilityEntity(snapshotId, source = "usage", available = true)),
             )
 
-            assertEquals(1, database.snapshotDao().deleteById(snapshotId))
+            assertEquals(1, database.maintenanceDao().deleteUnmarkedSnapshotsBefore(cutoffWallMs = 2L))
             assertTrue(database.snapshotDao().availabilityForSnapshot(snapshotId).isEmpty())
         }
 
@@ -305,7 +305,7 @@ class InspirationDatabaseTest {
             )
             assertEquals(1, database.snapshotDao().uidSensorsForSnapshot(snapshotId).size)
 
-            assertEquals(1, database.snapshotDao().deleteById(snapshotId))
+            assertEquals(1, database.maintenanceDao().deleteUnmarkedSnapshotsBefore(cutoffWallMs = 2L))
             assertTrue(database.snapshotDao().uidSensorsForSnapshot(snapshotId).isEmpty())
         }
 
@@ -373,7 +373,7 @@ class InspirationDatabaseTest {
             val unmarkedSnapshotId = database.snapshotDao().insert(snapshot(wallMs = now - 31L * DAY_MS + 1L))
             val currentSnapshotId = database.snapshotDao().insert(snapshot(wallMs = now - DAY_MS))
             database.snapshotDao().insertAvailability(
-                SnapshotAvailabilityEntity(unmarkedSnapshotId, source = "usage", available = true),
+                listOf(SnapshotAvailabilityEntity(unmarkedSnapshotId, source = "usage", available = true)),
             )
             database.snapshotDao().insertUidSensors(
                 listOf(SnapshotUidSensorEntity(unmarkedSnapshotId, uid = 10_001, handle = 3, totalMs = 5L, bgMs = 1L, count = 2L)),
@@ -459,6 +459,32 @@ class InspirationDatabaseTest {
             assertTrue(database.telemetryDao().between(hour, hour + MaintenanceDao.HOUR_MS).isEmpty())
             maintenance.prune(MaintenanceDao.RETENTION_MS + hour + MaintenanceDao.HOUR_MS + 10)
             assertEquals(aggregate, database.telemetryDao().hourly(hour))
+        }
+
+    @Test
+    fun `prune keeps hourly aggregates for a year and then deletes them`() =
+        runBlocking {
+            val oldHour = 12L * MaintenanceDao.HOUR_MS
+            val newHour = oldHour + 48L * MaintenanceDao.HOUR_MS
+            database.telemetryDao().insertSamples(
+                listOf(
+                    TelemetrySampleEntity(wallMs = oldHour + 5, elapsedRealtimeMs = 5, bootCount = 1, currentMa = 10),
+                    TelemetrySampleEntity(wallMs = newHour + 5, elapsedRealtimeMs = 6, bootCount = 1, currentMa = 20),
+                ),
+            )
+            val maintenance = database.maintenanceDao()
+
+            // The prune that writes the aggregates keeps them, although their samples are past the 30-day cutoff.
+            maintenance.prune(MaintenanceDao.RETENTION_MS + newHour + MaintenanceDao.HOUR_MS)
+            val old = requireNotNull(database.telemetryDao().hourly(oldHour))
+            val new = requireNotNull(database.telemetryDao().hourly(newHour))
+
+            maintenance.prune(oldHour + MaintenanceDao.HOURLY_RETENTION_MS)
+            assertEquals(old, database.telemetryDao().hourly(oldHour))
+
+            maintenance.prune(oldHour + MaintenanceDao.HOURLY_RETENTION_MS + 1)
+            assertNull(database.telemetryDao().hourly(oldHour))
+            assertEquals(new, database.telemetryDao().hourly(newHour))
         }
 
     private fun snapshot(wallMs: Long) =

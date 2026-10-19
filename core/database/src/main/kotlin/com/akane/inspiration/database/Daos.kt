@@ -18,9 +18,6 @@ interface SnapshotDao {
     suspend fun insertSystem(system: SnapshotSystemEntity)
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
-    suspend fun insertAvailability(availability: SnapshotAvailabilityEntity)
-
-    @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertAvailability(availability: List<SnapshotAvailabilityEntity>)
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
@@ -211,9 +208,6 @@ interface SnapshotDao {
 
     @Query("SELECT * FROM snapshot_cpu_freq WHERE snapshotId = :snapshotId ORDER BY policy, freqKhz")
     suspend fun cpuFrequenciesForSnapshot(snapshotId: Long): List<SnapshotCpuFreqEntity>
-
-    @Query("DELETE FROM snapshot WHERE id = :id")
-    suspend fun deleteById(id: Long): Int
 }
 
 @Dao
@@ -270,6 +264,11 @@ interface TelemetryDao {
         toWallMs: Long,
     ): List<TelemetrySampleEntity>
 
+    /**
+     * No production screen reads the hourly table yet: it is the long-horizon store that TEMPLATE.md §6.3 and
+     * phase-2 decision E9 specify for samples past the 30-day retention. Tests use this read as the oracle for
+     * [MaintenanceDao.prune]'s downsample.
+     */
     @Query("SELECT * FROM telemetry_hourly WHERE hourStartWallMs = :hourStartWallMs")
     suspend fun hourly(hourStartWallMs: Long): TelemetryHourlyEntity?
 }
@@ -393,6 +392,9 @@ interface MaintenanceDao {
     @Query("DELETE FROM telemetry_sample WHERE wallMs < :cutoffWallMs")
     suspend fun deleteSamplesBefore(cutoffWallMs: Long): Int
 
+    @Query("DELETE FROM telemetry_hourly WHERE hourStartWallMs < :cutoffWallMs")
+    suspend fun deleteHourlyBefore(cutoffWallMs: Long): Int
+
     @Query("DELETE FROM snapshot WHERE wallMs < :cutoffWallMs AND id NOT IN (SELECT snapshotId FROM marker)")
     suspend fun deleteUnmarkedSnapshotsBefore(cutoffWallMs: Long): Int
 
@@ -414,6 +416,9 @@ interface MaintenanceDao {
         val sampleCutoffWallMs = Math.floorDiv(cutoffWallMs, HOUR_MS) * HOUR_MS
         downsampleSamples(sampleCutoffWallMs)
         deleteSamplesBefore(sampleCutoffWallMs)
+        // The hourly aggregates outlive the samples (they are the long-horizon store), so they get their own
+        // much longer cutoff; the 30-day one would delete each row in the transaction that wrote it.
+        deleteHourlyBefore(nowWallMs - HOURLY_RETENTION_MS)
         deleteUnmarkedSnapshotsBefore(cutoffWallMs)
         deleteHistoryBefore(cutoffWallMs)
         deleteMissesBefore(cutoffWallMs)
@@ -422,5 +427,8 @@ interface MaintenanceDao {
     companion object {
         const val HOUR_MS = 60L * 60L * 1_000L
         const val RETENTION_MS = RETENTION_WINDOW_MS
+
+        /** How long `telemetry_hourly` keeps an aggregate, counted from the start of its hour. */
+        const val HOURLY_RETENTION_MS = 365L * 24L * HOUR_MS
     }
 }
