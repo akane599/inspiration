@@ -95,9 +95,11 @@ class AndroidTelemetrySource(
         val kernel = shizuku.withTelemetryService(serviceTimeoutMs) { service ->
             runCatching { service.readKernelBattery() }.getOrNull()
         } ?: return@withContext null
+        // sysfs values come only from this kernel read, never the reader's process-start cache; a missing
+        // one makes PowerCalibrator fall back to the fresh BatteryManager current/voltage below.
         val calibration = calibrationInputReader.read().copy(
-            sysfsCurrentRaw = kernel?.currentNowRaw ?: calibrationInputReader.read().sysfsCurrentRaw,
-            sysfsVoltageRaw = kernel?.voltageNowRaw ?: calibrationInputReader.read().sysfsVoltageRaw,
+            sysfsCurrentRaw = kernel?.currentNowRaw,
+            sysfsVoltageRaw = kernel?.voltageNowRaw,
             bmCurrentNowUa = light.currentMa?.times(1_000),
             bmVoltageMv = light.voltageMv,
             isCharging = light.status == "charging" || light.status == "full",
