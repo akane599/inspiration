@@ -87,7 +87,7 @@ object UnplugSummaryCalculator {
             val point = points[i]
             // Only a new boot forgets the screen state, never a trigger: 0.2.3 stored an app update (same boot)
             // as BOOT, and a capture that ran before BOOT_COMPLETED already opened the new boot.
-            if (i > 0 && points[i - 1].clock.bootCount != point.clock.bootCount) {
+            if (i > 0 && !sameBoot(points[i - 1], point)) {
                 screen = null
             }
             screen = screenAfter(screen, point)
@@ -95,6 +95,17 @@ object UnplugSummaryCalculator {
         }
         return tally
     }
+
+    /**
+     * Whether [to], the capture after [from] in wall-clock order, ran in the same boot. The boot count alone misses
+     * a reboot when BOOT_COUNT was unreadable (0 on both sides), so elapsedRealtime running backwards counts as a
+     * new boot too. A backward wall-clock step can also put a later capture of one boot first; the state between
+     * the two is then unknown as well, which only drops what could not be attributed.
+     */
+    private fun sameBoot(
+        from: BatterySnapshot,
+        to: BatterySnapshot,
+    ): Boolean = from.clock.bootCount == to.clock.bootCount && to.clock.elapsedRealtimeMs >= from.clock.elapsedRealtimeMs
 
     private fun screenAfter(
         current: Screen?,
@@ -124,20 +135,18 @@ object UnplugSummaryCalculator {
         ) {
             val drop = drop(from, to)
             // A different boot cannot establish the screen state of this segment.
-            when (screen.takeIf { from.clock.bootCount == to.clock.bootCount }) {
+            when (screen.takeIf { sameBoot(from, to) }) {
                 Screen.ON -> {
                     // Same boot: elapsedRealtime, like screen-off, so a wall-clock change cannot stretch the segment.
-                    onMs += (to.clock.elapsedRealtimeMs - from.clock.elapsedRealtimeMs).coerceAtLeast(0L)
+                    onMs += to.clock.elapsedRealtimeMs - from.clock.elapsedRealtimeMs
                     dropOn += drop
                 }
 
                 Screen.OFF -> {
                     dropOff += drop
-                    if (from.clock.bootCount == to.clock.bootCount) {
-                        val elapsedMs = to.clock.elapsedRealtimeMs - from.clock.elapsedRealtimeMs
-                        offMs += elapsedMs.coerceAtLeast(0L)
-                        suspendMs += (elapsedMs - (to.clock.uptimeMs - from.clock.uptimeMs)).coerceAtLeast(0L)
-                    }
+                    val elapsedMs = to.clock.elapsedRealtimeMs - from.clock.elapsedRealtimeMs
+                    offMs += elapsedMs
+                    suspendMs += (elapsedMs - (to.clock.uptimeMs - from.clock.uptimeMs)).coerceAtLeast(0L)
                 }
 
                 null -> {

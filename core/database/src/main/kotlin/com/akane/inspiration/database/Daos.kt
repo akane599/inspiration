@@ -145,8 +145,9 @@ interface SnapshotDao {
      * `SnapshotStore.unplugWindowSnapshots`). `mark` is the newest plugged-in row before now, else the newest
      * POWER_DISCONNECTED capture before now, else [fromWallMs]; the rows start at the newest screen capture at
      * or before `mark` (whose trigger fixes the screen state), else at `mark`. A BOOT row is no start: the
-     * calculator resets the state where the boot count changes, which needs the row before it. Every bound
-     * stays inside the range.
+     * calculator resets the state where a new boot starts (the boot count changes or elapsedRealtime runs
+     * backwards), which it reads from each row and the one before it, so every pair after the start is the
+     * same as in [between]. Every bound stays inside the range.
      */
     @Query(
         """

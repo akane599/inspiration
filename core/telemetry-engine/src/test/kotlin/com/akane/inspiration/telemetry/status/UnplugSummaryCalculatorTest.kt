@@ -176,6 +176,25 @@ class UnplugSummaryCalculatorTest {
     }
 
     @Test
+    fun `a reboot with an unreadable boot count still forgets the screen state`() {
+        // BOOT_COUNT unreadable: 0 on both sides of the reboot, which only elapsedRealtime running backwards shows.
+        val summary =
+            UnplugSummaryCalculator.compute(
+                listOf(
+                    statusSnapshot(minutes(0), elapsedMs = minutes(60), bootCount = 0, level = 90, trigger = CaptureTrigger.SCREEN_OFF),
+                    statusSnapshot(minutes(61), elapsedMs = minutes(1), uptimeMs = minutes(1), bootCount = 0, level = 89),
+                ),
+                statusSnapshot(minutes(121), elapsedMs = minutes(61), uptimeMs = minutes(61), bootCount = 0, level = 80),
+            ) as UnplugSummary.Discharging
+
+        assertEquals(10, summary.dropPct)
+        assertEquals(minutes(121), summary.elapsedMs)
+        assertNull(summary.screenOffPctPerHour)
+        assertNull(summary.screenOnPctPerHour)
+        assertNull(summary.deepSleepRatio)
+    }
+
+    @Test
     fun `a capture in the same boot keeps the screen state whatever its trigger`() {
         // An app update is no reboot: the screen stayed off. 0.2.3 stored such an update as BOOT.
         for (trigger in listOf(CaptureTrigger.PACKAGE_REPLACED, CaptureTrigger.BOOT)) {
