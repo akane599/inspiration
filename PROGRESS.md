@@ -10,6 +10,7 @@ _Work items, stories and blockers live on the Sidequest board. This file keeps w
 - 2026-10-17 @ end of Phase 4 (91beb5a): build ok incl. minifyReleaseWithR8; 336 unit tests (app 15, shizuku-ipc 78, telemetry-engine 59, database 13, diagnostics 102, designsystem 69), 0 failing; 36 screenshot refs validate (app + designsystem).
 - 2026-10-17 @ Phase 5 gate (4a7e857, SQ-112): build ok incl. minifyReleaseWithR8 and signed assembleRelease; 893 unit tests (app 53, database 23, designsystem 100, diagnostics 130, shizuku-ipc 170, telemetry-engine 194, dashboard 35, health 56, sleeplab 51, toolkit 39, xray 42), 0 failing; all screenshot refs validate; lint 0 errors / 10 warnings. SQ-114/115/118 then added 14 tests (shizuku-ipc 182).
 - 2026-10-19 @ 0.2.1 (3fa4f1b; full gate at e788e1e): build ok incl. minifyReleaseWithR8 and signed assembleRelease; 1,238 unit tests (app 115, database 47, designsystem 109, diagnostics 150, shizuku-ipc 226, telemetry-engine 285, dashboard 41, health 66, sleeplab 61, toolkit 68, xray 70), 0 failing; 168 screenshots validate; lint 0 errors / 9 warnings.
+- 2026-10-19 @ 0.2.4 (full gate at ec4a0d4, `--rerun-tasks`): build ok incl. minifyReleaseWithR8 and signed assembleRelease; 1,732 unit tests (app 162, database 67, designsystem 170, diagnostics 169, shizuku-ipc 286, telemetry-engine 462, dashboard 64, health 102, sleeplab 77, toolkit 83, xray 90), 0 failing; 185 screenshots validate; lint 0 errors / 7 warnings (version notices only).
 
 ## Decision log (never delete; one line each)
 - 2026-10-17: scaffolded with android-kit snapshot — Gradle 9.8.0, AGP 9.4.1, Kotlin 2.4.20, Compose BOM 2026.09.00, lifecycle 2.11.0, core-ktx 1.19.1, screenshot 0.0.1-alpha16. (bootstrap)
@@ -81,17 +82,45 @@ _Work items, stories and blockers live on the Sidequest board. This file keeps w
 - 2026-10-17: Chart perf (SQ-60): cursor/selection reads shared a draw node with static content, so every drag frame re-rasterized all paths on the RenderThread (the UI thread blocked in postAndWait). Static data is now recorded once per cache build into an Offscreen GraphicsLayer, and the overlay draws on top. New charts must keep that split. On the API 36 emulator (software rendering via SwiftShader, so read the numbers as relative): drag frames p50 34 → 17 ms, p90 40 → 23 ms, and janky 17% → 0.7% (final run, `build/gfx-final-api36.txt`). Drags trigger 0 recompositions, and a committed brush 1/1. (US-4)
 - 2026-10-19: Kept the fixed 24-hour clock over following the system hour cycle (audit F-23), because TelemetryFormat's single date-time style is a product choice and switching would widen every time label and re-baseline every screenshot module.
 - 2026-10-19: Raised the Gradle limits once the user added 7.8 GiB zstd zram plus an 8 GiB swapfile fallback, replacing the old 512 MiB swap. Whole-project gates now use 8 workers when they run alone and 4 when another invocation runs (was 4 always). 2 concurrent invocations are now allowed alongside redroid or an emulator (was 1). A gate may run as one invocation with redroid up, instead of sequential stages. The basis is two measured runs with redroid up and every task re-run, with no OOM and no swapfile use: one gate at 8 workers took 122 s with 4.5 GB in zram; two concurrent gates at 4 workers took 150 s and 175 s with zram at 7.4 of 7.8 GB. 8 workers stays the ceiling, and Gradle heaps are unchanged.
+- 2026-10-19: Second blind full-repo audit (N-01–N-28) remediated on branch `audit-remediate-n-20261019` and shipped as 0.2.4. Commits, device evidence and the 16 follow-ups are in AUDIT_REPORT.md "Remediation". Decisions:
+  - N-02: the newest history event starts a reference window. A capture up to 10 s after it (`CAPTURE_SLACK_MS`) is that event's own.
+    - A later capture starts the window only when the history is provably stale: a snapshot between them reverts the event, or the capture is more than 10 s past the history horizon.
+    - Otherwise the capture may be the event's own, deferred by Android 14+ until the app is active again.
+    - `max(history, capture)` was rejected.
+  - N-13: history runs are ordered by insertion (one ingest lock, one process), not by wall clock. Ingest skips rows already past retention.
+  - N-14: MY_PACKAGE_REPLACED is recorded as the new `CaptureTrigger.PACKAGE_REPLACED`, no longer as BOOT. Boot boundaries come only from `bootCount` and `elapsedRealtime` running backwards.
+  - N-04: the pinned `CockpitDependencies`/`HealthDependencies` gain `lastRefreshWallMs`. It is a strictly increasing tick (`StoreTicks`) of the last capture that ingested history. `RefreshCoordinator` gains `afterStored`/`onStored`, so the tick fires even when the prune fails.
+  - N-05: power calibration persists in SharedPreferences `power_calibration`, keyed to `Build.FINGERPRINT`; an older build's locks start as guesses.
+    - Unplugged magnitudes of 50–20,000 are taken as mA; anything above 20,000 proves µA.
+    - A lock disputed 3 times in a row re-learns.
+    - An assumed unit is stored as null and shown as "—".
+    - The weak-charger verdict needs at least 6 votes.
+  - N-06: the toolkit service stays stateless and lift-only on protected apps. The client allows that lift only to undo Inspiration's own change, and PENDING rows stay listed as unverified.
+  - N-03: `ToolkitApi.VERSION` 4, with bg-dexopt argv chosen per API level.
+    - Below API 33 a start or cancel is refused `UNSUPPORTED_API` (15), because no shell command can cancel a job started from the shell there.
+    - A cancel counts as confirmed only when our client process exits; a timed-out cancel is reported as unverified.
+  - N-26: the app's hidden-API exemption is narrowed to `Sensor.getHandle()`. The debug probe carries its own debug-only exemptions.
+  - N-27: the release keeps only en/tr resources (`localeFilters`) and enables `shrinkResources`, which is safe because nothing uses `getIdentifier`. The APK went from 5.3 to 4.6 MB.
+  - N-25: a partial release-signing property set fails only the release packaging tasks, naming the missing keys. Debug builds and tests still configure.
+  - N-20: the Toolkit locale is a ViewModel constructor parameter.
+  - Dead code (§3):
+    - The pinned members `ToolkitDependencies.holdBinding()` (Phase 5) and `niceTimeTicks` (Phase 4) were removed.
+    - AIDL txns 4/5 and `DumpTarget` 2/4 are reserved and never reused.
+    - `telemetry_hourly` is kept, with a 365-day prune.
+    - The H14 gap field `SliceInfo.gapMs` was removed until the banner is built.
+    - `AndroidCalibrationInputReader` was removed.
+  - Process: with about ten worktrees building, the host hit a kernel OOM at 19:19 that killed a 2.6 GB Gradle daemon. The coordinator finished the run on one Gradle slot.
 
 ## Audit status
 | Area | Last run | Result | How |
 |---|---|---|---|
 | Plan audit | 2026-10-18 | Status notification: approve with fixes (3 blockers, applied in rev 2). Phase 5: approve with fixes (5 + 4 security blockers, all applied in rev 2); Phase 1–4 likewise | SQ-121 (status notification); SQ-64 + SQ-65 security (Phase 4: SQ-51; Phase 3: SQ-37/38; Phase 2: SQ-18/19/20) |
-| Full-repo audit | 2026-10-19 | 23 findings (2 HIGH, 9 MEDIUM, 12 LOW); all fixed (F-23 locale only) and shipped in 0.2.1 | `/full-repo-audit` + `/audit-remediate`, AUDIT_REPORT.md |
+| Full-repo audit | 2026-10-19 | Second blind audit: 28 findings (4 HIGH, 6 MEDIUM, 18 LOW), all fixed (N-28 test coverage partial: no Compose-rule gesture or instrumented FGS tests) and shipped in 0.2.4; 16 follow-ups listed in AUDIT_REPORT.md "Remediation". First audit: 23 findings (2 HIGH, 9 MEDIUM, 12 LOW), all fixed (F-23 locale only) and shipped in 0.2.1 | `/full-repo-audit` + `/audit-remediate`, AUDIT_REPORT.md |
 | Bug hunt | — | — | `/bug-hunt` |
-| Security | 2026-10-19 | Covered by the full-repo audit (security & privilege domain + Android/Shizuku checklist): 7/10. F-12 (truncated protected-package list failed open) and F-02 (X-Ray confirmation could write to a package the dialog didn't name) are both fixed and shipped in 0.2.1 | `/full-repo-audit` (security domain), AUDIT_REPORT.md |
+| Security | 2026-10-19 | Second audit: 8/10. N-26 (process-wide hidden-API exemption) and N-25 (a partial signing config broke every build) are fixed in 0.2.4. First audit (security & privilege domain + Android/Shizuku checklist): 7/10. F-12 (truncated protected-package list failed open) and F-02 (X-Ray confirmation could write to a package the dialog didn't name) are both fixed and shipped in 0.2.1 | `/full-repo-audit` (security domain), AUDIT_REPORT.md |
 | UI / design | 2026-10-17 | Phase 4 design system + charts: approve with fixes; F1–F6 applied (SQ-59), readout truncation fixed (SQ-61); F7 + nits deferred to Phase 5 | SQ-58 visual-evaluation (Opus) |
-| Lint | 2026-10-19 | 0 errors, 9 warnings (8 version notices + NotShrinkingResources) | `:app:lintDebug` in the 0.2.1 gate |
-| Device QA | 2026-10-19 | 2026-10-19 redroid (Android 15, Shizuku 13.5): F-03 grant/deny/external-grant flow and the 0.2.0 → 0.2.1 in-place upgrade (DB v1 → v4) pass. Phase 5 release build on API 36 (2026-10-18): SQ-113 found the binding-handover defect (→ SQ-114/118) and the dexopt idle card (→ SQ-115); SQ-119 re-QA all 5 scenarios pass. Phase 4 DesignGalleryActivity drag frame stats on API 36: pass after SQ-60 (p50 17 ms, 0.7% janky, software renderer); Phase 3 PROBE_INSIGHTS pass on API 36/37 (2 defects → SQ-49); Phase 2 capture/diff/job pass on API 35/36/37 (SQ-34/35) | `.claude/skills/device-probe` (`device-probe.sh --probe PROBE_INSIGHTS --extras "--es reference_kind since_unplugged"`) |
+| Lint | 2026-10-19 | 0 errors, 7 warnings (version notices only) | `:app:lintDebug` in the 0.2.4 gate |
+| Device QA | 2026-10-19 | 0.2.4 on redroid (Android 15, Shizuku 13.6.0): N-01 (reset baseline screen state), N-02 (since screen off) and N-04 (warm-return timeline) pass on the device; the signed release smoke test (grant flows, FULL capture, status notification with shrunk resources, Turkish UI on all 5 tabs) passes. Not on a device: N-03 on API 31–33, N-05 on a real fuel gauge, toolkit fault paths, Sui. Earlier 2026-10-19 redroid (Shizuku 13.5): F-03 grant/deny/external-grant flow and the 0.2.0 → 0.2.1 in-place upgrade (DB v1 → v4) pass. Phase 5 release build on API 36 (2026-10-18): SQ-113 found the binding-handover defect (→ SQ-114/118) and the dexopt idle card (→ SQ-115); SQ-119 re-QA all 5 scenarios pass. Phase 4 DesignGalleryActivity drag frame stats on API 36: pass after SQ-60 (p50 17 ms, 0.7% janky, software renderer); Phase 3 PROBE_INSIGHTS pass on API 36/37 (2 defects → SQ-49); Phase 2 capture/diff/job pass on API 35/36/37 (SQ-34/35) | `.claude/skills/device-probe` (`device-probe.sh --probe PROBE_INSIGHTS --extras "--es reference_kind since_unplugged"`) |
 | Content review | 2026-10-17 | Dictionary en/tr wording: 7 findings applied (SQ-48) | SQ-47 review-audit |
 
 ## Environment notes
