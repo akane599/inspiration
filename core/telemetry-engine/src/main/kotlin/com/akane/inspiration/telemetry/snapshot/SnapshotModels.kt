@@ -153,7 +153,6 @@ data class SnapshotDiff(
     val deviceComponentsMah: Map<String, Double>,
     val kernelWakelocks: List<KernelWakelock>,
     val sleep: SleepStats?,
-    val levelDropPct: Int?,
     val dischargedMah: Double?,
     // Delta of the SystemTimers signal bins (empty if either side lacks bins), scanning and radio-active
     // time; null when absent on either side or negative (a problem string is recorded then).

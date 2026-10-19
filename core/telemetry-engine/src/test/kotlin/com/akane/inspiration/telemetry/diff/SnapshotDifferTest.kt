@@ -143,7 +143,6 @@ class SnapshotDifferTest {
             assertTrue(diff.validity.kernelWakelocks)
             assertTrue(diff.validity.cpuFreq)
             assertEquals(2.0, diff.deviceComponentsMah.getValue("SCREEN"), 0.0)
-            assertEquals(2, diff.levelDropPct)
             assertEquals(12.0, diff.dischargedMah!!, 0.0)
             assertEquals(12.0, diff.dischargeMah!!, 0.0)
             assertEquals(5.0, diff.dischargeScreenOffMah!!, 0.0)
@@ -340,7 +339,6 @@ class SnapshotDifferTest {
             0.0,
         )
         assertEquals(0.25, diff.deviceComponentsMah.getValue("screen"), 0.0)
-        assertEquals(3, diff.levelDropPct)
         assertEquals(0.4, diff.dischargedMah!!, 0.000_001)
     }
 

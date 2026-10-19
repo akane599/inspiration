@@ -114,7 +114,6 @@ internal fun diffOf(
     deviceComponentsMah = components,
     kernelWakelocks = emptyList(),
     sleep = null,
-    levelDropPct = null,
     dischargedMah = null,
     signalStrengthMs = emptyList(),
     signalScanningMs = null,

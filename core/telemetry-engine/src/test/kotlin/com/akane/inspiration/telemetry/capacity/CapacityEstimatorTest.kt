@@ -15,15 +15,14 @@ class CapacityEstimatorTest {
         for (boundary in listOf(HistoryKind.RESET, HistoryKind.START, HistoryKind.SHUTDOWN)) {
             // The RESET here is recorded while still plugged and charging goes on afterwards.
             assertTrue(
-                ChargeSegmentExtractor
-                    .fromHistory(
-                        listOf(
-                            historyEvent(0, HistoryKind.PLUGGED, 20, 1_000_000),
-                            historyEvent(500, boundary, 40, 2_000_000),
-                            historyEvent(700, HistoryKind.LEVEL, 60, 2_800_000),
-                            historyEvent(1_000, HistoryKind.UNPLUGGED, 80, 3_700_000),
-                        ),
-                    ).isEmpty(),
+                oneSessionSegments(
+                    listOf(
+                        historyEvent(0, HistoryKind.PLUGGED, 20, 1_000_000),
+                        historyEvent(500, boundary, 40, 2_000_000),
+                        historyEvent(700, HistoryKind.LEVEL, 60, 2_800_000),
+                        historyEvent(1_000, HistoryKind.UNPLUGGED, 80, 3_700_000),
+                    ),
+                ).isEmpty(),
             )
         }
     }
@@ -32,15 +31,14 @@ class CapacityEstimatorTest {
     fun `a reset record that carries the unplug ends the charge`() {
         // Walker shape: PLUGGED, LEVEL, RESET(unplugged), LEVEL - no UNPLUGGED is ever emitted.
         val segment =
-            ChargeSegmentExtractor
-                .fromHistory(
-                    listOf(
-                        historyEvent(0, HistoryKind.PLUGGED, 30, 1_000_000),
-                        historyEvent(500, HistoryKind.LEVEL, 95, 3_600_000),
-                        historyEvent(1_000, HistoryKind.RESET, 95, 3_600_000, plugType = 0),
-                        historyEvent(1_500, HistoryKind.LEVEL, 94, 3_560_000, plugType = 0),
-                    ),
-                ).single()
+            oneSessionSegments(
+                listOf(
+                    historyEvent(0, HistoryKind.PLUGGED, 30, 1_000_000),
+                    historyEvent(500, HistoryKind.LEVEL, 95, 3_600_000),
+                    historyEvent(1_000, HistoryKind.RESET, 95, 3_600_000, plugType = 0),
+                    historyEvent(1_500, HistoryKind.LEVEL, 94, 3_560_000, plugType = 0),
+                ),
+            ).single()
 
         assertEquals(30, segment.startPct)
         assertEquals(95, segment.endPct)
@@ -52,16 +50,15 @@ class CapacityEstimatorTest {
     fun `a plugged reset followed by an unplug at the same instant ends the charge`() {
         // Walker shape: PLUGGED, LEVEL, RESET(plugged), UNPLUGGED, all closing at one timestamp.
         val segment =
-            ChargeSegmentExtractor
-                .fromHistory(
-                    listOf(
-                        historyEvent(0, HistoryKind.PLUGGED, 30, 1_000_000),
-                        historyEvent(500, HistoryKind.LEVEL, 95, 3_600_000),
-                        historyEvent(1_000, HistoryKind.RESET, 95, 3_600_000),
-                        historyEvent(1_000, HistoryKind.SCREEN_ON, 95, 3_600_000),
-                        historyEvent(1_000, HistoryKind.UNPLUGGED, 95, 3_600_000),
-                    ),
-                ).single()
+            oneSessionSegments(
+                listOf(
+                    historyEvent(0, HistoryKind.PLUGGED, 30, 1_000_000),
+                    historyEvent(500, HistoryKind.LEVEL, 95, 3_600_000),
+                    historyEvent(1_000, HistoryKind.RESET, 95, 3_600_000),
+                    historyEvent(1_000, HistoryKind.SCREEN_ON, 95, 3_600_000),
+                    historyEvent(1_000, HistoryKind.UNPLUGGED, 95, 3_600_000),
+                ),
+            ).single()
 
         assertEquals(95, segment.endPct)
         assertEquals(11_000L, segment.endWallMs)
@@ -131,7 +128,7 @@ class CapacityEstimatorTest {
     @Test
     fun `extractor keeps only completed plugged segments rising at least forty points`() {
         val segments =
-            ChargeSegmentExtractor.fromHistory(
+            oneSessionSegments(
                 listOf(
                     historyEvent(timeMs = 0, kind = HistoryKind.PLUGGED, levelPct = 40, chargeUah = 1_000_000),
                     historyEvent(timeMs = 1_000, kind = HistoryKind.LEVEL, levelPct = 80, chargeUah = 2_000_000),
@@ -264,6 +261,10 @@ class CapacityEstimatorTest {
         assertTrue(verdict.accepted)
         assertEquals(2_500.0, verdict.estimateMah!!, 0.0)
     }
+
+    /** The production [ChargeSegmentExtractor.fromSessions] over a single stats session. */
+    private fun oneSessionSegments(events: List<HistoryEvent>): List<ChargeSegment> =
+        ChargeSegmentExtractor.fromSessions(listOf(1_000L to events)).map { it.second }
 
     private fun validSegment(
         deltaChargeUah: Long = 1_000_000,

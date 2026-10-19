@@ -8,14 +8,10 @@ import com.akane.inspiration.telemetry.proto.SystemProto
 import com.akane.inspiration.telemetry.proto.TimerProto
 import com.akane.inspiration.telemetry.proto.UidProto
 import com.google.protobuf.ByteString
-import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
-import java.io.ByteArrayInputStream
-import java.io.IOException
-import java.io.InputStream
 
 class DumpParserTest {
     @Test
@@ -354,18 +350,6 @@ class DumpParserTest {
         )
     }
 
-    @Test
-    fun readerReturnsBytesOrNullAndAlwaysCloses() {
-        val input = ClosingInputStream(byteArrayOf(1, 2, 3))
-        assertArrayEquals(byteArrayOf(1, 2, 3), DumpReader.readAll(input))
-        assertTrue(input.closed)
-        assertNull(DumpReader.readAll(ByteArrayInputStream(byteArrayOf(1, 2, 3)), maxBytes = 2))
-
-        val failing = FailingInputStream()
-        assertNull(DumpReader.readAll(failing))
-        assertTrue(failing.closed)
-    }
-
     private fun fixture(name: String): ByteArray = checkNotNull(javaClass.getResourceAsStream("/proto/$name")).use { it.readBytes() }
 
     private fun DumpParse<*>.isUnavailable(): Boolean = this is DumpParse.Unavailable
@@ -377,25 +361,4 @@ class DumpParserTest {
         val uidWakelocks: Int,
         val wakeupAlarms: Int,
     )
-
-    private class ClosingInputStream(
-        bytes: ByteArray,
-    ) : ByteArrayInputStream(bytes) {
-        var closed = false
-
-        override fun close() {
-            closed = true
-            super.close()
-        }
-    }
-
-    private class FailingInputStream : InputStream() {
-        var closed = false
-
-        override fun read(): Int = throw IOException("expected")
-
-        override fun close() {
-            closed = true
-        }
-    }
 }

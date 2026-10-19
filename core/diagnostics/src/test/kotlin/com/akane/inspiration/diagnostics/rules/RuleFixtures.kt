@@ -21,22 +21,24 @@ internal const val ACCEL_UNCAL_HANDLE = 2
 internal const val GYRO_HANDLE = 4
 internal const val OTHER_HANDLE = 9
 
-internal val fakeCatalog = SensorCatalog { handle ->
-    when (handle) {
-        ACCEL_HANDLE, ACCEL_UNCAL_HANDLE -> SensorKind.ACCELEROMETER
-        GYRO_HANDLE -> SensorKind.GYROSCOPE
-        else -> SensorKind.OTHER
+internal val fakeCatalog =
+    SensorCatalog { handle ->
+        when (handle) {
+            ACCEL_HANDLE, ACCEL_UNCAL_HANDLE -> SensorKind.ACCELEROMETER
+            GYRO_HANDLE -> SensorKind.GYROSCOPE
+            else -> SensorKind.OTHER
+        }
     }
-}
 
-private val clock = SnapshotClock(
-    wallMs = 0,
-    elapsedRealtimeMs = 0,
-    uptimeMs = 0,
-    bootCount = 1,
-    statsStartMs = null,
-    statsDurationMs = null,
-)
+private val clock =
+    SnapshotClock(
+        wallMs = 0,
+        elapsedRealtimeMs = 0,
+        uptimeMs = 0,
+        bootCount = 1,
+        statsStartMs = null,
+        statsDurationMs = null,
+    )
 
 internal fun uidDelta(
     uid: Int,
@@ -70,12 +72,21 @@ internal fun uidDelta(
     sensors = sensors,
 )
 
-internal fun wakelock(name: String, durationMs: Long, count: Long = 1) =
-    UidWakelock(name = name, durationMs = durationMs, bgDurationMs = 0, count = count)
+internal fun wakelock(
+    name: String,
+    durationMs: Long,
+    count: Long = 1,
+) = UidWakelock(name = name, durationMs = durationMs, bgDurationMs = 0, count = count)
 
-internal fun sensor(handle: Int, totalMs: Long) = UidSensor(handle = handle, totalMs = totalMs, bgMs = 0, count = 1)
+internal fun sensor(
+    handle: Int,
+    totalMs: Long,
+) = UidSensor(handle = handle, totalMs = totalMs, bgMs = 0, count = 1)
 
-internal fun sleepStats(screenOffMs: Long?, screenOffAwakeMs: Long?) = SleepStats(
+internal fun sleepStats(
+    screenOffMs: Long?,
+    screenOffAwakeMs: Long?,
+) = SleepStats(
     deepSleepMs = 0,
     screenOffDeepSleepMs = null,
     screenOffAwakeMs = screenOffAwakeMs,
@@ -100,26 +111,30 @@ internal fun diffOf(
 ) = SnapshotDiff(
     ref = clock,
     now = clock,
-    validity = DiffValidity(
-        batteryStats = batteryStats,
-        kernelCounters = kernelCounters,
-        problems = emptyList(),
-        invalidDeviceComponents = invalidComponents,
-        invalidKernelWakelocks = invalidKernel,
-    ),
+    validity =
+        DiffValidity(
+            batteryStats = batteryStats,
+            kernelCounters = kernelCounters,
+            problems = emptyList(),
+            invalidDeviceComponents = invalidComponents,
+            invalidKernelWakelocks = invalidKernel,
+        ),
     durationMs = 0,
     uids = uids,
     deviceComponentsMah = components,
     kernelWakelocks = kernel,
     sleep = sleep,
-    levelDropPct = null,
     dischargedMah = dischargedMah,
     signalStrengthMs = bins,
     signalScanningMs = scanningMs,
     mobileRadioActiveMs = radioActiveMs,
 )
 
-internal fun metricsOf(screenOnMs: Long = 0, screenOffMs: Long = 2 * HOUR, unknownMs: Long = 0) = IntervalMetrics(
+internal fun metricsOf(
+    screenOnMs: Long = 0,
+    screenOffMs: Long = 2 * HOUR,
+    unknownMs: Long = 0,
+) = IntervalMetrics(
     fromWallMs = 0,
     toWallMs = screenOnMs + screenOffMs + unknownMs,
     screenOnMs = screenOnMs,

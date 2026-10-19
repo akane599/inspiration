@@ -112,10 +112,6 @@ object SnapshotDiffer {
             deviceComponentsMah = components,
             kernelWakelocks = kernelWakelocks,
             sleep = sleepStats(ref, now, dumpCountersValid, kernelCounterSessionValid),
-            levelDropPct =
-                ref.battery.levelPct?.let { previous ->
-                    now.battery.levelPct?.let { current -> previous - current }
-                },
             dischargedMah =
                 ref.battery.dischargedMah?.let { previous ->
                     now.battery.dischargedMah?.minus(previous)

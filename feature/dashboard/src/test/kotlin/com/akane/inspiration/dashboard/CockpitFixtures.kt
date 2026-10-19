@@ -272,7 +272,6 @@ internal fun snapshotDiff(
     deviceComponentsMah = emptyMap(),
     kernelWakelocks = emptyList(),
     sleep = sleep,
-    levelDropPct = 30,
     dischargedMah = dischargeMah,
     signalStrengthMs = emptyList(),
     signalScanningMs = null,

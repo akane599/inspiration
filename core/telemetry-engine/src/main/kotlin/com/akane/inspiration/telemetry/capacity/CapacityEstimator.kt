@@ -42,10 +42,6 @@ data class CapacityEstimate(
 )
 
 object ChargeSegmentExtractor {
-    /** Segments of one stats session's history. */
-    fun fromHistory(events: List<HistoryEvent>): List<ChargeSegment> =
-        walk(events.sortedBy(HistoryEvent::historyTimeMs).map { NO_EPOCH to it }).map { it.second }
-
     /**
      * Segments over every stats session as one stream, each tagged with the `statsStartMs` its PLUGGED
      * event was stored under. [sessions] are runs of one label, oldest first in ingestion order (see

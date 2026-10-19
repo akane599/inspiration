@@ -13,9 +13,6 @@ object KernelUnits {
     /** Converts a micro-amp-hour counter (`charge_counter`, `charge_full`, ...) to milli-amp-hours. */
     fun uahToMah(uah: Long?): Double? = uah?.let { it / MICRO_PER_MILLI }
 
-    /** Converts a micro-amp current (`current_now`, `BATTERY_PROPERTY_CURRENT_NOW`) to milli-amps. */
-    fun uaToMa(ua: Long?): Double? = ua?.let { it / MICRO_PER_MILLI }
-
     /**
      * Normalizes a current so that discharge is negative and charge is positive.
      *

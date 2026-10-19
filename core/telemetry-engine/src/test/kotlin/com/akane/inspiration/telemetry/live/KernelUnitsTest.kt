@@ -7,17 +7,14 @@ import org.junit.Test
 
 class KernelUnitsTest {
     @Test
-    fun `microamp hours and microamps convert to milli units`() {
+    fun `microamp hours convert to milliamp hours`() {
         assertEquals(4_850.5, KernelUnits.uahToMah(4_850_500L)!!, 1e-9)
-        assertEquals(-312.25, KernelUnits.uaToMa(-312_250L)!!, 1e-9)
     }
 
     @Test
     fun `null and zero pass through unconverted`() {
         assertNull(KernelUnits.uahToMah(null))
-        assertNull(KernelUnits.uaToMa(null))
         assertEquals(0.0, KernelUnits.uahToMah(0L)!!, 0.0)
-        assertEquals(0.0, KernelUnits.uaToMa(0L)!!, 0.0)
         assertNull(KernelUnits.normalizeCurrentMa(null, true))
         assertEquals(0, KernelUnits.normalizeCurrentMa(0, true))
         assertEquals(0, KernelUnits.normalizeCurrentMa(0, false))
@@ -43,9 +40,10 @@ class KernelUnitsTest {
 
     @Test
     fun `kernel capacity converts sysfs micro amp hours and drops non positive nodes`() {
-        val capacity = KernelUnits.kernelCapacity(
-            kernel(chargeFullRaw = 4_700_000L, chargeFullDesignRaw = 5_000_000L, cycleCount = 212),
-        )
+        val capacity =
+            KernelUnits.kernelCapacity(
+                kernel(chargeFullRaw = 4_700_000L, chargeFullDesignRaw = 5_000_000L, cycleCount = 212),
+            )
 
         assertEquals(4_700.0, capacity.chargeFullMah!!, 1e-9)
         assertEquals(5_000.0, capacity.designMah!!, 1e-9)
@@ -57,7 +55,11 @@ class KernelUnitsTest {
         assertNull(missing.cycleCount)
     }
 
-    private fun kernel(chargeFullRaw: Long?, chargeFullDesignRaw: Long?, cycleCount: Int?) = KernelBatterySnapshot(
+    private fun kernel(
+        chargeFullRaw: Long?,
+        chargeFullDesignRaw: Long?,
+        cycleCount: Int?,
+    ) = KernelBatterySnapshot(
         available = true,
         reason = null,
         currentNowRaw = null,
