@@ -85,15 +85,19 @@ interface SnapshotStore {
 
     /**
      * The newest event of each kind strictly before [wallMs], oldest first: at most one per kind, so the cost
-     * does not grow with the history before the bound. The default scans everything before it (for fakes);
+     * does not grow with the history before the bound. Events at one wall time keep their stored order, so a RESET
+     * stays ahead of the screen and doze state it restates. The default scans everything before it (for fakes);
      * the Room store answers it in one query.
      */
     suspend fun lastHistoryOfEachKindBefore(wallMs: Long): List<HistoryEvent> =
         historyBetween(0L, wallMs - 1)
-            .groupBy { it.kind }
+            .withIndex()
+            .groupBy { it.value.kind }
             .values
-            .map { events -> events.maxBy { it.wallMs } }
-            .sortedBy { it.wallMs }
+            .map { events -> events.maxBy { it.value.wallMs } }
+            // Room's `ORDER BY wallMs, id`: the position in `historyBetween` stands in for the row id.
+            .sortedWith(compareBy({ it.value.wallMs }, { it.index }))
+            .map { it.value }
 
     /**
      * The wall time up to which the stored battery history is known to be complete: the newest snapshot that

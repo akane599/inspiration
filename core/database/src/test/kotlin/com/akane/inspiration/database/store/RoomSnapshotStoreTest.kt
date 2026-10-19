@@ -43,6 +43,7 @@ import com.akane.inspiration.telemetry.status.UnplugSummaryCalculator
 import com.akane.inspiration.telemetry.store.ChargeSessionRecord
 import com.akane.inspiration.telemetry.store.HealthSample
 import com.akane.inspiration.telemetry.store.Marker
+import com.akane.inspiration.telemetry.store.SnapshotStore
 import com.akane.inspiration.telemetry.store.TelemetrySample
 import com.akane.inspiration.telemetry.store.ToolkitActionRecord
 import com.akane.inspiration.telemetry.store.ToolkitActionStatus
@@ -550,6 +551,44 @@ class RoomSnapshotStoreTest {
             )
             assertEquals(emptyList<HistoryEvent>(), store.lastHistoryOfEachKindBefore(50L))
             assertEquals(events.map { it.kind }.toSet().size, store.lastHistoryOfEachKindBefore(Long.MAX_VALUE).size)
+        }
+
+    @Test
+    fun `a RESET stays ahead of the screen state it restates at the same wall time`() =
+        runBlocking {
+            fun event(
+                kind: Int,
+                historyTimeMs: Long,
+            ) = HistoryEvent(
+                historyTimeMs = historyTimeMs,
+                wallMs = 1_000L + historyTimeMs,
+                kind = kind,
+                levelPct = 100,
+                chargeUah = -1L,
+                temperatureDeciC = 300,
+                voltageMv = 3_900,
+                plugType = 0,
+            )
+            // An older screen-on puts SCREEN_ON ahead of RESET in kind order; the walker inserts RESET, then its state.
+            store.insertHistory(
+                listOf(
+                    event(HistoryKind.SCREEN_ON, 100),
+                    event(HistoryKind.RESET, 500),
+                    event(HistoryKind.SCREEN_ON, 500),
+                    event(HistoryKind.DEEP_IDLE_ON, 500),
+                ),
+                statsStartMs = 1L,
+            )
+            val restated = listOf(HistoryKind.RESET, HistoryKind.SCREEN_ON, HistoryKind.DEEP_IDLE_ON)
+            // The interface default that fakes and previews use, over the same rows.
+            val scanning =
+                object : SnapshotStore by store {
+                    override suspend fun lastHistoryOfEachKindBefore(wallMs: Long) = super.lastHistoryOfEachKindBefore(wallMs)
+                }
+
+            assertEquals(restated, store.historyBetween(0L, Long.MAX_VALUE).drop(1).map { it.kind })
+            assertEquals(restated, store.lastHistoryOfEachKindBefore(Long.MAX_VALUE).map { it.kind })
+            assertEquals(restated, scanning.lastHistoryOfEachKindBefore(Long.MAX_VALUE).map { it.kind })
         }
 
     @Test

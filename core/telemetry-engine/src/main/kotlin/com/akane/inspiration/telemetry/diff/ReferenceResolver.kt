@@ -106,6 +106,8 @@ class ReferenceResolver(
             }
 
             ReferenceKind.ScreenOnSession -> {
+                // A RESET with the screen on restates it as a SCREEN_ON at the reset (see HistoryKind.RESET), so a
+                // session that was already on then starts at the reset; battery-stats deltas cannot cross a reset anyway.
                 sinceLatest(events.lastOrNull { it.kind == HistoryKind.SCREEN_ON }?.wallMs, CaptureTrigger.SCREEN_ON, nowWallMs)
             }
 
@@ -203,6 +205,12 @@ class ReferenceResolver(
         return anchorWallMs?.let { history.copy(toWallMs = it) } ?: history
     }
 
+    /**
+     * The newest SCREEN_OFF to SCREEN_ON pair in [events]. The screen state a RESET restates at its instant counts as
+     * a transition, so a period that spans a reset is cut at it: it starts at a reset made with the screen off, or ends
+     * at one made with the screen on. That is deliberate: battery stats restart at a reset, and [SnapshotDiffer]
+     * invalidates every battery-stats delta whose endpoints straddle one, so no per-UID window can reach across it.
+     */
     private fun completedScreenOff(events: List<HistoryEvent>): Boundary? {
         var candidate: Boundary? = null
         var screenOff: Long? = null
