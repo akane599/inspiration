@@ -33,8 +33,16 @@ class ToolkitActionsRobustnessTest {
     private val audit = FakeAudit()
     private val holds = FakeHolds()
 
-    private fun TestScope.actionsOnVirtualTime() =
-        ToolkitActions(backend, audit, holds::hold, nowMs = { currentTime }, supervisorScope = backgroundScope)
+    /** Both clocks run on virtual time; [wallShiftMs] moves only the wall clock, like a manual date change. */
+    private fun TestScope.actionsOnVirtualTime(wallShiftMs: () -> Long = { 0L }) =
+        ToolkitActions(
+            backend,
+            audit,
+            holds::hold,
+            nowMs = { currentTime + wallShiftMs() },
+            supervisorScope = backgroundScope,
+            elapsedMs = { currentTime },
+        )
 
     @Test
     fun lostReplyAfterEffectCanReconcileAndRestoreTheOriginal() = runTest {
@@ -241,6 +249,59 @@ class ToolkitActionsRobustnessTest {
     }
 
     @Test
+    fun aForwardWallClockChangeDoesNotDropTheHoldOfARunningJob() = runTest {
+        var wallShiftMs = 0L
+        val actions = actionsOnVirtualTime { wallShiftMs }
+        actions.startBgDexopt()
+        statuses(BgDexoptState.RUNNING)
+        assertEquals(1, holds.open)
+
+        // One minute into the job the wall clock is set two hours ahead; the job keeps running.
+        wallShiftMs = 2 * HOUR_MS
+        advanceTimeBy(60_000L + 1L)
+        runCurrent()
+
+        assertEquals("the 62-minute cap is not a wall-clock deadline", 1, holds.open)
+    }
+
+    @Test
+    fun aBackwardWallClockChangeDoesNotStretchTheHoldPastTheCap() = runTest {
+        var wallShiftMs = 0L
+        val actions = actionsOnVirtualTime { wallShiftMs }
+        actions.startBgDexopt()
+        backend.unavailable = GatewayUnavailable.NO_SERVICE
+
+        wallShiftMs = -2 * HOUR_MS
+        advanceTimeBy(64 * 60_000L)
+        runCurrent()
+
+        assertEquals(0, holds.open)
+    }
+
+    @Test
+    fun aHoldTakenForARunningJobEndsAtTheCapCountedFromTheReportedStart() = runTest {
+        // The service reports a job that started (wall 1_000) 50 minutes before this process saw it.
+        var wallShiftMs = 1_000L + 50 * 60_000L
+        val actions = actionsOnVirtualTime { wallShiftMs }
+        statuses(BgDexoptState.RUNNING)
+        val collector = launch { actions.bgDexoptStatus().collect { } }
+        runCurrent()
+        collector.cancelAndJoin()
+        assertEquals(1, holds.open)
+        backend.unavailable = GatewayUnavailable.NO_SERVICE
+        // Once the hold is taken, a wall-clock change no longer moves its deadline.
+        wallShiftMs += 3 * HOUR_MS
+
+        advanceTimeBy(11 * 60_000L)
+        runCurrent()
+        assertEquals("12 of the 62 minutes were left", 1, holds.open)
+
+        advanceTimeBy(2 * 60_000L)
+        runCurrent()
+        assertEquals(0, holds.open)
+    }
+
+    @Test
     fun userCancelStopsTheSupervisor() = runTest {
         val actions = actionsOnVirtualTime()
         actions.startBgDexopt()
@@ -307,5 +368,9 @@ class ToolkitActionsRobustnessTest {
         assertTrue(emissions > before)
         overrides.cancel()
         status.cancel()
+    }
+
+    private companion object {
+        const val HOUR_MS = 60L * 60_000L
     }
 }

@@ -156,10 +156,13 @@ class ToolkitActions internal constructor(
     private val dexoptPollMs: Long = DEFAULT_DEXOPT_POLL_MS,
     private val supervisorScope: CoroutineScope = defaultSupervisorScope(),
     private val holdCheckMs: Long = DEFAULT_HOLD_CHECK_MS,
+    private val elapsedMs: () -> Long = ::monotonicMs,
 ) {
     /**
      * The production constructor. [supervisorScope] outlives any screen: it runs the bounded supervisor that
-     * releases the dexopt binding hold when the job ends, whether or not anything is collecting.
+     * releases the dexopt binding hold when the job ends, whether or not anything is collecting. [nowMs] is the
+     * wall clock for the audit rows; [elapsedMs] is a monotonic clock (elapsedRealtime in the app) for the hold
+     * deadline, so a wall-clock change cannot end or stretch the hold.
      */
     constructor(
         gateway: ToolkitGateway,
@@ -167,7 +170,8 @@ class ToolkitActions internal constructor(
         holdBinding: () -> AutoCloseable,
         nowMs: () -> Long = System::currentTimeMillis,
         supervisorScope: CoroutineScope = defaultSupervisorScope(),
-    ) : this(GatewayBackend(gateway), SnapshotStoreAudit(store), holdBinding, nowMs, supervisorScope = supervisorScope)
+        elapsedMs: () -> Long = ::monotonicMs,
+    ) : this(GatewayBackend(gateway), SnapshotStoreAudit(store), holdBinding, nowMs, supervisorScope = supervisorScope, elapsedMs = elapsedMs)
 
     /** Serializes execute, restore, reconcile and status handling so a PENDING row is never seen half-written. */
     private val mutex = Mutex()
@@ -1051,14 +1055,17 @@ class ToolkitActions internal constructor(
     /**
      * Keeps the binding hold in step with the job. Taking the hold also starts [superviseHold], which ends it
      * on any terminal status or at the cap, so the hold cannot outlive the job when nothing is collecting.
-     * [startedAtMs] is the service's wall-clock job start when known (0 = just started, use now).
+     * [startedAtMs] is the service's wall-clock job start when known (0 = just started, use now). The deadline
+     * runs on [elapsedMs]: the wall-clock start is turned into the time left once, here, kept within one cap.
      */
     private fun syncHold(running: Boolean, startedAtMs: Long = 0L) {
         synchronized(holdLock) {
             if (running) {
                 if (dexoptHold == null) {
                     dexoptHold = holdBinding()
-                    val deadline = (startedAtMs.takeIf { it > 0 } ?: nowMs()) + DEXOPT_CAP_MS + DEXOPT_CAP_MARGIN_MS
+                    val capMs = DEXOPT_CAP_MS + DEXOPT_CAP_MARGIN_MS
+                    val leftMs = if (startedAtMs > 0) (startedAtMs + capMs - nowMs()).coerceIn(0L, capMs) else capMs
+                    val deadline = elapsedMs() + leftMs
                     holdSupervisor = supervisorScope.launch { superviseHold(deadline) }
                 }
             } else {
@@ -1075,13 +1082,13 @@ class ToolkitActions internal constructor(
     /**
      * Re-reads the job status every [holdCheckMs], only while the hold is taken (so only while the job is
      * RUNNING, and with nobody collecting). [refreshDexoptLocked] releases the hold on any terminal status;
-     * at [deadlineMs] (the service's own 60-minute cap plus a margin) the hold is dropped even if the service
-     * cannot be asked, leaving the rows PENDING for the next status read or [reconcile].
+     * at [deadlineMs] on [elapsedMs] (the service's own 60-minute cap plus a margin) the hold is dropped even if
+     * the service cannot be asked, leaving the rows PENDING for the next status read or [reconcile].
      */
     private suspend fun superviseHold(deadlineMs: Long) {
         while (true) {
             delay(holdCheckMs)
-            if (nowMs() >= deadlineMs) {
+            if (elapsedMs() >= deadlineMs) {
                 syncHold(running = false)
                 return
             }
@@ -1229,3 +1236,6 @@ class ToolkitActions internal constructor(
         fun bucketOf(raw: Int): StandbyBucket? = StandbyBucket.entries.firstOrNull { it.rawValue == raw }
     }
 }
+
+/** The default hold-deadline clock: monotonic, so a wall-clock change cannot move it (the app passes elapsedRealtime). */
+private fun monotonicMs(): Long = System.nanoTime() / 1_000_000L

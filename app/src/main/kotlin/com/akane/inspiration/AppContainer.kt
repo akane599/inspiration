@@ -206,6 +206,7 @@ class AppContainer(context: Context) :
         store = store,
         holdBinding = shizukuManager::holdBinding,
         nowMs = clocks::wallMs,
+        elapsedMs = clocks::elapsedRealtimeMs,
     )
 
     // ---- app labels and the picker (H15) ---------------------------------------------------
