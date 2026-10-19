@@ -105,6 +105,7 @@
     <string name="xray_blocked_not_running">Shizuku\'yu başlatın, sonra bu ekrana dönün.</string>
     <string name="xray_blocked_permission_required">Shizuku\'da Inspiration\'a izin verin. Erişimi Kokpit veya Araçlar\'dan verebilirsiniz.</string>
     <string name="xray_blocked_permission_denied">Shizuku\'da erişim reddedildi. Erişimi Kokpit veya Araçlar\'dan yeniden verebilirsiniz.</string>
+    <string name="xray_blocked_unsupported_server">Uygulama ayarlarını buradan değiştirmek için Shizuku\'yu güncelleyin. Çalışan sürüm Inspiration için çok eski.</string>
     <string name="xray_action_restrict_title">Arka plan etkinliğini kısıtla</string>
     <string name="xray_action_restrict_body">Uygulamanın arka planda çalışmasını durdurur. Siz açana kadar eşitleme yapmayabilir veya bildirim göndermeyebilir.</string>
     <string name="xray_action_restrict_custom">Bu iznin değeri Inspiration\'ın değiştiremeyeceği bir değer.</string>

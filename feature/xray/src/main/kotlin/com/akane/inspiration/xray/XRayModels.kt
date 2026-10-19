@@ -82,7 +82,7 @@ data class SliceInfo(
     val gapMs: Long?,
 )
 
-enum class BlockedReason { NOT_INSTALLED, NOT_RUNNING, PERMISSION_REQUIRED, PERMISSION_DENIED }
+enum class BlockedReason { NOT_INSTALLED, NOT_RUNNING, PERMISSION_REQUIRED, PERMISSION_DENIED, UNSUPPORTED_SERVER }
 
 /** What a toolkit call came back with when it was not a success. */
 sealed interface Problem {
@@ -230,4 +230,5 @@ internal fun ShizukuState.blockedReason(): BlockedReason? = when (this) {
     ShizukuState.NotRunning -> BlockedReason.NOT_RUNNING
     ShizukuState.PermissionRequired -> BlockedReason.PERMISSION_REQUIRED
     ShizukuState.PermissionDenied -> BlockedReason.PERMISSION_DENIED
+    is ShizukuState.UnsupportedServer -> BlockedReason.UNSUPPORTED_SERVER
 }

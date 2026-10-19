@@ -30,7 +30,7 @@ data class ShizukuUi(
     val canGrant: Boolean,
 )
 
-enum class ShizukuReason { Ready, PermissionRequired, PermissionDenied, NotRunning, NotInstalled }
+enum class ShizukuReason { Ready, PermissionRequired, PermissionDenied, NotRunning, NotInstalled, UnsupportedServer }
 
 /** One reading of the live gauge. Every field may be missing; the UI shows a dash for it. */
 @Immutable

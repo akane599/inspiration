@@ -17,7 +17,7 @@ import kotlinx.collections.immutable.persistentListOf
 /** What the whole screen is doing: [BLOCKED] is Shizuku not Ready, [FAILED] is a Ready Shizuku whose service did not answer. */
 enum class ToolkitPhase { LOADING, BLOCKED, FAILED, READY }
 
-enum class BlockedReason { NOT_INSTALLED, NOT_RUNNING, PERMISSION_REQUIRED, PERMISSION_DENIED }
+enum class BlockedReason { NOT_INSTALLED, NOT_RUNNING, PERMISSION_REQUIRED, PERMISSION_DENIED, UNSUPPORTED_SERVER }
 
 /** Shizuku only shows its dialog while the permission is still undecided, so Grant is only offered then. */
 val BlockedReason.canGrant: Boolean get() = this == BlockedReason.PERMISSION_REQUIRED
@@ -317,4 +317,5 @@ internal fun ShizukuState.blockedReason(): BlockedReason? = when (this) {
     ShizukuState.NotRunning -> BlockedReason.NOT_RUNNING
     ShizukuState.PermissionRequired -> BlockedReason.PERMISSION_REQUIRED
     ShizukuState.PermissionDenied -> BlockedReason.PERMISSION_DENIED
+    is ShizukuState.UnsupportedServer -> BlockedReason.UNSUPPORTED_SERVER
 }

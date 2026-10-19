@@ -118,6 +118,7 @@ private fun ShizukuUi.label(): String = when (reason) {
     ShizukuReason.PermissionDenied -> stringResource(R.string.cockpit_shizuku_permission_denied)
     ShizukuReason.NotRunning -> stringResource(R.string.cockpit_shizuku_not_running)
     ShizukuReason.NotInstalled -> stringResource(R.string.cockpit_shizuku_not_installed)
+    ShizukuReason.UnsupportedServer -> stringResource(R.string.cockpit_shizuku_unsupported_server)
 }
 
 private fun ReferenceChoice.reference(): ReferenceUi = when (this) {

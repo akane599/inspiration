@@ -24,6 +24,7 @@
     <string name="toolkit_blocked_not_running">Shizuku\'yu başlatın, sonra bu ekrana dönün.</string>
     <string name="toolkit_blocked_permission_required">Inspiration\'ın bu ayarları değiştirebilmesi için Shizuku\'da izninize ihtiyacı var.</string>
     <string name="toolkit_blocked_permission_denied">Shizuku\'da erişim reddedildi. Shizuku uygulamasında Inspiration\'a izin verin, sonra bu ekrana dönün.</string>
+    <string name="toolkit_blocked_unsupported_server">Araçları kullanmak için Shizuku\'yu güncelleyin. Çalışan sürüm Inspiration için çok eski. Yeni sürümü başlatın, sonra bu ekrana dönün.</string>
     <string name="toolkit_blocked_grant">Erişim ver</string>
 
     <!-- Doze -->

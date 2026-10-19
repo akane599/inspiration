@@ -466,6 +466,7 @@ class XRayViewModelTest {
         assertEquals(BlockedReason.NOT_INSTALLED, ShizukuState.NotInstalled.blockedReason())
         assertEquals(BlockedReason.NOT_RUNNING, ShizukuState.NotRunning.blockedReason())
         assertEquals(BlockedReason.PERMISSION_DENIED, ShizukuState.PermissionDenied.blockedReason())
+        assertEquals(BlockedReason.UNSUPPORTED_SERVER, ShizukuState.UnsupportedServer(12).blockedReason())
         assertNull(ShizukuState.Ready(2000, 13).blockedReason())
     }
 

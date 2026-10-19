@@ -308,9 +308,17 @@ class ShizukuManagerImpl private constructor(
         val isPreV11 = facade.isPreV11()
         if (!facade.pingBinder() || isPreV11) {
             if (isPreV11) {
-                logUnsupportedVersion()
+                logUnsupportedVersion("Shizuku versions before v11 are unsupported")
             }
             setUnavailableState(ShizukuState.NotRunning)
+            return
+        }
+        // Checked before the permission: granting cannot help an old server. -1 means the server neither sent its
+        // version on attach nor answers a caller without access; the refresh after the grant judges it then.
+        val serverVersion = facade.getVersion()
+        if (serverVersion in 0 until MIN_SERVER_VERSION) {
+            logUnsupportedVersion("Shizuku server API $serverVersion is unsupported; v$MIN_SERVER_VERSION+ is required")
+            setUnavailableState(ShizukuState.UnsupportedServer(serverVersion))
             return
         }
 
@@ -318,7 +326,7 @@ class ShizukuManagerImpl private constructor(
             PackageManager.PERMISSION_GRANTED -> {
                 synchronized(bindingLock) {
                     applicationInfo = info
-                    mutableState.value = ShizukuState.Ready(facade.getUid(), facade.getVersion())
+                    mutableState.value = ShizukuState.Ready(facade.getUid(), serverVersion)
                     bindIfRequiredLocked()
                 }
             }
@@ -430,9 +438,9 @@ class ShizukuManagerImpl private constructor(
         }
     }
 
-    private fun logUnsupportedVersion() {
+    private fun logUnsupportedVersion(message: String) {
         try {
-            Log.w(TAG, "Shizuku versions before v11 are unsupported")
+            Log.w(TAG, message)
         } catch (_: RuntimeException) {
             // Android local unit tests provide a stub Log implementation.
         }
@@ -441,6 +449,9 @@ class ShizukuManagerImpl private constructor(
     private companion object {
         const val PERMISSION_REQUEST_CODE = 1
         const val TAG = "ShizukuManager"
+
+        /** Older servers build TelemetryUserService without a Context, and it then rejects every caller. */
+        const val MIN_SERVER_VERSION = 13
 
         /** Idle linger before unbind(remove=true); short on purpose (H13). */
         const val IDLE_UNBIND_DELAY_MS = 3_000L

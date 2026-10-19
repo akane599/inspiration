@@ -123,6 +123,7 @@ internal fun blockedBodyRes(reason: BlockedReason): Int = when (reason) {
     BlockedReason.NOT_RUNNING -> R.string.xray_blocked_not_running
     BlockedReason.PERMISSION_REQUIRED -> R.string.xray_blocked_permission_required
     BlockedReason.PERMISSION_DENIED -> R.string.xray_blocked_permission_denied
+    BlockedReason.UNSUPPORTED_SERVER -> R.string.xray_blocked_unsupported_server
 }
 
 @StringRes

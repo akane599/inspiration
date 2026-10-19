@@ -95,6 +95,7 @@ internal fun blockedBodyRes(reason: BlockedReason): Int = when (reason) {
     BlockedReason.NOT_RUNNING -> R.string.toolkit_blocked_not_running
     BlockedReason.PERMISSION_REQUIRED -> R.string.toolkit_blocked_permission_required
     BlockedReason.PERMISSION_DENIED -> R.string.toolkit_blocked_permission_denied
+    BlockedReason.UNSUPPORTED_SERVER -> R.string.toolkit_blocked_unsupported_server
 }
 
 @StringRes

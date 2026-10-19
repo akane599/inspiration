@@ -122,6 +122,19 @@ class ToolkitViewModelTest {
     }
 
     @Test
+    fun `a Shizuku server too old for the service blocks the screen and offers no Grant`() {
+        start(shizuku = ShizukuState.UnsupportedServer(12))
+
+        vm.onIntent(ToolkitIntent.Grant)
+
+        assertEquals(ToolkitPhase.BLOCKED, state.status)
+        assertEquals(BlockedReason.UNSUPPORTED_SERVER, state.blocked)
+        assertFalse(BlockedReason.UNSUPPORTED_SERVER.canGrant)
+        assertEquals(0, deps.grantRequests)
+        assertTrue(device.calls.isEmpty())
+    }
+
+    @Test
     fun `Shizuku going away blocks the screen and closes an open app and its confirmation`() {
         start()
         open(CHATTY)

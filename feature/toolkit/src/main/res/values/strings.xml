@@ -24,6 +24,7 @@
     <string name="toolkit_blocked_not_running">Start Shizuku, then come back to this screen.</string>
     <string name="toolkit_blocked_permission_required">Inspiration needs your permission in Shizuku before it can change these settings.</string>
     <string name="toolkit_blocked_permission_denied">Access was denied in Shizuku. Allow Inspiration in the Shizuku app, then come back to this screen.</string>
+    <string name="toolkit_blocked_unsupported_server">Update Shizuku to use the toolkit. The version that is running is too old for Inspiration. Start the new one, then come back to this screen.</string>
     <string name="toolkit_blocked_grant">Grant access</string>
 
     <!-- Doze -->

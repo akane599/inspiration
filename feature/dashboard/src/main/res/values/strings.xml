@@ -17,6 +17,8 @@
     <string name="cockpit_shizuku_permission_denied">Shizuku permission denied</string>
     <string name="cockpit_shizuku_not_running">Shizuku not running</string>
     <string name="cockpit_shizuku_not_installed">Shizuku not installed</string>
+    <!-- Shizuku runs, but its version is too old for Inspiration -->
+    <string name="cockpit_shizuku_unsupported_server">Update Shizuku</string>
     <string name="cockpit_shizuku_grant">Grant access</string>
 
     <!-- Battery story card -->

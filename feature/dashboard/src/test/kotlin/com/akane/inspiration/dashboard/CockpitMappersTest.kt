@@ -2,11 +2,13 @@ package com.akane.inspiration.dashboard
 
 import com.akane.inspiration.designsystem.chart.model.LaneKind
 import com.akane.inspiration.designsystem.chart.model.SeriesKind
+import com.akane.inspiration.designsystem.component.PulseStatus
 import com.akane.inspiration.diagnostics.analysis.AnalysisState
 import com.akane.inspiration.diagnostics.analysis.SegmentKind
 import com.akane.inspiration.diagnostics.analysis.Timeline
 import com.akane.inspiration.diagnostics.analysis.TimelinePoint
 import com.akane.inspiration.diagnostics.analysis.TimelineSegment
+import com.akane.inspiration.ipc.ShizukuState
 import com.akane.inspiration.telemetry.diff.ReferenceKind
 import com.akane.inspiration.telemetry.snapshot.SleepStats
 import org.junit.Assert.assertEquals
@@ -203,6 +205,18 @@ class CockpitMappersTest {
         assertFalse("unknown plug state and no current is not charging", live.charging)
         assertNull(liveUi(liveReading(temperatureDeciC = null), null).temperatureC)
         assertTrue("positive current without a plug flag reads as charging", liveUi(liveReading(currentMa = 500, plugged = null), null).charging)
+    }
+
+    // --- Shizuku status ---
+
+    @Test
+    fun `an outdated Shizuku server is blocked and offers no grant`() {
+        val ui = shizukuUi(ShizukuState.UnsupportedServer(apiVersion = 12))
+
+        assertEquals(PulseStatus.BLOCKED, ui.status)
+        assertEquals(ShizukuReason.UnsupportedServer, ui.reason)
+        assertNull(ui.uid)
+        assertFalse("permission cannot help a server that is too old", ui.canGrant)
     }
 
     // --- Slice banner ---

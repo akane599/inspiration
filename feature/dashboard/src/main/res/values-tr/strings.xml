@@ -16,6 +16,7 @@
     <string name="cockpit_shizuku_permission_denied">Shizuku izni reddedildi</string>
     <string name="cockpit_shizuku_not_running">Shizuku çalışmıyor</string>
     <string name="cockpit_shizuku_not_installed">Shizuku yüklü değil</string>
+    <string name="cockpit_shizuku_unsupported_server">Shizuku\'yu güncelleyin</string>
     <string name="cockpit_shizuku_grant">İzin ver</string>
 
     <!-- Pil hikâyesi kartı -->

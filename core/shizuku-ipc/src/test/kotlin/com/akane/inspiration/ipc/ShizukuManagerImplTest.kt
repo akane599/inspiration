@@ -324,6 +324,48 @@ class ShizukuManagerImplTest {
     }
 
     @Test
+    fun aServerOlderThanV13IsUnsupportedAndNeverReady() = runTest {
+        // A v11/v12 server builds TelemetryUserService through its no-arg constructor, which rejects every call.
+        val fixture = Fixture(this).apply { facade.serverVersion = 12 }
+
+        fixture.manager.start()
+
+        assertEquals(ShizukuState.UnsupportedServer(12), fixture.manager.state.value)
+        assertNull(fixture.manager.withTelemetryService(1) { Unit })
+        assertEquals(0, fixture.facade.bindCalls)
+    }
+
+    @Test
+    fun anUnsupportedServerIsNeverAskedForPermission() = runTest {
+        val fixture = Fixture(this).apply {
+            facade.serverVersion = 12
+            facade.permissionResult = PackageManager.PERMISSION_DENIED
+        }
+        fixture.manager.start()
+
+        fixture.manager.requestPermission()
+
+        assertEquals(ShizukuState.UnsupportedServer(12), fixture.manager.state.value)
+        assertEquals("granting cannot help an old server", 0, fixture.facade.permissionRequests)
+    }
+
+    @Test
+    fun aServerVersionUnknownBeforeTheGrantIsJudgedOnceAccessIsGranted() = runTest {
+        val fixture = Fixture(this).apply {
+            facade.serverVersion = -1 // not sent on attach, and not readable without access
+            facade.permissionResult = PackageManager.PERMISSION_DENIED
+        }
+        fixture.manager.start()
+        assertSame(ShizukuState.PermissionRequired, fixture.manager.state.value)
+
+        fixture.facade.serverVersion = 12
+        fixture.facade.permissionResult = PackageManager.PERMISSION_GRANTED
+        fixture.facade.deliverPermissionResult(PackageManager.PERMISSION_GRANTED)
+
+        assertEquals(ShizukuState.UnsupportedServer(12), fixture.manager.state.value)
+    }
+
+    @Test
     fun startTwiceRegistersListenersOnce() = runTest {
         val fixture = Fixture(this)
 
@@ -689,6 +731,7 @@ class ShizukuManagerImplTest {
     private class FakeShizukuFacade : ShizukuFacade {
         var binderAlive = true
         var preV11 = false
+        var serverVersion = 13
         var permissionResult = PackageManager.PERMISSION_GRANTED
         var showPermissionRationale = false
         var addedBinderReceivedListeners = 0
@@ -724,7 +767,7 @@ class ShizukuManagerImplTest {
             return 2000
         }
 
-        override fun getVersion(): Int = 13
+        override fun getVersion(): Int = serverVersion
 
         override fun isPreV11(): Boolean = preV11
 

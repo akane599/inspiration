@@ -57,6 +57,8 @@ internal fun shizukuUi(state: ShizukuState): ShizukuUi = when (state) {
     ShizukuState.PermissionDenied ->
         ShizukuUi(PulseStatus.BLOCKED, ShizukuReason.PermissionDenied, uid = null, canGrant = true)
     ShizukuState.NotRunning -> ShizukuUi(PulseStatus.BLOCKED, ShizukuReason.NotRunning, uid = null, canGrant = false)
+    is ShizukuState.UnsupportedServer ->
+        ShizukuUi(PulseStatus.BLOCKED, ShizukuReason.UnsupportedServer, uid = null, canGrant = false)
     ShizukuState.NotInstalled ->
         ShizukuUi(PulseStatus.BLOCKED, ShizukuReason.NotInstalled, uid = null, canGrant = false)
 }
