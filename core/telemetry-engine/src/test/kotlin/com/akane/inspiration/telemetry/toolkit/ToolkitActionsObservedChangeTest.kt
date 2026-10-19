@@ -163,6 +163,238 @@ class ToolkitActionsObservedChangeTest {
             assertEquals(active, backend.buckets[PKG])
         }
 
+    // ---- A-03: a restore that changed the target but did not reach the original ---------------
+
+    private suspend fun restrictFromRare(): ToolkitActionRecord {
+        backend.buckets[PKG] = rare
+        return (actions.execute(ToolkitAction.SetBucket(PKG, StandbyBucket.RESTRICTED), confirmed = true) as ToolkitOutcome.Done).value
+    }
+
+    private suspend fun clampedRestore(
+        actionId: Long,
+        confirmed: Boolean = false,
+    ): ToolkitActionRecord {
+        val before = backend.buckets.getValue(PKG)
+        backend.scriptedWrite = ToolkitResult.failed(ToolkitCode.NOT_EFFECTIVE, before = "$before", after = "$frequent")
+        backend.afterWrite = { backend.buckets[PKG] = frequent }
+        val outcome = actions.restore(actionId, confirmed)
+        backend.afterWrite = {}
+        assertEquals(ToolkitOutcome.Failed(ToolkitCode.NOT_EFFECTIVE), outcome)
+        return audit.rows.last()
+    }
+
+    @Test
+    fun aClampedRestoreKeepsItsObservedStateAndTypedOriginalForResetAll() =
+        runTest {
+            val initial = restrictFromRare()
+            val partial = clampedRestore(initial.id)
+
+            assertEquals(initial.id, partial.restoresId)
+            assertEquals(ToolkitActionStatus.FAILED, partial.status)
+            assertEquals(StandbyBucket.RARE.argv, partial.param)
+            assertEquals("${StandbyBucket.RESTRICTED.rawValue}", partial.beforeRaw)
+            assertEquals("$frequent", partial.afterRaw)
+            val override = bucketOverride()
+            assertEquals(partial.id, override?.actionId)
+            assertEquals("$frequent", override?.currentRaw)
+            assertEquals("$rare", override?.previousRaw)
+            assertEquals(true, override?.restorable)
+            assertEquals(ToolkitPlan.Ready, actions.planRestore(partial.id))
+
+            backend.writes.clear()
+            val report = actions.resetAll()
+
+            assertEquals(partial.id, report.single().override.actionId)
+            assertTrue(report.single().outcome is ToolkitOutcome.Done)
+            assertEquals(listOf("setBucket($PKG,${StandbyBucket.RARE.argv})"), backend.writes)
+            assertEquals(rare, backend.buckets[PKG])
+            assertEquals(ToolkitActionStatus.RESTORED, audit.byId(partial.id).status)
+            assertNull(bucketOverride())
+        }
+
+    @Test
+    fun lostReplyAndUnverifiedRestoresReconcileToRecoverablePartialRestores() =
+        runTest {
+            for (lostReply in listOf(true, false)) {
+                val initial = restrictFromRare()
+                backend.scriptedWrite =
+                    if (lostReply) {
+                        ToolkitResult.failed(ToolkitCode.NOT_EFFECTIVE, before = initial.afterRaw, after = "$frequent")
+                    } else {
+                        ToolkitResult.unavailable(ToolkitCode.UNVERIFIED, before = initial.afterRaw)
+                    }
+                backend.afterWrite = { backend.buckets[PKG] = frequent }
+                backend.unavailableAfterWrite = if (lostReply) GatewayUnavailable.NO_SERVICE else null
+
+                assertTrue(actions.restore(initial.id) is ToolkitOutcome.Unavailable)
+                val pending = audit.rows.last()
+                assertEquals(ToolkitActionStatus.PENDING, pending.status)
+                backend.afterWrite = {}
+                backend.unavailableAfterWrite = null
+                val recreated = ToolkitActions(backend, audit, holds::hold, nowMs = { clock++ })
+                recreated.reconcile()
+
+                assertEquals(ToolkitActionStatus.FAILED, audit.byId(pending.id).status)
+                assertEquals("$frequent", audit.byId(pending.id).afterRaw)
+                val override = recreated.activeOverrides().first().single()
+                assertEquals(pending.id, override.actionId)
+                assertEquals("$rare", override.previousRaw)
+                assertEquals(ToolkitPlan.Ready, recreated.planRestore(pending.id))
+                assertTrue(recreated.restore(pending.id) is ToolkitOutcome.Done)
+                assertEquals(rare, backend.buckets[PKG])
+                assertTrue(recreated.activeOverrides().first().isEmpty())
+            }
+        }
+
+    @Test
+    fun anExplicitlyConfirmedDivergentRestoreKeepsTheIntendedOriginalNotItsExternalBefore() =
+        runTest {
+            val initial = restrictFromRare()
+            backend.buckets[PKG] = working
+            backend.writes.clear()
+            assertEquals(ToolkitPlan.NeedsConfirmation(ToolkitWarning.RESTORE_STATE_CHANGED), actions.planRestore(initial.id))
+            assertEquals(
+                ToolkitOutcome.Refused(ToolkitRefusal.NOT_CONFIRMED, ToolkitClientCode.NOT_CONFIRMED),
+                actions.restore(initial.id),
+            )
+            assertTrue(backend.writes.isEmpty())
+
+            val partial = clampedRestore(initial.id, confirmed = true)
+
+            assertEquals("$working", partial.beforeRaw)
+            assertEquals(StandbyBucket.RARE.argv, partial.param)
+            assertEquals("$rare", bucketOverride()?.previousRaw)
+            assertTrue(actions.restore(partial.id) is ToolkitOutcome.Done)
+            assertEquals(rare, backend.buckets[PKG])
+        }
+
+    @Test
+    fun externalChangesAfterAPartialRestoreAreNotAutomaticallyOwnedOrOverwritten() =
+        runTest {
+            val partial = clampedRestore(restrictFromRare().id)
+            backend.buckets[PKG] = working
+            backend.writes.clear()
+
+            assertNull(bucketOverride())
+            assertTrue(actions.resetAll().isEmpty())
+            assertEquals(ToolkitPlan.NeedsConfirmation(ToolkitWarning.RESTORE_STATE_CHANGED), actions.planRestore(partial.id))
+            assertEquals(
+                ToolkitOutcome.Refused(ToolkitRefusal.NOT_CONFIRMED, ToolkitClientCode.NOT_CONFIRMED),
+                actions.restore(partial.id),
+            )
+            assertTrue(backend.writes.isEmpty())
+            assertEquals(working, backend.buckets[PKG])
+
+            backend.buckets[PKG] = rare
+            assertEquals(ToolkitPlan.Refused(ToolkitRefusal.ALREADY_RESTORED), actions.planRestore(partial.id))
+            assertEquals(ToolkitOutcome.Refused(ToolkitRefusal.ALREADY_RESTORED), actions.restore(partial.id, confirmed = true))
+            assertTrue(backend.writes.isEmpty())
+        }
+
+    @Test
+    fun noChangeAndUnknownAfterRestoresDoNotBecomePartialRestoreCandidates() =
+        runTest {
+            val initial = restrictFromRare()
+            backend.scriptedWrite = ToolkitResult.failed(ToolkitCode.NOT_EFFECTIVE, before = initial.afterRaw, after = initial.afterRaw)
+            assertTrue(actions.restore(initial.id) is ToolkitOutcome.Failed)
+            val noChange = audit.rows.last()
+            assertEquals(initial.id, bucketOverride()?.actionId)
+            assertEquals(ToolkitPlan.Refused(ToolkitRefusal.NOT_RESTORABLE), actions.planRestore(noChange.id))
+
+            backend.scriptedWrite = ToolkitResult.failed(ToolkitCode.PARSE, before = initial.afterRaw)
+            backend.afterWrite = { backend.buckets[PKG] = frequent }
+            assertTrue(actions.restore(initial.id) is ToolkitOutcome.Failed)
+            backend.afterWrite = {}
+            val unknown = audit.rows.last()
+            backend.writes.clear()
+            assertNull(bucketOverride())
+            assertTrue(actions.resetAll().isEmpty())
+            assertEquals(ToolkitPlan.Refused(ToolkitRefusal.NOT_RESTORABLE), actions.planRestore(unknown.id))
+            assertTrue(backend.writes.isEmpty())
+            assertEquals(frequent, backend.buckets[PKG])
+        }
+
+    @Test
+    fun aFailedRestoreThatReachedTheOriginalIsAlreadyRestoredNotAnActiveOverride() =
+        runTest {
+            val initial = restrictFromRare()
+            backend.scriptedWrite = ToolkitResult.failed(ToolkitCode.NOT_EFFECTIVE, before = initial.afterRaw, after = "$rare")
+            backend.afterWrite = { backend.buckets[PKG] = rare }
+            assertTrue(actions.restore(initial.id) is ToolkitOutcome.Failed)
+            backend.afterWrite = {}
+            val restored = audit.rows.last()
+            backend.writes.clear()
+
+            assertNull(bucketOverride())
+            assertTrue(actions.resetAll().isEmpty())
+            assertEquals(ToolkitPlan.Refused(ToolkitRefusal.ALREADY_RESTORED), actions.planRestore(restored.id))
+            assertTrue(backend.writes.isEmpty())
+        }
+
+    @Test
+    fun aPartialAppOpRestoreUsesItsTypedDefaultTargetForResetAll() =
+        runTest {
+            val op = AppOp.RUN_IN_BACKGROUND
+            val initial = (actions.execute(ToolkitAction.SetAppOp(PKG, op, AppOpMode.IGNORE)) as ToolkitOutcome.Done).value
+            backend.scriptedWrite = ToolkitResult.failed(ToolkitCode.NOT_EFFECTIVE, before = "ignore", after = "foreground")
+            backend.afterWrite = { backend.device(PKG)[op] = "foreground" }
+            assertTrue(actions.restore(initial.id) is ToolkitOutcome.Failed)
+            backend.afterWrite = {}
+            val partial = audit.rows.last()
+
+            val override = actions.activeOverrides().first().single()
+            assertEquals(partial.id, override.actionId)
+            assertEquals("foreground", override.currentRaw)
+            assertEquals("default", override.previousRaw)
+            assertEquals(ToolkitPlan.Ready, actions.planRestore(partial.id))
+            backend.writes.clear()
+            val report = actions.resetAll()
+            assertEquals(partial.id, report.single().override.actionId)
+            assertTrue(report.single().outcome is ToolkitOutcome.Done)
+            assertEquals(listOf("setAppOp($PKG,${op.argv},default)"), backend.writes)
+            assertEquals("default", backend.device(PKG)[op])
+            assertTrue(actions.activeOverrides().first().isEmpty())
+        }
+
+    @Test
+    fun anObservedUnwritableAppOpOriginalRemainsNotRestorable() =
+        runTest {
+            val op = AppOp.RUN_IN_BACKGROUND
+            backend.device(PKG)[op] = "foreground"
+            val row = (actions.execute(ToolkitAction.SetAppOp(PKG, op, AppOpMode.IGNORE)) as ToolkitOutcome.Done).value
+            backend.writes.clear()
+
+            val override = actions.activeOverrides().first().single()
+            assertEquals("foreground", override.previousRaw)
+            assertEquals(false, override.restorable)
+            assertEquals(ToolkitPlan.Refused(ToolkitRefusal.NOT_RESTORABLE), actions.planRestore(row.id))
+            assertEquals(ToolkitOutcome.Refused(ToolkitRefusal.NOT_RESTORABLE), actions.restore(row.id, confirmed = true))
+            assertEquals(ToolkitOutcome.Refused(ToolkitRefusal.NOT_RESTORABLE), actions.resetAll().single().outcome)
+            assertTrue(backend.writes.isEmpty())
+            assertEquals("ignore", backend.device(PKG)[op])
+        }
+
+    @Test
+    fun aPartialDozeRestorePreservesAnUnsetTypedOriginalDespiteADivergentBefore() =
+        runTest {
+            val initial = (actions.execute(ToolkitAction.ApplyDoze(DozeProfile.BALANCED)) as ToolkitOutcome.Done).value
+            backend.dozeRaw = "inactive_to=77"
+            backend.scriptedWrite = ToolkitResult.failed(ToolkitCode.NOT_EFFECTIVE, before = backend.dozeRaw, after = "inactive_to=33")
+            backend.afterWrite = { backend.dozeRaw = "inactive_to=33" }
+            assertTrue(actions.restore(initial.id, confirmed = true) is ToolkitOutcome.Failed)
+            backend.afterWrite = {}
+            val partial = audit.rows.last()
+
+            val override = actions.activeOverrides().first().single()
+            assertEquals(partial.id, override.actionId)
+            assertEquals("inactive_to=33", override.currentRaw)
+            assertNull(override.previousRaw)
+            assertEquals(ToolkitPlan.Ready, actions.planRestore(partial.id))
+            assertTrue(actions.resetAll().single().outcome is ToolkitOutcome.Done)
+            assertNull(backend.dozeRaw)
+            assertTrue(actions.activeOverrides().first().isEmpty())
+        }
+
     // ---- F-13: a write of the value already there --------------------------------------------
 
     @Test

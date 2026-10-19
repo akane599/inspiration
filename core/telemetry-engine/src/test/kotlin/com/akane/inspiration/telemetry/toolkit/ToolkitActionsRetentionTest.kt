@@ -1,5 +1,9 @@
 package com.akane.inspiration.telemetry.toolkit
 
+import com.akane.inspiration.ipc.model.ToolkitCode
+import com.akane.inspiration.ipc.model.ToolkitResult
+import com.akane.inspiration.ipc.toolkit.AppOp
+import com.akane.inspiration.ipc.toolkit.AppOpMode
 import com.akane.inspiration.ipc.toolkit.StandbyBucket
 import com.akane.inspiration.telemetry.store.ToolkitActionRecord
 import com.akane.inspiration.telemetry.store.ToolkitActionStatus
@@ -127,6 +131,108 @@ class ToolkitActionsRetentionTest {
 
             assertEquals(emptyList<Long>(), audit.deleted)
         }
+
+    @Test
+    fun anOpenPartialRestoreSurvivesPruningAndRecreation() =
+        runTest {
+            backend.buckets[A] = StandbyBucket.RARE.rawValue
+            val change = bucket(A, StandbyBucket.RESTRICTED)
+            val partial = clampedRestore(change)
+            fillDisplayHistory()
+
+            bucket(TRIGGER, StandbyBucket.RARE)
+
+            assertTrue("the failed restore still owns FREQUENT", partial !in audit.deleted)
+            val recreated = ToolkitActions(backend, audit, holds::hold, nowMs = { clock++ })
+            val override = recreated.activeOverrides().first().single { it.pkg == A }
+            assertEquals(partial, override.actionId)
+            assertEquals("${StandbyBucket.FREQUENT.rawValue}", override.currentRaw)
+            assertEquals("${StandbyBucket.RARE.rawValue}", override.previousRaw)
+            assertTrue(recreated.restore(partial) is ToolkitOutcome.Done)
+            assertEquals(StandbyBucket.RARE.rawValue, backend.buckets[A])
+        }
+
+    @Test
+    fun repeatedWritesAboveADivergentPartialRestoreKeepItsTypedOriginalAfterTheOldPrefixIsPruned() =
+        runTest {
+            backend.buckets[A] = StandbyBucket.RARE.rawValue
+            val change = bucket(A, StandbyBucket.RESTRICTED)
+            backend.buckets[A] = StandbyBucket.WORKING_SET.rawValue // an explicitly confirmed divergence
+            val partial = clampedRestore(change)
+            val repeated = List(3) { bucket(A, StandbyBucket.FREQUENT) }
+            fillDisplayHistory()
+
+            bucket(TRIGGER, StandbyBucket.RARE)
+
+            assertTrue("the pre-divergence prefix can go", change in audit.deleted)
+            assertTrue("the typed original must survive: ${audit.deleted}", (repeated + partial).none { it in audit.deleted })
+            val recreated = ToolkitActions(backend, audit, holds::hold, nowMs = { clock++ })
+            val override = recreated.activeOverrides().first().single { it.pkg == A }
+            assertEquals(repeated.last(), override.actionId)
+            assertEquals("${StandbyBucket.FREQUENT.rawValue}", override.currentRaw)
+            assertEquals("${StandbyBucket.RARE.rawValue}", override.previousRaw)
+            assertTrue(recreated.resetAll().all { it.outcome is ToolkitOutcome.Done })
+            assertEquals(StandbyBucket.RARE.rawValue, backend.buckets[A])
+
+            fillDisplayHistory()
+            bucket(TRIGGER, StandbyBucket.RARE)
+            assertTrue("the now-closed partial chain can go", (repeated + partial).all { it in audit.deleted })
+        }
+
+    @Test
+    fun writesAboveAPartialForegroundAppOpRestoreRetainItsOriginalThroughPruningAndRecreation() =
+        runTest {
+            val op = AppOp.RUN_IN_BACKGROUND
+            val initial = (actions.execute(ToolkitAction.SetAppOp(A, op, AppOpMode.IGNORE)) as ToolkitOutcome.Done).value
+            backend.scriptedWrite = ToolkitResult.failed(ToolkitCode.NOT_EFFECTIVE, before = "ignore", after = "foreground")
+            backend.afterWrite = { backend.device(A)[op] = "foreground" }
+            assertTrue(actions.restore(initial.id) is ToolkitOutcome.Failed)
+            backend.afterWrite = {}
+            val partial = audit.rows.last().id
+            val repeated =
+                List(3) {
+                    (actions.execute(ToolkitAction.SetAppOp(A, op, AppOpMode.IGNORE)) as ToolkitOutcome.Done).value.id
+                }
+            assertEquals("foreground", audit.byId(repeated.first()).beforeRaw)
+            assertEquals(
+                "default",
+                actions
+                    .activeOverrides()
+                    .first()
+                    .single()
+                    .previousRaw,
+            )
+            fillDisplayHistory()
+
+            bucket(TRIGGER, StandbyBucket.RARE)
+
+            assertTrue("raw foreground equality must preserve the continuation", (repeated + partial).none { it in audit.deleted })
+            val recreated = ToolkitActions(backend, audit, holds::hold, nowMs = { clock++ })
+            val override = recreated.activeOverrides().first().single { it.kind == OverrideKind.APP_OP }
+            assertEquals(repeated.last(), override.actionId)
+            assertEquals("ignore", override.currentRaw)
+            assertEquals("default", override.previousRaw)
+            backend.writes.clear()
+            val report = recreated.resetAll()
+            assertTrue(report.single { it.override.kind == OverrideKind.APP_OP }.outcome is ToolkitOutcome.Done)
+            assertTrue("the original default is replayed, not foreground", "setAppOp($A,${op.argv},default)" in backend.writes)
+            assertEquals("default", backend.device(A)[op])
+            assertTrue(recreated.activeOverrides().first().isEmpty())
+        }
+
+    private suspend fun clampedRestore(actionId: Long): Long {
+        val before = backend.buckets.getValue(A)
+        backend.scriptedWrite =
+            ToolkitResult.failed(
+                ToolkitCode.NOT_EFFECTIVE,
+                before = "$before",
+                after = "${StandbyBucket.FREQUENT.rawValue}",
+            )
+        backend.afterWrite = { backend.buckets[A] = StandbyBucket.FREQUENT.rawValue }
+        assertEquals(ToolkitOutcome.Failed(ToolkitCode.NOT_EFFECTIVE), actions.restore(actionId, confirmed = true))
+        backend.afterWrite = {}
+        return audit.rows.last().id
+    }
 
     /** Executes a bucket change and returns its audit row id. */
     private suspend fun bucket(

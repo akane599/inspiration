@@ -2,7 +2,6 @@ package com.akane.inspiration.telemetry.toolkit
 
 import com.akane.inspiration.ipc.model.BgDexoptReason
 import com.akane.inspiration.ipc.model.BgDexoptState
-import com.akane.inspiration.ipc.model.BgDexoptStatus as ServiceBgDexoptStatus
 import com.akane.inspiration.ipc.model.ToolkitCode
 import com.akane.inspiration.ipc.model.ToolkitResult
 import com.akane.inspiration.ipc.model.ToolkitStatus
@@ -32,6 +31,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
+import com.akane.inspiration.ipc.model.BgDexoptStatus as ServiceBgDexoptStatus
 
 /** Client-side result codes stored in `toolkit_action.code`; they sit above the service's [ToolkitCode] range. */
 object ToolkitClientCode {
@@ -57,19 +57,32 @@ object ToolkitClientCode {
  * a feature that could build one could write without confirmation or an audit row.
  */
 internal interface ToolkitBackend {
-    suspend fun setAppOp(pkg: String, op: AppOp, mode: AppOpMode): GatewayReply<ToolkitResult>
+    suspend fun setAppOp(
+        pkg: String,
+        op: AppOp,
+        mode: AppOpMode,
+    ): GatewayReply<ToolkitResult>
 
     suspend fun getAppOps(pkg: String): GatewayReply<ToolkitResult>
 
-    suspend fun setStandbyBucket(pkg: String, bucket: StandbyBucket): GatewayReply<ToolkitResult>
+    suspend fun setStandbyBucket(
+        pkg: String,
+        bucket: StandbyBucket,
+    ): GatewayReply<ToolkitResult>
 
     suspend fun getStandbyBucket(pkg: String): GatewayReply<ToolkitResult>
 
-    suspend fun applyDozeProfile(profile: DozeProfile, expectedBeforeRaw: String?): GatewayReply<ToolkitResult>
+    suspend fun applyDozeProfile(
+        profile: DozeProfile,
+        expectedBeforeRaw: String?,
+    ): GatewayReply<ToolkitResult>
 
     suspend fun getDozeState(): GatewayReply<ToolkitResult>
 
-    suspend fun restoreDozeRaw(rawOrNull: String?, expectedCurrentRaw: String?): GatewayReply<ToolkitResult>
+    suspend fun restoreDozeRaw(
+        rawOrNull: String?,
+        expectedCurrentRaw: String?,
+    ): GatewayReply<ToolkitResult>
 
     suspend fun forceStop(pkg: String): GatewayReply<ToolkitResult>
 
@@ -80,22 +93,35 @@ internal interface ToolkitBackend {
     suspend fun cancelBgDexopt(): GatewayReply<ToolkitResult>
 }
 
-internal class GatewayBackend(private val gateway: ToolkitGateway) : ToolkitBackend {
-    override suspend fun setAppOp(pkg: String, op: AppOp, mode: AppOpMode) = gateway.setAppOp(pkg, op, mode)
+internal class GatewayBackend(
+    private val gateway: ToolkitGateway,
+) : ToolkitBackend {
+    override suspend fun setAppOp(
+        pkg: String,
+        op: AppOp,
+        mode: AppOpMode,
+    ) = gateway.setAppOp(pkg, op, mode)
 
     override suspend fun getAppOps(pkg: String) = gateway.getAppOps(pkg)
 
-    override suspend fun setStandbyBucket(pkg: String, bucket: StandbyBucket) = gateway.setStandbyBucket(pkg, bucket)
+    override suspend fun setStandbyBucket(
+        pkg: String,
+        bucket: StandbyBucket,
+    ) = gateway.setStandbyBucket(pkg, bucket)
 
     override suspend fun getStandbyBucket(pkg: String) = gateway.getStandbyBucket(pkg)
 
-    override suspend fun applyDozeProfile(profile: DozeProfile, expectedBeforeRaw: String?) =
-        gateway.applyDozeProfile(profile, expectedBeforeRaw)
+    override suspend fun applyDozeProfile(
+        profile: DozeProfile,
+        expectedBeforeRaw: String?,
+    ) = gateway.applyDozeProfile(profile, expectedBeforeRaw)
 
     override suspend fun getDozeState() = gateway.getDozeState()
 
-    override suspend fun restoreDozeRaw(rawOrNull: String?, expectedCurrentRaw: String?) =
-        gateway.restoreDozeRaw(rawOrNull, expectedCurrentRaw)
+    override suspend fun restoreDozeRaw(
+        rawOrNull: String?,
+        expectedCurrentRaw: String?,
+    ) = gateway.restoreDozeRaw(rawOrNull, expectedCurrentRaw)
 
     override suspend fun forceStop(pkg: String) = gateway.forceStop(pkg)
 
@@ -122,7 +148,9 @@ internal interface ToolkitAuditStore {
     suspend fun delete(ids: List<Long>)
 }
 
-internal class SnapshotStoreAudit(private val store: SnapshotStore) : ToolkitAuditStore {
+internal class SnapshotStoreAudit(
+    private val store: SnapshotStore,
+) : ToolkitAuditStore {
     override suspend fun insert(record: ToolkitActionRecord) = store.insertToolkitAction(record)
 
     override suspend fun update(record: ToolkitActionRecord) = store.updateToolkitAction(record)
@@ -179,7 +207,14 @@ class ToolkitActions internal constructor(
         nowMs: () -> Long = System::currentTimeMillis,
         supervisorScope: CoroutineScope = defaultSupervisorScope(),
         elapsedMs: () -> Long = ::monotonicMs,
-    ) : this(GatewayBackend(gateway), SnapshotStoreAudit(store), holdBinding, nowMs, supervisorScope = supervisorScope, elapsedMs = elapsedMs)
+    ) : this(
+        GatewayBackend(gateway),
+        SnapshotStoreAudit(store),
+        holdBinding,
+        nowMs,
+        supervisorScope = supervisorScope,
+        elapsedMs = elapsedMs,
+    )
 
     /** Serializes execute, restore, reconcile and status handling so a PENDING row is never seen half-written. */
     private val mutex = Mutex()
@@ -223,30 +258,35 @@ class ToolkitActions internal constructor(
      * object changes something. When the service cannot be reached it emits an empty list (the UI shows
      * its blocked state for that).
      */
-    fun activeOverrides(): Flow<List<Override>> = changes.map {
-        mutex.withLock {
-            reconcileTargets(null)
-            computeOverrides()
+    fun activeOverrides(): Flow<List<Override>> =
+        changes.map {
+            mutex.withLock {
+                reconcileTargets(null)
+                computeOverrides()
+            }
         }
-    }
 
     // ---- plan / execute --------------------------------------------------------------------
 
     suspend fun plan(action: ToolkitAction): ToolkitPlan = mutex.withLock { planLocked(action, null) }
 
-    suspend fun planRestore(actionId: Long): ToolkitPlan = mutex.withLock {
-        reconcileTargets(null)
-        when (val decoded = decodeRestore(actionId)) {
-            is Decoded.No -> ToolkitPlan.Refused(decoded.reason)
-            is Decoded.Ok -> planLocked(decoded.action, decoded.record)
+    suspend fun planRestore(actionId: Long): ToolkitPlan =
+        mutex.withLock {
+            reconcileTargets(null)
+            when (val decoded = decodeRestore(actionId)) {
+                is Decoded.No -> ToolkitPlan.Refused(decoded.reason)
+                is Decoded.Ok -> planLocked(decoded.action, decoded.record)
+            }
         }
-    }
 
     /**
      * Runs [action]. When it needs confirmation and [confirmed] is false it returns Refused(NOT_CONFIRMED)
      * and no privileged write is issued (the attempt is still recorded as REFUSED).
      */
-    suspend fun execute(action: ToolkitAction, confirmed: Boolean = false): ToolkitOutcome<ToolkitActionRecord> =
+    suspend fun execute(
+        action: ToolkitAction,
+        confirmed: Boolean = false,
+    ): ToolkitOutcome<ToolkitActionRecord> =
         mutex.withLock {
             reconcileTargets(targetKey(specOf(action)))
             pruneClosedChains()
@@ -260,7 +300,10 @@ class ToolkitActions internal constructor(
      * original (nothing is written then). If the current value is no longer the recorded `after`, confirmation is needed
      * (see [planRestore]). The new row carries `restoresId`; the original becomes RESTORED.
      */
-    suspend fun restore(actionId: Long, confirmed: Boolean = false): ToolkitOutcome<ToolkitActionRecord> =
+    suspend fun restore(
+        actionId: Long,
+        confirmed: Boolean = false,
+    ): ToolkitOutcome<ToolkitActionRecord> =
         mutex.withLock {
             reconcileTargets(null)
             when (val decoded = decodeRestore(actionId)) {
@@ -278,16 +321,20 @@ class ToolkitActions internal constructor(
      * confirmed; a failure does not stop the remaining items. One lock covers the whole reset, so the
      * chains read here cannot change under it.
      */
-    suspend fun resetAll(): List<ResetItem> = mutex.withLock {
-        reconcileTargets(null)
-        val rows = overrideRows()
-        computeOverrides(rows).map { override -> ResetItem(override, resetOne(override, rows)) }
-    }
+    suspend fun resetAll(): List<ResetItem> =
+        mutex.withLock {
+            reconcileTargets(null)
+            val rows = overrideRows()
+            computeOverrides(rows).map { override -> ResetItem(override, resetOne(override, rows)) }
+        }
 
-    private suspend fun resetOne(override: Override, rows: List<ToolkitActionRecord>): ToolkitOutcome<ToolkitActionRecord> {
+    private suspend fun resetOne(
+        override: Override,
+        rows: List<ToolkitActionRecord>,
+    ): ToolkitOutcome<ToolkitActionRecord> {
         val row = rows.first { it.id == override.actionId }
         val action = restoreAction(row, chainOriginal(row, rows)) ?: return ToolkitOutcome.Refused(ToolkitRefusal.NOT_RESTORABLE)
-        return run(action, confirmed = true, restoring = row)
+        return run(action, confirmed = true, restoring = row, requireExpectedCurrent = true)
     }
 
     // ---- reconcile -------------------------------------------------------------------------
@@ -324,75 +371,87 @@ class ToolkitActions internal constructor(
      * result is settled under the lock again. Once the row exists the rest runs to completion even if
      * the caller is cancelled, so the hold is taken and the row never stays PENDING without an owner.
      */
-    suspend fun startBgDexopt(): ToolkitOutcome<ToolkitActionRecord> = withContext(NonCancellable) {
-        val pending = mutex.withLock {
-            insertPending(Spec(KIND_DEXOPT, null, OP_BG_DEXOPT, null), restoresId = null, beforeRaw = null)
-        }
-        val reply = try {
-            backend.startBgDexopt()
-        } catch (e: CancellationException) {
-            throw e
-        } catch (e: Throwable) {
-            mutex.withLock { failPending(pending) }
-            changes.value += 1
-            throw e
-        }
-        mutex.withLock {
-            // The "before" value is not used for anything on a dexopt row, so its absence is not an error.
-            val outcome = settle(pending, reply, requireBefore = false, keepPendingOnDone = true)
-            if (outcome is ToolkitOutcome.Done) {
-                syncHold(running = true)
-                supersedeOtherDexoptRows(outcome.value.id)
-                dexoptEvents.value += 1
+    suspend fun startBgDexopt(): ToolkitOutcome<ToolkitActionRecord> =
+        withContext(NonCancellable) {
+            val pending =
+                mutex.withLock {
+                    insertPending(Spec(KIND_DEXOPT, null, OP_BG_DEXOPT, null), restoresId = null, beforeRaw = null)
+                }
+            val reply =
+                try {
+                    backend.startBgDexopt()
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (e: Throwable) {
+                    mutex.withLock { failPending(pending) }
+                    changes.value += 1
+                    throw e
+                }
+            mutex.withLock {
+                // The "before" value is not used for anything on a dexopt row, so its absence is not an error.
+                val outcome = settle(pending, reply, requireBefore = false, keepPendingOnDone = true)
+                if (outcome is ToolkitOutcome.Done) {
+                    syncHold(running = true)
+                    supersedeOtherDexoptRows(outcome.value.id)
+                    dexoptEvents.value += 1
+                }
+                changes.value += 1
+                outcome
             }
-            changes.value += 1
-            outcome
         }
-    }
 
     /** Cancel is system-side and idempotent, so it is valid whether or not this process started the job. */
-    suspend fun cancelBgDexopt(): ToolkitOutcome<Unit> = mutex.withLock {
-        val read = readOutcome(backend.cancelBgDexopt())
-        val outcome: ToolkitOutcome<Unit> = if (read is ToolkitOutcome.Done) ToolkitOutcome.Done(Unit) else failure(read)
-        if (outcome is ToolkitOutcome.Done) {
-            // The job is being cancelled; nothing needs the service kept alive any more.
-            syncHold(running = false)
-            finalizeDexoptRows(ToolkitActionStatus.CANCELLED, BgDexoptReason.USER, afterRaw = "cancelled")
-            dexoptEvents.value += 1
-            changes.value += 1
+    suspend fun cancelBgDexopt(): ToolkitOutcome<Unit> =
+        mutex.withLock {
+            val read = readOutcome(backend.cancelBgDexopt())
+            val outcome: ToolkitOutcome<Unit> = if (read is ToolkitOutcome.Done) ToolkitOutcome.Done(Unit) else failure(read)
+            if (outcome is ToolkitOutcome.Done) {
+                // The job is being cancelled; nothing needs the service kept alive any more.
+                syncHold(running = false)
+                finalizeDexoptRows(ToolkitActionStatus.CANCELLED, BgDexoptReason.USER, afterRaw = "cancelled")
+                dexoptEvents.value += 1
+                changes.value += 1
+            }
+            outcome
         }
-        outcome
-    }
 
     /**
      * Emits the job status now, then again on start/cancel, and every [dexoptPollMs] while RUNNING (a
      * bounded, user-initiated wait that stops when the collector does). The binding is held while the
      * status is RUNNING and released on any other status; UNKNOWN never takes the hold.
      */
-    fun bgDexoptStatus(): Flow<BgDexoptStatus> = flow {
-        while (true) {
-            val seen = dexoptEvents.value
-            val status = mutex.withLock { refreshDexoptLocked() }
-            emit(status)
-            if (status is BgDexoptStatus.Running) delay(dexoptPollMs) else dexoptEvents.first { it != seen }
-        }
-    }.distinctUntilChanged()
+    fun bgDexoptStatus(): Flow<BgDexoptStatus> =
+        flow {
+            while (true) {
+                val seen = dexoptEvents.value
+                val status = mutex.withLock { refreshDexoptLocked() }
+                emit(status)
+                if (status is BgDexoptStatus.Running) delay(dexoptPollMs) else dexoptEvents.first { it != seen }
+            }
+        }.distinctUntilChanged()
 
     /** For container teardown; normally the hold ends via [bgDexoptStatus]. */
     fun release() = syncHold(running = false)
 
     // ---- planning --------------------------------------------------------------------------
 
-    private suspend fun planLocked(action: ToolkitAction, restoring: ToolkitActionRecord?): ToolkitPlan {
+    private suspend fun planLocked(
+        action: ToolkitAction,
+        restoring: ToolkitActionRecord?,
+    ): ToolkitPlan {
         if (isInvalid(action)) return ToolkitPlan.Refused(ToolkitRefusal.INVALID_ARGUMENT)
         return when (val prep = prepare(action, restoring)) {
-            is Prep.Stop -> ToolkitPlan.Refused(planRefusal(prep.outcome))
-            is Prep.Ok ->
+            is Prep.Stop -> {
+                ToolkitPlan.Refused(planRefusal(prep.outcome))
+            }
+
+            is Prep.Ok -> {
                 if (alreadyRestored(action, prep, restoring)) {
                     ToolkitPlan.Refused(ToolkitRefusal.ALREADY_RESTORED)
                 } else {
                     confirmationPlan(prep.warnings())
                 }
+            }
         }
     }
 
@@ -400,26 +459,32 @@ class ToolkitActions internal constructor(
      * Whether restoring [restoring] would write what the target already reads back (same state, "allow" being
      * the default mode): its chain is already at the original, whoever got it there, so nothing is written.
      */
-    private fun alreadyRestored(action: ToolkitAction, prep: Prep.Ok, restoring: ToolkitActionRecord?): Boolean {
+    private fun alreadyRestored(
+        action: ToolkitAction,
+        prep: Prep.Ok,
+        restoring: ToolkitActionRecord?,
+    ): Boolean {
         if (restoring == null || restoring.kind !in OVERRIDE_KINDS) return false
-        val target = when (action) {
-            is ToolkitAction.SetAppOp -> action.mode.argv
-            is ToolkitAction.SetBucket -> action.bucket.rawValue.toString()
-            is ToolkitAction.RestoreDoze -> action.rawOrNull
-            else -> return false
-        }
+        val target =
+            when (action) {
+                is ToolkitAction.SetAppOp -> action.mode.argv
+                is ToolkitAction.SetBucket -> action.bucket.rawValue.toString()
+                is ToolkitAction.RestoreDoze -> action.rawOrNull
+                else -> return false
+            }
         return sameState(restoring.kind, prep.current, target)
     }
 
     private fun confirmationPlan(warnings: List<ToolkitWarning>): ToolkitPlan =
         if (warnings.isEmpty()) ToolkitPlan.Ready else ToolkitPlan.NeedsConfirmation(warnings.first(), warnings.drop(1))
 
-    private fun planRefusal(outcome: ToolkitOutcome<Nothing>): ToolkitRefusal = when (outcome) {
-        is ToolkitOutcome.Refused -> outcome.reason
-        is ToolkitOutcome.Unavailable -> ToolkitRefusal.SERVICE_UNAVAILABLE
-        is ToolkitOutcome.Failed -> ToolkitRefusal.READ_FAILED
-        is ToolkitOutcome.Done -> ToolkitRefusal.OTHER
-    }
+    private fun planRefusal(outcome: ToolkitOutcome<Nothing>): ToolkitRefusal =
+        when (outcome) {
+            is ToolkitOutcome.Refused -> outcome.reason
+            is ToolkitOutcome.Unavailable -> ToolkitRefusal.SERVICE_UNAVAILABLE
+            is ToolkitOutcome.Failed -> ToolkitRefusal.READ_FAILED
+            is ToolkitOutcome.Done -> ToolkitRefusal.OTHER
+        }
 
     private sealed interface Prep {
         /** [current] is the value read back right now; [expectedCurrent] is set for restores. */
@@ -436,11 +501,16 @@ class ToolkitActions internal constructor(
             }
         }
 
-        class Stop(val outcome: ToolkitOutcome<Nothing>) : Prep
+        class Stop(
+            val outcome: ToolkitOutcome<Nothing>,
+        ) : Prep
     }
 
     /** Re-validates [action] against the live state: reads back, and collects every confirmation reason. */
-    private suspend fun prepare(action: ToolkitAction, restoring: ToolkitActionRecord? = null): Prep {
+    private suspend fun prepare(
+        action: ToolkitAction,
+        restoring: ToolkitActionRecord? = null,
+    ): Prep {
         val static = staticWarnings(action)
         return when (action) {
             is ToolkitAction.SetAppOp -> {
@@ -449,24 +519,28 @@ class ToolkitActions internal constructor(
                 val current = read.value.modes[action.op]
                 Prep.Ok(static, systemWarning(read.value.updatedSystem), current, restoring != null, restoring?.afterRaw)
             }
+
             is ToolkitAction.SetBucket -> {
                 val read = readBucket(action.pkg)
                 if (read !is ToolkitOutcome.Done) return stop(read)
                 val current = read.value.raw?.toString()
                 Prep.Ok(static, systemWarning(read.value.updatedSystem), current, restoring != null, restoring?.afterRaw)
             }
+
             is ToolkitAction.ForceStop -> {
                 // Validation, hard-deny and the updated-system flag come from a read of the same package.
                 val read = readAppOps(action.pkg)
                 if (read !is ToolkitOutcome.Done) return stop(read)
                 Prep.Ok(static, systemWarning(read.value.updatedSystem), null, false, null)
             }
+
             is ToolkitAction.ApplyDoze -> {
                 val read = readDoze()
                 if (read !is ToolkitOutcome.Done) return stop(read)
                 val overCustom = action.profile == DozeProfile.STANDARD && read.value.isCustom
                 Prep.Ok(static, if (overCustom) listOf(ToolkitWarning.DOZE_OVER_CUSTOM) else emptyList(), read.value.raw, false, null)
             }
+
             is ToolkitAction.RestoreDoze -> {
                 val read = readDoze()
                 if (read !is ToolkitOutcome.Done) return stop(read)
@@ -481,26 +555,38 @@ class ToolkitActions internal constructor(
         if (updatedSystem) listOf(ToolkitWarning.UPDATED_SYSTEM_APP) else emptyList()
 
     /** Reasons that need no read to know about. */
-    private fun staticWarnings(action: ToolkitAction): List<ToolkitWarning> = when (action) {
-        is ToolkitAction.ForceStop -> listOf(ToolkitWarning.FORCE_STOP)
-        is ToolkitAction.SetBucket ->
-            if (action.bucket == StandbyBucket.RESTRICTED) listOf(ToolkitWarning.RESTRICTED_BUCKET) else emptyList()
-        is ToolkitAction.SetAppOp -> when {
-            action.mode != AppOpMode.IGNORE -> emptyList()
-            action.op == AppOp.WAKE_LOCK -> listOf(ToolkitWarning.WAKE_LOCK_IGNORE)
-            action.op == AppOp.RUN_ANY_IN_BACKGROUND -> listOf(ToolkitWarning.RUN_ANY_IN_BACKGROUND_IGNORE)
-            else -> emptyList()
-        }
-        is ToolkitAction.ApplyDoze, is ToolkitAction.RestoreDoze -> emptyList()
-    }
+    private fun staticWarnings(action: ToolkitAction): List<ToolkitWarning> =
+        when (action) {
+            is ToolkitAction.ForceStop -> {
+                listOf(ToolkitWarning.FORCE_STOP)
+            }
 
-    private fun isInvalid(action: ToolkitAction): Boolean = when (action) {
-        is ToolkitAction.SetAppOp -> !PackageNames.isValid(action.pkg)
-        is ToolkitAction.SetBucket -> !PackageNames.isValid(action.pkg)
-        is ToolkitAction.ForceStop -> !PackageNames.isValid(action.pkg)
-        is ToolkitAction.ApplyDoze -> false
-        is ToolkitAction.RestoreDoze -> action.rawOrNull?.let { it.isNotEmpty() && !DozeRaw.isSafe(it) } ?: false
-    }
+            is ToolkitAction.SetBucket -> {
+                if (action.bucket == StandbyBucket.RESTRICTED) listOf(ToolkitWarning.RESTRICTED_BUCKET) else emptyList()
+            }
+
+            is ToolkitAction.SetAppOp -> {
+                when {
+                    action.mode != AppOpMode.IGNORE -> emptyList()
+                    action.op == AppOp.WAKE_LOCK -> listOf(ToolkitWarning.WAKE_LOCK_IGNORE)
+                    action.op == AppOp.RUN_ANY_IN_BACKGROUND -> listOf(ToolkitWarning.RUN_ANY_IN_BACKGROUND_IGNORE)
+                    else -> emptyList()
+                }
+            }
+
+            is ToolkitAction.ApplyDoze, is ToolkitAction.RestoreDoze -> {
+                emptyList()
+            }
+        }
+
+    private fun isInvalid(action: ToolkitAction): Boolean =
+        when (action) {
+            is ToolkitAction.SetAppOp -> !PackageNames.isValid(action.pkg)
+            is ToolkitAction.SetBucket -> !PackageNames.isValid(action.pkg)
+            is ToolkitAction.ForceStop -> !PackageNames.isValid(action.pkg)
+            is ToolkitAction.ApplyDoze -> false
+            is ToolkitAction.RestoreDoze -> action.rawOrNull?.let { it.isNotEmpty() && !DozeRaw.isSafe(it) } ?: false
+        }
 
     // ---- execution -------------------------------------------------------------------------
 
@@ -508,6 +594,7 @@ class ToolkitActions internal constructor(
         action: ToolkitAction,
         confirmed: Boolean,
         restoring: ToolkitActionRecord?,
+        requireExpectedCurrent: Boolean = false,
     ): ToolkitOutcome<ToolkitActionRecord> {
         val spec = specOf(action)
         val restoresId = restoring?.id
@@ -525,11 +612,17 @@ class ToolkitActions internal constructor(
         if (spec.kind in OVERRIDE_KINDS && audit.pending().any { targetKey(it) == targetKey(spec) }) {
             return ToolkitOutcome.Unavailable(ToolkitUnavailable.UNVERIFIED)
         }
-        val prep = when (val prepared = prepare(action, restoring)) {
-            is Prep.Stop -> return stopOutcome(spec, restoresId, prepared.outcome)
-            is Prep.Ok -> prepared
-        }
+        val prep =
+            when (val prepared = prepare(action, restoring)) {
+                is Prep.Stop -> return stopOutcome(spec, restoresId, prepared.outcome)
+                is Prep.Ok -> prepared
+            }
         if (alreadyRestored(action, prep, restoring)) return ToolkitOutcome.Refused(ToolkitRefusal.ALREADY_RESTORED)
+        // Reset all confirms only the enumerated override, not a later external change. This is a fresh-read
+        // guard, not atomic compare-and-set: bucket and app-op commands cannot enforce a platform-side CAS.
+        if (requireExpectedCurrent && restoring != null && !sameState(restoring.kind, prep.current, restoring.afterRaw)) {
+            return refuse(spec, restoresId, ToolkitRefusal.STALE, ToolkitCode.STALE)
+        }
         if (!confirmed && prep.warnings().isNotEmpty()) {
             return refuse(spec, restoresId, ToolkitRefusal.NOT_CONFIRMED, ToolkitClientCode.NOT_CONFIRMED)
         }
@@ -540,16 +633,17 @@ class ToolkitActions internal constructor(
         return withContext(NonCancellable) {
             val before = if (action is ToolkitAction.ForceStop) null else prep.current
             val pending = insertPending(spec, restoresId, beforeRaw = before)
-            val reply = try {
-                write(action, prep)
-            } catch (e: CancellationException) {
-                // Not ours to settle: whether the write happened is unknown, so reconcile() reads it back.
-                throw e
-            } catch (e: Throwable) {
-                failPending(pending)
-                changes.value += 1
-                throw e
-            }
+            val reply =
+                try {
+                    write(action, prep)
+                } catch (e: CancellationException) {
+                    // Not ours to settle: whether the write happened is unknown, so reconcile() reads it back.
+                    throw e
+                } catch (e: Throwable) {
+                    failPending(pending)
+                    changes.value += 1
+                    throw e
+                }
             val outcome = settle(pending, reply, requireBefore = spec.kind != KIND_DOZE, keepPendingOnDone = false)
             if (outcome is ToolkitOutcome.Done && restoring != null) {
                 audit.update(restoring.copy(status = ToolkitActionStatus.RESTORED))
@@ -563,13 +657,17 @@ class ToolkitActions internal constructor(
         audit.update(pending.copy(status = ToolkitActionStatus.PENDING, endedAt = null, code = ToolkitClientCode.WRITE_ERROR))
     }
 
-    private suspend fun write(action: ToolkitAction, prep: Prep.Ok): GatewayReply<ToolkitResult> = when (action) {
-        is ToolkitAction.SetAppOp -> backend.setAppOp(action.pkg, action.op, action.mode)
-        is ToolkitAction.SetBucket -> backend.setStandbyBucket(action.pkg, action.bucket)
-        is ToolkitAction.ForceStop -> backend.forceStop(action.pkg)
-        is ToolkitAction.ApplyDoze -> backend.applyDozeProfile(action.profile, prep.current)
-        is ToolkitAction.RestoreDoze -> backend.restoreDozeRaw(norm(action.rawOrNull), prep.current)
-    }
+    private suspend fun write(
+        action: ToolkitAction,
+        prep: Prep.Ok,
+    ): GatewayReply<ToolkitResult> =
+        when (action) {
+            is ToolkitAction.SetAppOp -> backend.setAppOp(action.pkg, action.op, action.mode)
+            is ToolkitAction.SetBucket -> backend.setStandbyBucket(action.pkg, action.bucket)
+            is ToolkitAction.ForceStop -> backend.forceStop(action.pkg)
+            is ToolkitAction.ApplyDoze -> backend.applyDozeProfile(action.profile, prep.current)
+            is ToolkitAction.RestoreDoze -> backend.restoreDozeRaw(norm(action.rawOrNull), prep.current)
+        }
 
     /** Refusals from validation are recorded; a read that could not run (nothing attempted) is not. */
     private suspend fun stopOutcome(
@@ -596,7 +694,11 @@ class ToolkitActions internal constructor(
         return ToolkitOutcome.Refused(reason, code)
     }
 
-    private suspend fun insertPending(spec: Spec, restoresId: Long?, beforeRaw: String?): ToolkitActionRecord {
+    private suspend fun insertPending(
+        spec: Spec,
+        restoresId: Long?,
+        beforeRaw: String?,
+    ): ToolkitActionRecord {
         val record = spec.record(ToolkitActionStatus.PENDING, nowMs(), restoresId, beforeRaw)
         return record.copy(id = audit.insert(record))
     }
@@ -610,11 +712,12 @@ class ToolkitActions internal constructor(
     ): ToolkitOutcome<ToolkitActionRecord> {
         val now = nowMs()
         if (reply is GatewayReply.Unavailable) {
-            val code = if (reply.reason == GatewayUnavailable.STALE_SERVICE) {
-                ToolkitClientCode.STALE_SERVICE
-            } else {
-                ToolkitClientCode.NO_SERVICE
-            }
+            val code =
+                if (reply.reason == GatewayUnavailable.STALE_SERVICE) {
+                    ToolkitClientCode.STALE_SERVICE
+                } else {
+                    ToolkitClientCode.NO_SERVICE
+                }
             audit.update(pending.copy(status = ToolkitActionStatus.PENDING, endedAt = null, code = code))
             return ToolkitOutcome.Unavailable(unavailableFor(reply.reason))
         }
@@ -627,15 +730,20 @@ class ToolkitActions internal constructor(
             return ToolkitOutcome.Unavailable(ToolkitUnavailable.UNVERIFIED, result.code)
         }
         return when (result.status) {
-            ToolkitStatus.DONE -> settleDone(pending, result, now, requireBefore, keepPendingOnDone)
+            ToolkitStatus.DONE -> {
+                settleDone(pending, result, now, requireBefore, keepPendingOnDone)
+            }
+
             ToolkitStatus.REFUSED -> {
                 audit.update(finished(pending, ToolkitActionStatus.REFUSED, result, now))
                 ToolkitOutcome.Refused(refusalFor(result.code), result.code)
             }
+
             ToolkitStatus.UNAVAILABLE -> {
                 audit.update(finished(pending, ToolkitActionStatus.FAILED, result, now))
                 ToolkitOutcome.Unavailable(ToolkitUnavailable.NOT_EFFECTIVE, result.code)
             }
+
             else -> {
                 audit.update(finished(pending, ToolkitActionStatus.FAILED, result, now))
                 ToolkitOutcome.Failed(result.code)
@@ -665,18 +773,24 @@ class ToolkitActions internal constructor(
         status: ToolkitActionStatus,
         result: ToolkitResult,
         now: Long,
-    ): ToolkitActionRecord = pending.copy(
-        status = status,
-        endedAt = now,
-        code = result.code,
-        beforeRaw = result.beforeRaw ?: pending.beforeRaw.takeIf { status != ToolkitActionStatus.DONE },
-        afterRaw = result.afterRaw,
-    )
+    ): ToolkitActionRecord =
+        pending.copy(
+            status = status,
+            endedAt = now,
+            code = result.code,
+            beforeRaw = result.beforeRaw ?: pending.beforeRaw.takeIf { status != ToolkitActionStatus.DONE },
+            afterRaw = result.afterRaw,
+        )
 
     // ---- audit row shape -------------------------------------------------------------------
 
     /** How an action is stored in a `toolkit_action` row. Explicit strings, never enum names. */
-    private class Spec(val kind: String, val pkg: String?, val op: String, val param: String?) {
+    private class Spec(
+        val kind: String,
+        val pkg: String?,
+        val op: String,
+        val param: String?,
+    ) {
         fun record(
             status: ToolkitActionStatus,
             startedAt: Long,
@@ -694,22 +808,24 @@ class ToolkitActions internal constructor(
         )
     }
 
-    private fun specOf(action: ToolkitAction): Spec = when (action) {
-        is ToolkitAction.SetAppOp -> Spec(KIND_APPOP, validPkg(action.pkg), action.op.argv, action.mode.argv)
-        is ToolkitAction.SetBucket -> Spec(KIND_BUCKET, validPkg(action.pkg), OP_BUCKET, action.bucket.argv)
-        is ToolkitAction.ForceStop -> Spec(KIND_FORCE_STOP, validPkg(action.pkg), OP_FORCE_STOP, null)
-        is ToolkitAction.ApplyDoze -> Spec(KIND_DOZE, null, OP_APPLY_PROFILE, profileToken(action.profile))
-        is ToolkitAction.RestoreDoze -> Spec(KIND_DOZE, null, OP_RESTORE_RAW, norm(action.rawOrNull))
-    }
+    private fun specOf(action: ToolkitAction): Spec =
+        when (action) {
+            is ToolkitAction.SetAppOp -> Spec(KIND_APPOP, validPkg(action.pkg), action.op.argv, action.mode.argv)
+            is ToolkitAction.SetBucket -> Spec(KIND_BUCKET, validPkg(action.pkg), OP_BUCKET, action.bucket.argv)
+            is ToolkitAction.ForceStop -> Spec(KIND_FORCE_STOP, validPkg(action.pkg), OP_FORCE_STOP, null)
+            is ToolkitAction.ApplyDoze -> Spec(KIND_DOZE, null, OP_APPLY_PROFILE, profileToken(action.profile))
+            is ToolkitAction.RestoreDoze -> Spec(KIND_DOZE, null, OP_RESTORE_RAW, norm(action.rawOrNull))
+        }
 
     /** Only well-formed package names are persisted, so the log never stores arbitrary caller text. */
     private fun validPkg(pkg: String): String? = pkg.takeIf { PackageNames.isValid(it) }
 
-    private fun profileToken(profile: DozeProfile): String = when (profile) {
-        DozeProfile.STANDARD -> "standard"
-        DozeProfile.BALANCED -> "balanced"
-        DozeProfile.AGGRESSIVE_NIGHT -> "aggressive_night"
-    }
+    private fun profileToken(profile: DozeProfile): String =
+        when (profile) {
+            DozeProfile.STANDARD -> "standard"
+            DozeProfile.BALANCED -> "balanced"
+            DozeProfile.AGGRESSIVE_NIGHT -> "aggressive_night"
+        }
 
     /** The action a stored row intended to perform, or null when the row is not understood. */
     private fun intendedAction(row: ToolkitActionRecord): ToolkitAction? {
@@ -720,27 +836,51 @@ class ToolkitActions internal constructor(
                 val mode = AppOpMode.entries.firstOrNull { it.argv == row.param }
                 if (pkg != null && op != null && mode != null) ToolkitAction.SetAppOp(pkg, op, mode) else null
             }
+
             KIND_BUCKET -> {
                 val bucket = StandbyBucket.entries.firstOrNull { it.argv == row.param }
                 if (pkg != null && bucket != null) ToolkitAction.SetBucket(pkg, bucket) else null
             }
-            KIND_FORCE_STOP -> pkg?.let { ToolkitAction.ForceStop(it) }
-            KIND_DOZE -> when (row.op) {
-                OP_APPLY_PROFILE -> DozeProfile.entries.firstOrNull { profileToken(it) == row.param }
-                    ?.let { ToolkitAction.ApplyDoze(it) }
-                OP_RESTORE_RAW -> ToolkitAction.RestoreDoze(row.param, null)
-                else -> null
+
+            KIND_FORCE_STOP -> {
+                pkg?.let { ToolkitAction.ForceStop(it) }
             }
-            else -> null
+
+            KIND_DOZE -> {
+                when (row.op) {
+                    OP_APPLY_PROFILE -> {
+                        DozeProfile.entries
+                            .firstOrNull { profileToken(it) == row.param }
+                            ?.let { ToolkitAction.ApplyDoze(it) }
+                    }
+
+                    OP_RESTORE_RAW -> {
+                        ToolkitAction.RestoreDoze(row.param, null)
+                    }
+
+                    else -> {
+                        null
+                    }
+                }
+            }
+
+            else -> {
+                null
+            }
         }
     }
 
     // ---- restore ---------------------------------------------------------------------------
 
     private sealed interface Decoded {
-        class Ok(val action: ToolkitAction, val record: ToolkitActionRecord) : Decoded
+        class Ok(
+            val action: ToolkitAction,
+            val record: ToolkitActionRecord,
+        ) : Decoded
 
-        class No(val reason: ToolkitRefusal) : Decoded
+        class No(
+            val reason: ToolkitRefusal,
+        ) : Decoded
     }
 
     private suspend fun decodeRestore(actionId: Long): Decoded {
@@ -748,7 +888,7 @@ class ToolkitActions internal constructor(
         val record = all.firstOrNull { it.id == actionId } ?: return Decoded.No(ToolkitRefusal.UNKNOWN_ACTION)
         if (record.status == ToolkitActionStatus.RESTORED) return Decoded.No(ToolkitRefusal.ALREADY_RESTORED)
         // A write that moved its target to a third value is undone like a DONE one (see changedTarget).
-        if ((record.status != ToolkitActionStatus.DONE && !landedElsewhere(record)) || record.restoresId != null) {
+        if ((record.status != ToolkitActionStatus.DONE && !landedElsewhere(record)) || closesChain(record)) {
             return Decoded.No(ToolkitRefusal.NOT_RESTORABLE)
         }
         // An override row goes back to its chain's original, like resetAll; a chain whose own `after` already
@@ -762,7 +902,10 @@ class ToolkitActions internal constructor(
     }
 
     /** The write that puts [record]'s target back to [beforeRaw], or null when that value cannot be replayed. */
-    private fun restoreAction(record: ToolkitActionRecord, beforeRaw: String?): ToolkitAction? {
+    private fun restoreAction(
+        record: ToolkitActionRecord,
+        beforeRaw: String?,
+    ): ToolkitAction? {
         val pkg = record.pkg
         return when (record.kind) {
             KIND_APPOP -> {
@@ -770,12 +913,19 @@ class ToolkitActions internal constructor(
                 val mode = beforeRaw?.let { modeOf(it) }
                 if (pkg != null && op != null && mode != null) ToolkitAction.SetAppOp(pkg, op, mode) else null
             }
+
             KIND_BUCKET -> {
                 val bucket = StandbyBucket.entries.firstOrNull { it.rawValue.toString() == beforeRaw }
                 if (pkg != null && bucket != null) ToolkitAction.SetBucket(pkg, bucket) else null
             }
-            KIND_DOZE -> ToolkitAction.RestoreDoze(beforeRaw, record.afterRaw)
-            else -> null
+
+            KIND_DOZE -> {
+                ToolkitAction.RestoreDoze(beforeRaw, record.afterRaw)
+            }
+
+            else -> {
+                null
+            }
         }
     }
 
@@ -783,24 +933,64 @@ class ToolkitActions internal constructor(
      * The value that existed before the first change of [row]'s chain: older rows of the same target join the
      * chain while each one's `after` is what the next one found (`before`). The walk covers DONE and RESTORED
      * rows alike (see [overrideRows]): a row already undone by a restore is still a link, so restoring one row
-     * of a chain does not turn an older row's `before` into the original of the rows above it. A restore row
-     * (`restoresId` set) or a gap (something else changed the target in between) ends it. [rows] is
-     * [overrideRows], newest first.
+     * of a chain does not turn an older row's `before` into the original of the rows above it. A completed
+     * restore or a gap (something else changed the target in between) ends it. A partial restore instead
+     * anchors the original in its typed intended value, even if its confirmed `before` was external. [rows]
+     * is [overrideRows], newest first.
      */
-    private fun chainOriginal(row: ToolkitActionRecord, rows: List<ToolkitActionRecord>): String? {
+    private fun chainOriginal(
+        row: ToolkitActionRecord,
+        rows: List<ToolkitActionRecord>,
+    ): String? {
+        partialRestore(row)?.let { return it.original }
         val key = targetKey(row)
         var original = row.beforeRaw
         for (older in rows.dropWhile { it.id != row.id }.drop(1).filter { targetKey(it) == key }) {
-            if (older.restoresId != null || !sameState(older.kind, older.afterRaw, original)) break
+            if (closesChain(older) || !sameState(older.kind, older.afterRaw, original)) break
+            partialRestore(older)?.let { return it.original }
             original = older.beforeRaw
         }
         return original
     }
 
-    /** App op modes compare by meaning ("allow" is the DEFAULT mode); everything else by value. */
-    private fun sameState(kind: String, current: String?, original: String?): Boolean {
+    /** Wraps a typed restore target so an unset doze original is distinct from "not a partial restore". */
+    private class PartialRestore(
+        val original: String?,
+    )
+
+    /**
+     * A failed restore that observably moved its target still owns its `after`, not its intended original.
+     * Persisted parameters supply that original: `before` may be an external value explicitly confirmed
+     * by the user, and the older history may have been pruned. Unknown or invalid actions cannot anchor it.
+     */
+    private fun partialRestore(row: ToolkitActionRecord): PartialRestore? {
+        if (row.restoresId == null || !landedElsewhere(row)) return null
+        val action = intendedAction(row) ?: return null
+        if (isInvalid(action)) return null
+        return when (action) {
+            is ToolkitAction.SetAppOp -> PartialRestore(action.mode.argv)
+            is ToolkitAction.SetBucket -> PartialRestore(action.bucket.rawValue.toString())
+            is ToolkitAction.RestoreDoze -> PartialRestore(norm(action.rawOrNull))
+            else -> null
+        }
+    }
+
+    private fun closesChain(row: ToolkitActionRecord): Boolean = row.restoresId != null && partialRestore(row) == null
+
+    /**
+     * Compare observed state, not just writable modes: app-op reads can also report e.g. "foreground".
+     * Equal known raw values match, "allow" aliases DEFAULT, and a missing app-op value stays unknown.
+     * This does not make observed-only modes replayable; [restoreAction] still requires [modeOf].
+     */
+    private fun sameState(
+        kind: String,
+        current: String?,
+        original: String?,
+    ): Boolean {
         if (kind != KIND_APPOP) return norm(current) == norm(original)
-        val mode = current?.let { modeOf(it) }
+        val raw = norm(current) ?: return false
+        if (raw == norm(original)) return true
+        val mode = modeOf(raw)
         return mode != null && mode == original?.let { modeOf(it) }
     }
 
@@ -813,9 +1003,10 @@ class ToolkitActions internal constructor(
      */
     private suspend fun overrideRows(): List<ToolkitActionRecord> = overrideRows(audit.recent(MAX_ROWS))
 
-    private fun overrideRows(all: List<ToolkitActionRecord>): List<ToolkitActionRecord> = all
-        .filter { it.kind in OVERRIDE_KINDS && changedTarget(it) }
-        .sortedByDescending { it.id }
+    private fun overrideRows(all: List<ToolkitActionRecord>): List<ToolkitActionRecord> =
+        all
+            .filter { it.kind in OVERRIDE_KINDS && changedTarget(it) }
+            .sortedByDescending { it.id }
 
     /**
      * Chain membership comes from the values read back around a write, not from how the write was reported:
@@ -823,11 +1014,12 @@ class ToolkitActions internal constructor(
      * write is still reported as not effective, but the device was changed, so overrides, Reset all and
      * restore must see it, and a chain it continues must not break at it.
      */
-    private fun changedTarget(row: ToolkitActionRecord): Boolean = when (row.status) {
-        ToolkitActionStatus.DONE, ToolkitActionStatus.RESTORED -> true
-        ToolkitActionStatus.FAILED -> landedElsewhere(row)
-        else -> false
-    }
+    private fun changedTarget(row: ToolkitActionRecord): Boolean =
+        when (row.status) {
+            ToolkitActionStatus.DONE, ToolkitActionStatus.RESTORED -> true
+            ToolkitActionStatus.FAILED -> landedElsewhere(row)
+            else -> false
+        }
 
     /**
      * A FAILED override row whose known `after` is not its known `before`: the target moved to a third value
@@ -844,23 +1036,25 @@ class ToolkitActions internal constructor(
     private suspend fun computeOverrides(): List<Override> = computeOverrides(overrideRows())
 
     private suspend fun computeOverrides(rows: List<ToolkitActionRecord>): List<Override> {
-        // The newest write that changed each target decides; a newer restore row (or a RESTORED newest row)
-        // means nothing is overridden.
+        // The newest write that changed each target decides; only a completed restore (or a RESTORED newest
+        // row) closes the chain. A partial restore still owns its observed after while it differs from original.
         val newest = LinkedHashMap<String, ToolkitActionRecord>()
         for (row in rows) newest.putIfAbsent(targetKey(row), row)
-        val candidates = newest.values.filter {
-            it.restoresId == null && it.status != ToolkitActionStatus.RESTORED && mayBeActive(it, rows)
-        }
+        val candidates =
+            newest.values.filter {
+                !closesChain(it) && it.status != ToolkitActionStatus.RESTORED && mayBeActive(it, rows)
+            }
         val result = mutableListOf<Override>()
         for ((pkg, group) in candidates.filter { it.kind != KIND_DOZE }.groupBy { it.pkg }) {
             val name = pkg ?: continue
             val ops = if (group.any { it.kind == KIND_APPOP }) readAppOps(name) else null
             val bucket = if (group.any { it.kind == KIND_BUCKET }) readBucket(name) else null
             for (row in group) {
-                val current = when (row.kind) {
-                    KIND_APPOP -> (ops as? ToolkitOutcome.Done)?.value?.modes?.get(AppOp.entries.firstOrNull { it.argv == row.op })
-                    else -> (bucket as? ToolkitOutcome.Done)?.value?.raw?.toString()
-                }
+                val current =
+                    when (row.kind) {
+                        KIND_APPOP -> (ops as? ToolkitOutcome.Done)?.value?.modes?.get(AppOp.entries.firstOrNull { it.argv == row.op })
+                        else -> (bucket as? ToolkitOutcome.Done)?.value?.raw?.toString()
+                    }
                 if (current != null) activeOverride(row, current, rows)?.let { result += it }
             }
         }
@@ -876,13 +1070,20 @@ class ToolkitActions internal constructor(
      * value to be its `after`, and [activeOverride] then needs that to differ from the chain original. A closed
      * chain (a toggle back by hand, say) or an unset doze value fails one of them whatever the device says.
      */
-    private fun mayBeActive(row: ToolkitActionRecord, rows: List<ToolkitActionRecord>): Boolean {
+    private fun mayBeActive(
+        row: ToolkitActionRecord,
+        rows: List<ToolkitActionRecord>,
+    ): Boolean {
         if (row.kind == KIND_DOZE && norm(row.afterRaw) == null) return false
         return !sameState(row.kind, row.afterRaw, chainOriginal(row, rows))
     }
 
     /** The override [row] stands for, or null when it is not in effect or its chain has come back to the original. */
-    private fun activeOverride(row: ToolkitActionRecord, current: String?, rows: List<ToolkitActionRecord>): Override? {
+    private fun activeOverride(
+        row: ToolkitActionRecord,
+        current: String?,
+        rows: List<ToolkitActionRecord>,
+    ): Override? {
         if (!isActive(row, current)) return null
         val original = chainOriginal(row, rows)
         return if (sameState(row.kind, current, original)) null else overrideOf(row, current, original)
@@ -892,8 +1093,11 @@ class ToolkitActions internal constructor(
 
     private fun targetKey(spec: Spec): String = targetKey(spec.kind, spec.pkg, spec.op)
 
-    private fun targetKey(kind: String, pkg: String?, op: String): String =
-        if (kind == KIND_DOZE) KIND_DOZE else "$kind|$pkg|${if (kind == KIND_APPOP) op else ""}"
+    private fun targetKey(
+        kind: String,
+        pkg: String?,
+        op: String,
+    ): String = if (kind == KIND_DOZE) KIND_DOZE else "$kind|$pkg|${if (kind == KIND_APPOP) op else ""}"
 
     /**
      * Still ours when the value read back equals what [row] left (an unset doze value is never an override).
@@ -901,33 +1105,46 @@ class ToolkitActions internal constructor(
      * already in place (`before` == `after`) repeats the override below it, so [activeOverride] compares with
      * [chainOriginal] instead of with this row's own `before`.
      */
-    private fun isActive(row: ToolkitActionRecord, current: String?): Boolean {
+    private fun isActive(
+        row: ToolkitActionRecord,
+        current: String?,
+    ): Boolean {
         val after = norm(row.afterRaw)
         if (norm(current) != after) return false
         return row.kind != KIND_DOZE || after != null
     }
 
-    private fun overrideOf(row: ToolkitActionRecord, current: String?, original: String?): Override = Override(
-        actionId = row.id,
-        kind = when (row.kind) {
-            KIND_APPOP -> OverrideKind.APP_OP
-            KIND_BUCKET -> OverrideKind.BUCKET
-            else -> OverrideKind.DOZE
-        },
-        pkg = row.pkg,
-        appOp = if (row.kind == KIND_APPOP) AppOp.entries.firstOrNull { it.argv == row.op } else null,
-        currentRaw = current,
-        previousRaw = original,
-        sinceMs = row.endedAt ?: row.startedAt,
-        restorable = isRestorable(row, original),
-    )
+    private fun overrideOf(
+        row: ToolkitActionRecord,
+        current: String?,
+        original: String?,
+    ): Override =
+        Override(
+            actionId = row.id,
+            kind =
+                when (row.kind) {
+                    KIND_APPOP -> OverrideKind.APP_OP
+                    KIND_BUCKET -> OverrideKind.BUCKET
+                    else -> OverrideKind.DOZE
+                },
+            pkg = row.pkg,
+            appOp = if (row.kind == KIND_APPOP) AppOp.entries.firstOrNull { it.argv == row.op } else null,
+            currentRaw = current,
+            previousRaw = original,
+            sinceMs = row.endedAt ?: row.startedAt,
+            restorable = isRestorable(row, original),
+        )
 
     /** Whether [restoreAction] could turn the chain original [original] back into an action. */
-    private fun isRestorable(row: ToolkitActionRecord, original: String?): Boolean = when (row.kind) {
-        KIND_APPOP -> original?.let { modeOf(it) } != null
-        KIND_BUCKET -> StandbyBucket.entries.any { it.rawValue.toString() == original }
-        else -> true
-    }
+    private fun isRestorable(
+        row: ToolkitActionRecord,
+        original: String?,
+    ): Boolean =
+        when (row.kind) {
+            KIND_APPOP -> original?.let { modeOf(it) } != null
+            KIND_BUCKET -> StandbyBucket.entries.any { it.rawValue.toString() == original }
+            else -> true
+        }
 
     // ---- retention -------------------------------------------------------------------------
 
@@ -942,12 +1159,13 @@ class ToolkitActions internal constructor(
         if (all.size <= ToolkitAuditLog.RETAINED_ROWS) return
         val oldestRetained = all[ToolkitAuditLog.RETAINED_ROWS - 1].id
         val unsettled = all.filter { it.status == ToolkitActionStatus.PENDING }.map { targetKey(it) }.toSet()
-        val ids = overrideRows(all)
-            .filter { targetKey(it) !in unsettled }
-            .groupBy { targetKey(it) }
-            .values
-            .flatMap { links -> closedPrefix(links.reversed(), oldestRetained) }
-            .map { it.id }
+        val ids =
+            overrideRows(all)
+                .filter { targetKey(it) !in unsettled }
+                .groupBy { targetKey(it) }
+                .values
+                .flatMap { links -> closedPrefix(links.reversed(), oldestRetained) }
+                .map { it.id }
         if (ids.isNotEmpty()) audit.delete(ids)
     }
 
@@ -956,25 +1174,36 @@ class ToolkitActions internal constructor(
      * [keepFrom] and ends where the chain is cut (the next link does not [continue][continues] it) or closed
      * (its `after` is its chain original again). A walk from a newer row then stops at the same place, or at
      * a `before` that is the same state as the original it would have found. The whole list goes only when
-     * its newest link is a restore row or closes its chain, so a later write cannot continue an open chain.
+     * its newest link is a completed restore or closes its chain, so a later write cannot continue an open chain.
      */
-    private fun closedPrefix(links: List<ToolkitActionRecord>, keepFrom: Long): List<ToolkitActionRecord> {
+    private fun closedPrefix(
+        links: List<ToolkitActionRecord>,
+        keepFrom: Long,
+    ): List<ToolkitActionRecord> {
         var cut = 0
         var original: String? = null
         for ((i, link) in links.withIndex()) {
-            original = if (i > 0 && continues(links[i - 1], link)) original else link.beforeRaw
+            val partial = partialRestore(link)
+            original =
+                when {
+                    partial != null -> partial.original
+                    i > 0 && continues(links[i - 1], link) -> original
+                    else -> link.beforeRaw
+                }
             if (link.id >= keepFrom) break
             val next = links.getOrNull(i + 1)
             val closed = sameState(link.kind, link.afterRaw, original)
-            val endsHere = if (next == null) link.restoresId != null || closed else !continues(link, next) || closed
+            val endsHere = if (next == null) closesChain(link) || closed else !continues(link, next) || closed
             if (endsHere) cut = i + 1
         }
         return links.take(cut)
     }
 
     /** Whether a [chainOriginal] walk from [newer] goes on to [older], the link just below it. */
-    private fun continues(older: ToolkitActionRecord, newer: ToolkitActionRecord): Boolean =
-        older.restoresId == null && newer.restoresId == null && sameState(older.kind, older.afterRaw, newer.beforeRaw)
+    private fun continues(
+        older: ToolkitActionRecord,
+        newer: ToolkitActionRecord,
+    ): Boolean = !closesChain(older) && !closesChain(newer) && sameState(older.kind, older.afterRaw, newer.beforeRaw)
 
     // ---- reconcile -------------------------------------------------------------------------
 
@@ -983,9 +1212,13 @@ class ToolkitActions internal constructor(
 
         data object Unverifiable : Verdict
 
-        class Matched(val current: String?) : Verdict
+        class Matched(
+            val current: String?,
+        ) : Verdict
 
-        class Mismatch(val current: String?) : Verdict
+        class Mismatch(
+            val current: String?,
+        ) : Verdict
     }
 
     /**
@@ -1008,9 +1241,14 @@ class ToolkitActions internal constructor(
         val action = intendedAction(row)
         val verdict = if (action == null) Verdict.Mismatch(null) else verify(action)
         when (verdict) {
-            Verdict.Unreachable -> return false
-            Verdict.Unverifiable ->
+            Verdict.Unreachable -> {
+                return false
+            }
+
+            Verdict.Unverifiable -> {
                 audit.update(row.copy(status = ToolkitActionStatus.FAILED, endedAt = now, code = ToolkitClientCode.UNVERIFIED))
+            }
+
             is Verdict.Matched -> {
                 audit.update(
                     row.copy(status = ToolkitActionStatus.DONE, endedAt = now, code = ToolkitCode.OK, afterRaw = verdict.current),
@@ -1020,7 +1258,8 @@ class ToolkitActions internal constructor(
                     audit.update(original.copy(status = ToolkitActionStatus.RESTORED))
                 }
             }
-            is Verdict.Mismatch ->
+
+            is Verdict.Mismatch -> {
                 audit.update(
                     row.copy(
                         status = ToolkitActionStatus.FAILED,
@@ -1029,32 +1268,62 @@ class ToolkitActions internal constructor(
                         afterRaw = verdict.current,
                     ),
                 )
+            }
         }
         return true
     }
 
-    private suspend fun verify(action: ToolkitAction): Verdict = when (action) {
-        is ToolkitAction.SetAppOp -> {
-            val read = readAppOps(action.pkg)
-            when (read) {
-                is ToolkitOutcome.Done -> read.value.modes[action.op].let { current ->
-                    if (current != null && modeOf(current) == action.mode) Verdict.Matched(current) else Verdict.Mismatch(current)
+    private suspend fun verify(action: ToolkitAction): Verdict =
+        when (action) {
+            is ToolkitAction.SetAppOp -> {
+                val read = readAppOps(action.pkg)
+                when (read) {
+                    is ToolkitOutcome.Done -> {
+                        read.value.modes[action.op].let { current ->
+                            if (current != null && modeOf(current) == action.mode) Verdict.Matched(current) else Verdict.Mismatch(current)
+                        }
+                    }
+
+                    is ToolkitOutcome.Refused -> {
+                        refusedVerdict(read)
+                    }
+
+                    else -> {
+                        Verdict.Unreachable
+                    }
                 }
-                is ToolkitOutcome.Refused -> refusedVerdict(read)
-                else -> Verdict.Unreachable
+            }
+
+            is ToolkitAction.SetBucket -> {
+                when (val read = readBucket(action.pkg)) {
+                    is ToolkitOutcome.Done -> {
+                        read.value.raw?.toString().let { current ->
+                            if (current == action.bucket.rawValue.toString()) Verdict.Matched(current) else Verdict.Mismatch(current)
+                        }
+                    }
+
+                    is ToolkitOutcome.Refused -> {
+                        refusedVerdict(read)
+                    }
+
+                    else -> {
+                        Verdict.Unreachable
+                    }
+                }
+            }
+
+            is ToolkitAction.ApplyDoze -> {
+                verifyDoze(norm(action.profile.constants))
+            }
+
+            is ToolkitAction.RestoreDoze -> {
+                verifyDoze(norm(action.rawOrNull))
+            }
+
+            is ToolkitAction.ForceStop -> {
+                Verdict.Unverifiable
             }
         }
-        is ToolkitAction.SetBucket -> when (val read = readBucket(action.pkg)) {
-            is ToolkitOutcome.Done -> read.value.raw?.toString().let { current ->
-                if (current == action.bucket.rawValue.toString()) Verdict.Matched(current) else Verdict.Mismatch(current)
-            }
-            is ToolkitOutcome.Refused -> refusedVerdict(read)
-            else -> Verdict.Unreachable
-        }
-        is ToolkitAction.ApplyDoze -> verifyDoze(norm(action.profile.constants))
-        is ToolkitAction.RestoreDoze -> verifyDoze(norm(action.rawOrNull))
-        is ToolkitAction.ForceStop -> Verdict.Unverifiable
-    }
 
     /**
      * Only a refusal that says the target can never be read back again settles a row as a mismatch. A read the
@@ -1064,11 +1333,16 @@ class ToolkitActions internal constructor(
     private fun refusedVerdict(read: ToolkitOutcome.Refused): Verdict =
         if (read.code in CONCLUSIVE_REFUSALS) Verdict.Mismatch(null) else Verdict.Unreachable
 
-    private suspend fun verifyDoze(expected: String?): Verdict = when (val read = readDoze()) {
-        is ToolkitOutcome.Done ->
-            if (norm(read.value.raw) == expected) Verdict.Matched(read.value.raw) else Verdict.Mismatch(read.value.raw)
-        else -> Verdict.Unreachable
-    }
+    private suspend fun verifyDoze(expected: String?): Verdict =
+        when (val read = readDoze()) {
+            is ToolkitOutcome.Done -> {
+                if (norm(read.value.raw) == expected) Verdict.Matched(read.value.raw) else Verdict.Mismatch(read.value.raw)
+            }
+
+            else -> {
+                Verdict.Unreachable
+            }
+        }
 
     // ---- dexopt status ---------------------------------------------------------------------
 
@@ -1076,34 +1350,48 @@ class ToolkitActions internal constructor(
     private suspend fun refreshDexoptLocked(): BgDexoptStatus {
         val pending = audit.pending().filter { it.kind == KIND_DEXOPT }
         val reply = backend.bgDexoptStatus()
-        val service = when (reply) {
-            // Cannot tell: keep whatever hold exists and do not touch the rows.
-            is GatewayReply.Unavailable -> return if (pending.isEmpty()) BgDexoptStatus.Idle else BgDexoptStatus.Unknown
-            is GatewayReply.Reply -> reply.value
-        }
+        val service =
+            when (reply) {
+                // Cannot tell: keep whatever hold exists and do not touch the rows.
+                is GatewayReply.Unavailable -> return if (pending.isEmpty()) BgDexoptStatus.Idle else BgDexoptStatus.Unknown
+
+                is GatewayReply.Reply -> reply.value
+            }
         // A freshly created service reports UNKNOWN because it cannot see a job an earlier instance left behind.
         // With no PENDING dexopt row of ours there is nothing we started that could still be running, so the
         // card is idle; UNKNOWN stays for a job we did start and cannot confirm.
         val status = if (service.state == BgDexoptState.UNKNOWN && pending.isEmpty()) BgDexoptStatus.Idle else statusOf(service)
         syncHold(running = status is BgDexoptStatus.Running, startedAtMs = (status as? BgDexoptStatus.Running)?.startedAtMs ?: 0L)
         if (pending.isNotEmpty()) {
-            val settled = when (status) {
-                is BgDexoptStatus.Finished -> finalizeDexoptRows(
-                    if (status.exitCode == 0) ToolkitActionStatus.DONE else ToolkitActionStatus.FAILED,
-                    status.exitCode,
-                    afterRaw = "finished",
-                    now = status.endedAtMs.takeIf { it > 0 },
-                )
-                is BgDexoptStatus.Cancelled -> finalizeDexoptRows(
-                    ToolkitActionStatus.CANCELLED,
-                    service.reason,
-                    afterRaw = "cancelled",
-                    now = status.endedAtMs.takeIf { it > 0 },
-                )
-                // Proven nothing is running (a completed cancel, or a job that no longer exists).
-                BgDexoptStatus.Idle -> finalizeDexoptRows(ToolkitActionStatus.CANCELLED, BgDexoptReason.NONE, afterRaw = "idle")
-                is BgDexoptStatus.Running, BgDexoptStatus.Unknown -> 0
-            }
+            val settled =
+                when (status) {
+                    is BgDexoptStatus.Finished -> {
+                        finalizeDexoptRows(
+                            if (status.exitCode == 0) ToolkitActionStatus.DONE else ToolkitActionStatus.FAILED,
+                            status.exitCode,
+                            afterRaw = "finished",
+                            now = status.endedAtMs.takeIf { it > 0 },
+                        )
+                    }
+
+                    is BgDexoptStatus.Cancelled -> {
+                        finalizeDexoptRows(
+                            ToolkitActionStatus.CANCELLED,
+                            service.reason,
+                            afterRaw = "cancelled",
+                            now = status.endedAtMs.takeIf { it > 0 },
+                        )
+                    }
+
+                    // Proven nothing is running (a completed cancel, or a job that no longer exists).
+                    BgDexoptStatus.Idle -> {
+                        finalizeDexoptRows(ToolkitActionStatus.CANCELLED, BgDexoptReason.NONE, afterRaw = "idle")
+                    }
+
+                    is BgDexoptStatus.Running, BgDexoptStatus.Unknown -> {
+                        0
+                    }
+                }
             // Only a settled row is a change: a bump re-runs the privileged override recompute, and this runs on
             // every RUNNING poll.
             if (settled > 0) changes.value += 1
@@ -1111,20 +1399,22 @@ class ToolkitActions internal constructor(
         return status
     }
 
-    private fun statusOf(service: ServiceBgDexoptStatus): BgDexoptStatus = when (service.state) {
-        BgDexoptState.RUNNING -> BgDexoptStatus.Running(service.startedAtMs)
-        BgDexoptState.FINISHED -> BgDexoptStatus.Finished(service.exitCode, service.endedAtMs)
-        BgDexoptState.CANCELLED -> BgDexoptStatus.Cancelled(cancelReasonOf(service.reason), service.endedAtMs)
-        BgDexoptState.IDLE -> BgDexoptStatus.Idle
-        else -> BgDexoptStatus.Unknown
-    }
+    private fun statusOf(service: ServiceBgDexoptStatus): BgDexoptStatus =
+        when (service.state) {
+            BgDexoptState.RUNNING -> BgDexoptStatus.Running(service.startedAtMs)
+            BgDexoptState.FINISHED -> BgDexoptStatus.Finished(service.exitCode, service.endedAtMs)
+            BgDexoptState.CANCELLED -> BgDexoptStatus.Cancelled(cancelReasonOf(service.reason), service.endedAtMs)
+            BgDexoptState.IDLE -> BgDexoptStatus.Idle
+            else -> BgDexoptStatus.Unknown
+        }
 
-    private fun cancelReasonOf(reason: Int): BgDexoptCancelReason = when (reason) {
-        BgDexoptReason.USER -> BgDexoptCancelReason.USER
-        BgDexoptReason.UNPLUGGED -> BgDexoptCancelReason.UNPLUGGED
-        BgDexoptReason.TIMEOUT -> BgDexoptCancelReason.TIMEOUT
-        else -> BgDexoptCancelReason.OTHER
-    }
+    private fun cancelReasonOf(reason: Int): BgDexoptCancelReason =
+        when (reason) {
+            BgDexoptReason.USER -> BgDexoptCancelReason.USER
+            BgDexoptReason.UNPLUGGED -> BgDexoptCancelReason.UNPLUGGED
+            BgDexoptReason.TIMEOUT -> BgDexoptCancelReason.TIMEOUT
+            else -> BgDexoptCancelReason.OTHER
+        }
 
     /** Returns the number of rows settled. */
     private suspend fun finalizeDexoptRows(
@@ -1154,7 +1444,10 @@ class ToolkitActions internal constructor(
      * [startedAtMs] is the service's wall-clock job start when known (0 = just started, use now). The deadline
      * runs on [elapsedMs]: the wall-clock start is turned into the time left once, here, kept within one cap.
      */
-    private fun syncHold(running: Boolean, startedAtMs: Long = 0L) {
+    private fun syncHold(
+        running: Boolean,
+        startedAtMs: Long = 0L,
+    ) {
         synchronized(holdLock) {
             if (running) {
                 if (dexoptHold == null) {
@@ -1197,9 +1490,15 @@ class ToolkitActions internal constructor(
 
     // ---- read-back plumbing ----------------------------------------------------------------
 
-    private class AppOpsRead(val modes: Map<AppOp, String>, val updatedSystem: Boolean)
+    private class AppOpsRead(
+        val modes: Map<AppOp, String>,
+        val updatedSystem: Boolean,
+    )
 
-    private class BucketRead(val raw: Int?, val updatedSystem: Boolean)
+    private class BucketRead(
+        val raw: Int?,
+        val updatedSystem: Boolean,
+    )
 
     private suspend fun readAppOps(pkg: String): ToolkitOutcome<AppOpsRead> {
         val result = readOutcome(backend.getAppOps(pkg))
@@ -1211,7 +1510,10 @@ class ToolkitActions internal constructor(
     private suspend fun readBucket(pkg: String): ToolkitOutcome<BucketRead> {
         val result = readOutcome(backend.getStandbyBucket(pkg))
         if (result !is ToolkitOutcome.Done) return failure(result)
-        val raw = result.value.afterRaw?.trim()?.toIntOrNull() ?: return ToolkitOutcome.Failed(ToolkitCode.PARSE)
+        val raw =
+            result.value.afterRaw
+                ?.trim()
+                ?.toIntOrNull() ?: return ToolkitOutcome.Failed(ToolkitCode.PARSE)
         return ToolkitOutcome.Done(BucketRead(raw, result.value.requiresWarning))
     }
 
@@ -1221,53 +1523,74 @@ class ToolkitActions internal constructor(
         val value = result.value
         val profile = if (value.code == ToolkitCode.DOZE_CUSTOM) null else DozeProfile.fromCode(value.code)
         if (profile == null && value.code != ToolkitCode.DOZE_CUSTOM) return ToolkitOutcome.Failed(ToolkitCode.PARSE)
-        val effective = value.message.orEmpty().split(',').mapNotNull { pair ->
-            val ms = pair.substringAfter('=', "").toLongOrNull()
-            if (ms == null) null else pair.substringBefore('=') to ms
-        }.toMap()
+        val effective =
+            value.message
+                .orEmpty()
+                .split(',')
+                .mapNotNull { pair ->
+                    val ms = pair.substringAfter('=', "").toLongOrNull()
+                    if (ms == null) null else pair.substringBefore('=') to ms
+                }.toMap()
         return ToolkitOutcome.Done(DozeState(norm(value.afterRaw), profile, effective))
     }
 
-    private fun readOutcome(reply: GatewayReply<ToolkitResult>): ToolkitOutcome<ToolkitResult> = when (reply) {
-        is GatewayReply.Unavailable -> ToolkitOutcome.Unavailable(unavailableFor(reply.reason))
-        is GatewayReply.Reply -> when (reply.value.status) {
-            ToolkitStatus.DONE -> ToolkitOutcome.Done(reply.value)
-            ToolkitStatus.REFUSED -> ToolkitOutcome.Refused(refusalFor(reply.value.code), reply.value.code)
-            ToolkitStatus.UNAVAILABLE -> ToolkitOutcome.Unavailable(ToolkitUnavailable.NOT_EFFECTIVE, reply.value.code)
-            else -> ToolkitOutcome.Failed(reply.value.code)
+    private fun readOutcome(reply: GatewayReply<ToolkitResult>): ToolkitOutcome<ToolkitResult> =
+        when (reply) {
+            is GatewayReply.Unavailable -> {
+                ToolkitOutcome.Unavailable(unavailableFor(reply.reason))
+            }
+
+            is GatewayReply.Reply -> {
+                when (reply.value.status) {
+                    ToolkitStatus.DONE -> ToolkitOutcome.Done(reply.value)
+                    ToolkitStatus.REFUSED -> ToolkitOutcome.Refused(refusalFor(reply.value.code), reply.value.code)
+                    ToolkitStatus.UNAVAILABLE -> ToolkitOutcome.Unavailable(ToolkitUnavailable.NOT_EFFECTIVE, reply.value.code)
+                    else -> ToolkitOutcome.Failed(reply.value.code)
+                }
+            }
         }
-    }
 
     /** Re-types a non-Done outcome. A Done never reaches here. */
-    private fun failure(outcome: ToolkitOutcome<*>): ToolkitOutcome<Nothing> = when (outcome) {
-        is ToolkitOutcome.Refused -> outcome
-        is ToolkitOutcome.Unavailable -> outcome
-        is ToolkitOutcome.Failed -> outcome
-        is ToolkitOutcome.Done -> ToolkitOutcome.Failed(null)
-    }
+    private fun failure(outcome: ToolkitOutcome<*>): ToolkitOutcome<Nothing> =
+        when (outcome) {
+            is ToolkitOutcome.Refused -> outcome
+            is ToolkitOutcome.Unavailable -> outcome
+            is ToolkitOutcome.Failed -> outcome
+            is ToolkitOutcome.Done -> ToolkitOutcome.Failed(null)
+        }
 
-    private fun unavailableFor(reason: GatewayUnavailable): ToolkitUnavailable = when (reason) {
-        GatewayUnavailable.NO_SERVICE -> ToolkitUnavailable.NO_SERVICE
-        GatewayUnavailable.STALE_SERVICE -> ToolkitUnavailable.STALE_SERVICE
-    }
+    private fun unavailableFor(reason: GatewayUnavailable): ToolkitUnavailable =
+        when (reason) {
+            GatewayUnavailable.NO_SERVICE -> ToolkitUnavailable.NO_SERVICE
+            GatewayUnavailable.STALE_SERVICE -> ToolkitUnavailable.STALE_SERVICE
+        }
 
-    private fun refusalFor(code: Int): ToolkitRefusal = when (code) {
-        ToolkitCode.CALLER -> ToolkitRefusal.CALLER
-        ToolkitCode.ARG_PACKAGE, ToolkitCode.ARG_VALUE -> ToolkitRefusal.INVALID_ARGUMENT
-        ToolkitCode.NOT_INSTALLED -> ToolkitRefusal.NOT_INSTALLED
-        ToolkitCode.DENY_APP_ID,
-        ToolkitCode.DENY_PERSISTENT,
-        ToolkitCode.DENY_SYSTEM,
-        ToolkitCode.DENY_PROTECTED,
-        ToolkitCode.DENY_OWN,
-        ToolkitCode.PROTECTION_UNKNOWN,
-        -> ToolkitRefusal.PROTECTED_APP
-        ToolkitCode.STALE -> ToolkitRefusal.STALE
-        ToolkitCode.BUSY -> ToolkitRefusal.BUSY
-        ToolkitCode.NOT_PLUGGED -> ToolkitRefusal.NOT_PLUGGED
-        ToolkitCode.PARSE -> ToolkitRefusal.READ_FAILED
-        else -> ToolkitRefusal.OTHER
-    }
+    private fun refusalFor(code: Int): ToolkitRefusal =
+        when (code) {
+            ToolkitCode.CALLER -> ToolkitRefusal.CALLER
+
+            ToolkitCode.ARG_PACKAGE, ToolkitCode.ARG_VALUE -> ToolkitRefusal.INVALID_ARGUMENT
+
+            ToolkitCode.NOT_INSTALLED -> ToolkitRefusal.NOT_INSTALLED
+
+            ToolkitCode.DENY_APP_ID,
+            ToolkitCode.DENY_PERSISTENT,
+            ToolkitCode.DENY_SYSTEM,
+            ToolkitCode.DENY_PROTECTED,
+            ToolkitCode.DENY_OWN,
+            ToolkitCode.PROTECTION_UNKNOWN,
+            -> ToolkitRefusal.PROTECTED_APP
+
+            ToolkitCode.STALE -> ToolkitRefusal.STALE
+
+            ToolkitCode.BUSY -> ToolkitRefusal.BUSY
+
+            ToolkitCode.NOT_PLUGGED -> ToolkitRefusal.NOT_PLUGGED
+
+            ToolkitCode.PARSE -> ToolkitRefusal.READ_FAILED
+
+            else -> ToolkitRefusal.OTHER
+        }
 
     /** `getAppOps` answers `OP=mode,OP=mode,...` for every [AppOp]; anything else is unreadable. */
     private fun parseAppOps(raw: String?): Map<AppOp, String>? {
@@ -1291,10 +1614,17 @@ class ToolkitActions internal constructor(
         const val DEXOPT_CAP_MARGIN_MS = 2L * 60_000L
 
         /** The hold supervisor outlives every screen: a failure in it (a Room error settling a dexopt row) is logged, never a crash. */
-        fun defaultSupervisorScope(): CoroutineScope = CoroutineScope(
-            SupervisorJob() + Dispatchers.Default +
-                kotlinx.coroutines.CoroutineExceptionHandler { _, error -> android.util.Log.w("ToolkitActions", "uncaught in the hold supervisor", error) },
-        )
+        fun defaultSupervisorScope(): CoroutineScope =
+            CoroutineScope(
+                SupervisorJob() + Dispatchers.Default +
+                    kotlinx.coroutines.CoroutineExceptionHandler {
+                        _,
+                        error,
+                        ->
+                        android.util.Log.w("ToolkitActions", "uncaught in the hold supervisor", error)
+                    },
+            )
+
         // Recovery must not truncate the retained original/restore chain. history(limit) stays bounded.
         const val MAX_ROWS = Int.MAX_VALUE
 
@@ -1313,25 +1643,27 @@ class ToolkitActions internal constructor(
         val OVERRIDE_KINDS = setOf(KIND_APPOP, KIND_BUCKET, KIND_DOZE)
 
         /** Read refusals that prove the target is gone or off limits for good (see [refusedVerdict]). */
-        val CONCLUSIVE_REFUSALS = setOf(
-            ToolkitCode.NOT_INSTALLED,
-            ToolkitCode.ARG_PACKAGE,
-            ToolkitCode.DENY_APP_ID,
-            ToolkitCode.DENY_PERSISTENT,
-            ToolkitCode.DENY_SYSTEM,
-            ToolkitCode.DENY_PROTECTED,
-            ToolkitCode.DENY_OWN,
-        )
+        val CONCLUSIVE_REFUSALS =
+            setOf(
+                ToolkitCode.NOT_INSTALLED,
+                ToolkitCode.ARG_PACKAGE,
+                ToolkitCode.DENY_APP_ID,
+                ToolkitCode.DENY_PERSISTENT,
+                ToolkitCode.DENY_SYSTEM,
+                ToolkitCode.DENY_PROTECTED,
+                ToolkitCode.DENY_OWN,
+            )
 
         /** Unset and empty are the same `device_idle_constants` state. */
         fun norm(raw: String?): String? = raw?.takeIf { it.isNotEmpty() }
 
         /** `ignore` and `default` are what this surface can set; `allow` is what the system calls its default. */
-        fun modeOf(raw: String): AppOpMode? = when (raw) {
-            AppOpMode.IGNORE.argv -> AppOpMode.IGNORE
-            AppOpMode.DEFAULT.argv, "allow" -> AppOpMode.DEFAULT
-            else -> null
-        }
+        fun modeOf(raw: String): AppOpMode? =
+            when (raw) {
+                AppOpMode.IGNORE.argv -> AppOpMode.IGNORE
+                AppOpMode.DEFAULT.argv, "allow" -> AppOpMode.DEFAULT
+                else -> null
+            }
 
         fun bucketOf(raw: Int): StandbyBucket? = StandbyBucket.entries.firstOrNull { it.rawValue == raw }
     }
