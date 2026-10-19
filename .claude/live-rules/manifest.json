@@ -47,7 +47,7 @@
     },
     {
       "path": "rules/audit-reviewer-agent.md",
-      "hash": "0a74ec493e9d548620b4d41f91a2d91dc1b35c464670e3932f4295bda5fd9c20",
+      "hash": "91e9cf70c578a8efb1ca5db89c7ee34e38c3140af2bc91dfb57aab7225f1e9f0",
       "description": "Blind-audit workers use the audit-reviewer agent",
       "globs": [],
       "dirs": [],
