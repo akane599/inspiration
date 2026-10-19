@@ -266,7 +266,8 @@ class ToolkitActions internal constructor(
     /**
      * Changes of ours that read-back shows are still in effect. Emits on collect and again whenever this
      * object changes something. A change whose target cannot be read back now (the service is unreachable,
-     * the read failed, or the app is now off limits) is listed with [Override.unverified] rather than dropped.
+     * the read failed, or the app is now off limits) is listed with [Override.unverified] rather than dropped, and
+     * so is a write whose outcome is still unknown (a PENDING row that could not be read back to settle it).
      */
     fun activeOverrides(): Flow<List<Override>> =
         changes.map {
@@ -328,23 +329,33 @@ class ToolkitActions internal constructor(
      * intermediate value the newest row recorded: a target switched on and then back by hand must not end
      * up restricted again. A target already at its original value is not an active override, so it is not
      * listed and nothing is written for it. An [unverified][Override.unverified] one is tried too: its restore reads
-     * the target first, and is reported as not restored, with why, while that read still fails. The user asked for
-     * this explicitly, so the per-item restore is confirmed; a failure does not stop the remaining items. One lock covers the whole reset, so the
-     * chains read here cannot change under it.
+     * the target first, and is reported as not restored, with why, while that read still fails. A write whose outcome
+     * is still unknown (a PENDING row its read-back could not settle) is listed but not written over: it is reported
+     * as [ToolkitUnavailable.UNVERIFIED] until a read-back settles it. The user asked for this explicitly, so the
+     * per-item restore is confirmed; a failure does not stop the remaining items. One lock covers the whole reset, so
+     * the chains read here cannot change under it.
      */
     suspend fun resetAll(): List<ResetItem> =
         mutex.withLock {
             reconcileTargets(null)
             val rows = overrideRows()
-            computeOverrides(rows).map { override -> ResetItem(override, resetOne(override, rows)) }
+            val unsettled = unsettledRows()
+            computeOverrides(rows, unsettled).map { override -> ResetItem(override, resetOne(override, rows, unsettled)) }
         }
 
+    /**
+     * An unsettled PENDING override ([unsettledOverrides]) is not written over: [run] answers Unavailable(UNVERIFIED)
+     * for a target with a PENDING row, so Reset all reports it as not restored until its read-back settles it.
+     */
     private suspend fun resetOne(
         override: Override,
         rows: List<ToolkitActionRecord>,
+        unsettled: List<ToolkitActionRecord>,
     ): ToolkitOutcome<ToolkitActionRecord> {
-        val row = rows.first { it.id == override.actionId }
-        val action = restoreAction(row, chainOriginal(row, rows)) ?: return ToolkitOutcome.Refused(ToolkitRefusal.NOT_RESTORABLE)
+        val row = rows.firstOrNull { it.id == override.actionId } ?: unsettled.first { it.id == override.actionId }
+        val action =
+            restoreAction(row, chainOriginal(row, chainWith(row, rows)))
+                ?: return ToolkitOutcome.Refused(ToolkitRefusal.NOT_RESTORABLE)
         return run(action, confirmed = true, restoring = row, requireExpectedCurrent = true)
     }
 
@@ -539,11 +550,14 @@ class ToolkitActions internal constructor(
     ): Prep {
         val static = staticWarnings(action)
         return when (action) {
-            // A protected app takes only a change that lifts a restriction (the service enforces the same rule).
+            // A protected app takes only the undo of a change of ours ([restoring]: a restore or Reset all of our own
+            // chain), and only when it lifts a restriction. The service enforces the lift-only half and keeps no
+            // history; a new change, even one that lifts, would start a chain whose original could never be written
+            // back, so it is refused here.
             is ToolkitAction.SetAppOp -> {
                 val read = readAppOps(action.pkg)
                 if (read !is ToolkitOutcome.Done) return stop(read)
-                read.value.protection?.let { if (!RestrictionLift.appOp(action.mode)) return Prep.Stop(it) }
+                read.value.protection?.let { if (restoring == null || !RestrictionLift.appOp(action.mode)) return Prep.Stop(it) }
                 val current = read.value.modes[action.op]
                 Prep.Ok(static, systemWarning(read.value.updatedSystem), current, restoring != null, restoring?.afterRaw)
             }
@@ -553,7 +567,7 @@ class ToolkitActions internal constructor(
                 if (read !is ToolkitOutcome.Done) return stop(read)
                 read.value.protection?.let { protection ->
                     val lifts = read.value.raw?.let { RestrictionLift.bucket(action.bucket, it) } ?: false
-                    if (!lifts) return Prep.Stop(protection)
+                    if (restoring == null || !lifts) return Prep.Stop(protection)
                 }
                 val current = read.value.raw?.toString()
                 Prep.Ok(static, systemWarning(read.value.updatedSystem), current, restoring != null, restoring?.afterRaw)
@@ -954,6 +968,9 @@ class ToolkitActions internal constructor(
         val all = audit.recent(MAX_ROWS)
         val record = all.firstOrNull { it.id == actionId } ?: return Decoded.No(ToolkitRefusal.UNKNOWN_ACTION)
         if (record.status == ToolkitActionStatus.RESTORED) return Decoded.No(ToolkitRefusal.ALREADY_RESTORED)
+        // An unsettled override (its read-back failed just now, see unsettledOverrides): nothing is written over it
+        // until a read-back settles it, which is what failed.
+        if (record.status == ToolkitActionStatus.PENDING && record.kind in OVERRIDE_KINDS) return Decoded.No(ToolkitRefusal.READ_FAILED)
         // A write that moved its target to a third value is undone like a DONE one (see changedTarget).
         if ((record.status != ToolkitActionStatus.DONE && !landedElsewhere(record)) || endsOwnChain(record)) {
             return Decoded.No(ToolkitRefusal.NOT_RESTORABLE)
@@ -1128,19 +1145,37 @@ class ToolkitActions internal constructor(
         return after != norm(row.beforeRaw) && !sameState(row.kind, after, row.beforeRaw)
     }
 
-    private suspend fun computeOverrides(): List<Override> = computeOverrides(overrideRows())
+    private suspend fun computeOverrides(): List<Override> = computeOverrides(overrideRows(), unsettledRows())
 
-    private suspend fun computeOverrides(rows: List<ToolkitActionRecord>): List<Override> {
+    /** Override rows still PENDING: called after a reconcile, these are the ones whose read-back failed. */
+    private suspend fun unsettledRows(): List<ToolkitActionRecord> = audit.pending().filter { it.kind in OVERRIDE_KINDS }
+
+    /** [rows] with [row] in its place (newest first), for a [chainOriginal] walk from a row that is not one of them. */
+    private fun chainWith(
+        row: ToolkitActionRecord,
+        rows: List<ToolkitActionRecord>,
+    ): List<ToolkitActionRecord> = if (rows.any { it.id == row.id }) rows else (rows + row).sortedByDescending { it.id }
+
+    private suspend fun computeOverrides(
+        rows: List<ToolkitActionRecord>,
+        unsettled: List<ToolkitActionRecord>,
+    ): List<Override> {
         // The newest write that changed each target decides; only a completed restore (or a RESTORED newest
         // row) closes the chain. A partial restore still owns its observed after while it differs from original,
-        // and a legacy `default` restore still owns a `default` read-back (see legacyDefaultRestore).
+        // and a legacy `default` restore still owns a `default` read-back (see legacyDefaultRestore). An unsettled
+        // write on top of a target decides for it instead (see unsettledOverrides).
+        val uncertain = unsettledOverrides(unsettled, rows)
         val newest = LinkedHashMap<String, ToolkitActionRecord>()
         for (row in rows) newest.putIfAbsent(targetKey(row), row)
         val candidates =
             newest.values.filter {
-                !endsOwnChain(it) && it.status != ToolkitActionStatus.RESTORED && mayBeActive(it, rows)
+                targetKey(it) !in uncertain &&
+                    !endsOwnChain(it) &&
+                    it.status != ToolkitActionStatus.RESTORED &&
+                    mayBeActive(it, rows)
             }
         val result = mutableListOf<Override>()
+        result += uncertain.values
         for ((pkg, group) in candidates.filter { it.kind != KIND_DOZE }.groupBy { it.pkg }) {
             val name = pkg ?: continue
             val ops = if (group.any { it.kind == KIND_APPOP }) readAppOps(name) else null
@@ -1196,6 +1231,39 @@ class ToolkitActions internal constructor(
                 else -> ToolkitRefusal.READ_FAILED
             }
         return overrideOf(row, row.afterRaw, chainOriginal(row, rows)).copy(unverified = reason)
+    }
+
+    /**
+     * The newest PENDING row of each target that the reconcile before this could not settle: its read-back failed
+     * or was inconclusive, so its write may well have committed. One that is a change of its own (not a restore)
+     * and would leave its target off the chain original is listed as unverified, with the value it was to write,
+     * in place of the settled rows of that target: dropping it would show "no active changes" over a change that is
+     * probably on the device. A pending restore, or one that would put the original back, leaves the change below it
+     * listed as before. Keyed by [targetKey].
+     */
+    private fun unsettledOverrides(
+        unsettled: List<ToolkitActionRecord>,
+        rows: List<ToolkitActionRecord>,
+    ): Map<String, Override> {
+        val result = LinkedHashMap<String, Override>()
+        val seen = HashSet<String>()
+        for (row in unsettled.sortedByDescending { it.id }) {
+            val key = targetKey(row)
+            if (!seen.add(key) || row.restoresId != null) continue
+            // run() writes nothing over a PENDING target, so no settled row is newer; if one were, it would decide.
+            if (rows.any { targetKey(it) == key && it.id > row.id }) continue
+            val intended =
+                when (val action = intendedAction(row)) {
+                    is ToolkitAction.SetAppOp -> action.mode.argv
+                    is ToolkitAction.SetBucket -> action.bucket.rawValue.toString()
+                    is ToolkitAction.ApplyDoze -> action.profile.constants
+                    else -> continue
+                }
+            val original = chainOriginal(row, chainWith(row, rows))
+            if (sameState(row.kind, intended, original)) continue
+            result[key] = overrideOf(row, intended, original).copy(unverified = ToolkitRefusal.READ_FAILED)
+        }
+        return result
     }
 
     /**
@@ -1658,7 +1726,8 @@ class ToolkitActions internal constructor(
 
     /**
      * [protection] is set for a protected app, or one whose protection the service could not decide: the modes are
-     * still a real reading, but only a change that lifts a restriction ([RestrictionLift]) may be written.
+     * still a real reading, but only the undo of a change of ours that lifts a restriction ([RestrictionLift]) may be
+     * written (see [prepare]). [updatedSystem] holds for such a reading too ([ToolkitResult.warning]).
      */
     private class AppOpsRead(
         val modes: Map<AppOp, String>,

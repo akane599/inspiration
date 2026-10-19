@@ -169,11 +169,11 @@ class FakeBackend : ToolkitBackend {
         lifts: Boolean,
     ): ToolkitResult? = protected[pkg]?.takeUnless { lifts }?.let { ToolkitResult.refused(it) }
 
-    /** A read of a protected package: refused with its rule-d code, carrying the value it read. */
+    /** A read of a protected package: refused with its rule-d code, carrying the value it read and its warning. */
     private fun protectedRead(
         pkg: String,
         read: ToolkitResult,
-    ): ToolkitResult = protected[pkg]?.let { ToolkitResult.refused(it, after = read.afterRaw) } ?: read
+    ): ToolkitResult = protected[pkg]?.let { ToolkitResult.protectedRead(it, read.afterRaw, read.code) } ?: read
 
     private suspend fun write(
         name: String,

@@ -34,7 +34,9 @@ private const val FLAG_UPDATED_SYSTEM_APP = 0x80
  * the binder thread). Every entry point then takes one write mutex and validates in this order:
  * the service runs for user 0, package regex, user-0 install check, hard-deny rules; any failure to
  * decide refuses. A protected package (rule d) is refused too, except for a write that only lifts a
- * restriction ([RestrictionLift]), and its reads report the value with the refusal (see [Gate.Allowed]).
+ * restriction ([RestrictionLift]), and its reads report the value with the refusal (see [Gate.Allowed]). The service
+ * keeps no history, so it cannot tell an undo from a new change; the client sends such a write only to undo a change
+ * of its own.
  * Global doze actions do not depend on the user and stay available.
  *
  * Every argv is fixed with an absolute executable and pins `--user 0`. `cmd settings` accepts the
@@ -285,8 +287,9 @@ internal class ToolkitExecutor(
         /**
          * [protection] is null for an ordinary app. [ToolkitCode.DENY_PROTECTED] marks a protected package (rule d),
          * [ToolkitCode.PROTECTION_UNKNOWN] one whose protection could not be decided: a read is still refused with
-         * that code but carries the value it read ([answer]), so a change of ours stays visible and checkable, and a
-         * write goes ahead only when it lifts a restriction ([RestrictionLift]).
+         * that code but carries the value it read ([answer], with the [warnCode] a DONE read would have had), so a
+         * change of ours stays visible and checkable, and a write goes ahead only when it lifts a restriction
+         * ([RestrictionLift]).
          */
         class Allowed(
             val facts: PackageLookup.Found,
@@ -294,7 +297,7 @@ internal class ToolkitExecutor(
             val protection: Int? = null,
         ) : Gate {
             fun answer(value: String): ToolkitResult =
-                protection?.let { ToolkitResult.refused(it, after = value) } ?: ToolkitResult.done(warnCode, after = value)
+                protection?.let { ToolkitResult.protectedRead(it, value, warnCode) } ?: ToolkitResult.done(warnCode, after = value)
 
             /** A read that failed: for a protected package its refusal (with no value), else PARSE. */
             fun unreadable(): ToolkitResult = ToolkitResult.refused(protection ?: ToolkitCode.PARSE)

@@ -48,8 +48,11 @@ sealed interface GatewayReply<out T> {
     ) : GatewayReply<Nothing>
 }
 
-/** The service marks updated system apps with a DONE code the UI must warn about. */
-val ToolkitResult.requiresWarning: Boolean get() = code == ToolkitCode.WARN_UPDATED_SYSTEM
+/**
+ * The service marks updated system apps with a DONE code the UI must warn about; a protected package read carries it
+ * alongside its refusal ([ToolkitResult.warning]).
+ */
+val ToolkitResult.requiresWarning: Boolean get() = warning == ToolkitCode.WARN_UPDATED_SYSTEM
 
 /**
  * Raw client of the typed privileged transactions 20-31. It is internal to the container: features

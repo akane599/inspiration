@@ -18,7 +18,30 @@ data class ToolkitResult(
 ) : android.os.Parcelable {
     val isDone: Boolean get() = status == ToolkitStatus.DONE
 
+    /**
+     * The DONE warning of a package read or write ([ToolkitCode.WARN_UPDATED_SYSTEM] or [ToolkitCode.OK]): [code] on a
+     * DONE result, the one a [protectedRead] carries in [message], else OK.
+     */
+    val warning: Int
+        get() =
+            when (status) {
+                ToolkitStatus.DONE -> code
+                ToolkitStatus.REFUSED -> message?.toIntOrNull() ?: ToolkitCode.OK
+                else -> ToolkitCode.OK
+            }
+
     companion object {
+        /**
+         * A package read refused by rule d ([ToolkitCode.DENY_PROTECTED] or [ToolkitCode.PROTECTION_UNKNOWN]) that still
+         * carries the value it read. [code] holds the refusal, so the [warning] a DONE read would have had (an updated
+         * system app) travels in [message] as a decimal code.
+         */
+        fun protectedRead(
+            code: Int,
+            after: String?,
+            warning: Int,
+        ): ToolkitResult = ToolkitResult(ToolkitStatus.REFUSED, code, null, after, warning.takeIf { it != ToolkitCode.OK }?.toString())
+
         fun done(
             code: Int = ToolkitCode.OK,
             before: String? = null,
@@ -80,9 +103,13 @@ object ToolkitCode {
     const val DENY_OWN = 24
 
     /**
-     * [DENY_PROTECTED] (rule d) and this one (the protected set could not be read) refuse every change except one that
-     * only lifts a restriction (`RestrictionLift`). A package read refused with either code carries the value it read
-     * in `afterRaw` (null when that read failed too), so a change already made stays visible and restorable.
+     * Whether the package is protected could not be decided, for one of two reasons:
+     * - the package itself could not be looked up: like the hard-deny codes, every read and write is refused, with
+     *   no value;
+     * - the protected-package set could not be read: like [DENY_PROTECTED] (rule d), every change is refused except
+     *   one that only lifts a restriction (`RestrictionLift`), and a package read refused with this code carries the
+     *   value it read in `afterRaw` (null when that read failed too), so a change already made stays visible and
+     *   restorable. Such a read's warning travels in `message` ([ToolkitResult.protectedRead]).
      */
     const val PROTECTION_UNKNOWN = 25
 

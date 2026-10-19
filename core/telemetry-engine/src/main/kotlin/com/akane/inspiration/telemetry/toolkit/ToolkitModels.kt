@@ -89,13 +89,15 @@ enum class ToolkitRefusal {
 
     /**
      * Hard-deny rules: system, persistent, role holders and so on. A protected app (role holder, IME,
-     * accessibility, device admin, always-on VPN) still accepts a change that only lifts a restriction.
+     * accessibility, device admin, always-on VPN) still accepts the undo of a change of ours, when that undo only
+     * lifts a restriction; it takes no new change, not even one that lifts.
      */
     PROTECTED_APP,
 
     /**
      * The service could not decide whether the app is protected (the protected-package inspection was
-     * incomplete), so it changed nothing. Worth retrying; a change that only lifts a restriction still goes through.
+     * incomplete), so it changed nothing. Worth retrying; the undo of a change of ours that only lifts a
+     * restriction still goes through.
      */
     PROTECTION_UNKNOWN,
     CALLER,

@@ -354,11 +354,15 @@ class ToolkitExecutorTest {
                 ),
                 Case("lookup failed", "com.example.unknown", PackageLookup.Unknown, ToolkitCode.PROTECTION_UNKNOWN),
             )
+        // Restricted, so the lifts below would really change something if a gate let them through: unlike rule d,
+        // the absolute rules and a failed lookup refuse a write that only lifts a restriction too.
+        appModes["RUN_ANY_IN_BACKGROUND"] = "ignore"
+        bucket = StandbyBucket.RESTRICTED.rawValue
         for (case in cases) {
             inspector.packages[case.pkg] = case.lookup
             runner.calls.clear()
             val executor = executor()
-            for (result in everyPackageAction(executor, case.pkg)) {
+            for (result in everyPackageAction(executor, case.pkg) + liftWrites(executor, case.pkg)) {
                 assertEquals(case.name, ToolkitStatus.REFUSED, result.status)
                 assertEquals(case.name, case.expected, result.code)
             }
@@ -374,6 +378,8 @@ class ToolkitExecutorTest {
             )
         // Rule d refuses every restricting write and the force-stop without writing; its reads are refused too
         // but carry the value they read, so a change made before the app became protected stays visible.
+        appModes.clear()
+        bucket = StandbyBucket.ACTIVE.rawValue
         for ((name, set) in protectedCases) {
             inspector.packages["com.example.guarded"] = userApp()
             inspector.protectedSet = set
@@ -456,6 +462,31 @@ class ToolkitExecutorTest {
         )
         assertEquals(ToolkitStatus.DONE, executor.setAppOp(APP, AppOp.WAKE_LOCK.code, AppOpMode.ALLOW.code).status)
         assertEquals("allow", appModes["WAKE_LOCK"])
+    }
+
+    @Test
+    fun `a protected updated system app is read with its refusal and its update warning`() {
+        inspector.packages[APP] = userApp(flags = FLAG_SYSTEM or FLAG_UPDATED_SYSTEM_APP)
+        inspector.protectedSet = ProtectedPackages(roleHolders = setOf(APP))
+        val executor = executor()
+
+        val ops = executor.getAppOps(APP)
+        assertEquals(
+            ToolkitResult.protectedRead(
+                ToolkitCode.DENY_PROTECTED,
+                "RUN_ANY_IN_BACKGROUND=allow,RUN_IN_BACKGROUND=allow,WAKE_LOCK=allow",
+                ToolkitCode.WARN_UPDATED_SYSTEM,
+            ),
+            ops,
+        )
+        assertEquals(ToolkitStatus.REFUSED, ops.status)
+        assertEquals(ToolkitCode.WARN_UPDATED_SYSTEM, ops.warning)
+        assertEquals(ToolkitCode.WARN_UPDATED_SYSTEM, executor.getStandbyBucket(APP).warning)
+
+        // An ordinary protected app, or a read that failed, carries no warning.
+        inspector.packages[APP] = userApp()
+        assertEquals(ToolkitCode.OK, executor.getAppOps(APP).warning)
+        assertEquals(ToolkitCode.OK, ToolkitResult.refused(ToolkitCode.DENY_PROTECTED).warning)
     }
 
     @Test
@@ -566,6 +597,7 @@ class ToolkitExecutorTest {
     @Test
     fun `outside user 0 every package read and write is refused without running a command`() {
         appModes["RUN_ANY_IN_BACKGROUND"] = "ignore"
+        bucket = StandbyBucket.RESTRICTED.rawValue
         val executor =
             ToolkitExecutor(
                 runner = runner,
@@ -580,11 +612,13 @@ class ToolkitExecutorTest {
         assertEquals(refused, executor.setAppOp(APP, AppOp.RUN_ANY_IN_BACKGROUND.code, AppOpMode.ALLOW.code))
         assertEquals(refused, executor.getAppOps(APP))
         assertEquals(refused, executor.setStandbyBucket(APP, StandbyBucket.RARE.code))
+        assertEquals(refused, executor.setStandbyBucket(APP, StandbyBucket.ACTIVE.code))
         assertEquals(refused, executor.getStandbyBucket(APP))
         assertEquals(refused, executor.forceStop(APP))
 
         assertTrue("no command may run: ${runner.calls}", runner.calls.isEmpty())
         assertEquals("ignore", appModes["RUN_ANY_IN_BACKGROUND"])
+        assertEquals(StandbyBucket.RESTRICTED.rawValue, bucket)
         assertEquals(0, inspector.protectedQueries)
     }
 
@@ -1135,6 +1169,16 @@ class ToolkitExecutorTest {
             executor.setStandbyBucket(pkg, StandbyBucket.RESTRICTED.code),
             executor.getStandbyBucket(pkg),
             executor.forceStop(pkg),
+        )
+
+    /** The writes rule d still lets through on a protected app: each only lifts a restriction. */
+    private fun liftWrites(
+        executor: ToolkitExecutor,
+        pkg: String,
+    ): List<ToolkitResult> =
+        listOf(
+            executor.setAppOp(pkg, AppOp.RUN_ANY_IN_BACKGROUND.code, AppOpMode.ALLOW.code),
+            executor.setStandbyBucket(pkg, StandbyBucket.ACTIVE.code),
         )
 
     private fun List<String>.isWrite(): Boolean =

@@ -85,6 +85,49 @@ class ToolkitActionsUnverifiedOverrideTest {
         }
 
     @Test
+    fun aProtectedAppTakesNoNewChangeEvenOneThatLiftsARestriction() =
+        runTest {
+            // Restricted by the user or another tool, not by us: there is no change of ours to undo, and a new
+            // change would start a chain whose original could never be written back to a protected app.
+            backend.device(PKG)[background] = "ignore"
+            backend.buckets[PKG] = StandbyBucket.RARE.rawValue
+            val allow = ToolkitAction.SetAppOp(PKG, background, AppOpMode.ALLOW)
+            val active = ToolkitAction.SetBucket(PKG, StandbyBucket.ACTIVE)
+
+            for (code in listOf(ToolkitCode.DENY_PROTECTED, ToolkitCode.PROTECTION_UNKNOWN)) {
+                backend.protected[PKG] = code
+                val reason = if (code == ToolkitCode.DENY_PROTECTED) ToolkitRefusal.PROTECTED_APP else ToolkitRefusal.PROTECTION_UNKNOWN
+
+                assertEquals(ToolkitPlan.Refused(reason), actions.plan(allow))
+                assertEquals(ToolkitPlan.Refused(reason), actions.plan(active))
+                assertEquals(ToolkitOutcome.Refused(reason, code), actions.execute(allow, confirmed = true))
+                assertEquals(ToolkitOutcome.Refused(reason, code), actions.execute(active, confirmed = true))
+            }
+
+            assertTrue("nothing may be written: ${backend.writes}", backend.writes.isEmpty())
+            assertEquals("ignore", backend.device(PKG)[background])
+            assertEquals(StandbyBucket.RARE.rawValue, backend.buckets[PKG])
+            assertTrue(actions.activeOverrides().first().isEmpty())
+        }
+
+    @Test
+    fun anUpdatedSystemAppKeepsItsWarningWhenItBecomesProtected() =
+        runTest {
+            backend.updatedSystem += PKG
+            restrict()
+            backend.protected[PKG] = ToolkitCode.DENY_PROTECTED
+            val override = actions.activeOverrides().first().single()
+
+            // The protected read carries the refusal in its code; the updated-system warning still reaches the plan.
+            assertEquals(ToolkitPlan.NeedsConfirmation(ToolkitWarning.UPDATED_SYSTEM_APP), actions.planRestore(override.actionId))
+            assertEquals(
+                ToolkitOutcome.Refused(ToolkitRefusal.NOT_CONFIRMED, ToolkitClientCode.NOT_CONFIRMED),
+                actions.restore(override.actionId),
+            )
+            assertEquals("ignore", backend.device(PKG)[background])
+        }
+
+    @Test
     fun anUndecidableProtectionCheckHasItsOwnRefusal() =
         runTest {
             backend.protected[PKG] = ToolkitCode.PROTECTION_UNKNOWN
