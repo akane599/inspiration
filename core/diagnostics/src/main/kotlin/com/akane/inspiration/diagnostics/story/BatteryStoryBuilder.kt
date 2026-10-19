@@ -4,7 +4,10 @@ import com.akane.inspiration.diagnostics.model.DiagnosticReport
 import com.akane.inspiration.telemetry.interval.IntervalMetrics
 import com.akane.inspiration.telemetry.snapshot.SleepStats
 
-/** Builds the Battery Story from measured facts only; a sentence whose input is missing is omitted. */
+/**
+ * Builds the Battery Story from measured facts only; a sentence whose input is missing is omitted, and so is a
+ * deep-sleep share measured over less than [MIN_SLEEP_WINDOW_MS] of screen-off.
+ */
 class BatteryStoryBuilder {
     fun build(metrics: IntervalMetrics?, sleep: SleepStats?, report: DiagnosticReport?): BatteryStory {
         val sentences = buildList {
@@ -19,7 +22,7 @@ class BatteryStoryBuilder {
                 metrics.screenOnPctPerHour?.let { add(StorySentence.ScreenOnRate(it, screenOnRating(it))) }
                 metrics.screenOffPctPerHour?.let { add(StorySentence.ScreenOffRate(it, screenOffRating(it))) }
             }
-            sleep?.deepSleepRatio?.let { add(StorySentence.DeepSleep(it)) }
+            sleep?.reportableDeepSleepRatio()?.let { add(StorySentence.DeepSleep(it)) }
             if (report != null && (report.insights.isNotEmpty() || report.notEvaluable.isEmpty())) {
                 add(StorySentence.Anomalies(report.insights.size, report.insights.firstOrNull()?.rule))
             }

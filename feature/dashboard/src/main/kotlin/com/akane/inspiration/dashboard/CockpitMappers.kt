@@ -14,6 +14,7 @@ import com.akane.inspiration.diagnostics.analysis.IntervalAnalysis
 import com.akane.inspiration.diagnostics.analysis.SegmentKind
 import com.akane.inspiration.diagnostics.analysis.Timeline
 import com.akane.inspiration.diagnostics.analysis.TimelinePoint
+import com.akane.inspiration.diagnostics.story.reportableDeepSleepRatio
 import com.akane.inspiration.ipc.ShizukuState
 import com.akane.inspiration.telemetry.diff.ReferenceKind
 import com.akane.inspiration.telemetry.snapshot.LiveReading
@@ -70,7 +71,8 @@ internal fun analysisUi(state: AnalysisState): AnalysisUi = when (state) {
 /**
  * The grid figures of one interval. Anything the interval cannot support stays null: a rate needs at least
  * [MIN_RATE_WINDOW_MS] in its state, mAh figures need the discharge counters on both sides of the same battery
- * stats epoch, and the CPU-suspend ratio needs valid kernel counters.
+ * stats epoch, and the CPU-suspend ratio needs valid kernel counters and, like the story's sentence, 15 minutes of
+ * screen-off time.
  */
 internal fun metricsUi(analysis: IntervalAnalysis): MetricsUi {
     val metrics = analysis.metrics
@@ -80,7 +82,7 @@ internal fun metricsUi(analysis: IntervalAnalysis): MetricsUi {
     // Screen-on mAh is total minus screen-off; a negative difference means the counters disagree.
     val screenOn = if (total != null && screenOff != null) (total - screenOff).takeIf { it >= 0.0 } else null
     val sleep = diff.sleep
-    val ratio = sleep?.deepSleepRatio
+    val ratio = sleep?.reportableDeepSleepRatio()
     return MetricsUi(
         activePctPerHour = metrics.screenOnPctPerHour,
         activeMahPerHour = mahPerHour(screenOn, metrics.screenOnMs),

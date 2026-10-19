@@ -2,6 +2,7 @@ package com.akane.inspiration.diagnostics.story
 
 import com.akane.inspiration.diagnostics.model.RuleId
 import com.akane.inspiration.diagnostics.model.DiagnosticReport
+import com.akane.inspiration.telemetry.diff.SnapshotDiffer
 import com.akane.inspiration.telemetry.interval.IntervalMetricsCalculator
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertEquals
@@ -65,6 +66,35 @@ class BatteryStoryBuilderTest {
     fun nullDeepSleepRatioOmitsDeepSleep() {
         val story = builder.build(null, sleep(ratio = null), null)
         assertEquals(emptyList<StorySentence>(), story.sentences)
+    }
+
+    @Test
+    fun twentySecondsOfScreenOffGiveNoDeepSleepSentence() {
+        // A 10-minute interval: 9 min 40 s screen on, then 20 s screen off with the CPU still awake.
+        val ref = fullSnapshot(2 * MINUTE_MS, systemTimers(0, 0, 0, 0, 0))
+        val now = fullSnapshot(
+            12 * MINUTE_MS,
+            systemTimers(
+                batteryRealtimeMs = 10 * MINUTE_MS,
+                batteryUptimeMs = 10 * MINUTE_MS,
+                screenOffRealtimeMs = 20_000,
+                screenOffUptimeMs = 20_000,
+                screenOnMs = 10 * MINUTE_MS - 20_000,
+            ),
+        )
+        val sleep = SnapshotDiffer.diff(ref, now).sleep
+        assertEquals("the differ measures a 0% share over the 20 s", 0.0, sleep?.deepSleepRatio ?: -1.0, 0.0)
+
+        // "Deep sleep ratio was 0.0%" would read as a phone that failed to sleep.
+        assertEquals(emptyList<StorySentence>(), builder.build(null, sleep, null).sentences)
+    }
+
+    @Test
+    fun deepSleepNeedsFifteenMinutesOfScreenOff() {
+        fun sentences(screenOffMs: Long?) = builder.build(null, sleep(ratio = 0.5, screenOffMs = screenOffMs), null).sentences
+        assertEquals(emptyList<StorySentence>(), sentences(15 * MINUTE_MS - 1))
+        assertEquals("a ratio with no screen-off time to check is not stated", emptyList<StorySentence>(), sentences(null))
+        assertEquals(listOf<StorySentence>(StorySentence.DeepSleep(0.5)), sentences(15 * MINUTE_MS))
     }
 
     @Test

@@ -462,6 +462,15 @@ class SleepLabMappersTest {
     }
 
     @Test
+    fun `deep sleep needs fifteen minutes of screen off before it is shown`() {
+        // Screen-off spent awake: a measured 0% that only means something over a long enough window.
+        fun awakeScreenOff(screenOffMs: Long) = SleepStats(0, 0, screenOffMs, screenOffMs, 2 * HOUR_MS, deepSleepRatio = 0.0)
+
+        assertEquals(DeepSleepUi(null, null), deepSleepUi(snapshotDiff(sleep = awakeScreenOff(15 * MIN_MS - 1))))
+        assertEquals(DeepSleepUi(0.0, 0L), deepSleepUi(snapshotDiff(sleep = awakeScreenOff(15 * MIN_MS))))
+    }
+
+    @Test
     fun `deep sleep is withheld when the device restarted inside the interval, even if a ratio exists`() {
         val reset = snapshotDiff(kernelCountersValid = false)
 

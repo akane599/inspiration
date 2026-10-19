@@ -8,6 +8,7 @@ import com.akane.inspiration.diagnostics.analysis.AnalysisState
 import com.akane.inspiration.diagnostics.analysis.IntervalAnalysis
 import com.akane.inspiration.diagnostics.analysis.SegmentKind
 import com.akane.inspiration.diagnostics.analysis.Timeline
+import com.akane.inspiration.diagnostics.story.reportableDeepSleepRatio
 import com.akane.inspiration.telemetry.diff.ReferenceKind
 import com.akane.inspiration.telemetry.dump.UidAlarm
 import com.akane.inspiration.telemetry.snapshot.SnapshotDiff
@@ -242,12 +243,13 @@ private fun clusterRoles(count: Int): List<ClusterRole> = when (count) {
  * The CPU-suspend share of the interval; both fields stay null when the interval cannot measure it. The share is
  * the screen-off time the device spent suspended (realtime minus uptime), so it is only a measurement of one boot:
  * when the device restarted inside the interval (the kernel counters cannot be compared) the clocks restart with
- * it and the figure would mix two sessions, so it is withheld like the frequency residency beside it.
+ * it and the figure would mix two sessions, so it is withheld like the frequency residency beside it. Under 15
+ * minutes of screen-off the share is noise and is withheld too, as in the Battery Story and the Cockpit.
  */
 internal fun deepSleepUi(diff: SnapshotDiff): DeepSleepUi {
     if (!diff.validity.kernelCounters) return DeepSleepUi(null, null)
     val sleep = diff.sleep
-    val ratio = sleep?.deepSleepRatio
+    val ratio = sleep?.reportableDeepSleepRatio()
     return DeepSleepUi(ratio, sleep?.deepSleepMs?.takeIf { ratio != null })
 }
 

@@ -141,6 +141,23 @@ class CockpitMappersTest {
         assertEquals("no stats screen-on time falls back to the history metrics", 2 * HOUR_MS, metrics.screenOnMs)
     }
 
+    @Test
+    fun `a deep sleep share needs fifteen minutes of screen off`() {
+        // Screen-off spent awake: a measured 0% that only means something over a long enough window.
+        fun awakeScreenOff(screenOffMs: Long) = SleepStats(
+            deepSleepMs = 0, screenOffDeepSleepMs = 0, screenOffAwakeMs = screenOffMs, screenOffMs = screenOffMs,
+            screenOnMs = 2 * HOUR_MS, deepSleepRatio = 0.0,
+        )
+
+        val short = metricsUi(intervalAnalysis(diff = snapshotDiff(sleep = awakeScreenOff(15 * MIN_MS - 1))))
+        val enough = metricsUi(intervalAnalysis(diff = snapshotDiff(sleep = awakeScreenOff(15 * MIN_MS))))
+
+        assertNull("under the floor the tile shows a dash, not 0.0%", short.deepSleepRatio)
+        assertNull(short.deepSleepMs)
+        assertEquals(0.0, enough.deepSleepRatio!!, 0.0)
+        assertEquals(0L, enough.deepSleepMs)
+    }
+
     // --- Time left ---
 
     @Test
