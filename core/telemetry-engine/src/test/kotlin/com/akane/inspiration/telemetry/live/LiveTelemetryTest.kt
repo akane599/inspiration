@@ -3,6 +3,7 @@ package com.akane.inspiration.telemetry.live
 import com.akane.inspiration.ipc.model.HistoryEvent
 import com.akane.inspiration.telemetry.calibration.CalibrationInput
 import com.akane.inspiration.telemetry.calibration.CalibrationLocks
+import com.akane.inspiration.telemetry.calibration.CalibrationStart
 import com.akane.inspiration.telemetry.calibration.CalibrationStore
 import com.akane.inspiration.telemetry.calibration.PowerCalibrator
 import com.akane.inspiration.telemetry.capacity.ChargeSegment
@@ -40,6 +41,7 @@ import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.withTimeout
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotEquals
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertSame
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -152,15 +154,84 @@ class LiveTelemetryTest {
                     perCellCurrent = false,
                     sysfsMicrovolts = true,
                 ),
-                calibrationStore.saved,
+                calibrationStore.saved?.locks,
             )
             // This process starts on the charger and stays there: a 2 A charge, sysfs and BatteryManager agreeing.
             val charging = lightRead().copy(plugged = true, status = "charging")
             val pluggedTicks = List(3) { tick(charging, sysfsCurrent = 2_000, bmCurrent = 2_000) }
 
             assertEquals(listOf(2_000, 2_000, 2_000), currents(calibrationStore, pluggedTicks))
-            // Without the earlier process, plugged readings are no evidence and the documented µA applies.
-            assertEquals(listOf(2, 2, 2), currents(MemoryCalibrationStore(), pluggedTicks))
+            // Without the earlier process plugged readings are no evidence: the unit is unknown, so is the current.
+            assertEquals(listOf(null, null, null), currents(MemoryCalibrationStore(), pluggedTicks))
+        }
+
+    @Test
+    fun `after an OS update the units settled on the old build still read a plugged-only milliamp kernel`() =
+        runTest {
+            // The new build's store hands the old build's locks back as guesses: no longer locks, still a lean.
+            val afterUpdate =
+                MemoryCalibrationStore(
+                    CalibrationStart(
+                        guesses =
+                            CalibrationLocks(
+                                sysfsMilliamps = true,
+                                batteryManagerMilliamps = true,
+                                dischargePositive = false,
+                                perCellCurrent = false,
+                                sysfsMicrovolts = true,
+                            ),
+                    ),
+                )
+            val charging = lightRead().copy(plugged = true, status = "charging")
+
+            val currents = currents(afterUpdate, List(3) { tick(charging, sysfsCurrent = 2_000, bmCurrent = 2_000) })
+
+            assertEquals(listOf(2_000, 2_000, 2_000), currents)
+            val saved = checkNotNull(afterUpdate.saved)
+            assertNull("a guess never becomes a lock by itself", saved.locks.sysfsMilliamps)
+            assertNull(saved.locks.batteryManagerMilliamps)
+            assertNull(saved.locks.dischargePositive)
+            assertEquals("kept for the next process on this build", true, saved.guesses.sysfsMilliamps)
+        }
+
+    @Test
+    fun `a current whose unit nothing supports yet is neither shown nor stored`() =
+        runTest {
+            val stored = java.util.concurrent.CopyOnWriteArrayList<LiveReading>()
+            // A fresh install set up over USB: plugged from the first tick, sysfs and BatteryManager both 2 A in mA.
+            val charging = lightRead().copy(plugged = true, status = "charging")
+            val ticks = List(2) { tick(charging, sysfsCurrent = 2_000, bmCurrent = 2_000) }
+
+            val readings =
+                LiveTelemetry(ScriptedSource(ticks), PowerCalibrator(), TestClocks(), SampleStore { stored += it })
+                    .readings(periodMs = 1)
+                    .take(ticks.size)
+                    .toList()
+
+            assertTrue(stored.isNotEmpty())
+            for (reading in readings + stored) {
+                assertNull("not 2 mA, nor 2 A guessed", reading.currentMa)
+                assertNull(reading.watts)
+                assertEquals("voltage, level and temperature stay", 4_000, reading.voltageMv)
+                assertEquals(50, reading.levelPct)
+                assertEquals(250, reading.temperatureDeciC)
+            }
+        }
+
+    @Test
+    fun `without a calibration input a full battery's current keeps its sign`() =
+        runTest {
+            // Held at full on the charger, the battery supplies a little of the load.
+            val source = CountingSource(lightRead().copy(plugged = true, status = "full", currentMa = -20))
+
+            val reading =
+                LiveTelemetry(source, PowerCalibrator(), TestClocks())
+                    .readings()
+                    .take(1)
+                    .toList()
+                    .single()
+
+            assertEquals(-20, reading.currentMa)
         }
 
     @Test
@@ -174,7 +245,7 @@ class LiveTelemetryTest {
             val currents = currents(calibrationStore, List(6) { tick(weakCharger, sysfsCurrent = -250_000, bmCurrent = -250_000) })
 
             assertEquals(List(6) { -250 }, currents)
-            assertEquals("a plugged status never settles the sign", false, calibrationStore.saved?.dischargePositive)
+            assertEquals("a plugged status never settles the sign", false, calibrationStore.saved?.locks?.dischargePositive)
         }
 
     @Test
@@ -184,9 +255,9 @@ class LiveTelemetryTest {
                 object : CalibrationStore {
                     var saves = 0
 
-                    override fun load(): CalibrationLocks = error("unreadable")
+                    override fun load(): CalibrationStart = error("unreadable")
 
-                    override fun save(locks: CalibrationLocks) {
+                    override fun save(start: CalibrationStart) {
                         saves++
                         error("disk full")
                     }
@@ -405,13 +476,13 @@ class LiveTelemetryTest {
             .toList()
             .map { it.currentMa }
 
-    private class MemoryCalibrationStore : CalibrationStore {
-        var saved: CalibrationLocks? = null
+    private class MemoryCalibrationStore(
+        var saved: CalibrationStart? = null,
+    ) : CalibrationStore {
+        override fun load(): CalibrationStart? = saved
 
-        override fun load(): CalibrationLocks? = saved
-
-        override fun save(locks: CalibrationLocks) {
-            saved = locks
+        override fun save(start: CalibrationStart) {
+            saved = start
         }
     }
 

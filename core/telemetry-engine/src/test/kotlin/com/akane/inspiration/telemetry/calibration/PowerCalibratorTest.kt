@@ -201,17 +201,59 @@ class PowerCalibratorTest {
     }
 
     @Test
-    fun `plugged status votes never lock the sign, so a weak charger cannot invert a later charge`() {
+    fun `without unplugged proof a weak charger inverts the sign only from its sixth vote, and a later charge undoes it`() {
         val evidence = CalibrationEvidence()
-        // A weak charger: status "charging" while a discharge-negative battery still loses 250 mA.
-        repeat(5) { evidence.add(charging(sysfsCurrent = -250_000, bmCurrent = -250_000, sysfsVoltage = 3_900_000)) }
-        // Then the load drops and the charger wins: 1 A into the battery.
-        val charge = charging(sysfsCurrent = 1_000_000, bmCurrent = 1_000_000, sysfsVoltage = 3_900_000)
 
-        repeat(2) { evidence.add(charge) }
+        fun read(input: CalibrationInput): Double {
+            evidence.add(input)
+            return calibrator.toReading(input, evidence.calibration())!!.currentMa
+        }
+        // A weak charger: status "charging" while a discharge-negative battery still loses 250 mA.
+        val weakCharger = charging(sysfsCurrent = -250_000, bmCurrent = -250_000, sysfsVoltage = 3_900_000)
+
+        repeat(5) { assertEquals("vote ${it + 1} keeps the documented convention", -250.0, read(weakCharger), 0.0) }
+        // Six votes and none against: indistinguishable from an inverted kernel that is charging, so the drain now
+        // reads as a charge.
+        assertEquals(250.0, read(weakCharger), 0.0)
+
+        // Then the load drops and the charger wins, 1 A into the battery: the votes are never locked, and three
+        // against six end the clear majority.
+        val charge = charging(sysfsCurrent = 1_000_000, bmCurrent = 1_000_000, sysfsVoltage = 3_900_000)
+        repeat(2) { read(charge) }
+        assertEquals(1_000.0, read(charge), 0.0)
+    }
+
+    @Test
+    fun `a reading over 20 A in milliamps undoes a milliamp unit settled by small unplugged readings`() {
+        val evidence = CalibrationEvidence()
+        // A µA gauge averaging across zero right after the unplug: three readings of a few mA settle mA.
+        repeat(3) { evidence.add(discharge(sysfsCurrent = -8_000, bmCurrent = -8_000, sysfsVoltage = 3_900_000)) }
+        assertEquals(1.0, evidence.calibration().currentScaleToMa, 0.0)
+        val load = discharge(sysfsCurrent = -300_000, bmCurrent = -300_000, sysfsVoltage = 3_900_000)
+
+        evidence.add(load)
+
+        assertEquals(0.001, evidence.calibration().currentScaleToMa, 0.0)
+        assertEquals(-300.0, calibrator.toReading(load, evidence.calibration())!!.currentMa, 0.0)
+    }
+
+    @Test
+    fun `three clearly contrary unplugged readings in a row re-learn a settled sign`() {
+        val evidence = CalibrationEvidence()
+        // Settled wrongly: three unplugged readings of a gauge still averaging the charge it just left.
+        repeat(3) { evidence.add(discharge(sysfsCurrent = 900_000, bmCurrent = 900_000, sysfsVoltage = 3_900_000)) }
+        assertFalse(evidence.calibration().dischargeIsNegative)
+        val drain = discharge(sysfsCurrent = -300_000, bmCurrent = -300_000, sysfsVoltage = 3_900_000)
+        val agreeing = discharge(sysfsCurrent = 300_000, bmCurrent = 300_000, sysfsVoltage = 3_900_000)
+
+        repeat(2) { evidence.add(drain) }
+        evidence.add(agreeing)
+        repeat(2) { evidence.add(drain) }
+        assertFalse("contrary readings that are not in a row change nothing", evidence.calibration().dischargeIsNegative)
+        evidence.add(drain)
 
         assertTrue(evidence.calibration().dischargeIsNegative)
-        assertEquals(1_000.0, calibrator.toReading(charge, evidence.calibration())!!.currentMa, 0.0)
+        assertEquals(-300.0, calibrator.toReading(drain, evidence.calibration())!!.currentMa, 0.0)
     }
 
     @Test
@@ -250,9 +292,10 @@ class PowerCalibratorTest {
     @Test
     fun `restored locks apply from the first reading and outweigh it`() {
         val restored = CalibrationLocks(sysfsMilliamps = true, dischargePositive = true, perCellCurrent = true, sysfsMicrovolts = false)
-        val evidence = CalibrationEvidence(restored)
-        // A reading that alone would mean µA, a discharge-negative kernel and a single cell.
-        val reading = discharge(sysfsCurrent = -300_000, bmCurrent = -300_000, sysfsVoltage = 3_900)
+        val evidence = CalibrationEvidence(CalibrationStart(locks = restored))
+        // A plugged reading that alone would leave µA, a discharge-negative kernel and a single cell, and whose
+        // "charging" status votes against the restored sign.
+        val reading = charging(sysfsCurrent = 150, bmCurrent = 150, sysfsVoltage = 3_900)
 
         evidence.add(reading)
 
@@ -260,6 +303,76 @@ class PowerCalibratorTest {
         assertEquals(2.0, evidence.calibration().currentScaleToMa, 0.0)
         assertFalse(evidence.calibration().dischargeIsNegative)
         assertEquals(1.0, evidence.calibration().voltageScaleToMv, 0.0)
+        assertEquals(-300.0, calibrator.toReading(reading, evidence.calibration())!!.currentMa, 0.0)
+        assertFalse(evidence.calibration().currentUnitAssumed)
+    }
+
+    @Test
+    fun `an earlier build's values lean each choice until this build's evidence decides it`() {
+        val guesses = CalibrationLocks(sysfsMilliamps = true, dischargePositive = true, perCellCurrent = true, sysfsMicrovolts = false)
+        val evidence = CalibrationEvidence(CalibrationStart(guesses = guesses))
+
+        // Plugged after the OS update: nothing on this build has shown the unit, sign or cell layout yet.
+        evidence.add(charging(sysfsCurrent = 1_000, bmCurrent = 1_000, sysfsVoltage = 3_900))
+
+        val leaned = evidence.calibration()
+        assertEquals(2.0, leaned.currentScaleToMa, 0.0)
+        assertFalse(leaned.dischargeIsNegative)
+        assertEquals(1.0, leaned.voltageScaleToMv, 0.0)
+        assertFalse("the earlier build's unit supports it", leaned.currentUnitAssumed)
+        assertEquals("guesses are not locks", CalibrationStart(guesses = guesses), evidence.start())
+
+        // The new build's gauge reports µA, a discharge-negative sign and one cell.
+        repeat(3) { evidence.add(discharge(sysfsCurrent = -300_000, bmCurrent = -300_000, sysfsVoltage = 3_900)) }
+
+        val decided = evidence.calibration()
+        assertEquals(0.001, decided.currentScaleToMa, 0.0)
+        assertTrue(decided.dischargeIsNegative)
+        assertEquals(1, decided.cellCount)
+        assertEquals(
+            CalibrationStart(
+                locks =
+                    CalibrationLocks(
+                        sysfsMilliamps = false,
+                        batteryManagerMilliamps = false,
+                        dischargePositive = false,
+                        perCellCurrent = false,
+                        sysfsMicrovolts = false,
+                    ),
+                guesses = guesses,
+            ),
+            evidence.start(),
+        )
+    }
+
+    @Test
+    fun `a current whose unit nothing supports is flagged until an unplugged reading supports it`() {
+        val evidence = CalibrationEvidence()
+        // A fresh install, plugged: 2,000 could be 2 A in mA or 2 mA in µA.
+        val plugged = charging(sysfsCurrent = 2_000, bmCurrent = 2_000, sysfsVoltage = 4_350_000)
+
+        evidence.add(plugged)
+
+        assertTrue(evidence.calibration().currentUnitAssumed)
+        assertTrue(evidence.calibration().batteryManagerCurrentUnitAssumed)
+        assertTrue(calibrator.toReading(plugged, evidence.calibration())!!.currentUnitAssumed)
+
+        evidence.add(discharge(sysfsCurrent = -400, bmCurrent = -400, sysfsVoltage = 3_900_000))
+
+        assertFalse(evidence.calibration().currentUnitAssumed)
+        assertFalse(evidence.calibration().batteryManagerCurrentUnitAssumed)
+        assertFalse(calibrator.toReading(plugged, evidence.calibration())!!.currentUnitAssumed)
+    }
+
+    @Test
+    fun `each source's current is flagged by its own unit evidence`() {
+        val evidence = CalibrationEvidence()
+        // Only sysfs read: over 20 A in mA proves µA for it, and says nothing about BatteryManager.
+        evidence.add(charging(sysfsCurrent = 600_000, sysfsVoltage = 4_000_000))
+        val calibration = evidence.calibration()
+
+        assertFalse(calibrator.toReading(charging(sysfsCurrent = 600_000, sysfsVoltage = 4_000_000), calibration)!!.currentUnitAssumed)
+        assertTrue(calibrator.toReading(charging(bmCurrent = 600_000, bmVoltage = 4_000), calibration)!!.currentUnitAssumed)
     }
 
     @Test

@@ -3,7 +3,7 @@ package com.akane.inspiration.telemetry.live
 import com.akane.inspiration.telemetry.app.attempt
 import com.akane.inspiration.telemetry.calibration.CalibrationEvidence
 import com.akane.inspiration.telemetry.calibration.CalibrationInput
-import com.akane.inspiration.telemetry.calibration.CalibrationLocks
+import com.akane.inspiration.telemetry.calibration.CalibrationStart
 import com.akane.inspiration.telemetry.calibration.CalibrationStore
 import com.akane.inspiration.telemetry.calibration.PowerCalibration
 import com.akane.inspiration.telemetry.calibration.PowerCalibrator
@@ -54,38 +54,45 @@ class LiveTelemetry(
      */
     private val evidenceLock = Any()
     private var evidence: CalibrationEvidence? = null
-    private var savedLocks: CalibrationLocks? = null
+    private var savedStart: CalibrationStart? = null
 
     private fun calibrate(input: CalibrationInput): PowerCalibration =
         synchronized(evidenceLock) {
             val current =
                 evidence ?: run {
-                    val restored = calibrationStore?.let { runCatching { it.load() }.getOrNull() } ?: CalibrationLocks()
-                    savedLocks = restored
+                    val restored = calibrationStore?.let { runCatching { it.load() }.getOrNull() } ?: CalibrationStart()
+                    savedStart = restored
                     CalibrationEvidence(restored).also { evidence = it }
                 }
             current.add(input)
-            val locks = current.locks()
-            if (locks != savedLocks) {
-                // A failed save is retried on the next tick.
+            val start = current.start()
+            if (start != savedStart) {
+                // A save that throws is tried again on the next tick. One that fails later, on disk, goes unnoticed
+                // (SharedPreferences.apply() reports nothing) and only costs the next process its head start.
                 val target = calibrationStore
-                val saved = target == null || runCatching { target.save(locks) }.isSuccess
-                if (saved) savedLocks = locks
+                val saved = target == null || runCatching { target.save(start) }.isSuccess
+                if (saved) savedStart = start
             }
             current.calibration()
         }
 
     private fun KernelRead.toReading(): LiveReading {
         val power = calibrationInput?.let { input -> calibrator.toReading(input, calibrate(input)) }
+        // A current whose unit nothing supports yet may be 1000x off: it is neither shown nor stored, never a wrong
+        // number in the Health curves and roll-ups. Voltage, level and temperature do not depend on it.
+        val measured = power?.takeUnless { it.currentUnitAssumed }
         return LiveReading(
             wallMs = light.clock.wallMs,
             elapsedRealtimeMs = light.clock.elapsedRealtimeMs,
             bootCount = light.clock.bootCount,
             currentMa =
-                power?.currentMa?.roundToInt()
-                    ?: KernelUnits.normalizeCurrentMa(light.currentMa, light.chargingOrNull()),
+                if (power == null) {
+                    KernelUnits.normalizeCurrentMa(light.currentMa, light.chargingOrNull())
+                } else {
+                    measured?.currentMa?.roundToInt()
+                },
             voltageMv = power?.voltageV?.times(1_000)?.roundToInt() ?: light.voltageMv,
-            watts = power?.watts,
+            watts = measured?.watts,
             temperatureDeciC = kernel?.temperatureDeciC ?: light.temperatureDeciC,
             levelPct = kernel?.capacityPercent ?: light.levelPct,
             plugged = light.plugged,
@@ -95,10 +102,11 @@ class LiveTelemetry(
         )
     }
 
-    // The battery's own direction decides the current sign; plugged alone cannot (a plugged battery can drain).
+    // The battery's own direction decides the current sign; plugged alone cannot (a plugged battery can drain), and
+    // neither can "full", which may still supply part of the load.
     private fun LightRead.chargingOrNull(): Boolean? =
         when (status) {
-            "charging", "full" -> true
+            "charging" -> true
             "discharging" -> false
             else -> null
         }

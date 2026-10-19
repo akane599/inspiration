@@ -24,6 +24,10 @@ data class PowerCalibration(
     val confidence: Confidence,
     /** For a reading without a sysfs current. µA by contract, but a HAL that passes `current_now` through reports mA. */
     val batteryManagerCurrentScaleToMa: Double = MICRO_TO_MILLI,
+    /** Nothing supports the sysfs current's unit yet: µA is the documented default alone, and may be 1000× off. */
+    val currentUnitAssumed: Boolean = false,
+    /** The same for BatteryManager's current. */
+    val batteryManagerCurrentUnitAssumed: Boolean = false,
 )
 
 enum class Confidence {
@@ -36,6 +40,8 @@ data class PowerReading(
     val currentMa: Double,
     val voltageV: Double,
     val watts: Double,
+    /** [currentMa] and [watts] rest on a unit nothing supports yet, so they may be 1000× off. */
+    val currentUnitAssumed: Boolean = false,
 )
 
 /**
@@ -53,14 +59,34 @@ data class CalibrationLocks(
     val perCellCurrent: Boolean? = null,
     /** The sysfs voltage is in µV (true) or mV (false). */
     val sysfsMicrovolts: Boolean? = null,
+) {
+    /** Each value settled here, else the one [other] has. */
+    fun orElse(other: CalibrationLocks): CalibrationLocks =
+        CalibrationLocks(
+            sysfsMilliamps = sysfsMilliamps ?: other.sysfsMilliamps,
+            batteryManagerMilliamps = batteryManagerMilliamps ?: other.batteryManagerMilliamps,
+            dischargePositive = dischargePositive ?: other.dischargePositive,
+            perCellCurrent = perCellCurrent ?: other.perCellCurrent,
+            sysfsMicrovolts = sysfsMicrovolts ?: other.sysfsMicrovolts,
+        )
+}
+
+/**
+ * Where a process starts. [locks] were settled on this build and hold until evidence disputes them. [guesses] were
+ * settled on an earlier build: an OS update can bring a new fuel-gauge driver, so they only lean each choice until
+ * this build's evidence decides it, and they keep a monthly update from showing an unknown current again.
+ */
+data class CalibrationStart(
+    val locks: CalibrationLocks = CalibrationLocks(),
+    val guesses: CalibrationLocks = CalibrationLocks(),
 )
 
-/** Keeps [CalibrationLocks] across processes, so a new one does not re-learn them from scratch. */
+/** Keeps a [CalibrationStart] across processes, so a new one does not re-learn the device from scratch. */
 interface CalibrationStore {
-    /** The locks saved for this device and build, or null when there are none. */
-    fun load(): CalibrationLocks?
+    /** What was saved, with an earlier build's locks as [CalibrationStart.guesses]; null when nothing was. */
+    fun load(): CalibrationStart?
 
-    fun save(locks: CalibrationLocks)
+    fun save(start: CalibrationStart)
 }
 
 class PowerCalibrator {
@@ -88,6 +114,7 @@ class PowerCalibrator {
             currentMa = currentMa,
             voltageV = voltageV,
             watts = voltageV * currentMa / MILLIS_PER_AMPERE,
+            currentUnitAssumed = if (raw.sysfsCurrentRaw != null) cal.currentUnitAssumed else cal.batteryManagerCurrentUnitAssumed,
         )
     }
 }
@@ -95,8 +122,10 @@ class PowerCalibrator {
 /**
  * The current units, sign convention, cell layout and voltage unit are constants of the device, so each is decided by
  * agreement across samples, never re-decided from the latest one. A choice that [LOCK_LEAD] more samples support than
- * oppose is kept for good ([locks]), and a later process starts from it ([restored]). Until then the evidence so far
- * decides, and with none the documented units apply (µA and µV, discharge negative, one cell).
+ * oppose is locked ([locks]), and a later process starts from it ([start]). A lock is not forever: evidence that
+ * disputes it (a µA proof against mA, [LOCK_LEAD] clearly contrary samples in a row) re-learns it. Until a lock the
+ * evidence so far decides, an earlier build's value standing in for missing evidence (or a mere unit hint), and with
+ * neither the documented units apply (µA and µV, discharge negative, one cell).
  *
  * A sample whose current is under [NOISE_FLOOR_MA] adds no sign or cell evidence. Near zero, a little noise or a load
  * change between the two reads swings the sysfs/BatteryManager ratio anywhere. A sample whose two currents fit no
@@ -105,26 +134,27 @@ class PowerCalibrator {
  * Not thread-safe: a shared instance needs external synchronization.
  */
 class CalibrationEvidence(
-    restored: CalibrationLocks = CalibrationLocks(),
+    start: CalibrationStart = CalibrationStart(),
 ) {
+    private val guesses = start.guesses
     private var hasCurrent = false
     private var hasVoltage = false
     private var dualCellVoltage = false
 
-    private val sysfsUnit = UnitEvidence(restored.sysfsMilliamps)
-    private val batteryManagerUnit = UnitEvidence(restored.batteryManagerMilliamps)
+    private val sysfsUnit = UnitEvidence(start.locks.sysfsMilliamps, guesses.sysfsMilliamps)
+    private val batteryManagerUnit = UnitEvidence(start.locks.batteryManagerMilliamps, guesses.batteryManagerMilliamps)
 
     // sysfs reports the per-cell current of a two-cell pack: half of what BatteryManager reports. Doubles the current
-    // only once locked, so a load swing between the two reads cannot double it.
-    private val halfCurrent = Vote(restored.perCellCurrent)
+    // only once locked (or on an earlier build's word), so a load swing between the two reads cannot double it.
+    private val halfCurrent = Vote(start.locks.perCellCurrent, guesses.perCellCurrent)
 
     // An unplugged battery can only discharge, so unplugged samples prove the kernel's sign convention. A plugged
     // "charging" status cannot: a weak charger still loses to the load. Its votes never lock, and overturn the
     // documented convention only by a clear majority and only without proof. A full or held battery casts none.
-    private val unpluggedDischargePositive = Vote(restored.dischargePositive)
+    private val unpluggedDischargePositive = Vote(start.locks.dischargePositive, guesses.dischargePositive)
     private val statusDischargePositive = Vote(lockable = false)
 
-    private val microvolts = Vote(restored.sysfsMicrovolts)
+    private val microvolts = Vote(start.locks.sysfsMicrovolts, guesses.sysfsMicrovolts)
 
     fun add(sample: CalibrationInput) {
         hasCurrent = hasCurrent || sample.sysfsCurrentRaw != null || sample.bmCurrentNowUa != null
@@ -146,7 +176,7 @@ class CalibrationEvidence(
 
     fun calibration(): PowerCalibration {
         if (!hasCurrent && !hasVoltage) return UNCALIBRATED
-        val perCellCurrent = halfCurrent.locked == true
+        val perCellCurrent = halfCurrent.lockedOrGuessed() == true
         val dischargePositive = unpluggedDischargePositive.decision() ?: statusDischargePositive.clearMajority() ?: false
         val mixedSigns =
             unpluggedDischargePositive.yes + statusDischargePositive.yes > 0 &&
@@ -159,10 +189,15 @@ class CalibrationEvidence(
             cellCount = if (dualCellVoltage || perCellCurrent) 2 else 1,
             confidence = if (mixedSigns) Confidence.LOW else Confidence.HIGH,
             batteryManagerCurrentScaleToMa = batteryManagerUnit.scaleToMa(),
+            currentUnitAssumed = sysfsUnit.assumed(),
+            batteryManagerCurrentUnitAssumed = batteryManagerUnit.assumed(),
         )
     }
 
-    /** What is settled for good, for a later process to start from. */
+    /** What a later process on this build starts from: the locks, and the earlier build's values this one started with. */
+    fun start(): CalibrationStart = CalibrationStart(locks(), guesses)
+
+    /** What is locked now. */
     fun locks(): CalibrationLocks =
         CalibrationLocks(
             sysfsMilliamps = sysfsUnit.locked,
@@ -206,12 +241,14 @@ class CalibrationEvidence(
      * Proof: a value over 20 A in mA can only be µA, and the other source reading a thousand times this one at a real
      * load means mA. A prior: the live gauge runs while the screen is on, and an unplugged phone with its screen on
      * draws well over 20 mA, so an unplugged value of 50 to 20,000 means mA from the first one. Any µA proof overrides
-     * the prior. Plugged values never feed it, since a µA battery held at a charge limit reads a few mA.
+     * the prior, and an earlier build's unit ([guess]) outweighs it. Plugged values never feed it, since a µA battery
+     * held at a charge limit reads a few mA.
      */
     private class UnitEvidence(
         restored: Boolean?,
+        private val guess: Boolean?,
     ) {
-        /** True for mA, false for µA, once settled for good. */
+        /** True for mA, false for µA, once locked. */
         var locked: Boolean? = restored
             private set
         private var microampProofs = 0
@@ -223,6 +260,14 @@ class CalibrationEvidence(
             other: Long?,
             plugged: Boolean,
         ) {
+            if (locked == true && magnitude > MICROAMP_THRESHOLD) {
+                // 20 A in mA is no phone: the mA lock (small readings of a µA gauge averaging across zero after the
+                // unplug, or one an earlier process saved) was wrong. Re-learn, starting from this proof.
+                locked = null
+                microampProofs = 0
+                milliampProofs = 0
+                unpluggedHints = 0
+            }
             if (locked != null) return
             when {
                 magnitude > MICROAMP_THRESHOLD -> {
@@ -249,16 +294,25 @@ class CalibrationEvidence(
 
         fun scaleToMa(): Double = if (milliamps()) 1.0 else MICRO_TO_MILLI
 
+        /** No lock, proof, hint or earlier build's unit: µA is the documented default alone. */
+        fun assumed(): Boolean = locked == null && guess == null && microampProofs + milliampProofs + unpluggedHints == 0
+
         private fun milliamps(): Boolean =
-            locked ?: if (microampProofs + milliampProofs > 0) milliampProofs > microampProofs else unpluggedHints > 0
+            locked ?: when {
+                microampProofs + milliampProofs > 0 -> milliampProofs > microampProofs
+                guess != null -> guess
+                else -> unpluggedHints > 0
+            }
     }
 
     /**
-     * Two-way agreement. Once one side leads by [LOCK_LEAD] it is [locked] and later samples are ignored, unless the
-     * vote is not [lockable].
+     * Two-way agreement. Once one side leads by [LOCK_LEAD] it is [locked] unless the vote is not [lockable]; a lock
+     * that [LOCK_LEAD] samples in a row dispute is re-learned from them. Until a lock, an earlier build's [guess]
+     * breaks a tie or stands in for missing evidence.
      */
     private class Vote(
         restored: Boolean? = null,
+        private val guess: Boolean? = null,
         private val lockable: Boolean = true,
     ) {
         var yes: Int = 0
@@ -267,24 +321,41 @@ class CalibrationEvidence(
             private set
         var locked: Boolean? = restored
             private set
+        private var disputedInARow = 0
 
         fun add(value: Boolean) {
-            if (locked != null) return
-            if (value) yes++ else no++
+            val lock = locked
+            if (lock == null) {
+                if (value) yes++ else no++
+            } else {
+                disputedInARow = if (value == lock) 0 else disputedInARow + 1
+                if (disputedInARow < LOCK_LEAD) return
+                locked = null
+                yes = if (value) disputedInARow else 0
+                no = if (value) 0 else disputedInARow
+                disputedInARow = 0
+            }
             if (lockable && abs(yes - no) >= LOCK_LEAD) locked = yes > no
         }
 
-        /** The locked choice, else the majority so far; null with no evidence or a tie. */
+        /** The locked choice, else the majority so far, else the [guess]; null with none of them. */
         fun decision(): Boolean? =
             locked ?: when {
                 yes > no -> true
                 no > yes -> false
-                else -> null
+                else -> guess
             }
 
-        /** The side that leads by [LOCK_LEAD] and outnumbers the other [CLEAR_MAJORITY] to one; null otherwise. */
+        /** The locked choice, else the [guess]: for a choice one sample's majority must never make. */
+        fun lockedOrGuessed(): Boolean? = locked ?: guess
+
+        /**
+         * The side that, over at least [CLEAR_MAJORITY_VOTES] votes, leads by [LOCK_LEAD] and outnumbers the other
+         * [CLEAR_MAJORITY] to one; null otherwise.
+         */
         fun clearMajority(): Boolean? =
             when {
+                yes + no < CLEAR_MAJORITY_VOTES -> null
                 yes - no >= LOCK_LEAD && yes >= CLEAR_MAJORITY * no -> true
                 no - yes >= LOCK_LEAD && no >= CLEAR_MAJORITY * yes -> false
                 else -> null
@@ -292,11 +363,14 @@ class CalibrationEvidence(
     }
 
     private companion object {
-        /** Agreeing samples (net of contrary ones) that settle a device constant for good. */
+        /** Agreeing samples (net of contrary ones) that lock a device constant, and disputing ones in a row that unlock it. */
         const val LOCK_LEAD = 3
 
         /** How many times the other side's count a vote that never locks needs to overturn a default. */
         const val CLEAR_MAJORITY = 3
+
+        /** The fewest votes that may overturn a default without a lock: more than a weak charger's first few ticks. */
+        const val CLEAR_MAJORITY_VOTES = 6
         const val NOISE_FLOOR_MA = 50.0
         const val NOISE_FLOOR_UA = 50_000L
         const val MIN_UNPLUGGED_DRAW_MA = 50L
