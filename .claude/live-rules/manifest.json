@@ -73,7 +73,7 @@
     },
     {
       "path": "rules/redroid-gradle-memory.md",
-      "hash": "a5a8df5c85f2e19626edc089903989708ae97be1151eb507b076e15ce0fb39fb",
+      "hash": "2eb5876f9a308e58fd2ec1647cf73e8e8ce459bbfe35127ada41ca20335c52d8",
       "description": "redroid device memory and leftover Gradle processes",
       "globs": [],
       "dirs": [],
