@@ -74,7 +74,8 @@ class ShizukuManagerImpl private constructor(
      * Set when [UNBIND_SETTLE_TIMEOUT_MS] bound before the unbound process's death arrived. The new binding
      * then shares that process's connection stub, so its late death still reaches [userServiceConnection]
      * (SQ-118). That one disconnect is swallowed while the new binder is alive; a dead or not-yet-connected
-     * new binder is handled as a real disconnect.
+     * new binder is handled as a real disconnect. This only preserves the live reference: Shizuku still
+     * clears the shared wrapper's registrations afterward, so timeout-path handover is not fully fenced.
      */
     private var unboundDeathOwed = false
     private var settleTimeout: Job? = null
@@ -97,8 +98,19 @@ class ShizukuManagerImpl private constructor(
             override fun onServiceDisconnected(name: ComponentName) {
                 synchronized(bindingLock) {
                     if (awaitingUnboundDeath) {
-                        // The unbound process died and Shizuku dropped its stub: a fresh bind is safe now.
-                        finishUnbindSettleLocked()
+                        // Shizuku 13.1.5 clears connections and evicts its cached wrapper AFTER this
+                        // callback returns on Main. Non-immediate Main dispatch is the ordering fence;
+                        // keep awaitingUnboundDeath set so concurrent acquisitions cannot bind early.
+                        settleTimeout?.cancel()
+                        settleTimeout =
+                            scope.launch(Dispatchers.Main) {
+                                synchronized(bindingLock) {
+                                    // A cancelled timeout/settle may already be waiting for this lock.
+                                    if (settleTimeout !== coroutineContext.job) return@launch
+                                    settleTimeout = null
+                                    if (awaitingUnboundDeath) finishUnbindSettleLocked()
+                                }
+                            }
                         return
                     }
                     if (unboundDeathOwed) {
