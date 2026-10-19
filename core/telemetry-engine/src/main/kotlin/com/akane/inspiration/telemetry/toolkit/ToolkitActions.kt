@@ -551,7 +551,7 @@ class ToolkitActions internal constructor(
             is ToolkitAction.ApplyDoze -> {
                 val read = readDoze()
                 if (read !is ToolkitOutcome.Done) return stop(read)
-                val overCustom = action.profile == DozeProfile.STANDARD && read.value.isCustom
+                val overCustom = action.profile == DozeProfile.STANDARD && (read.value.isCustom || customDozeOriginal(read.value.raw))
                 Prep.Ok(static, if (overCustom) listOf(ToolkitWarning.DOZE_OVER_CUSTOM) else emptyList(), read.value.raw, false, null)
             }
 
@@ -564,6 +564,19 @@ class ToolkitActions internal constructor(
     }
 
     private fun stop(outcome: ToolkitOutcome<*>): Prep.Stop = Prep.Stop(failure(outcome))
+
+    /**
+     * Whether the doze value [current] is one of our changes still in effect over a custom original (custom,
+     * then Balanced): Standard would then replace that custom value too, so it is confirmed like Standard over
+     * a custom value read now.
+     */
+    private suspend fun customDozeOriginal(current: String?): Boolean {
+        val rows = overrideRows()
+        val newest = rows.firstOrNull { it.kind == KIND_DOZE } ?: return false
+        if (closesChain(newest) || newest.status == ToolkitActionStatus.RESTORED || !isActive(newest, current)) return false
+        val original = chainOriginal(newest, rows) ?: return false
+        return DozeProfile.entries.none { it.constants == original }
+    }
 
     private fun systemWarning(updatedSystem: Boolean): List<ToolkitWarning> =
         if (updatedSystem) listOf(ToolkitWarning.UPDATED_SYSTEM_APP) else emptyList()
@@ -1097,15 +1110,13 @@ class ToolkitActions internal constructor(
     /**
      * False when no read-back can make [row] an override, so it is not read at all: [isActive] needs the current
      * value to be its `after`, and [activeOverride] then needs that to differ from the chain original. A closed
-     * chain (a toggle back by hand, say) or an unset doze value fails one of them whatever the device says.
+     * chain (a toggle back by hand, say) or an unset doze value over an unset original fails one of them whatever
+     * the device says. An unset doze value over a custom original (custom, Balanced, Standard) can be active.
      */
     private fun mayBeActive(
         row: ToolkitActionRecord,
         rows: List<ToolkitActionRecord>,
-    ): Boolean {
-        if (row.kind == KIND_DOZE && norm(row.afterRaw) == null) return false
-        return !sameState(row.kind, row.afterRaw, chainOriginal(row, rows))
-    }
+    ): Boolean = !sameState(row.kind, row.afterRaw, chainOriginal(row, rows))
 
     /** The override [row] stands for, or null when it is not in effect or its chain has come back to the original. */
     private fun activeOverride(
@@ -1129,19 +1140,16 @@ class ToolkitActions internal constructor(
     ): String = if (kind == KIND_DOZE) KIND_DOZE else "$kind|$pkg|${if (kind == KIND_APPOP) op else ""}"
 
     /**
-     * Still ours when the value read back equals what [row] left (an unset doze value is never an override).
-     * Whether that differs from what was there is the chain's question, not this row's: a write of the value
-     * already in place (`before` == `after`) repeats the override below it, so [activeOverride] compares with
-     * [chainOriginal] instead of with this row's own `before`.
+     * Still ours when the value read back equals what [row] left; for doze that includes "unset" (a DONE doze
+     * row's null `after` is a read-back of unset, and only [changedTarget] rows get here). Whether that differs
+     * from what was there is the chain's question, not this row's: a write of the value already in place
+     * (`before` == `after`) repeats the override below it, so [activeOverride] compares with [chainOriginal]
+     * instead of with this row's own `before`. An unset value over an unset original is therefore no override.
      */
     private fun isActive(
         row: ToolkitActionRecord,
         current: String?,
-    ): Boolean {
-        val after = norm(row.afterRaw)
-        if (norm(current) != after) return false
-        return row.kind != KIND_DOZE || after != null
-    }
+    ): Boolean = norm(current) == norm(row.afterRaw)
 
     private fun overrideOf(
         row: ToolkitActionRecord,

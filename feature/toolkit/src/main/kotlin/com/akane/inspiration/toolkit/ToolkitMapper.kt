@@ -73,7 +73,11 @@ internal object ToolkitMapper {
         return StandbyBucket.entries.firstOrNull { it.rawValue == value }
     }
 
-    private fun profileOfRaw(raw: String?): DozeProfile? = raw?.let { value -> DozeProfile.entries.firstOrNull { it.constants == value } }
+    /** Unset (null or empty) is Standard: a Standard override over a custom original reads back unset. */
+    private fun profileOfRaw(raw: String?): DozeProfile? {
+        val value = raw?.takeIf { it.isNotEmpty() }
+        return DozeProfile.entries.firstOrNull { it.constants == value }
+    }
 
     /**
      * Decodes an audit row. The strings mirror how `ToolkitActions` stores its rows (kind, op and param are

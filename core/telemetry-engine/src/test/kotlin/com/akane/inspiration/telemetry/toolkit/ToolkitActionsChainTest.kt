@@ -221,6 +221,77 @@ class ToolkitActionsChainTest {
             assertNoOverrides()
         }
 
+    // ---- F-06: a custom original replaced via Balanced -> Standard ---------------------------
+
+    @Test
+    fun customOriginalThroughBalancedThenStandardIsAnOverrideRestoringTheCustomValue() =
+        runTest {
+            backend.dozeRaw = "inactive_to=1234"
+            run(ToolkitAction.ApplyDoze(DozeProfile.BALANCED))
+            // Standard would delete the setting whose chain original is custom: the user is warned
+            assertEquals(
+                ToolkitPlan.NeedsConfirmation(ToolkitWarning.DOZE_OVER_CUSTOM, emptyList()),
+                actions.plan(ToolkitAction.ApplyDoze(DozeProfile.STANDARD)),
+            )
+            val standard = run(ToolkitAction.ApplyDoze(DozeProfile.STANDARD))
+            assertNull(backend.dozeRaw)
+
+            val override = actions.activeOverrides().first().single()
+            assertEquals(standard.id, override.actionId)
+            assertEquals(OverrideKind.DOZE, override.kind)
+            assertNull(override.currentRaw)
+            assertEquals("inactive_to=1234", override.previousRaw)
+            assertTrue(override.restorable)
+
+            backend.writes.clear()
+            val report = actions.resetAll()
+
+            assertTrue(report.single().outcome is ToolkitOutcome.Done)
+            // written back through the compare-and-swap: expected current is unset
+            assertEquals(listOf("restoreDoze(inactive_to=1234,null)"), backend.writes)
+            assertEquals("inactive_to=1234", backend.dozeRaw)
+            assertNoOverrides()
+        }
+
+    @Test
+    fun restoringTheStandardRowOfACustomChainWritesTheCustomValue() =
+        runTest {
+            backend.dozeRaw = "inactive_to=1234"
+            run(ToolkitAction.ApplyDoze(DozeProfile.BALANCED))
+            val standard = run(ToolkitAction.ApplyDoze(DozeProfile.STANDARD))
+            backend.writes.clear()
+
+            assertEquals(ToolkitPlan.Ready, actions.planRestore(standard.id))
+            assertTrue(actions.restore(standard.id) is ToolkitOutcome.Done)
+
+            assertEquals(listOf("restoreDoze(inactive_to=1234,null)"), backend.writes)
+            assertEquals("inactive_to=1234", backend.dozeRaw)
+            assertEquals(ToolkitActionStatus.RESTORED, audit.byId(standard.id).status)
+            assertNoOverrides()
+        }
+
+    @Test
+    fun aCustomChainLeftUnsetButSetAgainExternallyIsNotAnOverride() =
+        runTest {
+            backend.dozeRaw = "inactive_to=1234"
+            run(ToolkitAction.ApplyDoze(DozeProfile.BALANCED))
+            run(ToolkitAction.ApplyDoze(DozeProfile.STANDARD))
+            backend.dozeRaw = "inactive_to=99" // someone else set it since
+
+            assertNoOverrides()
+            backend.writes.clear()
+            assertTrue(actions.resetAll().isEmpty())
+            assertTrue(backend.writes.isEmpty())
+        }
+
+    @Test
+    fun standardOverBalancedWithAnUnsetOriginalNeedsNoCustomWarning() =
+        runTest {
+            run(ToolkitAction.ApplyDoze(DozeProfile.BALANCED))
+
+            assertEquals(ToolkitPlan.Ready, actions.plan(ToolkitAction.ApplyDoze(DozeProfile.STANDARD)))
+        }
+
     @Test
     fun anEmptyStoredDozeBeforeMeansUnsetAndIsRestoredAsUnset() =
         runTest {

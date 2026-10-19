@@ -328,6 +328,26 @@ class ToolkitViewModelTest {
     }
 
     @Test
+    fun `standard after balanced over a custom value asks first, is listed and reset all brings the custom value back`() {
+        start { device.dozeRaw = "idle_to=1" }
+        act(ToolkitRequest.ApplyDoze(DozeProfile.BALANCED))
+        assertEquals(DozeProfile.BALANCED.constants, device.dozeRaw)
+
+        act(ToolkitRequest.ApplyDoze(DozeProfile.STANDARD))
+        assertEquals(listOf(ToolkitWarning.DOZE_OVER_CUSTOM), state.confirmation?.warnings)
+        confirm()
+
+        assertNull(device.dozeRaw)
+        assertEquals(OverrideWhat.Doze(DozeProfile.STANDARD), state.overrides.single().what)
+
+        act(ToolkitRequest.ResetAll)
+        confirm()
+
+        assertEquals("idle_to=1", device.dozeRaw)
+        assertTrue(state.overrides.isEmpty())
+    }
+
+    @Test
     fun `a stale refusal re-reads the setting and asks again with the new value`() {
         start { device.dozeStaleOnce = true }
 
