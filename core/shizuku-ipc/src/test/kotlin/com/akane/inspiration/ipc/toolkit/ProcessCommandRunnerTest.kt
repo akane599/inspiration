@@ -70,6 +70,7 @@ class ProcessCommandRunnerTest {
         assertTrue(out.ok)
         assertEquals(RETENTION_CAP_BYTES, out.text.length)
         assertTrue(out.truncated)
+        assertFalse("a cut output is never complete", out.complete)
         assertEquals("whole stream consumed so the child never blocks", 0, process.stdout.available())
         assertTrue(process.stdout.closed)
         assertTrue(process.stderr.closed)
@@ -101,6 +102,25 @@ class ProcessCommandRunnerTest {
         val other = ProcessCommandRunner { FakeProcess(preamble, finishes = true) }.run(listOf(DUMPSYS, "deviceidle"))
         assertEquals("other commands keep the 4 KB cap", RETENTION_CAP_BYTES, other.text.length)
         assertTrue(other.truncated)
+    }
+
+    @Test
+    fun `the accessibility services read keeps far more than 4 KB and is only truncated past its own cap`() {
+        val list = ByteArray(20_000) { 'x'.code.toByte() }
+        val whole = ProcessCommandRunner { FakeProcess(list, finishes = true) }.run(ACCESSIBILITY_SERVICES_ARGV)
+        assertEquals(20_000, whole.text.length)
+        assertTrue(whole.complete)
+
+        val huge = ByteArray(ACCESSIBILITY_RETENTION_CAP_BYTES + 5_000) { 'x'.code.toByte() }
+        val capped = ProcessCommandRunner { FakeProcess(huge, finishes = true) }.run(ACCESSIBILITY_SERVICES_ARGV)
+        assertEquals(ACCESSIBILITY_RETENTION_CAP_BYTES, capped.text.length)
+        assertTrue(capped.ok)
+        assertFalse(capped.complete)
+
+        val ime = listOf(CMD, "settings", "get", "--user", "0", "secure", "default_input_method")
+        val other = ProcessCommandRunner { FakeProcess(list, finishes = true) }.run(ime)
+        assertEquals("other settings keep the 4 KB cap", RETENTION_CAP_BYTES, other.text.length)
+        assertFalse(other.complete)
     }
 
     @Test

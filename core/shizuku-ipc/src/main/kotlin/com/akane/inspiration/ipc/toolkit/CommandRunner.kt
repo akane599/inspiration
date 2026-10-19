@@ -10,10 +10,20 @@ internal const val RETENTION_CAP_BYTES = 4096
 
 /**
  * `dumpsys device_policy` prints a long preamble before "Enabled Device Admins" on managed
- * devices, so this one command keeps more; truncation still fails closed in the parser.
+ * devices, so this one command keeps more; truncation still fails closed in the parser, which
+ * rejects a cut before the admins section ends. Every other protected-package read requires
+ * [CommandOutput.complete], so a cut there fails closed too.
  */
 internal const val DEVICE_POLICY_RETENTION_CAP_BYTES = 256 * 1024
 internal val DEVICE_POLICY_ARGV = listOf(DUMPSYS, "device_policy")
+
+/**
+ * `enabled_accessibility_services` is one colon-joined line of about 80 bytes per service, so the
+ * 4 KB cap holds only about 50 of them; this one read keeps more. A cut here still fails closed.
+ */
+internal const val ACCESSIBILITY_RETENTION_CAP_BYTES = 64 * 1024
+internal val ACCESSIBILITY_SERVICES_ARGV =
+    listOf(CMD, "settings", "get", "--user", "0", "secure", "enabled_accessibility_services")
 internal const val DEFAULT_COMMAND_TIMEOUT_MS = 10_000L
 
 internal data class CommandOutput(
@@ -24,7 +34,11 @@ internal data class CommandOutput(
     /** More output was produced than the retention cap kept. */
     val truncated: Boolean = false,
 ) {
+    /** Ran and exited 0. Ignores [truncated]: a reader that needs only the head of a long dump accepts a cut. */
     val ok: Boolean get() = !timedOut && !failedToStart && exitCode == 0
+
+    /** [ok] and nothing was cut: required before the output is trusted as a whole list (fail closed). */
+    val complete: Boolean get() = ok && !truncated
 }
 
 internal interface CommandProcess {
@@ -72,8 +86,11 @@ internal class ProcessCommandRunner(
         RealCommandProcess(processFactory(argv), retentionCapFor(argv))
 
     private companion object {
-        fun retentionCapFor(argv: List<String>): Int =
-            if (argv == DEVICE_POLICY_ARGV) DEVICE_POLICY_RETENTION_CAP_BYTES else RETENTION_CAP_BYTES
+        fun retentionCapFor(argv: List<String>): Int = when (argv) {
+            DEVICE_POLICY_ARGV -> DEVICE_POLICY_RETENTION_CAP_BYTES
+            ACCESSIBILITY_SERVICES_ARGV -> ACCESSIBILITY_RETENTION_CAP_BYTES
+            else -> RETENTION_CAP_BYTES
+        }
 
         fun startProcess(argv: List<String>): Process {
             val builder = ProcessBuilder(argv).redirectErrorStream(true)

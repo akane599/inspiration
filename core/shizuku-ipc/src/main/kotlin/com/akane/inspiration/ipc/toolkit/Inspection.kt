@@ -33,7 +33,7 @@ internal data class ProtectedPackages(
 internal interface PackageInspector {
     fun lookup(pkg: String): PackageLookup
 
-    /** Null when any query fails (fail closed). */
+    /** Null when any query fails or its output was cut (fail closed). */
     fun protectedPackages(): ProtectedPackages?
 }
 
@@ -73,7 +73,7 @@ internal class AndroidPackageInspector(
         val roles = HashSet<String>()
         for (role in ROLES) {
             val out = runner.run(listOf(CMD, "role", "get-role-holders", "--user", "0", role))
-            if (!out.ok) return null
+            if (!out.complete) return null
             roles += ToolkitParsers.roleHolders(out.text)
         }
         val ime = secureSetting("default_input_method") ?: return null
@@ -95,7 +95,7 @@ internal class AndroidPackageInspector(
 
     private fun secureSetting(key: String): Setting? {
         val out = runner.run(listOf(CMD, "settings", "get", "--user", "0", "secure", key))
-        return if (out.ok) Setting(ToolkitParsers.settingValue(out.text)) else null
+        return if (out.complete) Setting(ToolkitParsers.settingValue(out.text)) else null
     }
 
     private companion object {
