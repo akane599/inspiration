@@ -74,4 +74,15 @@ class ToolkitActionRetentionTest {
             assertFalse(unread in ids)
             assertEquals(500, ids.count { it > unread })
         }
+
+    @Test
+    fun `deleting rows keeps a pending one and covers more ids than one statement binds`() =
+        runBlocking {
+            val pending = store.insertToolkitAction(bucketRow(ToolkitActionStatus.PENDING, before = "10", after = null))
+            val settled = (1..600).map { store.insertToolkitAction(bucketRow(ToolkitActionStatus.DONE, before = "10", after = "40")) }
+
+            store.deleteToolkitActions(listOf(pending) + settled)
+
+            assertEquals(listOf(pending), store.toolkitActions(Int.MAX_VALUE).map { it.id })
+        }
 }

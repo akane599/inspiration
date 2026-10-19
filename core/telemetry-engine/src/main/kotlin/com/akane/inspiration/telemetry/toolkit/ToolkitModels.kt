@@ -150,6 +150,19 @@ data class Override(
     val restorable: Boolean = true,
 )
 
+/** How toolkit writes are persisted in `toolkit_action`; the store's retention SQL uses the same values. */
+object ToolkitAuditLog {
+    /** `kind` values: explicit strings, never enum names. */
+    const val KIND_APP_OP = "appop"
+    const val KIND_BUCKET = "bucket"
+    const val KIND_DOZE = "doze"
+    const val KIND_FORCE_STOP = "force_stop"
+    const val KIND_BG_DEXOPT = "dexopt"
+
+    /** The newest rows always kept as display history; older ones go once no override chain needs them. */
+    const val RETAINED_ROWS = 500
+}
+
 /** One [resetAll][ToolkitActions.resetAll] item: what was restored and how it went. */
 data class ResetItem(val override: Override, val outcome: ToolkitOutcome<ToolkitActionRecord>)
 

@@ -297,6 +297,75 @@ class ToolkitExecutorTest {
         assertTrue(runner.calls.isEmpty())
     }
 
+    // --- protected-package cache (F-07) -----------------------------------------------------
+
+    private fun clockedExecutor(clock: FakeClock): ToolkitExecutor = ToolkitExecutor(
+        runner = runner,
+        inspector = inspector,
+        dexopt = BgDexoptController(runner, { true }, { 0L }, { }),
+        ownPackage = OWN,
+        elapsedMs = clock::now,
+        sleepMs = { },
+    ).also { runner.handler = ::device }
+
+    @Test
+    fun `reads reuse the protected-package set within the TTL and read it again after`() {
+        val clock = FakeClock()
+        val executor = clockedExecutor(clock)
+
+        assertEquals(ToolkitStatus.DONE, executor.getAppOps(APP).status)
+        assertEquals(ToolkitStatus.DONE, executor.getStandbyBucket(APP).status)
+        clock.nowMs += PROTECTED_TTL_MS - 1
+        assertEquals(ToolkitStatus.DONE, executor.getAppOps(APP).status)
+        assertEquals(1, inspector.protectedQueries)
+
+        clock.nowMs += 1
+        assertEquals(ToolkitStatus.DONE, executor.getStandbyBucket(APP).status)
+        assertEquals(2, inspector.protectedQueries)
+    }
+
+    @Test
+    fun `a write drops the cached set and is gated on a fresh one`() {
+        val clock = FakeClock()
+        val executor = clockedExecutor(clock)
+        executor.getAppOps(APP)
+        // APP turns protected (a new default SMS app, say) after the read cached the set.
+        inspector.protectedSet = ProtectedPackages(roleHolders = setOf(APP))
+
+        val write = executor.setStandbyBucket(APP, StandbyBucket.RARE.code)
+
+        assertEquals(ToolkitResult.refused(ToolkitCode.DENY_PROTECTED), write)
+        assertEquals(2, inspector.protectedQueries)
+        assertTrue(runner.calls.none { "set-standby-bucket" in it })
+        // Reads keep the hard-deny rules (a force-stop is planned from one) and reuse the write's fresh set.
+        assertEquals(ToolkitResult.refused(ToolkitCode.DENY_PROTECTED), executor.getAppOps(APP))
+        assertEquals(2, inspector.protectedQueries)
+    }
+
+    @Test
+    fun `an allowed write also reads the set fresh`() {
+        val clock = FakeClock()
+        val executor = clockedExecutor(clock)
+        executor.getStandbyBucket(APP)
+
+        assertEquals(ToolkitStatus.DONE, executor.setStandbyBucket(APP, StandbyBucket.RARE.code).status)
+        assertEquals(ToolkitStatus.DONE, executor.getStandbyBucket(APP).status)
+
+        assertEquals(2, inspector.protectedQueries)
+    }
+
+    @Test
+    fun `a failed protection read is not cached`() {
+        val clock = FakeClock()
+        val executor = clockedExecutor(clock)
+        inspector.protectedSet = null
+        assertEquals(ToolkitCode.PROTECTION_UNKNOWN, executor.getAppOps(APP).code)
+
+        inspector.protectedSet = ProtectedPackages()
+        assertEquals(ToolkitStatus.DONE, executor.getAppOps(APP).status)
+        assertEquals(2, inspector.protectedQueries)
+    }
+
     @Test
     fun `an updated system app is allowed and marked for a warning`() {
         inspector.packages["com.android.chrome"] = userApp(flags = FLAG_SYSTEM or FLAG_UPDATED_SYSTEM_APP, appId = 10_150)

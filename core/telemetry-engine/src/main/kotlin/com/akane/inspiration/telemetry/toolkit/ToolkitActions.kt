@@ -117,6 +117,9 @@ internal interface ToolkitAuditStore {
 
     /** Oldest first. */
     suspend fun pending(): List<ToolkitActionRecord>
+
+    /** Deletes the settled rows [ids] in one step; a PENDING row is never deleted. */
+    suspend fun delete(ids: List<Long>)
 }
 
 internal class SnapshotStoreAudit(private val store: SnapshotStore) : ToolkitAuditStore {
@@ -127,6 +130,8 @@ internal class SnapshotStoreAudit(private val store: SnapshotStore) : ToolkitAud
     override suspend fun recent(limit: Int) = store.toolkitActions(limit)
 
     override suspend fun pending() = store.pendingToolkitActions()
+
+    override suspend fun delete(ids: List<Long>) = store.deleteToolkitActions(ids)
 }
 
 /**
@@ -135,7 +140,10 @@ internal class SnapshotStoreAudit(private val store: SnapshotStore) : ToolkitAud
  * call, then finalizes that row with the service's own before/after. REFUSED attempts are recorded too.
  * All inputs are typed; nothing here reads an Intent or a URI.
  *
- * Reads (plan, appState, overrides) go to the service every time: the audit log is history, not state.
+ * Reads (plan, appState, overrides) go to the service every time: the audit log is history, not state. The
+ * one exception is a chain the log proves closed (its newest `after` is its original), which no read can make
+ * an override, so it is not read. The log keeps the newest [ToolkitAuditLog.RETAINED_ROWS] rows plus what an
+ * override chain still needs (see [pruneClosedChains]).
  *
  * Nothing polls on its own. The flows re-read when this object changes something, and the dexopt
  * status flow re-reads on a timer only while a job is RUNNING and the flow is collected. The one other
@@ -241,6 +249,7 @@ class ToolkitActions internal constructor(
     suspend fun execute(action: ToolkitAction, confirmed: Boolean = false): ToolkitOutcome<ToolkitActionRecord> =
         mutex.withLock {
             reconcileTargets(targetKey(specOf(action)))
+            pruneClosedChains()
             run(action, confirmed, null)
         }
 
@@ -839,7 +848,9 @@ class ToolkitActions internal constructor(
         // means nothing is overridden.
         val newest = LinkedHashMap<String, ToolkitActionRecord>()
         for (row in rows) newest.putIfAbsent(targetKey(row), row)
-        val candidates = newest.values.filter { it.restoresId == null && it.status != ToolkitActionStatus.RESTORED }
+        val candidates = newest.values.filter {
+            it.restoresId == null && it.status != ToolkitActionStatus.RESTORED && mayBeActive(it, rows)
+        }
         val result = mutableListOf<Override>()
         for ((pkg, group) in candidates.filter { it.kind != KIND_DOZE }.groupBy { it.pkg }) {
             val name = pkg ?: continue
@@ -858,6 +869,16 @@ class ToolkitActions internal constructor(
             if (doze is ToolkitOutcome.Done) activeOverride(row, doze.value.raw, rows)?.let { result += it }
         }
         return result.sortedByDescending { it.sinceMs }
+    }
+
+    /**
+     * False when no read-back can make [row] an override, so it is not read at all: [isActive] needs the current
+     * value to be its `after`, and [activeOverride] then needs that to differ from the chain original. A closed
+     * chain (a toggle back by hand, say) or an unset doze value fails one of them whatever the device says.
+     */
+    private fun mayBeActive(row: ToolkitActionRecord, rows: List<ToolkitActionRecord>): Boolean {
+        if (row.kind == KIND_DOZE && norm(row.afterRaw) == null) return false
+        return !sameState(row.kind, row.afterRaw, chainOriginal(row, rows))
     }
 
     /** The override [row] stands for, or null when it is not in effect or its chain has come back to the original. */
@@ -907,6 +928,53 @@ class ToolkitActions internal constructor(
         KIND_BUCKET -> StandbyBucket.entries.any { it.rawValue.toString() == original }
         else -> true
     }
+
+    // ---- retention -------------------------------------------------------------------------
+
+    /**
+     * Bounds the log without losing a chain. The store keeps the newest [ToolkitAuditLog.RETAINED_ROWS] rows
+     * and every override-chain link; this drops the links older than those that no walk of [chainOriginal]
+     * can still reach in a way that changes its answer (see [closedPrefix]). A target with a PENDING row is
+     * left alone: settling it may join it to the links below.
+     */
+    private suspend fun pruneClosedChains() {
+        val all = audit.recent(MAX_ROWS)
+        if (all.size <= ToolkitAuditLog.RETAINED_ROWS) return
+        val oldestRetained = all[ToolkitAuditLog.RETAINED_ROWS - 1].id
+        val unsettled = all.filter { it.status == ToolkitActionStatus.PENDING }.map { targetKey(it) }.toSet()
+        val ids = overrideRows(all)
+            .filter { targetKey(it) !in unsettled }
+            .groupBy { targetKey(it) }
+            .values
+            .flatMap { links -> closedPrefix(links.reversed(), oldestRetained) }
+            .map { it.id }
+        if (ids.isNotEmpty()) audit.delete(ids)
+    }
+
+    /**
+     * The oldest links of one target ([links], oldest first) that may go: a prefix that lies wholly before
+     * [keepFrom] and ends where the chain is cut (the next link does not [continue][continues] it) or closed
+     * (its `after` is its chain original again). A walk from a newer row then stops at the same place, or at
+     * a `before` that is the same state as the original it would have found. The whole list goes only when
+     * its newest link is a restore row or closes its chain, so a later write cannot continue an open chain.
+     */
+    private fun closedPrefix(links: List<ToolkitActionRecord>, keepFrom: Long): List<ToolkitActionRecord> {
+        var cut = 0
+        var original: String? = null
+        for ((i, link) in links.withIndex()) {
+            original = if (i > 0 && continues(links[i - 1], link)) original else link.beforeRaw
+            if (link.id >= keepFrom) break
+            val next = links.getOrNull(i + 1)
+            val closed = sameState(link.kind, link.afterRaw, original)
+            val endsHere = if (next == null) link.restoresId != null || closed else !continues(link, next) || closed
+            if (endsHere) cut = i + 1
+        }
+        return links.take(cut)
+    }
+
+    /** Whether a [chainOriginal] walk from [newer] goes on to [older], the link just below it. */
+    private fun continues(older: ToolkitActionRecord, newer: ToolkitActionRecord): Boolean =
+        older.restoresId == null && newer.restoresId == null && sameState(older.kind, older.afterRaw, newer.beforeRaw)
 
     // ---- reconcile -------------------------------------------------------------------------
 
@@ -1230,11 +1298,11 @@ class ToolkitActions internal constructor(
         // Recovery must not truncate the retained original/restore chain. history(limit) stays bounded.
         const val MAX_ROWS = Int.MAX_VALUE
 
-        const val KIND_APPOP = "appop"
-        const val KIND_BUCKET = "bucket"
-        const val KIND_DOZE = "doze"
-        const val KIND_FORCE_STOP = "force_stop"
-        const val KIND_DEXOPT = "dexopt"
+        const val KIND_APPOP = ToolkitAuditLog.KIND_APP_OP
+        const val KIND_BUCKET = ToolkitAuditLog.KIND_BUCKET
+        const val KIND_DOZE = ToolkitAuditLog.KIND_DOZE
+        const val KIND_FORCE_STOP = ToolkitAuditLog.KIND_FORCE_STOP
+        const val KIND_DEXOPT = ToolkitAuditLog.KIND_BG_DEXOPT
 
         const val OP_BUCKET = "standby_bucket"
         const val OP_FORCE_STOP = "force_stop"

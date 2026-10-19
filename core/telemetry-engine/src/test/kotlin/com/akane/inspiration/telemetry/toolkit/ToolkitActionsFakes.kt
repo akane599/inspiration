@@ -42,6 +42,14 @@ class FakeAudit : ToolkitAuditStore {
     override suspend fun pending(): List<ToolkitActionRecord> =
         rows.filter { it.status == ToolkitActionStatus.PENDING }.sortedBy { it.id }
 
+    /** Every id passed to [delete], in order. */
+    val deleted = mutableListOf<Long>()
+
+    override suspend fun delete(ids: List<Long>) {
+        deleted += ids
+        rows.removeAll { it.id in ids && it.status != ToolkitActionStatus.PENDING }
+    }
+
     fun byId(id: Long): ToolkitActionRecord = rows.first { it.id == id }
 }
 

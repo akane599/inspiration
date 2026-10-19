@@ -6,6 +6,7 @@ import androidx.room.OnConflictStrategy
 import androidx.room.Query
 import androidx.room.Transaction
 import androidx.room.Update
+import com.akane.inspiration.telemetry.toolkit.ToolkitAuditLog
 
 @Dao
 interface SnapshotDao {
@@ -256,8 +257,8 @@ interface ToolkitActionDao {
      */
     @Query(
         "DELETE FROM toolkit_action WHERE status != 'pending' " +
-            "AND NOT (status IN ('done', 'restored') AND kind IN ('appop', 'bucket', 'doze')) " +
-            "AND NOT (status = 'failed' AND kind IN ('appop', 'bucket', 'doze') AND afterRaw IS NOT NULL " +
+            "AND NOT (status IN ('done', 'restored') AND kind IN $OVERRIDE_KINDS_SQL) " +
+            "AND NOT (status = 'failed' AND kind IN $OVERRIDE_KINDS_SQL AND afterRaw IS NOT NULL " +
             "AND afterRaw != '' AND (beforeRaw IS NULL OR afterRaw != beforeRaw)) " +
             "AND id NOT IN (SELECT id FROM toolkit_action ORDER BY id DESC LIMIT :keep)",
     )
@@ -270,10 +271,25 @@ interface ToolkitActionDao {
         return id
     }
 
+    /** Settled rows only: a PENDING row is never deleted, whatever the caller passes. */
+    @Query("DELETE FROM toolkit_action WHERE status != 'pending' AND id IN (:ids)")
+    suspend fun deleteSettledChunk(ids: List<Long>): Int
+
+    /** Deletes the settled rows [ids] in one transaction, in chunks under SQLite's bound-argument limit. */
+    @Transaction
+    suspend fun deleteSettled(ids: List<Long>) {
+        for (chunk in ids.chunked(DELETE_CHUNK)) deleteSettledChunk(chunk)
+    }
+
     companion object {
-        const val MAX_ROWS = 500
+        const val MAX_ROWS = ToolkitAuditLog.RETAINED_ROWS
+        const val DELETE_CHUNK = 500
     }
 }
+
+/** The override kinds as an SQL list, from the values the toolkit writes. */
+private const val OVERRIDE_KINDS_SQL =
+    "('" + ToolkitAuditLog.KIND_APP_OP + "', '" + ToolkitAuditLog.KIND_BUCKET + "', '" + ToolkitAuditLog.KIND_DOZE + "')"
 
 @Dao
 interface ChargeSessionDao {

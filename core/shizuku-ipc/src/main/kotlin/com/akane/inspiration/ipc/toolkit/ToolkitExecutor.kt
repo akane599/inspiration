@@ -1,11 +1,15 @@
 package com.akane.inspiration.ipc.toolkit
 
+import android.os.SystemClock
 import com.akane.inspiration.ipc.model.BgDexoptStatus
 import com.akane.inspiration.ipc.model.ToolkitCode
 import com.akane.inspiration.ipc.model.ToolkitResult
 
 internal const val CMD = "/system/bin/cmd"
 internal const val DUMPSYS = "/system/bin/dumpsys"
+
+/** How long reads reuse the protected-package set; writes never do. */
+internal const val PROTECTED_TTL_MS = 30_000L
 
 private const val USER = "0"
 private const val SHIZUKU_PACKAGE = "moe.shizuku.privileged.api"
@@ -24,12 +28,16 @@ private const val FLAG_UPDATED_SYSTEM_APP = 0x80
  * Every argv is fixed with an absolute executable and pins `--user 0`. `cmd settings` accepts the
  * option for the global namespace too (SettingsService parses `--user` before the namespace; the
  * provider then ignores the user for global keys), so the `device_idle_constants` argv carry it.
+ *
+ * The protected-package set (eight process spawns) is reused by reads for [PROTECTED_TTL_MS]; every write
+ * drops it first, so a write is always gated on a fresh set. [elapsedMs] is the monotonic clock for that.
  */
 internal class ToolkitExecutor(
     private val runner: CommandRunner,
     private val inspector: PackageInspector,
     private val dexopt: BgDexoptController,
     private val ownPackage: String,
+    private val elapsedMs: () -> Long = SystemClock::elapsedRealtime,
     private val sleepMs: (Long) -> Unit = { Thread.sleep(it) },
 ) {
     private val writeLock = Any()
@@ -37,7 +45,12 @@ internal class ToolkitExecutor(
     /** Doze raw values read so far (guarded by [writeLock]); the only non-profile values restore accepts. */
     private val seenDozeRaws = LinkedHashSet<String>()
 
+    /** The last protected-package set read and when (guarded by [writeLock]); see [protectedPackages]. */
+    private var protectedCache: ProtectedPackages? = null
+    private var protectedReadAtMs = 0L
+
     fun setAppOp(pkg: String?, opCode: Int, modeCode: Int): ToolkitResult = synchronized(writeLock) {
+        protectedCache = null
         val op = AppOp.fromCode(opCode) ?: return ToolkitResult.refused(ToolkitCode.ARG_VALUE)
         val mode = AppOpMode.fromCode(modeCode) ?: return ToolkitResult.refused(ToolkitCode.ARG_VALUE)
         val target = when (val gate = gate(pkg)) {
@@ -67,6 +80,7 @@ internal class ToolkitExecutor(
     }
 
     fun setStandbyBucket(pkg: String?, bucketCode: Int): ToolkitResult = synchronized(writeLock) {
+        protectedCache = null
         val bucket = StandbyBucket.fromCode(bucketCode) ?: return ToolkitResult.refused(ToolkitCode.ARG_VALUE)
         val target = when (val gate = gate(pkg)) {
             is Gate.Denied -> return gate.result
@@ -92,6 +106,7 @@ internal class ToolkitExecutor(
     }
 
     fun forceStop(pkg: String?): ToolkitResult = synchronized(writeLock) {
+        protectedCache = null
         val target = when (val gate = gate(pkg)) {
             is Gate.Denied -> return gate.result
             is Gate.Allowed -> gate
@@ -107,6 +122,7 @@ internal class ToolkitExecutor(
     }
 
     fun applyDozeProfile(profileCode: Int, expectedBeforeRaw: String?): ToolkitResult = synchronized(writeLock) {
+        protectedCache = null
         val profile = DozeProfile.fromCode(profileCode) ?: return ToolkitResult.refused(ToolkitCode.ARG_VALUE)
         val current = readDozeRaw() ?: return ToolkitResult.refused(ToolkitCode.PARSE)
         if (current.value != expectedBeforeRaw) return ToolkitResult.refused(ToolkitCode.STALE, before = current.value)
@@ -140,6 +156,7 @@ internal class ToolkitExecutor(
     }
 
     fun restoreDozeRaw(rawOrNull: String?, expectedCurrentRaw: String?): ToolkitResult = synchronized(writeLock) {
+        protectedCache = null
         val target = rawOrNull?.takeIf { it.isNotEmpty() }
         // Only a well-formed `key=value` list (any `[a-z][a-z0-9_]{0,63}` key, OEM keys included; see
         // DozeRaw.isRestorable) or a value this executor itself read may be replayed.
@@ -168,6 +185,7 @@ internal class ToolkitExecutor(
     fun bgDexoptStatus(): BgDexoptStatus = dexopt.status()
 
     fun cancelBgDexopt(): ToolkitResult = synchronized(writeLock) {
+        protectedCache = null
         dexopt.beginUserCancel()
         var confirmed = false
         try {
@@ -213,9 +231,23 @@ internal class ToolkitExecutor(
         facts.appId < FIRST_APPLICATION_UID -> ToolkitCode.DENY_APP_ID
         facts.flags and FLAG_PERSISTENT != 0 -> ToolkitCode.DENY_PERSISTENT
         facts.flags and FLAG_SYSTEM != 0 && facts.flags and FLAG_UPDATED_SYSTEM_APP == 0 -> ToolkitCode.DENY_SYSTEM
-        else -> when (val protected = inspector.protectedPackages()) {
+        else -> when (val protected = protectedPackages()) {
             null -> ToolkitCode.PROTECTION_UNKNOWN
             else -> if (protected.contains(pkg)) ToolkitCode.DENY_PROTECTED else null
+        }
+    }
+
+    /**
+     * The protected-package set, read again once [PROTECTED_TTL_MS] has passed or a write dropped it. An override
+     * recompute gates one read per target, so this turns 8 spawns per target into 8 per window. A failed read
+     * (null, which refuses) is not kept.
+     */
+    private fun protectedPackages(): ProtectedPackages? {
+        val now = elapsedMs()
+        protectedCache?.let { if (now - protectedReadAtMs in 0 until PROTECTED_TTL_MS) return it }
+        return inspector.protectedPackages()?.also {
+            protectedCache = it
+            protectedReadAtMs = now
         }
     }
 

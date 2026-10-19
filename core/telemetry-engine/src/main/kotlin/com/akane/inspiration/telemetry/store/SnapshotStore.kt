@@ -115,6 +115,9 @@ interface SnapshotStore {
     /** Rows still in [ToolkitActionStatus.PENDING], oldest first. */
     suspend fun pendingToolkitActions(): List<ToolkitActionRecord>
 
+    /** Deletes the audit rows [ids] in one transaction; PENDING rows are kept. A store without retention keeps all. */
+    suspend fun deleteToolkitActions(ids: List<Long>) {}
+
     suspend fun recordMiss(wallMs: Long, trigger: CaptureTrigger, reason: String)
 
     /**

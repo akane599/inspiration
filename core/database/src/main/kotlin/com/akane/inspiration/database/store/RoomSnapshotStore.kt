@@ -192,6 +192,10 @@ class RoomSnapshotStore(
     override suspend fun pendingToolkitActions(): List<ToolkitActionRecord> =
         database.toolkitActionDao().withStatus(ToolkitActionStatus.PENDING.code).mapNotNull { it.toDomain() }
 
+    override suspend fun deleteToolkitActions(ids: List<Long>) {
+        if (ids.isNotEmpty()) database.toolkitActionDao().deleteSettled(ids)
+    }
+
     override suspend fun insertSamples(samples: List<LiveReading>) {
         if (samples.isEmpty()) return
         database.withTransaction {
