@@ -125,4 +125,19 @@ class ScrubChartMathTest {
         assertEquals("21:30", formatTickLabel(t, zone, oneDay, Locale.ENGLISH))
         assertEquals("16\u00a0Oct", formatTickLabel(t, zone, week, Locale.ENGLISH))
     }
+
+    @Test
+    fun `clock and tick labels follow each locale and stay the same on repeated calls`() {
+        val t = 1_792_186_200_000L
+        val zone = ZoneId.of("UTC")
+        val tr = Locale.forLanguageTag("tr-TR")
+        val week = TimeRange.of(t, t + 7 * 24 * 3_600_000L)
+        repeat(3) {
+            assertEquals("16\u00a0Eki\u00a021:30", formatClock(t, zone, withDate = true, locale = tr))
+            assertEquals("16\u00a0Oct\u00a021:30", formatClock(t, zone, withDate = true, locale = Locale.ENGLISH))
+            assertEquals("21:30", formatClock(t, zone, withDate = false, locale = tr))
+            assertEquals("16\u00a0Eki", formatTickLabel(t, zone, week, tr))
+            assertEquals("16\u00a0Oct", formatTickLabel(t, zone, week, Locale.ENGLISH))
+        }
+    }
 }

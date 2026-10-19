@@ -3,6 +3,9 @@ package com.akane.inspiration.designsystem.component.format
 import java.time.Instant
 import java.time.ZoneId
 import java.util.Locale
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.Executors
+import java.util.concurrent.TimeUnit
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Test
@@ -173,5 +176,78 @@ class TelemetryFormatTest {
     fun negativeDurationGetsTypographicMinus() {
         assertEquals("−1\u00A0h\u00A005\u00A0min", en.duration(-minutes(65)))
         assertEquals("0\u00A0min", en.duration(-30_000L))
+    }
+
+    // Golden en/tr strings for every formatter: reusing formatters must not change a character of them.
+    private fun goldenOutput(): List<String> {
+        val t = at("2026-10-16T13:30:00Z")
+        return listOf(
+            en.number(1234.46, decimals = 1), tr.number(1234.46, decimals = 1),
+            en.number(2.5), tr.number(2.5),
+            en.number(-3.14159, decimals = 2), tr.number(-3.14159, decimals = 2),
+            en.watts(4.516).text, tr.celsius(36.4, decimals = 1).text,
+            en.duration(minutes(125)), tr.duration(minutes(125)),
+            en.date(t, utc), tr.date(t, utc),
+            en.time(t, utc), tr.time(t, utc),
+            en.dateTime(t, utc), tr.dateTime(t, utc),
+            en.range(at("2026-03-02T23:00:00Z"), at("2026-03-03T02:00:00Z"), utc),
+            tr.range(at("2026-03-02T23:00:00Z"), at("2026-03-03T02:00:00Z"), utc),
+        )
+    }
+
+    private val golden = listOf(
+        "1234.5", "1234,5",
+        "3", "3",
+        "\u22123.14", "\u22123,14",
+        "4.52\u00A0W", "36,4\u00A0\u00B0C",
+        "2\u00A0h\u00A005\u00A0min", "2\u00A0sa\u00A005\u00A0dk",
+        "16\u00A0Oct", "16\u00A0Eki",
+        "13:30", "13:30",
+        "16\u00A0Oct\u00A013:30", "16\u00A0Eki\u00A013:30",
+        "2\u00A0Mar\u00A023:00\u00A0\u2013 3\u00A0Mar\u00A002:00",
+        "2\u00A0Mar\u00A023:00\u00A0\u2013 3\u00A0Mar\u00A002:00",
+    )
+
+    @Test
+    fun outputIsPinnedForEnAndTr() {
+        assertEquals(golden, goldenOutput())
+    }
+
+    @Test
+    fun repeatedAndInterleavedCallsKeepEachLocaleAndDigitCount() {
+        repeat(3) {
+            assertEquals(golden, goldenOutput())
+            assertEquals("3.14", en.number(3.14159, decimals = 2))
+            assertEquals("3", en.number(3.14159))
+            assertEquals("3,1", tr.number(3.14159, decimals = 1))
+        }
+    }
+
+    @Test
+    fun separateInstancesForTheSameLocaleAgree() {
+        val again = TelemetryFormat(Locale.forLanguageTag("tr-TR"), tr.units)
+        val t = at("2026-10-16T13:30:00Z")
+        assertEquals(tr.dateTime(t, utc), again.dateTime(t, utc))
+        assertEquals(tr.duration(minutes(65)), again.duration(minutes(65)))
+        assertEquals(tr.number(-3.5, decimals = 1), again.number(-3.5, decimals = 1))
+    }
+
+    @Test
+    fun formattingOnManyThreadsAtOnceGivesTheSameStrings() {
+        val threads = 8
+        val pool = Executors.newFixedThreadPool(threads)
+        val start = CountDownLatch(1)
+        try {
+            val results = List(threads) {
+                pool.submit<List<String>> {
+                    start.await()
+                    List(500) { goldenOutput() }.filter { it != golden }.map { it.toString() }
+                }
+            }
+            start.countDown()
+            results.forEach { assertEquals(emptyList<String>(), it.get(60, TimeUnit.SECONDS)) }
+        } finally {
+            pool.shutdownNow()
+        }
     }
 }

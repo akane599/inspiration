@@ -12,6 +12,7 @@ import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import java.util.Locale
+import java.util.concurrent.ConcurrentHashMap
 import kotlin.math.abs
 
 /** Typographic minus (U+2212): same width as the plus sign, so tabular columns stay aligned. */
@@ -147,25 +148,53 @@ data class TelemetryFormat(val locale: Locale, val units: TelemetryUnits) {
         Instant.ofEpochMilli(aMs).atZone(zone).toLocalDate() == Instant.ofEpochMilli(bMs).atZone(zone).toLocalDate()
 
     private fun formatWith(pattern: String, epochMs: Long, zone: ZoneId): String =
-        DateTimeFormatter.ofPattern(pattern, locale).withZone(zone).format(Instant.ofEpochMilli(epochMs))
+        dateTimeFormatter(pattern, locale).format(Instant.ofEpochMilli(epochMs).atZone(zone))
             .replace(' ', NBSP)
 
-    private fun numberFormat(decimals: Int): NumberFormat =
+    private fun numberFormat(decimals: Int): NumberFormat = numberFormats(locale).withDecimals(decimals)
+
+    private fun twoDigits(value: Long): String = numberFormats(locale).twoDigits.format(value)
+}
+
+private fun String.hasNonZeroDigit(): Boolean = any { it.isDigit() && Character.digit(it, 10) != 0 }
+
+// DateTimeFormatter is immutable and thread-safe, so one per pattern and locale is shared by every caller and thread.
+private val dateTimeFormatters = ConcurrentHashMap<String, ConcurrentHashMap<Locale, DateTimeFormatter>>()
+
+private fun dateTimeFormatter(pattern: String, locale: Locale): DateTimeFormatter =
+    dateTimeFormatters.getOrPut(pattern) { ConcurrentHashMap() }
+        .getOrPut(locale) { DateTimeFormatter.ofPattern(pattern, locale) }
+
+/**
+ * One thread's number formats for one locale. NumberFormat is mutable and not thread-safe, so these are never shared
+ * between threads; each is configured once when created and never changed, so it formats exactly like a fresh one.
+ */
+private class NumberFormats(private val locale: Locale) {
+    private val byDecimals = HashMap<Int, NumberFormat>()
+
+    /** Two-digit minutes ("05"), never grouped. */
+    val twoDigits: NumberFormat by lazy(LazyThreadSafetyMode.NONE) {
+        NumberFormat.getIntegerInstance(locale).apply {
+            isGroupingUsed = false
+            minimumIntegerDigits = 2
+        }
+    }
+
+    /** Exactly [decimals] fraction digits, rounded half up, never grouped. */
+    fun withDecimals(decimals: Int): NumberFormat = byDecimals.getOrPut(decimals) {
         NumberFormat.getNumberInstance(locale).apply {
             isGroupingUsed = false
             minimumFractionDigits = decimals
             maximumFractionDigits = decimals
             roundingMode = RoundingMode.HALF_UP
         }
-
-    private fun twoDigits(value: Long): String =
-        NumberFormat.getIntegerInstance(locale).apply {
-            isGroupingUsed = false
-            minimumIntegerDigits = 2
-        }.format(value)
+    }
 }
 
-private fun String.hasNonZeroDigit(): Boolean = any { it.isDigit() && Character.digit(it, 10) != 0 }
+private val numberFormatsByThread = ThreadLocal.withInitial { HashMap<Locale, NumberFormats>() }
+
+private fun numberFormats(locale: Locale): NumberFormats =
+    numberFormatsByThread.get().getOrPut(locale) { NumberFormats(locale) }
 
 /** A [TelemetryFormat] for the current locale, with the unit strings from `strings_format.xml`. */
 @Composable

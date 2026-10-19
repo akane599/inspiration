@@ -6,6 +6,7 @@ import com.akane.inspiration.designsystem.component.format.TelemetryFormat
 import com.akane.inspiration.designsystem.component.format.TelemetryUnits
 import java.time.ZoneId
 import java.util.Locale
+import java.util.concurrent.ConcurrentHashMap
 import kotlin.math.ceil
 import kotlin.math.floor
 import kotlin.math.roundToLong
@@ -88,8 +89,12 @@ internal fun TimeRange.spansDays(): Boolean = durationMs >= DAY_MS
 /** Axis tick labels switch from clock time to the date once the window covers several days. */
 internal fun TimeRange.usesDateTicks(): Boolean = durationMs > 2 * DAY_MS
 
+// One immutable format per locale, so the scrub readout builds none per frame.
+private val clockFormats = ConcurrentHashMap<Locale, TelemetryFormat>()
+
 /** Only the date and time styles are used here, which take no units. */
-private fun clockFormat(locale: Locale): TelemetryFormat = TelemetryFormat(locale, TelemetryUnits.English)
+private fun clockFormat(locale: Locale): TelemetryFormat =
+    clockFormats.getOrPut(locale) { TelemetryFormat(locale, TelemetryUnits.English) }
 
 /** "21:30", or "16 Oct 21:30" with [withDate]; the date-time is joined with no-break spaces (`TelemetryFormat`). */
 internal fun formatClock(tMs: Long, zone: ZoneId, withDate: Boolean, locale: Locale): String =
