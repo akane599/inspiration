@@ -222,6 +222,22 @@ class ToolkitExecutorTest {
     }
 
     @Test
+    fun `a force-stop whose read-back fails is unverified, not failed`() {
+        val executor = executor()
+        val base = runner.handler
+        runner.handler = { argv ->
+            val out = base(argv)
+            // The stop succeeds, then the package can no longer be looked up.
+            if ("force-stop" in argv) inspector.packages[APP] = PackageLookup.Unknown
+            out
+        }
+
+        val result = executor.forceStop(APP)
+
+        assertEquals(ToolkitResult.unavailable(ToolkitCode.UNVERIFIED, before = "stopped=false"), result)
+    }
+
+    @Test
     fun `a force-stop that failed outright is still FAILED`() {
         val executor = executor()
         val base = runner.handler

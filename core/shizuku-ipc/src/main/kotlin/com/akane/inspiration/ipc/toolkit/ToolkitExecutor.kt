@@ -161,10 +161,11 @@ internal class ToolkitExecutor(
             val before = "stopped=${target.facts.stopped}"
             val write = runner.run(listOf(CMD, "activity", "force-stop", "--user", USER, pkg.orEmpty()))
             if (!write.ok) return writeFailed(write, before)
+            // The stop already ran; a failed read-back leaves its effect unknown, not failed.
             val after =
                 when (val now = inspector.lookup(pkg.orEmpty())) {
                     is PackageLookup.Found -> "stopped=${now.stopped}"
-                    else -> return ToolkitResult.failed(ToolkitCode.PARSE, before = before)
+                    else -> return unverified(before)
                 }
             ToolkitResult.done(target.warnCode, before, after)
         }
