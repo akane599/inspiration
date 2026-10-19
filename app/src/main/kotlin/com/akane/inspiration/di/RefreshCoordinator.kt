@@ -1,8 +1,8 @@
 package com.akane.inspiration.di
 
 import com.akane.inspiration.telemetry.app.RefreshResult
-import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -24,6 +24,9 @@ import kotlinx.coroutines.withContext
  *   debounces or backs off.
  * - **Cancellation.** The capture is bounded by its own deadline, so it runs to its end even when the
  *   caller (a screen that left composition) is cancelled; the half-written result would be lost otherwise.
+ * - **Store tick.** A capture that came back [RefreshResult.Refreshed] has stored its history and snapshot,
+ *   so [onStored] fires once for it, after [afterStored] however that ends: a failing retention prune
+ *   still fails the refresh, but it can no longer hide stored history from the screens that re-read on it.
  *
  * Nothing here schedules itself: [lastRefreshWallMs] changes only when someone asked for a refresh.
  */
@@ -32,10 +35,15 @@ class RefreshCoordinator(
     private val debounceMs: Long,
     private val failureBackoffMs: Long = FAILURE_BACKOFF_MS,
     private val onFailure: (Exception) -> Unit = {},
+    /** Upkeep after a stored capture (retention prune, status); if it throws, the refresh fails. */
+    private val afterStored: suspend () -> Unit = {},
+    /** The store tick, once per capture that came back [RefreshResult.Refreshed], after [afterStored] however it ends. */
+    private val onStored: () -> Unit,
     private val capture: suspend () -> RefreshResult,
 ) {
     private val mutex = Mutex()
     private val mutableLastRefreshWallMs = MutableStateFlow<Long?>(null)
+
     @Volatile
     private var lastFailure: Pair<Long, RefreshResult.Failed>? = null
 
@@ -60,29 +68,41 @@ class RefreshCoordinator(
         lastFailure = null
     }
 
-    suspend fun refresh(): RefreshResult = mutex.withLock {
-        val last = mutableLastRefreshWallMs.value
-        if (last != null && nowWallMs() - last in 0 until debounceMs) {
-            return@withLock RefreshResult.Debounced(last)
+    suspend fun refresh(): RefreshResult =
+        mutex.withLock {
+            val last = mutableLastRefreshWallMs.value
+            if (last != null && nowWallMs() - last in 0 until debounceMs) {
+                return@withLock RefreshResult.Debounced(last)
+            }
+            val failure = lastFailure
+            if (failure != null && nowWallMs() - failure.first in 0 until failureBackoffMs) {
+                return@withLock failure.second
+            }
+            val epoch = backoffEpoch
+            val result =
+                try {
+                    withContext(NonCancellable) {
+                        capture().also { captured ->
+                            if (captured is RefreshResult.Refreshed) {
+                                try {
+                                    afterStored()
+                                } finally {
+                                    onStored()
+                                }
+                            }
+                        }
+                    }
+                } catch (cancelled: CancellationException) {
+                    throw cancelled
+                } catch (error: Exception) {
+                    onFailure(error)
+                    RefreshResult.Failed("capture_failed")
+                }
+            lastFailure = (result as? RefreshResult.Failed)?.takeIf { epoch == backoffEpoch }?.let { nowWallMs() to it }
+            lastCaptureFailed = result is RefreshResult.Failed
+            if (result is RefreshResult.Refreshed) mutableLastRefreshWallMs.value = result.wallMs
+            result
         }
-        val failure = lastFailure
-        if (failure != null && nowWallMs() - failure.first in 0 until failureBackoffMs) {
-            return@withLock failure.second
-        }
-        val epoch = backoffEpoch
-        val result = try {
-            withContext(NonCancellable) { capture() }
-        } catch (cancelled: CancellationException) {
-            throw cancelled
-        } catch (error: Exception) {
-            onFailure(error)
-            RefreshResult.Failed("capture_failed")
-        }
-        lastFailure = (result as? RefreshResult.Failed)?.takeIf { epoch == backoffEpoch }?.let { nowWallMs() to it }
-        lastCaptureFailed = result is RefreshResult.Failed
-        if (result is RefreshResult.Refreshed) mutableLastRefreshWallMs.value = result.wallMs
-        result
-    }
 
     /**
      * Runs [refresh] again if the last capture failed, else returns null without capturing. Call it after

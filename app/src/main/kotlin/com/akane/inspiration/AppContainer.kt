@@ -4,6 +4,7 @@ import android.content.Context
 import android.content.Intent
 import androidx.core.app.NotificationManagerCompat
 import com.akane.inspiration.capture.CapturePolicy
+import com.akane.inspiration.capture.captureMarker
 import com.akane.inspiration.dashboard.CockpitDependencies
 import com.akane.inspiration.database.InspirationDatabase
 import com.akane.inspiration.database.store.RoomSnapshotStore
@@ -126,16 +127,21 @@ class AppContainer(
 
     // ---- refresh (H7) ----------------------------------------------------------------------
 
+    /** Ticked by every capture that ingests the battery history: the app-open refresh, a marker, the charge job. */
+    val storeTicks = StoreTicks(clocks::wallMs)
+
     private val refreshCoordinator =
         RefreshCoordinator(
             nowWallMs = clocks::wallMs,
             debounceMs = CapturePolicy.APP_OPEN_DEBOUNCE_MS,
             onFailure = { android.util.Log.w("AppContainer", "App refresh failed", it) },
+            afterStored = {
+                store.pruneRetention(clocks)
+                emitStatusTick()
+            },
+            onStored = storeTicks::tick,
             capture = ::captureFull,
         )
-
-    /** Ticked by every capture that ingests the battery history: the app-open refresh, a marker, the charge job. */
-    val storeTicks = StoreTicks(clocks::wallMs)
 
     /**
      * The last [storeTicks] value, not the refresh debounce's clock: it feeds [analysisSession] as its refresh tick,
@@ -148,10 +154,8 @@ class AppContainer(
 
     private suspend fun captureFull(): RefreshResult =
         when (val result = capturer.captureFull(CaptureTrigger.APP_OPEN, FULL_CAPTURE_DEADLINE_MS, ingestHistory = true)) {
+            // The coordinator prunes, updates the status and ticks after it (see [refreshCoordinator]).
             is CaptureResult.Saved -> {
-                store.pruneRetention(clocks)
-                emitStatusTick()
-                storeTicks.tick()
                 RefreshResult.Refreshed(clocks.wallMs())
             }
 
@@ -220,16 +224,12 @@ class AppContainer(
 
     override suspend fun markers(): List<Marker> = store.markers()
 
-    override suspend fun createMarker(label: String): Long? {
-        val saved = capturer.captureFull(CaptureTrigger.MARKER, FULL_CAPTURE_DEADLINE_MS, ingestHistory = true)
-        if (saved !is CaptureResult.Saved) return null
-        return try {
-            store.addMarker(saved.id, label, clocks.wallMs())
-        } finally {
-            // The capture ingested history and moved the horizon whether or not the marker row was written.
-            storeTicks.tick()
-        }
-    }
+    override suspend fun createMarker(label: String): Long? =
+        captureMarker(
+            capture = { capturer.captureFull(CaptureTrigger.MARKER, FULL_CAPTURE_DEADLINE_MS, ingestHistory = true) },
+            addMarker = { snapshotId -> store.addMarker(snapshotId, label, clocks.wallMs()) },
+            onHistoryStored = storeTicks::tick,
+        )
 
     override suspend fun kernelBattery(): KernelCapacitySnapshot? =
         KernelCapacitySnapshot.from(

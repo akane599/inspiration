@@ -23,10 +23,11 @@ interface CockpitDependencies {
     val clocks: Clocks
 
     /**
-     * Wall time of the last capture in this process that ingested battery history, whoever ran it: a refresh (this
-     * screen's, the app-open capture its refresh joined, or the re-run when Shizuku became ready), a marker, or the
-     * charge job; null before the first. A new value means newly stored history and a moved history horizon, which a
-     * timeline read earlier does not show. It is not the refresh debounce's clock.
+     * A strictly increasing tick, normally the wall time, of the last capture in this process that ingested battery
+     * history, whoever ran it: a refresh (this screen's, the app-open capture its refresh joined, or the re-run when
+     * Shizuku became ready), a marker, or the charge job; null before the first. After the wall clock went back it is
+     * one past the previous value instead. A new value means newly stored history and a moved history horizon, which
+     * a timeline read earlier does not show. It is not the refresh debounce's clock.
      */
     val lastRefreshWallMs: StateFlow<Long?>
 

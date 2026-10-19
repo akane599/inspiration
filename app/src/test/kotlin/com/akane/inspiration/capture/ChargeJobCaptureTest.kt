@@ -65,6 +65,30 @@ class ChargeJobCaptureTest {
         }
 
     @Test
+    fun `a pass whose capture throws still ticks for the history it ingested`() =
+        runTest {
+            val source = CountingSource(history = listOf(event(5_000, HistoryKind.PLUGGED)))
+            val store = FakeStore().apply { insertFails = true }
+            var ticks = 0
+
+            val thrown =
+                runCatching {
+                    runChargeJobCapture(
+                        SnapshotCapturer(source, store, FixedClocks),
+                        store,
+                        FixedClocks,
+                        DEADLINE_MS,
+                        analyze = {},
+                        onHistoryStored = { ticks++ },
+                    )
+                }.exceptionOrNull()
+
+            assertEquals("disk full", thrown?.message)
+            assertEquals(listOf(event(5_000, HistoryKind.PLUGGED)), store.history)
+            assertEquals(1, ticks)
+        }
+
+    @Test
     fun `a skipped run still reads once and saves nothing`() =
         runTest {
             val source = CountingSource(history = listOf(event(5_000, HistoryKind.PLUGGED)))
@@ -266,7 +290,11 @@ class ChargeJobCaptureTest {
 
         fun saved() = snapshots.map { it.kind to it.trigger }
 
+        /** When set, saving the snapshot throws, as a full disk or a failed Room write does. */
+        var insertFails = false
+
         override suspend fun insert(snapshot: BatterySnapshot): Long {
+            if (insertFails) error("disk full")
             snapshots += snapshot
             return snapshots.size.toLong()
         }
