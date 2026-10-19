@@ -219,6 +219,9 @@ class ToolkitActions internal constructor(
     /** Serializes execute, restore, reconcile and status handling so a PENDING row is never seen half-written. */
     private val mutex = Mutex()
 
+    /** Guarded by [mutex]: a prior job's status/cancel cannot settle a start still awaiting admission. */
+    private val dexoptStartsInFlight = mutableSetOf<Long>()
+
     /** Bumped when the log or the real state may have changed; drives [history] and [activeOverrides]. */
     private val changes = MutableStateFlow(0L)
 
@@ -368,35 +371,46 @@ class ToolkitActions internal constructor(
     /**
      * The PENDING row is inserted under the client lock, the service call (which includes the plugged
      * probes and can take seconds) runs outside it so cancel, status and reads are not blocked, and the
-     * result is settled under the lock again. Once the row exists the rest runs to completion even if
-     * the caller is cancelled, so the hold is taken and the row never stays PENDING without an owner.
+     * result is settled under the lock again. Its row is protected from other terminalizers until admission
+     * returns: a previous job's status or an earlier cancel says nothing about this start. Once the row exists,
+     * settlement and local-ID cleanup run to completion even if the caller is cancelled; a lost reply leaves
+     * the durable PENDING row for recovery rather than manufacturing a terminal outcome.
      */
     suspend fun startBgDexopt(): ToolkitOutcome<ToolkitActionRecord> =
         withContext(NonCancellable) {
             val pending =
                 mutex.withLock {
                     insertPending(Spec(KIND_DEXOPT, null, OP_BG_DEXOPT, null), restoresId = null, beforeRaw = null)
+                        .also { dexoptStartsInFlight += it.id }
                 }
-            val reply =
-                try {
-                    backend.startBgDexopt()
-                } catch (e: CancellationException) {
-                    throw e
-                } catch (e: Throwable) {
-                    mutex.withLock { failPending(pending) }
+            try {
+                val reply =
+                    try {
+                        backend.startBgDexopt()
+                    } catch (e: CancellationException) {
+                        throw e
+                    } catch (e: Throwable) {
+                        mutex.withLock { failPending(pending) }
+                        changes.value += 1
+                        throw e
+                    }
+                mutex.withLock {
+                    // The "before" value is not used for anything on a dexopt row, so its absence is not an error.
+                    val outcome = settle(pending, reply, requireBefore = false, keepPendingOnDone = true)
+                    if (outcome is ToolkitOutcome.Done) {
+                        syncHold(running = true)
+                        supersedeOtherDexoptRows(outcome.value.id)
+                    }
                     changes.value += 1
-                    throw e
+                    outcome
                 }
-            mutex.withLock {
-                // The "before" value is not used for anything on a dexopt row, so its absence is not an error.
-                val outcome = settle(pending, reply, requireBefore = false, keepPendingOnDone = true)
-                if (outcome is ToolkitOutcome.Done) {
-                    syncHold(running = true)
-                    supersedeOtherDexoptRows(outcome.value.id)
+            } finally {
+                // The outer NonCancellable also fences this cleanup if admission or settlement throws.
+                mutex.withLock {
+                    dexoptStartsInFlight -= pending.id
+                    // Publish completion only after status reads can stop reporting admission as UNKNOWN.
                     dexoptEvents.value += 1
                 }
-                changes.value += 1
-                outcome
             }
         }
 
@@ -1353,14 +1367,28 @@ class ToolkitActions internal constructor(
         val service =
             when (reply) {
                 // Cannot tell: keep whatever hold exists and do not touch the rows.
-                is GatewayReply.Unavailable -> return if (pending.isEmpty()) BgDexoptStatus.Idle else BgDexoptStatus.Unknown
+                is GatewayReply.Unavailable -> return if (pending.isEmpty() &&
+                    dexoptStartsInFlight.isEmpty()
+                ) {
+                    BgDexoptStatus.Idle
+                } else {
+                    BgDexoptStatus.Unknown
+                }
 
                 is GatewayReply.Reply -> reply.value
             }
         // A freshly created service reports UNKNOWN because it cannot see a job an earlier instance left behind.
         // With no PENDING dexopt row of ours there is nothing we started that could still be running, so the
         // card is idle; UNKNOWN stays for a job we did start and cannot confirm.
-        val status = if (service.state == BgDexoptState.UNKNOWN && pending.isEmpty()) BgDexoptStatus.Idle else statusOf(service)
+        // A terminal status can still describe the previous job while a start waits in the plugged probe.
+        // Keep its durable PENDING row and cancellation action until that admission has actually returned.
+        val observed = statusOf(service)
+        val status =
+            when {
+                dexoptStartsInFlight.isNotEmpty() && observed !is BgDexoptStatus.Running -> BgDexoptStatus.Unknown
+                service.state == BgDexoptState.UNKNOWN && pending.isEmpty() -> BgDexoptStatus.Idle
+                else -> observed
+            }
         syncHold(running = status is BgDexoptStatus.Running, startedAtMs = (status as? BgDexoptStatus.Running)?.startedAtMs ?: 0L)
         if (pending.isNotEmpty()) {
             val settled =
@@ -1424,7 +1452,7 @@ class ToolkitActions internal constructor(
         now: Long? = null,
     ): Int {
         val ended = now ?: nowMs()
-        val rows = audit.pending().filter { it.kind == KIND_DEXOPT }
+        val rows = audit.pending().filter { it.kind == KIND_DEXOPT && it.id !in dexoptStartsInFlight }
         for (row in rows) {
             audit.update(row.copy(status = status, endedAt = ended, code = code, afterRaw = afterRaw))
         }
@@ -1433,7 +1461,7 @@ class ToolkitActions internal constructor(
 
     private suspend fun supersedeOtherDexoptRows(keepId: Long) {
         val ended = nowMs()
-        for (row in audit.pending().filter { it.kind == KIND_DEXOPT && it.id != keepId }) {
+        for (row in audit.pending().filter { it.kind == KIND_DEXOPT && it.id != keepId && it.id !in dexoptStartsInFlight }) {
             audit.update(row.copy(status = ToolkitActionStatus.CANCELLED, endedAt = ended, afterRaw = "superseded"))
         }
     }
