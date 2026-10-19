@@ -61,6 +61,7 @@ import com.akane.inspiration.designsystem.component.format.rememberTelemetryForm
 import com.akane.inspiration.designsystem.theme.telemetryColors
 import com.akane.inspiration.designsystem.theme.withTabularFigures
 import java.time.Instant
+import java.time.LocalDate
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import java.util.Locale
@@ -100,7 +101,8 @@ private const val DURATION_COLUMN_FRACTION = 0.28f
  */
 private const val MAX_CHART_FONT_SCALE = 1.2f
 private const val MIN_VISIBLE_PX = 2f
-private const val TWO_DAYS_MS = 2 * 24 * 60 * 60_000L
+private const val DAY_MS = 24 * 60 * 60_000L
+private const val TWO_DAYS_MS = 2 * DAY_MS
 
 /**
  * Sleep-stage hypnogram: one row per [HypnogramStage] (Awake on top, Deep idle at the bottom), segments
@@ -178,7 +180,7 @@ fun SleepHypnogram(
     val selectionDescription =
         remember(selection, data.window, zone, locale, resources, format) {
             selection?.let {
-                val formatter = clockFormatter(data.window, locale)
+                val formatter = clockFormatter(data.window, zone, locale)
                 resources.getString(
                     R.string.chart_a11y_selection,
                     formatClock(formatter, it.startMs, zone),
@@ -470,11 +472,23 @@ private fun DrawScope.drawHypnogramOverlay(
     }
 }
 
-/** A11y clock labels in [locale]: date and time for a window of two days or more, else the time. */
+/**
+ * A11y clock labels in [locale]: date and time whenever the window's ends fall on different local dates in [zone] (or
+ * it spans a day or more), else the time. A threshold on the length alone read a 26 h window as "08:00 to 10:00".
+ */
 internal fun clockFormatter(
     window: TimeRange,
+    zone: ZoneId,
     locale: Locale,
-): DateTimeFormatter = DateTimeFormatter.ofPattern(if (window.durationMs >= TWO_DAYS_MS) "d MMM HH:mm" else "HH:mm", locale)
+): DateTimeFormatter {
+    val withDate = window.durationMs >= DAY_MS || localDate(window.startMs, zone) != localDate(window.endMs, zone)
+    return DateTimeFormatter.ofPattern(if (withDate) "d MMM HH:mm" else "HH:mm", locale)
+}
+
+private fun localDate(
+    tMs: Long,
+    zone: ZoneId,
+): LocalDate = Instant.ofEpochMilli(tMs).atZone(zone).toLocalDate()
 
 /**
  * Axis tick label in [locale], chosen from the tick step rather than the window length: day-step ticks show the
@@ -506,7 +520,7 @@ private fun describe(
     stageNames: List<String>,
     durationTexts: List<String>,
 ): String {
-    val formatter = clockFormatter(window, locale)
+    val formatter = clockFormatter(window, zone, locale)
     val span =
         resources.getString(
             R.string.chart_a11y_window,
