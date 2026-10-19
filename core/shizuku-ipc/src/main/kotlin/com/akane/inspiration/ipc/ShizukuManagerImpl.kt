@@ -78,9 +78,9 @@ class ShizukuManagerImpl private constructor(
      * issued before that death would share the stub: the old death would then disconnect the new binding
      * and swallow its connect (SQ-114). Binds are deferred until the death (or [UNBIND_SETTLE_TIMEOUT_MS]).
      * Every death that drops a binding also sets it until Shizuku has cleaned the dying stub up
-     * ([settleAfterStubCleanupLocked]).
+     * ([settleAfterStubCleanupLocked]). A daemon death or transport loss clears it.
      */
-    private var awaitingUnboundDeath = false
+    private var stubCleanupFence = false
 
     /**
      * Set when [UNBIND_SETTLE_TIMEOUT_MS] bound before the unbound process's death arrived. The new binding
@@ -108,7 +108,7 @@ class ShizukuManagerImpl private constructor(
             ) {
                 synchronized(bindingLock) {
                     // A late connect from a binding already unbound must not resurrect a dying service.
-                    if (serviceBound && !awaitingUnboundDeath) {
+                    if (serviceBound && !stubCleanupFence) {
                         mutableTelemetryService.value = ITelemetryUserService.Stub.asInterface(service)
                         linkServiceDeathLocked(service)
                     }
@@ -117,7 +117,7 @@ class ShizukuManagerImpl private constructor(
 
             override fun onServiceDisconnected(name: ComponentName) {
                 synchronized(bindingLock) {
-                    if (awaitingUnboundDeath) {
+                    if (stubCleanupFence) {
                         settleAfterStubCleanupLocked()
                         return
                     }
@@ -144,21 +144,13 @@ class ShizukuManagerImpl private constructor(
             updateState()
         }
 
+    /**
+     * The daemon's death is transport loss: it also drops [applicationInfo], so neither a holder nor a later
+     * service-death settle binds against the dead daemon before a new binder brings Ready.
+     */
     private val binderDeadListener =
         Shizuku.OnBinderDeadListener {
-            synchronized(bindingLock) {
-                serviceBound = false
-                serviceGeneration += 1
-                serviceArgs = null
-                awaitingUnboundDeath = false
-                unboundDeathOwed = false
-                settleTimeout?.cancel()
-                settleTimeout = null
-                idleUnbind?.cancel()
-                idleUnbind = null
-                mutableTelemetryService.value = null
-                mutableState.value = ShizukuState.NotRunning
-            }
+            synchronized(bindingLock) { transportLostLocked() }
         }
 
     /**
@@ -378,11 +370,11 @@ class ShizukuManagerImpl private constructor(
      * Fences binds until Shizuku has cleaned up the connection stub whose death dropped the binding. Shizuku
      * 13.1.5's died() calls onServiceDisconnected, then clears the stub's connections and evicts it, in one Main
      * message; a bind before that would join the dying stub, and its connect would reach nobody (SQ-114, N-11).
-     * Non-immediate Main dispatch is the ordering fence, so [awaitingUnboundDeath] stays set until this post runs.
+     * Non-immediate Main dispatch is the ordering fence, so [stubCleanupFence] stays set until this post runs.
      * The settle then rebinds if users or holders remain.
      */
     private fun settleAfterStubCleanupLocked() {
-        awaitingUnboundDeath = true
+        stubCleanupFence = true
         settleTimeout?.cancel()
         settleTimeout =
             scope.launch(Dispatchers.Main) {
@@ -390,13 +382,13 @@ class ShizukuManagerImpl private constructor(
                     // A cancelled timeout/settle may already be waiting for this lock.
                     if (settleTimeout !== coroutineContext.job) return@launch
                     settleTimeout = null
-                    if (awaitingUnboundDeath) finishUnbindSettleLocked()
+                    if (stubCleanupFence) finishUnbindSettleLocked()
                 }
             }
     }
 
     private fun finishUnbindSettleLocked(byTimeout: Boolean = false) {
-        awaitingUnboundDeath = false
+        stubCleanupFence = false
         unboundDeathOwed = byTimeout
         settleTimeout?.cancel()
         settleTimeout = null
@@ -468,7 +460,7 @@ class ShizukuManagerImpl private constructor(
         serviceBound = false
         serviceArgs = null
         serviceGeneration += 1
-        awaitingUnboundDeath = false
+        stubCleanupFence = false
         unboundDeathOwed = false
         settleTimeout?.cancel()
         settleTimeout = null
@@ -486,7 +478,7 @@ class ShizukuManagerImpl private constructor(
         }
         idleUnbind?.cancel()
         idleUnbind = null
-        if (serviceBound || awaitingUnboundDeath) {
+        if (serviceBound || stubCleanupFence) {
             return
         }
         val args =
@@ -514,7 +506,7 @@ class ShizukuManagerImpl private constructor(
                 transportLostLocked()
                 return
             }
-            awaitingUnboundDeath = true
+            stubCleanupFence = true
             // Any owed death now arrives as the awaited one: the shared stub's died() fires once for both.
             unboundDeathOwed = false
             settleTimeout?.cancel()
@@ -524,7 +516,7 @@ class ShizukuManagerImpl private constructor(
                     synchronized(bindingLock) {
                         if (settleTimeout !== coroutineContext.job) return@launch
                         settleTimeout = null
-                        if (awaitingUnboundDeath) finishUnbindSettleLocked(byTimeout = true)
+                        if (stubCleanupFence) finishUnbindSettleLocked(byTimeout = true)
                     }
                 }
         }

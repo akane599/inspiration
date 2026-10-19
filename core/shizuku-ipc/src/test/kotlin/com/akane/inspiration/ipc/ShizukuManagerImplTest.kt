@@ -993,6 +993,65 @@ class ShizukuManagerImplTest {
         }
 
     @Test
+    fun stopDuringAnUnexpectedDeathsFenceDoesNotRebind() =
+        runTest {
+            val fixture = Fixture(this)
+            fixture.manager.start()
+            val holder = fixture.manager.holdBinding()
+            fixture.facade.deliverServiceConnected(LiveBinder())
+
+            fixture.facade.deliverServiceDied()
+            fixture.manager.stop()
+            advanceUntilIdle()
+
+            assertEquals("stop() leaves the service unbound", 1, fixture.facade.bindCalls)
+            assertNull(fixture.manager.telemetryService.value)
+            holder.close()
+        }
+
+    @Test
+    fun aDaemonDeathDuringAnUnexpectedDeathsFenceClearsItWithoutRebinding() =
+        runTest {
+            val fixture = Fixture(this)
+            fixture.manager.start()
+            val holder = fixture.manager.holdBinding()
+            fixture.facade.deliverServiceConnected(LiveBinder())
+
+            fixture.facade.deliverServiceDied()
+            fixture.facade.binderAlive = false
+            fixture.facade.deliverBinderDeath()
+            advanceUntilIdle()
+            assertEquals("no bind against a dead daemon", 1, fixture.facade.bindCalls)
+            assertSame(ShizukuState.NotRunning, fixture.manager.state.value)
+
+            fixture.facade.binderAlive = true
+            fixture.facade.deliverBinderReceived() // Shizuku is back
+            assertEquals("the cleared fence lets the holder bind at once", 2, fixture.facade.bindCalls)
+            fixture.facade.deliverServiceConnected(LiveBinder())
+            assertNotNull(fixture.manager.telemetryService.value)
+            holder.close()
+            advanceUntilIdle()
+        }
+
+    @Test
+    fun aServiceDeathHandledAfterTheDaemonDiedDoesNotBindAgainstTheDeadDaemon() =
+        runTest {
+            val fixture = Fixture(this)
+            fixture.manager.start()
+            val holder = fixture.manager.holdBinding()
+            fixture.facade.deliverServiceConnected(LiveBinder())
+
+            fixture.facade.binderAlive = false
+            fixture.facade.deliverBinderDeath()
+            fixture.facade.deliverServiceDied() // the user service's own death notice comes after the daemon's
+            advanceUntilIdle()
+
+            assertEquals("the settle must not bind while Shizuku is not running", 1, fixture.facade.bindCalls)
+            assertSame(ShizukuState.NotRunning, fixture.manager.state.value)
+            holder.close()
+        }
+
+    @Test
     fun realShizukuSpentStubAfterAFallbackBindStillLetsTheManagerRecover() =
         runTest {
             val main = CallbackMainDispatcher(StandardTestDispatcher(testScheduler))
