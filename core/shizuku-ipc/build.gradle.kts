@@ -1,6 +1,6 @@
 plugins {
     id("inspiration.android.library")
-    id("org.jetbrains.kotlin.plugin.parcelize")
+    alias(libs.plugins.kotlin.parcelize)
 }
 
 android {
@@ -18,6 +18,8 @@ android {
 
 dependencies {
     implementation(libs.shizuku.api)
+    // api, not implementation, on purpose (SQ-109; reviewed in audit §3): only the app manifest names
+    // ShizukuProvider, and :app lint must resolve that class through this module.
     api(libs.shizuku.provider)
     compileOnly(libs.androidx.annotation)
     implementation(libs.kotlinx.coroutines.core)

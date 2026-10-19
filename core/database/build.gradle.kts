@@ -15,7 +15,6 @@ room {
 dependencies {
     implementation(project(":core:telemetry-engine"))
     implementation(libs.room.runtime)
-    implementation(libs.room.ktx)
     ksp(libs.room.compiler)
 
     testImplementation(libs.junit)
