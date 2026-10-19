@@ -11,6 +11,9 @@ import com.akane.inspiration.telemetry.store.Marker
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.awaitCancellation
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.TestScope
@@ -111,6 +114,109 @@ class CockpitViewModelTest {
             assertEquals(1, deps.bindingsClosed)
             vm.onIntent(CockpitIntent.Hidden)
             assertEquals(2, deps.bindingsClosed)
+        }
+
+    @Test
+    fun `a source that stops emitting returns the gauge to dashes`() =
+        runTest(dispatcher) {
+            deps.liveFlow =
+                flow {
+                    emit(liveReading())
+                    awaitCancellation()
+                }
+            val vm = viewModel()
+            vm.onIntent(CockpitIntent.Visible)
+            try {
+                runCurrent()
+                assertNotNull(vm.state.value.live)
+
+                advanceTimeBy(LIVE_STALE_MS - 1)
+                runCurrent()
+                assertNotNull("still within the staleness window", vm.state.value.live)
+
+                advanceTimeBy(2)
+                runCurrent()
+                assertNull("a reading with no successor is not live", vm.state.value.live)
+            } finally {
+                vm.onIntent(CockpitIntent.Hidden)
+            }
+        }
+
+    @Test
+    fun `a single missed reading does not flash dashes`() =
+        runTest(dispatcher) {
+            deps.liveFlow =
+                flow {
+                    emit(liveReading(currentMa = -300))
+                    // One read failed (and took the bind timeout): the next success comes two periods plus 5 s later.
+                    delay(2 * LIVE_PERIOD_MS + 5_000)
+                    emit(liveReading(currentMa = -310))
+                    awaitCancellation()
+                }
+            val vm = viewModel()
+            vm.onIntent(CockpitIntent.Visible)
+            try {
+                runCurrent()
+                repeat(10) {
+                    advanceTimeBy(800)
+                    runCurrent()
+                    assertNotNull("dashes at ${(it + 1) * 800} ms", vm.state.value.live)
+                }
+                assertEquals(
+                    -310,
+                    vm.state.value.live
+                        ?.currentMa,
+                )
+            } finally {
+                vm.onIntent(CockpitIntent.Hidden)
+            }
+        }
+
+    @Test
+    fun `a failing live source returns the gauge to dashes without taking the screen down`() =
+        runTest(dispatcher) {
+            val failure = CompletableDeferred<Unit>()
+            deps.liveFlow =
+                flow {
+                    emit(liveReading())
+                    failure.await()
+                    throw IllegalStateException("binder died")
+                }
+            val vm = viewModel()
+            vm.onIntent(CockpitIntent.Visible)
+            try {
+                runCurrent()
+                assertNotNull(vm.state.value.live)
+
+                failure.complete(Unit)
+                runCurrent()
+
+                assertNull(vm.state.value.live)
+            } finally {
+                vm.onIntent(CockpitIntent.Hidden)
+            }
+        }
+
+    @Test
+    fun `shizuku leaving ready clears the gauge`() =
+        runTest(dispatcher) {
+            val vm = viewModel()
+            vm.onIntent(CockpitIntent.Visible)
+            try {
+                runCurrent()
+                assertNotNull(vm.state.value.live)
+
+                deps.shizukuState.value = ShizukuState.NotRunning
+                runCurrent()
+                assertNull(vm.state.value.live)
+
+                // A read that finishes after Shizuku went away is not shown as live either.
+                advanceTimeBy(LIVE_PERIOD_MS)
+                runCurrent()
+                assertNull(vm.state.value.live)
+            } finally {
+                vm.onIntent(CockpitIntent.Hidden)
+            }
         }
 
     @Test

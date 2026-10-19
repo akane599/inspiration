@@ -8,6 +8,7 @@ import androidx.lifecycle.viewmodel.viewModelFactory
 import com.akane.inspiration.designsystem.chart.model.TimeRange
 import com.akane.inspiration.diagnostics.analysis.AnalysisState
 import com.akane.inspiration.diagnostics.analysis.forSelection
+import com.akane.inspiration.ipc.ShizukuState
 import com.akane.inspiration.telemetry.app.RefreshResult
 import com.akane.inspiration.telemetry.app.attempt
 import com.akane.inspiration.telemetry.diff.ReferenceKind
@@ -17,11 +18,13 @@ import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.catch
+import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.flow.update
@@ -30,6 +33,12 @@ import kotlinx.coroutines.withContext
 
 /** Period of the live gauge while the Cockpit is on screen (spec: every 1.5 s, never otherwise). */
 internal const val LIVE_PERIOD_MS = 1_500L
+
+/**
+ * How long the gauge keeps a reading with no newer one: three periods plus the service bind timeout (5 s) a single
+ * failed read may take, so one transient miss never flashes dashes while stopped reads clear within ~10 s.
+ */
+internal const val LIVE_STALE_MS = 3 * LIVE_PERIOD_MS + 5_000L
 
 /** The chart always shows the last day; a committed brush selects inside it. */
 internal const val CHART_WINDOW_MS = 24L * 3_600_000
@@ -83,6 +92,8 @@ class CockpitViewModel(
                     it.copy(
                         reference = referenceUi(kind),
                         shizuku = shizukuUi(shizuku),
+                        // Without Shizuku there are no live reads, so the last one must not stay on the gauge.
+                        live = if (shizuku is ShizukuState.Ready) it.live else null,
                         analysis = analysisUi(analysis),
                         slice = sliceUi(kind, analysis),
                         markerSheet = it.markerSheet?.copy(selectedId = markerId),
@@ -116,8 +127,16 @@ class CockpitViewModel(
             viewModelScope.launch {
                 deps
                     .liveReadings(LIVE_PERIOD_MS)
-                    .catch { /* A failed live read leaves the gauge on dashes; it must not take the screen down. */ }
-                    .collect { reading -> if (visible) onReading(reading) }
+                    // A failed live read ends the readings: back to dashes, without taking the screen down.
+                    .catch { clearLive() }
+                    .collectLatest { reading ->
+                        if (!visible) return@collectLatest
+                        onReading(reading)
+                        // The source emits only successful reads, so silence means the reads stopped (service
+                        // gone, every read failing): once no newer reading arrives in time, this one is not live.
+                        delay(LIVE_STALE_MS)
+                        clearLive()
+                    }
             }
         startRefresh(userInitiated = false)
     }
@@ -138,7 +157,13 @@ class CockpitViewModel(
         held?.close()
     }
 
+    private fun clearLive() {
+        _state.update { it.copy(live = null) }
+    }
+
     private fun onReading(reading: LiveReading) {
+        // Live reads go through the Shizuku service; one finishing as Shizuku went away is not shown as live.
+        if (deps.shizukuState.value !is ShizukuState.Ready) return
         val estimate =
             systemEstimate
                 ?.takeIf { reading.wallMs - it.wallMs <= SYSTEM_ESTIMATE_MAX_AGE_MS }

@@ -98,8 +98,11 @@ internal class FakeCockpitDeps(
         permissionRequests++
     }
 
+    /** When set, the live readings come from this flow instead of a reading every period. */
+    var liveFlow: Flow<LiveReading>? = null
+
     override fun liveReadings(periodMs: Long): Flow<LiveReading> =
-        flow {
+        liveFlow ?: flow {
             liveCollections++
             requestedPeriodMs = periodMs
             while (true) {
