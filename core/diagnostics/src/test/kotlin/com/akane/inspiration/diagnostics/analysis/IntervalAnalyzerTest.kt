@@ -167,4 +167,30 @@ class IntervalAnalyzerTest {
             assertEquals(2 * hour, analysis.metrics.screenOffMs)
             assertEquals(6 * hour, analysis.metrics.unknownMs)
         }
+
+    private suspend fun analyzeWithLightEndAfterIngest(tailMs: Long): IntervalAnalysis {
+        val end = lightSnapshot(wallMs = 3 * hour + tailMs, level = 88, trigger = CaptureTrigger.SCREEN_ON)
+        return IntervalAnalyzer(staleHistoryStore(end), ruleEngine())
+            .analyze(ReferenceKind.SinceUnplugged, nowWallMs = 3 * hour + tailMs)!!
+    }
+
+    @Test
+    fun `a screen broadcast 90 s after the last ingest keeps the summary`() =
+        runTest {
+            val analysis = analyzeWithLightEndAfterIngest(90_000L)
+
+            assertEquals(0L, analysis.metrics.unknownMs)
+            assertEquals(2 * hour + 90_000L, analysis.metrics.screenOffMs)
+            assertTrue(analysis.story.sentences.any { it is StorySentence.Summary })
+        }
+
+    @Test
+    fun `a 10 min tail past the last ingest is unknown in full and drops the summary`() =
+        runTest {
+            val analysis = analyzeWithLightEndAfterIngest(10 * 60_000L)
+
+            assertEquals(10 * 60_000L, analysis.metrics.unknownMs)
+            assertEquals(2 * hour, analysis.metrics.screenOffMs)
+            assertTrue(analysis.story.sentences.none { it is StorySentence.Summary })
+        }
 }

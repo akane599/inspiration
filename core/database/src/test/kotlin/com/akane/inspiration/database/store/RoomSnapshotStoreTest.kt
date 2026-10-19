@@ -419,6 +419,25 @@ class RoomSnapshotStoreTest {
         }
 
     @Test
+    fun `history horizon is the newest full capture whose history read was complete`() =
+        runBlocking {
+            assertEquals(null, store.historyHorizonWallMs())
+            val complete = mapOf("history" to SourceAvailability(true, null))
+            store.insert(fullSnapshot(wallMs = 1_000L, availability = complete))
+            assertEquals(1_000L, store.historyHorizonWallMs())
+
+            // Newer rows that did not complete a history read leave the horizon where it was.
+            store.insert(fullSnapshot(wallMs = 2_000L, availability = mapOf("history" to SourceAvailability(true, "remote"))))
+            store.insert(fullSnapshot(wallMs = 3_000L, availability = mapOf("history" to SourceAvailability(false, null))))
+            store.insert(fullSnapshot(wallMs = 4_000L, availability = mapOf("usage" to SourceAvailability(true, null))))
+            store.insert(fullSnapshot(kind = SnapshotKind.LIGHT, wallMs = 5_000L, availability = complete))
+            assertEquals(1_000L, store.historyHorizonWallMs())
+
+            store.insert(fullSnapshot(trigger = CaptureTrigger.CHARGE_JOB, wallMs = 6_000L, availability = complete))
+            assertEquals(6_000L, store.historyHorizonWallMs())
+        }
+
+    @Test
     fun `lookup methods honor filters and ordering`() =
         runBlocking {
             val old = store.insert(fullSnapshot(wallMs = 1_000L, statsStartMs = 10L, bootCount = 1))

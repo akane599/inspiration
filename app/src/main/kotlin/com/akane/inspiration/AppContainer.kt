@@ -52,7 +52,6 @@ import com.akane.inspiration.telemetry.store.HealthSample
 import com.akane.inspiration.telemetry.store.Marker
 import com.akane.inspiration.telemetry.store.SnapshotStore
 import com.akane.inspiration.telemetry.store.TelemetrySample
-import com.akane.inspiration.telemetry.store.historyHorizonWallMs
 import com.akane.inspiration.telemetry.store.pruneRetention
 import com.akane.inspiration.telemetry.toolkit.ToolkitActions
 import com.akane.inspiration.telemetry.toolkit.ToolkitGateway

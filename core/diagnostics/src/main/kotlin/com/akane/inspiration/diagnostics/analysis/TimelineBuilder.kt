@@ -2,6 +2,8 @@ package com.akane.inspiration.diagnostics.analysis
 
 import com.akane.inspiration.ipc.model.HistoryEvent
 import com.akane.inspiration.ipc.model.HistoryKind
+import com.akane.inspiration.telemetry.store.HISTORY_HORIZON_GRACE_MS
+import com.akane.inspiration.telemetry.store.knownStateEndWallMs
 
 /**
  * Turns battery-history events into a [Timeline]. Pure: no Android types, no clock, no I/O.
@@ -32,7 +34,8 @@ object TimelineBuilder {
     /**
      * [historyHorizonMs] is the wall time up to which the stored history is known to be complete (the last
      * successful ingest). Open lanes close there, or at the newest event when that is later, so the stale last
-     * state is not drawn on to [to]; the window past it stays empty. The default, [to], keeps every lane open to it.
+     * state is not drawn on to [to]; the window past it stays empty. A gap of at most [HISTORY_HORIZON_GRACE_MS]
+     * before [to] still keeps lanes open to [to]. The default, [to], keeps every lane open to it.
      */
     fun build(
         events: List<HistoryEvent>,
@@ -42,7 +45,8 @@ object TimelineBuilder {
     ): Timeline {
         if (to < from) return Timeline(emptyList(), emptyList(), emptyList(), emptyList(), from, to)
         val ordered = events.filter { it.wallMs in 0..to }.sortedBy { it.wallMs }
-        val laneEnd = maxOf(historyHorizonMs.coerceIn(from, to), ordered.lastOrNull()?.wallMs ?: from)
+        val knownTo = maxOf(historyHorizonMs, ordered.lastOrNull()?.wallMs ?: Long.MIN_VALUE)
+        val laneEnd = knownStateEndWallMs(knownTo, to).coerceIn(from, to)
         val spans = Spans.scan(ordered, laneEnd)
         // A set, so sorting the remaining gaps into AWAKE is one lookup per gap; it keeps the gaps' time order.
         val maintenance = spans.gaps.filterTo(LinkedHashSet()) { it.isMaintenance(spans) }

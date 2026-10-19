@@ -13,7 +13,6 @@ import com.akane.inspiration.telemetry.interval.IntervalMetrics
 import com.akane.inspiration.telemetry.interval.IntervalMetricsCalculator
 import com.akane.inspiration.telemetry.snapshot.SnapshotDiff
 import com.akane.inspiration.telemetry.store.SnapshotStore
-import com.akane.inspiration.telemetry.store.historyHorizonWallMs
 import com.akane.inspiration.telemetry.store.ingestedHistory
 
 /** Everything one interval produces: the resolved snapshot pair, its diff, metrics, rule report and story. */

@@ -8,6 +8,23 @@ import com.akane.inspiration.telemetry.snapshot.SnapshotKind
 const val HISTORY_SOURCE = "history"
 
 /**
+ * How far past the history horizon the last known state is still trusted. Screen broadcasts store LIGHT snapshots
+ * (no history ingest) and the app-open refresh is debounced for 60 s, so an interval often ends seconds after the
+ * last ingest; that is not stale extrapolation. Two minutes is the debounce plus slack. A longer gap counts as
+ * unknown from the horizon itself, not from the end of this grace.
+ */
+const val HISTORY_HORIZON_GRACE_MS = 2 * 60_000L
+
+/**
+ * Where the last known state ends for a window ending at [toWallMs] whose history is known up to [knownToWallMs]:
+ * [toWallMs] when the gap is within [HISTORY_HORIZON_GRACE_MS], else [knownToWallMs].
+ */
+fun knownStateEndWallMs(
+    knownToWallMs: Long,
+    toWallMs: Long,
+): Long = if (toWallMs - knownToWallMs <= HISTORY_HORIZON_GRACE_MS) toWallMs else knownToWallMs
+
+/**
  * The captures whose full read pages the battery history into the store (`ingestHistory = true`). Broadcast full
  * captures read no history and record it unavailable, so only these can mark the history horizon.
  */
@@ -22,13 +39,8 @@ fun BatterySnapshot.ingestedHistory(): Boolean =
     kind == SnapshotKind.FULL &&
         availability[HISTORY_SOURCE]?.let { it.available && it.reason == null } == true
 
-/**
- * The wall time up to which the stored battery history is known to be complete: the newest capture that
- * [ingestedHistory], null when none is stored. A conservative bound (the ingest itself ran just after it), derived
- * from the persisted availability rows, so no extra state is written. The newest FULL snapshot answers it in one
- * read when it ingested; otherwise the newest capture of each ingesting trigger is checked.
- */
-suspend fun SnapshotStore.historyHorizonWallMs(): Long? {
+/** The default of [SnapshotStore.historyHorizonWallMs], from full snapshot reads (for fakes). */
+internal suspend fun SnapshotStore.scanHistoryHorizonWallMs(): Long? {
     latest(SnapshotKind.FULL)?.takeIf { it.ingestedHistory() }?.let { return it.clock.wallMs }
     return historyIngestTriggers
         .mapNotNull { trigger -> latestByTrigger(trigger)?.takeIf { it.ingestedHistory() }?.clock?.wallMs }

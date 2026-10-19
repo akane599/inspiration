@@ -40,6 +40,7 @@ import com.akane.inspiration.telemetry.snapshot.UidIdentityScope
 import com.akane.inspiration.telemetry.snapshot.UidOwnerFingerprint
 import com.akane.inspiration.telemetry.snapshot.UidSnapshot
 import com.akane.inspiration.telemetry.store.ChargeSessionRecord
+import com.akane.inspiration.telemetry.store.HISTORY_SOURCE
 import com.akane.inspiration.telemetry.store.HealthSample
 import com.akane.inspiration.telemetry.store.Marker
 import com.akane.inspiration.telemetry.store.SnapshotStore
@@ -164,6 +165,9 @@ class RoomSnapshotStore(
 
     override suspend fun lastHistoryOfEachKindBefore(wallMs: Long): List<HistoryEvent> =
         database.historyDao().lastOfEachKindBefore(wallMs).map { it.toDomain() }
+
+    override suspend fun historyHorizonWallMs(): Long? =
+        database.snapshotDao().newestWallMsWithCompleteSource(SnapshotKind.FULL.name, HISTORY_SOURCE)
 
     override suspend fun historyCursor(): Pair<Long, Long>? =
         database.historyDao().cursor()?.let {

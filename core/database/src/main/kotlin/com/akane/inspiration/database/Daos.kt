@@ -177,6 +177,19 @@ interface SnapshotDao {
     @Query("SELECT * FROM snapshot_availability WHERE snapshotId = :snapshotId ORDER BY source")
     suspend fun availabilityForSnapshot(snapshotId: Long): List<SnapshotAvailabilityEntity>
 
+    /** The newest wall time of a [kind] snapshot whose [source] read was available with no reason; null if none. */
+    @Query(
+        """
+        SELECT MAX(s.wallMs) FROM snapshot AS s
+        JOIN snapshot_availability AS a ON a.snapshotId = s.id
+        WHERE s.kind = :kind AND a.source = :source AND a.available = 1 AND a.reason IS NULL
+        """,
+    )
+    suspend fun newestWallMsWithCompleteSource(
+        kind: String,
+        source: String,
+    ): Long?
+
     @Query("SELECT * FROM snapshot_uid WHERE snapshotId = :snapshotId ORDER BY uid")
     suspend fun uidsForSnapshot(snapshotId: Long): List<SnapshotUidEntity>
 

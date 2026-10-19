@@ -2,6 +2,7 @@ package com.akane.inspiration.telemetry.interval
 
 import com.akane.inspiration.ipc.model.HistoryEvent
 import com.akane.inspiration.ipc.model.HistoryKind
+import com.akane.inspiration.telemetry.store.HISTORY_HORIZON_GRACE_MS
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
@@ -324,6 +325,21 @@ class IntervalMetricsCalculatorTest {
         assertEquals(minutes(100), metrics.unknownMs)
         assertEquals(0L, metrics.screenOffMs)
         assertNull(metrics.screenOffPctPerHour)
+    }
+
+    @Test
+    fun `a gap within the grace carries the last state and a longer one is unknown from the horizon`() {
+        val horizon = minutes(120)
+        val withinGrace =
+            IntervalMetricsCalculator.compute(staleTail, 0, horizon + HISTORY_HORIZON_GRACE_MS, historyHorizonWallMs = horizon)
+        assertEquals(0L, withinGrace.unknownMs)
+        assertEquals(horizon + HISTORY_HORIZON_GRACE_MS, withinGrace.screenOffMs)
+
+        val pastGrace =
+            IntervalMetricsCalculator.compute(staleTail, 0, horizon + HISTORY_HORIZON_GRACE_MS + 1, historyHorizonWallMs = horizon)
+        assertEquals(HISTORY_HORIZON_GRACE_MS + 1, pastGrace.unknownMs)
+        assertEquals(horizon, pastGrace.screenOffMs)
+        assertEquals(2 * 60_000L, HISTORY_HORIZON_GRACE_MS)
     }
 
     private fun minutes(value: Long): Long = value * 60_000L

@@ -8,6 +8,7 @@ import com.akane.inspiration.diagnostics.analysis.SegmentKind.MAINTENANCE
 import com.akane.inspiration.diagnostics.analysis.SegmentKind.SCREEN_ON
 import com.akane.inspiration.ipc.model.HistoryEvent
 import com.akane.inspiration.ipc.model.HistoryKind
+import com.akane.inspiration.telemetry.store.HISTORY_HORIZON_GRACE_MS
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -405,6 +406,18 @@ class TimelineBuilderTest {
         val timeline = TimelineBuilder.build(events, base, base + 120 * min, historyHorizonMs = base + 60 * min)
 
         assertEquals(listOf(seg(AWAKE, 10 * min, 60 * min)), timeline.of(AWAKE))
+    }
+
+    @Test
+    fun `lanes stay open to the window end within the horizon grace and close at the horizon past it`() {
+        val events = listOf(at(10 * min, HistoryKind.PLUGGED))
+        val horizon = base + 40 * min
+
+        val within = TimelineBuilder.build(events, base, horizon + HISTORY_HORIZON_GRACE_MS, historyHorizonMs = horizon)
+        assertEquals(listOf(TimelineSegment(CHARGING, base + 10 * min, horizon + HISTORY_HORIZON_GRACE_MS)), within.segments)
+
+        val past = TimelineBuilder.build(events, base, horizon + 10 * min, historyHorizonMs = horizon)
+        assertEquals(listOf(seg(CHARGING, 10 * min, 40 * min)), past.segments)
     }
 
     @Test

@@ -2,6 +2,8 @@ package com.akane.inspiration.telemetry.interval
 
 import com.akane.inspiration.ipc.model.HistoryEvent
 import com.akane.inspiration.ipc.model.HistoryKind
+import com.akane.inspiration.telemetry.store.HISTORY_HORIZON_GRACE_MS
+import com.akane.inspiration.telemetry.store.knownStateEndWallMs
 
 /**
  * Screen/charging time split and attributed level drops over `(fromWallMs, toWallMs]`
@@ -38,8 +40,9 @@ object IntervalMetricsCalculator {
      *
      * [historyHorizonWallMs] is the wall time up to which the stored history is known to be complete
      * (the last successful ingest). The last known state is carried only up to it, or to the newest event
-     * when that is later; the rest of the interval is [IntervalMetrics.unknownMs]. The default, `toWallMs`,
-     * and any horizon at or after it carry the last state to [toWallMs].
+     * when that is later; the rest of the interval is [IntervalMetrics.unknownMs]. A gap of at most
+     * [HISTORY_HORIZON_GRACE_MS] before [toWallMs] still carries the last state; a longer one is unknown from
+     * the horizon on. The default, `toWallMs`, and any horizon at or after it carry the last state to [toWallMs].
      */
     fun compute(
         events: List<HistoryEvent>,
@@ -49,19 +52,23 @@ object IntervalMetricsCalculator {
     ): IntervalMetrics {
         require(toWallMs >= fromWallMs) { "to ($toWallMs) before from ($fromWallMs)" }
         // Stable sort: a LEVEL runs after the SCREEN/PLUG transitions that share its timestamp.
-        val ordered = events
-            .filter { it.wallMs <= toWallMs }
-            .sortedWith(compareBy<HistoryEvent> { it.wallMs }.thenBy { it.kind == HistoryKind.LEVEL })
+        val ordered =
+            events
+                .filter { it.wallMs <= toWallMs }
+                .sortedWith(compareBy<HistoryEvent> { it.wallMs }.thenBy { it.kind == HistoryKind.LEVEL })
         val walk = Walk(fromWallMs)
         ordered.forEach(walk::apply)
         if (ordered.isNotEmpty()) {
-            walk.advanceTo(maxOf(historyHorizonWallMs.coerceIn(fromWallMs, toWallMs), walk.cursorMs))
+            val knownTo = maxOf(historyHorizonWallMs, ordered.last().wallMs)
+            walk.advanceTo(knownStateEndWallMs(knownTo, toWallMs).coerceIn(walk.cursorMs, toWallMs))
             walk.advanceUnknownTo(toWallMs)
         }
         return walk.toMetrics(toWallMs)
     }
 
-    private class Walk(private val fromWallMs: Long) {
+    private class Walk(
+        private val fromWallMs: Long,
+    ) {
         var cursorMs = fromWallMs
             private set
         private var screenOn: Boolean? = null
@@ -81,17 +88,33 @@ object IntervalMetricsCalculator {
             val inside = event.wallMs > fromWallMs
             if (inside) advanceTo(event.wallMs)
             when (event.kind) {
-                HistoryKind.SCREEN_ON -> screenOn = true
-                HistoryKind.SCREEN_OFF -> screenOn = false
-                HistoryKind.PLUGGED -> plugged = true
-                HistoryKind.UNPLUGGED -> plugged = false
-                HistoryKind.LEVEL -> onLevel(event.levelPct, inside)
+                HistoryKind.SCREEN_ON -> {
+                    screenOn = true
+                }
+
+                HistoryKind.SCREEN_OFF -> {
+                    screenOn = false
+                }
+
+                HistoryKind.PLUGGED -> {
+                    plugged = true
+                }
+
+                HistoryKind.UNPLUGGED -> {
+                    plugged = false
+                }
+
+                HistoryKind.LEVEL -> {
+                    onLevel(event.levelPct, inside)
+                }
+
                 HistoryKind.SHUTDOWN -> {
                     screenOn = null
                     plugged = false
                     prevLevel = null
                     if (inside) discontinuities += event.wallMs
                 }
+
                 HistoryKind.RESET, HistoryKind.START -> {
                     if (event.kind == HistoryKind.START) screenOn = null
                     plugged = event.plugType != 0
@@ -106,7 +129,10 @@ object IntervalMetricsCalculator {
             endLevel = event.levelPct
         }
 
-        private fun onLevel(level: Int, inside: Boolean) {
+        private fun onLevel(
+            level: Int,
+            inside: Boolean,
+        ) {
             val previous = prevLevel
             prevLevel = level
             if (!inside || previous == null || level >= previous || plugged) return
@@ -134,24 +160,27 @@ object IntervalMetricsCalculator {
             cursorMs = wallMs
         }
 
-        fun toMetrics(toWallMs: Long) = IntervalMetrics(
-            fromWallMs = fromWallMs,
-            toWallMs = toWallMs,
-            screenOnMs = onMs,
-            screenOffMs = offMs,
-            unknownMs = unknownMs,
-            chargingMs = chargingMs,
-            startLevel = startLevel,
-            endLevel = endLevel,
-            levelUsedPct = dropOn + dropOff,
-            levelDropScreenOn = dropOn,
-            levelDropScreenOff = dropOff,
-            screenOnPctPerHour = rate(dropOn, onMs),
-            screenOffPctPerHour = rate(dropOff, offMs),
-            discontinuities = discontinuities,
-        )
+        fun toMetrics(toWallMs: Long) =
+            IntervalMetrics(
+                fromWallMs = fromWallMs,
+                toWallMs = toWallMs,
+                screenOnMs = onMs,
+                screenOffMs = offMs,
+                unknownMs = unknownMs,
+                chargingMs = chargingMs,
+                startLevel = startLevel,
+                endLevel = endLevel,
+                levelUsedPct = dropOn + dropOff,
+                levelDropScreenOn = dropOn,
+                levelDropScreenOff = dropOff,
+                screenOnPctPerHour = rate(dropOn, onMs),
+                screenOffPctPerHour = rate(dropOff, offMs),
+                discontinuities = discontinuities,
+            )
 
-        private fun rate(drop: Int, stateMs: Long): Double? =
-            if (stateMs >= MIN_RATE_WINDOW_MS) drop / (stateMs / HOUR_MS) else null
+        private fun rate(
+            drop: Int,
+            stateMs: Long,
+        ): Double? = if (stateMs >= MIN_RATE_WINDOW_MS) drop / (stateMs / HOUR_MS) else null
     }
 }

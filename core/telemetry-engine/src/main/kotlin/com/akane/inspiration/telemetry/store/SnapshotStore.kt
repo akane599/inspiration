@@ -89,6 +89,14 @@ interface SnapshotStore {
             .map { events -> events.maxBy { it.wallMs } }
             .sortedBy { it.wallMs }
 
+    /**
+     * The wall time up to which the stored battery history is known to be complete: the newest snapshot that
+     * [ingestedHistory] (FULL, history availability available with no reason), null when none is stored. A
+     * conservative bound, as the ingest itself ran just after that clock, derived from the persisted availability
+     * rows. The default reads full snapshots (for fakes); the Room store answers it in one query.
+     */
+    suspend fun historyHorizonWallMs(): Long? = scanHistoryHorizonWallMs()
+
     suspend fun historyCursor(): Pair<Long, Long>?
 
     suspend fun setHistoryCursor(
