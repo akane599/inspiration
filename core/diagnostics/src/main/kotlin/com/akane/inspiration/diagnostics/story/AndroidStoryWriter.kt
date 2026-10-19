@@ -1,5 +1,6 @@
 package com.akane.inspiration.diagnostics.story
 
+import android.annotation.SuppressLint
 import android.content.Context
 import android.content.res.Configuration
 import android.content.res.Resources
@@ -12,6 +13,9 @@ import kotlin.math.roundToLong
 /** Renders a [BatteryStory] as one paragraph from `res/values` (en) or `res/values-tr` (tr). */
 class AndroidStoryWriter(private val context: Context) {
 
+    // Callers pass the current UI locale (whose split is always installed) or English (the base values),
+    // and the app ships as an APK, so no language split can be missing.
+    @SuppressLint("AppBundleLocaleChanges")
     fun render(story: BatteryStory, locale: Locale): String {
         val config = Configuration(context.resources.configuration).apply { setLocale(locale) }
         val resources = context.createConfigurationContext(config).resources

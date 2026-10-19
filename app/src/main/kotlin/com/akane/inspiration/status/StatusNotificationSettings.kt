@@ -2,6 +2,7 @@ package com.akane.inspiration.status
 
 import android.content.Context
 import android.content.SharedPreferences
+import androidx.core.content.edit
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -18,7 +19,7 @@ class SharedPreferencesBooleanStore(private val prefs: SharedPreferences) : Bool
     override fun getBoolean(key: String, default: Boolean): Boolean = prefs.getBoolean(key, default)
 
     override fun putBoolean(key: String, value: Boolean) {
-        prefs.edit().putBoolean(key, value).apply()
+        prefs.edit { putBoolean(key, value) }
     }
 }
 
