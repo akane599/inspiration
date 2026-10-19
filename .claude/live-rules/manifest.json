@@ -46,6 +46,21 @@
       "include": []
     },
     {
+      "path": "rules/audit-reviewer-agent.md",
+      "hash": "0a74ec493e9d548620b4d41f91a2d91dc1b35c464670e3932f4295bda5fd9c20",
+      "description": "Blind-audit workers use the audit-reviewer agent",
+      "globs": [],
+      "dirs": [],
+      "prompt": [
+        "full-repo-audit",
+        "audit-remediate",
+        "/blind[- ]audit/i"
+      ],
+      "priority": 15,
+      "enabled": true,
+      "include": []
+    },
+    {
       "path": "rules/file-writes.md",
       "hash": "5606a7d43d93722852603b19f383babbd933ae5a1b11866530a6dd5a0e45e4ba",
       "description": "File writes go through Write/Edit",
