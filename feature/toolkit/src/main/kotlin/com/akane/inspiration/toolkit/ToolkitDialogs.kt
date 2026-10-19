@@ -73,13 +73,15 @@ fun ConfirmationPanel(
                 }
             }
             Row(
-                modifier = Modifier.fillMaxWidth().filterTouchesWhenObscured(),
+                modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(spacing.sm, Alignment.End),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
+                // Cancel stays outside the guard: an overlay can't do harm with it, and a dimmer mustn't trap the user here.
                 TextButton(onClick = onDismiss) { Text(stringResource(R.string.toolkit_confirm_cancel)) }
                 Button(
                     onClick = onConfirm,
+                    modifier = Modifier.filterTouchesWhenObscured(),
                     colors = if (destructive) {
                         ButtonDefaults.buttonColors(
                             containerColor = MaterialTheme.colorScheme.error,

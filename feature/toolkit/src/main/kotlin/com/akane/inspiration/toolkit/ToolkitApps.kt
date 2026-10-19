@@ -30,6 +30,8 @@ import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.rememberModalBottomSheetState
@@ -185,13 +187,30 @@ internal fun AppIcon(app: AppItem, loadIcon: AppIconLoader, modifier: Modifier =
 
 // ---- detail sheet --------------------------------------------------------------------------------
 
-/** The app sheet. Closing it (scrim, swipe, back) only closes it; nothing is applied by dismissing. */
+/**
+ * The app sheet. Closing it (scrim, swipe, back) only closes it; nothing is applied by dismissing. The sheet is
+ * a window of its own over the screen, so it shows the screen's snackbars (the blocked-touch notice among them).
+ */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-internal fun AppDetailSheet(detail: AppDetail, busy: Boolean, loadIcon: AppIconLoader, onIntent: (ToolkitIntent) -> Unit) {
+internal fun AppDetailSheet(
+    detail: AppDetail,
+    busy: Boolean,
+    loadIcon: AppIconLoader,
+    onIntent: (ToolkitIntent) -> Unit,
+    snackbarHostState: SnackbarHostState?,
+) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     ModalBottomSheet(onDismissRequest = { onIntent(ToolkitIntent.CloseApp) }, sheetState = sheetState) {
-        AppDetailContent(detail = detail, busy = busy, loadIcon = loadIcon, onIntent = onIntent)
+        Box {
+            AppDetailContent(detail = detail, busy = busy, loadIcon = loadIcon, onIntent = onIntent)
+            if (snackbarHostState != null) {
+                SnackbarHost(
+                    hostState = snackbarHostState,
+                    modifier = Modifier.align(Alignment.BottomCenter).padding(MaterialTheme.spacing.md),
+                )
+            }
+        }
     }
 }
 

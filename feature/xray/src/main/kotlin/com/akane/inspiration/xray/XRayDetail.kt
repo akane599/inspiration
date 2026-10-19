@@ -2,6 +2,7 @@ package com.akane.inspiration.xray
 
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
@@ -24,6 +25,8 @@ import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
@@ -58,13 +61,30 @@ import com.akane.inspiration.diagnostics.dictionary.EntryKind
 import com.akane.inspiration.ipc.toolkit.StandbyBucket
 import kotlinx.collections.immutable.toImmutableList
 
-/** The app detail sheet. Closing it (scrim, swipe, back) only closes it; nothing is applied by dismissing. */
+/**
+ * The app detail sheet. Closing it (scrim, swipe, back) only closes it; nothing is applied by dismissing. The sheet
+ * is a window of its own over the screen, so it shows the screen's snackbars (the blocked-touch notice among them).
+ */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-internal fun AppDetailSheet(detail: AppDetail, onIntent: (XRayIntent) -> Unit, explain: Explainer, loadIcon: AppIconLoader) {
+internal fun AppDetailSheet(
+    detail: AppDetail,
+    onIntent: (XRayIntent) -> Unit,
+    explain: Explainer,
+    loadIcon: AppIconLoader,
+    snackbarHostState: SnackbarHostState?,
+) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     ModalBottomSheet(onDismissRequest = { onIntent(XRayIntent.CloseApp) }, sheetState = sheetState) {
-        AppDetailContent(detail = detail, onIntent = onIntent, explain = explain, loadIcon = loadIcon)
+        Box {
+            AppDetailContent(detail = detail, onIntent = onIntent, explain = explain, loadIcon = loadIcon)
+            if (snackbarHostState != null) {
+                SnackbarHost(
+                    hostState = snackbarHostState,
+                    modifier = Modifier.align(Alignment.BottomCenter).padding(MaterialTheme.spacing.md),
+                )
+            }
+        }
     }
 }
 
@@ -560,13 +580,15 @@ fun ConfirmationPanel(
                 }
             }
             Row(
-                modifier = Modifier.fillMaxWidth().filterTouchesWhenObscured(),
+                modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(spacing.sm, Alignment.End),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
+                // Cancel stays outside the guard: an overlay can't do harm with it, and a dimmer mustn't trap the user here.
                 TextButton(onClick = onDismiss) { Text(stringResource(R.string.xray_confirm_cancel)) }
                 Button(
                     onClick = onConfirm,
+                    modifier = Modifier.filterTouchesWhenObscured(),
                     colors = if (destructive) {
                         ButtonDefaults.buttonColors(
                             containerColor = MaterialTheme.colorScheme.error,

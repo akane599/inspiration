@@ -21,6 +21,7 @@ import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -58,20 +59,29 @@ fun ToolkitScreen(
     snackbarHostState: SnackbarHostState? = null,
     timeZone: TimeZone = TimeZone.getDefault(),
 ) {
-    Box(modifier = modifier.fillMaxSize()) {
-        ToolkitBody(state = state, onIntent = onIntent, loadIcon = loadIcon, timeZone = timeZone)
-        if (snackbarHostState != null) {
-            SnackbarHost(
-                hostState = snackbarHostState,
-                modifier = Modifier.align(Alignment.BottomCenter).padding(MaterialTheme.spacing.md),
+    CompositionLocalProvider(LocalObscuredTouchNotice provides rememberObscuredTouchNotice(snackbarHostState)) {
+        Box(modifier = modifier.fillMaxSize()) {
+            ToolkitBody(state = state, onIntent = onIntent, loadIcon = loadIcon, timeZone = timeZone)
+            // While the app sheet is open it shows the snackbars itself: this host would be hidden behind it.
+            if (snackbarHostState != null && state.detail == null) {
+                SnackbarHost(
+                    hostState = snackbarHostState,
+                    modifier = Modifier.align(Alignment.BottomCenter).padding(MaterialTheme.spacing.md),
+                )
+            }
+        }
+        state.detail?.let { detail ->
+            AppDetailSheet(
+                detail = detail,
+                busy = state.busy,
+                loadIcon = loadIcon,
+                onIntent = onIntent,
+                snackbarHostState = snackbarHostState,
             )
         }
-    }
-    state.detail?.let { detail ->
-        AppDetailSheet(detail = detail, busy = state.busy, loadIcon = loadIcon, onIntent = onIntent)
-    }
-    state.confirmation?.let { confirmation ->
-        ConfirmationDialog(confirmation = confirmation, onIntent = onIntent)
+        state.confirmation?.let { confirmation ->
+            ConfirmationDialog(confirmation = confirmation, onIntent = onIntent)
+        }
     }
 }
 

@@ -23,6 +23,7 @@ import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
@@ -83,23 +84,32 @@ fun XRayScreen(
     snackbarHostState: SnackbarHostState? = null,
     timeZone: TimeZone = TimeZone.getDefault(),
 ) {
-    Box(modifier = modifier.fillMaxSize()) {
-        XRayBody(state = state, onIntent = onIntent, loadIcon = loadIcon, timeZone = timeZone)
-        if (state.refreshing) {
-            LinearProgressIndicator(modifier = Modifier.fillMaxWidth().align(Alignment.TopCenter))
+    CompositionLocalProvider(LocalObscuredTouchNotice provides rememberObscuredTouchNotice(snackbarHostState)) {
+        Box(modifier = modifier.fillMaxSize()) {
+            XRayBody(state = state, onIntent = onIntent, loadIcon = loadIcon, timeZone = timeZone)
+            if (state.refreshing) {
+                LinearProgressIndicator(modifier = Modifier.fillMaxWidth().align(Alignment.TopCenter))
+            }
+            // While the app sheet is open it shows the snackbars itself: this host would be hidden behind it.
+            if (snackbarHostState != null && state.detail == null) {
+                SnackbarHost(
+                    hostState = snackbarHostState,
+                    modifier = Modifier.align(Alignment.BottomCenter).padding(MaterialTheme.spacing.md),
+                )
+            }
         }
-        if (snackbarHostState != null) {
-            SnackbarHost(
-                hostState = snackbarHostState,
-                modifier = Modifier.align(Alignment.BottomCenter).padding(MaterialTheme.spacing.md),
+        state.detail?.let { detail ->
+            AppDetailSheet(
+                detail = detail,
+                onIntent = onIntent,
+                explain = explain,
+                loadIcon = loadIcon,
+                snackbarHostState = snackbarHostState,
             )
         }
-    }
-    state.detail?.let { detail ->
-        AppDetailSheet(detail = detail, onIntent = onIntent, explain = explain, loadIcon = loadIcon)
-    }
-    state.confirmation?.let { confirmation ->
-        ConfirmationDialog(confirmation = confirmation, onIntent = onIntent)
+        state.confirmation?.let { confirmation ->
+            ConfirmationDialog(confirmation = confirmation, onIntent = onIntent)
+        }
     }
 }
 

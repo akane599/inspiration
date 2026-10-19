@@ -26,6 +26,7 @@
     <string name="toolkit_blocked_permission_denied">Shizuku\'da erişim reddedildi. Shizuku uygulamasında Inspiration\'a izin verin, sonra bu ekrana dönün.</string>
     <string name="toolkit_blocked_unsupported_server">Araçları kullanmak için Shizuku\'yu güncelleyin. Çalışan sürüm Inspiration için çok eski. Yeni sürümü başlatın, sonra bu ekrana dönün.</string>
     <string name="toolkit_blocked_grant">Erişim ver</string>
+    <string name="toolkit_touch_obscured">Başka bir uygulama ekranın üzerinde gösteriliyor. Bu kontrolleri kullanmak için o uygulamayı duraklatın.</string>
 
     <!-- Doze -->
     <string name="toolkit_doze_title">Doze profilleri</string>

@@ -106,6 +106,7 @@
     <string name="xray_blocked_permission_required">Allow Inspiration in Shizuku. You can grant access from Cockpit or Toolkit.</string>
     <string name="xray_blocked_permission_denied">Access was denied in Shizuku. You can grant it again from Cockpit or Toolkit.</string>
     <string name="xray_blocked_unsupported_server">Update Shizuku to change app settings from here. The version that is running is too old for Inspiration.</string>
+    <string name="xray_touch_obscured">Another app is drawing over the screen. Pause it to use these controls.</string>
     <string name="xray_action_restrict_title">Restrict background activity</string>
     <string name="xray_action_restrict_body">Stops the app from running in the background. It may not sync or notify you until you open it.</string>
     <string name="xray_action_restrict_custom">This permission has a value that Inspiration can\'t change.</string>
