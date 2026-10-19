@@ -18,9 +18,11 @@ import kotlinx.coroutines.asExecutor
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.suspendCancellableCoroutine
+import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.withTimeoutOrNull
 import java.util.UUID
 import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicReference
 
 /** Fresh framework reads, deliberately separate from cached cosmetic app labels. */
@@ -79,8 +81,10 @@ class UidIdentityOpening internal constructor(
 
 /**
  * <=500ms extra identity caller time (50 opening +400 owners +50 closing), <=1024 attempted calls.
- * A timed-out native call retains the physical gate until it returns: repeated captures cannot pile up
- * abandoned PM transactions. Local deadlines omit proof; outer cancellation still propagates.
+ * Overlapping captures take turns on the physical gate within their phase budgets instead of failing
+ * each other's proof. A timed-out native call retains the gate until it returns and new calls fail fast
+ * meanwhile: repeated captures cannot pile up abandoned PM transactions. Local deadlines omit proof;
+ * outer cancellation still propagates.
  */
 class UidIdentityReader(
     private val backend: UidIdentityBackend,
@@ -92,7 +96,12 @@ class UidIdentityReader(
     private val elapsedMs: () -> Long = SystemClock::elapsedRealtime,
 ) {
     private val epoch = AtomicReference(UUID.randomUUID().toString())
-    private val physicalCall = AtomicBoolean(false)
+
+    /** One physical identity call at a time; released only when that call returns, even if its caller gave up. */
+    private val gate = Mutex()
+
+    /** Token of a call whose caller timed out or was cancelled while it was in flight, until it returns. */
+    private val abandonedCall = AtomicReference<Any?>(null)
 
     suspend fun open(): UidIdentityOpening? {
         if (maxCalls < 4) return null
@@ -115,7 +124,7 @@ class UidIdentityReader(
         withTimeoutOrNull(ownerBudgetMs) {
             for (uid in uids.sorted()) {
                 currentCoroutineContext().ensureActive()
-                if (epoch.get() != opening.scope.readerEpoch || physicalCall.get()) break
+                if (epoch.get() != opening.scope.readerEpoch || callAbandoned()) break
                 if (!isApplicationUid(uid) || !opening.scope.covers(uid)) continue
                 if (opening.calls >= maxCalls - 2 || elapsedMs() >= ownerDeadline) break
                 opening.calls++
@@ -136,10 +145,10 @@ class UidIdentityReader(
                 if (owners.size == names.size) {
                     UidOwnerFingerprint.create(uid, opening.scope.userSerial, owners)?.let { fingerprints[uid] = it }
                 }
-                if (epoch.get() != opening.scope.readerEpoch || physicalCall.get()) break
+                if (epoch.get() != opening.scope.readerEpoch || callAbandoned()) break
             }
         }
-        if (epoch.get() != opening.scope.readerEpoch || physicalCall.get()) return null
+        if (epoch.get() != opening.scope.readerEpoch || callAbandoned()) return null
         return withTimeoutOrNull(closingBudgetMs) {
             opening.calls++
             val serial = blocking { Value(backend.userSerial()) }?.value ?: return@withTimeoutOrNull null
@@ -162,15 +171,33 @@ class UidIdentityReader(
         val sequence: Int,
     )
 
+    private fun callAbandoned(): Boolean = abandonedCall.get() != null
+
     private suspend fun <T : Any> blocking(call: () -> T): T? {
         currentCoroutineContext().ensureActive()
-        if (!physicalCall.compareAndSet(false, true)) return null
+        // Never queue behind an abandoned native call: it keeps the gate until it actually returns.
+        if (callAbandoned()) return null
+        // An overlapping capture's ordinary call is short: wait for it within the caller's phase budget
+        // (the enclosing withTimeoutOrNull). A wait that times out abandons no call, so the epoch is kept.
+        gate.lock()
+        val token = Any()
+        val state = AtomicInteger(CALL_RUNNING)
+
+        // Runs exactly once per acquired gate, on the thread that ends the physical call.
+        fun finish() {
+            if (!state.compareAndSet(CALL_RUNNING, CALL_RETURNED)) abandonedCall.compareAndSet(token, null)
+            gate.unlock()
+        }
         return suspendCancellableCoroutine { continuation ->
-            continuation.invokeOnCancellation { epoch.set(UUID.randomUUID().toString()) }
+            continuation.invokeOnCancellation {
+                epoch.set(UUID.randomUUID().toString())
+                abandonedCall.set(token)
+                if (!state.compareAndSet(CALL_RUNNING, CALL_ABANDONED)) abandonedCall.compareAndSet(token, null)
+            }
             try {
                 dispatcher.asExecutor().execute {
                     if (!continuation.isActive) {
-                        physicalCall.set(false)
+                        finish()
                         return@execute
                     }
                     var cancelled: CancellationException? = null
@@ -185,14 +212,20 @@ class UidIdentityReader(
                             epoch.set(UUID.randomUUID().toString())
                             null
                         }
-                    physicalCall.set(false)
+                    finish()
                     if (cancelled != null) continuation.cancel(cancelled) else continuation.resume(result) { _, _, _ -> }
                 }
             } catch (_: java.util.concurrent.RejectedExecutionException) {
-                physicalCall.set(false)
                 epoch.set(UUID.randomUUID().toString())
+                finish()
                 continuation.resume(null) { _, _, _ -> }
             }
         }
+    }
+
+    private companion object {
+        const val CALL_RUNNING = 0
+        const val CALL_RETURNED = 1
+        const val CALL_ABANDONED = 2
     }
 }

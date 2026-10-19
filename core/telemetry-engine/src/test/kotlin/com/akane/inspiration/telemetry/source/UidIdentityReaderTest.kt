@@ -191,6 +191,46 @@ class UidIdentityReaderTest {
         }
 
     @Test
+    fun `overlapping captures wait their turn and both keep identity proof`() =
+        runBlocking {
+            val ownerStarted = CountDownLatch(1)
+            val firstLookup =
+                java.util.concurrent.atomic
+                    .AtomicBoolean(true)
+            val backend =
+                FakeBackend().apply {
+                    onPackages = {
+                        if (firstLookup.getAndSet(false)) {
+                            ownerStarted.countDown()
+                            Thread.sleep(150)
+                        }
+                    }
+                }
+            val executor = Executors.newFixedThreadPool(2)
+            executor.asCoroutineDispatcher().use { dispatcher ->
+                val reader =
+                    UidIdentityReader(
+                        backend,
+                        dispatcher,
+                        openingBudgetMs = 1_000,
+                        ownerBudgetMs = 1_000,
+                        closingBudgetMs = 1_000,
+                        elapsedMs = { System.nanoTime() / 1_000_000 },
+                    )
+                val firstOpening = requireNotNull(reader.open())
+                val first = async(Dispatchers.Default) { reader.close(firstOpening, setOf(10_001)) }
+                assertTrue(ownerStarted.await(2, TimeUnit.SECONDS))
+                // The second capture starts while the first one's owner lookup holds the physical gate.
+                val second = async(Dispatchers.Default) { reader.close(reader.open(), setOf(10_001)) }
+                val firstProof = requireNotNull(first.await())
+                val secondProof = requireNotNull(second.await())
+                assertEquals(setOf(10_001), firstProof.fingerprintsByUid.keys)
+                assertEquals(firstProof.fingerprintsByUid, secondProof.fingerprintsByUid)
+                assertEquals(firstProof.scope, secondProof.scope)
+            }
+        }
+
+    @Test
     fun `blocked closing guard discards completed fingerprints and retains physical gate`() =
         runBlocking {
             val started = CountDownLatch(1)
