@@ -18,10 +18,10 @@
     <string name="health_curve_caption_recorded">Recorded while this screen was open. Gaps mean it was closed.</string>
     <string name="health_curve_caption_partial" formatted="true">Power and current were recorded from %1$s on, while this screen was open. Earlier points come from battery history, which has level, temperature and voltage only.</string>
     <string name="health_curve_caption_history">Drawn from battery history. Charging in the background records only level, temperature and voltage, so power and current are not shown.</string>
-    <string name="health_throttle_key">Thermal throttling</string>
-    <string name="health_throttle_none">The system did not throttle the charge.</string>
-    <string name="health_throttle_range" formatted="true">The system throttled the charge between %1$s and %2$s battery.</string>
-    <string name="health_throttle_at" formatted="true">The system throttled the charge at %1$s battery.</string>
+    <string name="health_throttle_key">Device thermal status (moderate+)</string>
+    <string name="health_throttle_none">No moderate-or-higher device thermal status was reported in the recorded readings.</string>
+    <string name="health_throttle_range" formatted="true">Recorded readings show moderate-or-higher device thermal status between %1$s and %2$s battery.</string>
+    <string name="health_throttle_at" formatted="true">A recorded reading shows moderate-or-higher device thermal status at %1$s battery.</string>
     <string name="health_curve_none_title">No recent charge</string>
     <string name="health_curve_none_body">Plug in your phone with this screen open to record a live curve of power, current, voltage and temperature. Charges in the last day also show up here from battery history.</string>
     <string name="health_chart_desc" formatted="true">%1$s chart, %2$s, across %3$s battery level</string>

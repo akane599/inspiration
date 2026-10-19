@@ -7,15 +7,101 @@ import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import java.io.File
+import java.util.Locale
+import javax.xml.parsers.DocumentBuilderFactory
 
 class HealthMappersTest {
     @Test
+    fun `thermal markers use reported device severity rather than measured heat or charging power`() {
+        for (status in listOf(null, 0, 1, 2, 3, 6)) {
+            // Keep temperature, voltage and power identical: only reported device severity changes.
+            val points =
+                (0..1).map {
+                    point(NOW_MS + it * SEC_MS, level = 40 + it, tempC = 20.0, thermal = status)
+                }
+            val curve = curveUi(points, liveActive = false).ready()
+            assertEquals("known status=$status", status != null, curve.throttleKnown)
+            assertEquals("moderate marker status=$status", status != null && status >= 2, curve.throttle != null)
+            assertEquals(0L, wearAnalysis(points, null, NOW_MS, liveActive = false)?.hotMs)
+            assertTrue(
+                curve.series
+                    .first { it.metric == CurveMetric.Watts }
+                    .points
+                    .all { it.y == 8f },
+            )
+        }
+
+        val hotWithoutModerateStatus =
+            (0..1).map {
+                point(NOW_MS + it * SEC_MS, level = 40 + it, tempC = 50.0, thermal = 1)
+            }
+        assertNull(curveUi(hotWithoutModerateStatus, liveActive = false).ready().throttle)
+        assertEquals(SEC_MS, wearAnalysis(hotWithoutModerateStatus, null, NOW_MS, liveActive = false)?.hotMs)
+    }
+
+    @Test
+    fun `a single moderate status observation uses the one battery level summary`() {
+        val points =
+            listOf(
+                point(NOW_MS, level = 40, thermal = null),
+                point(NOW_MS + SEC_MS, level = 41, thermal = 2),
+            )
+        val curve = curveUi(points, liveActive = false).ready()
+        assertTrue(curve.throttleKnown)
+        assertEquals(ThrottleUi(count = 1, fromLevelPct = 41, toLevelPct = 41), curve.throttle)
+    }
+
+    @Test
+    fun `localized thermal summaries describe recorded device status and never charge limiting`() {
+        for (turkish in listOf(false, true)) {
+            val directory = if (turkish) "values-tr" else "values"
+            val factory =
+                DocumentBuilderFactory.newInstance().apply {
+                    setFeature("http://apache.org/xml/features/disallow-doctype-decl", true)
+                }
+            val nodes =
+                factory
+                    .newDocumentBuilder()
+                    .parse(File("src/main/res/$directory/strings.xml"))
+                    .getElementsByTagName("string")
+            val strings =
+                (0 until nodes.length).associate { i ->
+                    val node = nodes.item(i)
+                    node.attributes.getNamedItem("name").nodeValue to node.textContent
+                }
+            val keys = listOf("health_throttle_key", "health_throttle_none", "health_throttle_range", "health_throttle_at")
+            for (key in keys) {
+                val text = strings.getValue(key).lowercase(Locale.ROOT)
+                assertTrue("$directory/$key names device status", text.contains(if (turkish) "cihaz" else "device thermal status"))
+                assertTrue("$directory/$key names the selected severity", text.contains(if (turkish) "orta" else "moderate"))
+                assertFalse("$directory/$key must not diagnose charge limiting", text.contains(if (turkish) "şarj" else "charge"))
+                assertFalse("$directory/$key must not invent a temperature threshold", text.contains("°"))
+                if (key != "health_throttle_key") {
+                    assertTrue("$directory/$key scopes the claim to readings", text.contains(if (turkish) "kaydedilen" else "recorded"))
+                }
+            }
+            val range = strings.getValue("health_throttle_range")
+            val at = strings.getValue("health_throttle_at")
+            assertTrue(range.contains("%1\$s") && range.contains("%2\$s"))
+            assertTrue(at.contains("%1\$s"))
+            val locale = if (turkish) Locale.forLanguageTag("tr") else Locale.ENGLISH
+            val renderedRange = String.format(locale, range, "58%", "67%")
+            assertTrue(renderedRange.contains("58%") && renderedRange.contains("67%"))
+            assertTrue(String.format(locale, at, "58%").contains("58%"))
+        }
+    }
+
+    @Test
     fun `shutdown and unplugged boot exclude postboot discharge from charge history`() {
-        val events = listOf(
-            event(MIN_MS, HistoryKind.PLUGGED), event(2 * MIN_MS, HistoryKind.SHUTDOWN),
-            event(3 * MIN_MS, HistoryKind.START).copy(plugType = 0),
-            event(4 * MIN_MS, level = 80), event(5 * MIN_MS, level = 79),
-        )
+        val events =
+            listOf(
+                event(MIN_MS, HistoryKind.PLUGGED),
+                event(2 * MIN_MS, HistoryKind.SHUTDOWN),
+                event(3 * MIN_MS, HistoryKind.START).copy(plugType = 0),
+                event(4 * MIN_MS, level = 80),
+                event(5 * MIN_MS, level = 79),
+            )
         val span = lastChargeSpan(events)
         assertEquals(ChargeSpan(MIN_MS, 2 * MIN_MS), span)
         assertTrue(chargeSession(span, emptyList(), events.mapNotNull { it.toCurvePoint() }, false).isEmpty())
@@ -54,8 +140,9 @@ class HealthMappersTest {
     @Test
     fun `history after and between foreground observations remains available`() {
         val history = (0..12).map { point(it * 5 * MIN_MS, fromHistory = true) }
-        val samples = listOf(10 * MIN_MS, 10 * MIN_MS + 10 * SEC_MS, 40 * MIN_MS, 40 * MIN_MS + 10 * SEC_MS)
-            .map { point(it) }
+        val samples =
+            listOf(10 * MIN_MS, 10 * MIN_MS + 10 * SEC_MS, 40 * MIN_MS, 40 * MIN_MS + 10 * SEC_MS)
+                .map { point(it) }
         val result = chargeSession(ChargeSpan(0, 60 * MIN_MS), samples, history, false)
         assertTrue(result.any { it.wallMs == 25 * MIN_MS && it.fromHistory })
         assertTrue(result.any { it.wallMs == 60 * MIN_MS && it.fromHistory })
@@ -63,21 +150,21 @@ class HealthMappersTest {
         assertFalse(result.single { it.wallMs == 10 * MIN_MS }.fromHistory)
     }
 
-
     // ---- charge curve ---------------------------------------------------------------------------
 
-    /** 11 readings 10 s apart, level 20..70, with the system throttling at 50 % and 55 %. */
-    private fun chargingRun() = (0..10).map { i ->
-        point(
-            wallMs = NOW_MS + i * 10 * SEC_MS,
-            level = 20 + i * 5,
-            watts = 5.0 + i,
-            currentMa = 1_000 + i * 100,
-            voltageMv = 3_800 + i * 10,
-            tempC = 30.0 + i * 0.5,
-            thermal = if (i == 6 || i == 7) 2 + (i - 6) else 0,
-        )
-    }
+    /** 11 readings 10 s apart, level 20..70, with moderate-or-higher device thermal status at 50 % and 55 %. */
+    private fun chargingRun() =
+        (0..10).map { i ->
+            point(
+                wallMs = NOW_MS + i * 10 * SEC_MS,
+                level = 20 + i * 5,
+                watts = 5.0 + i,
+                currentMa = 1_000 + i * 100,
+                voltageMv = 3_800 + i * 10,
+                tempC = 30.0 + i * 0.5,
+                thermal = if (i == 6 || i == 7) 2 + (i - 6) else 0,
+            )
+        }
 
     private fun CurveUi.ready(): CurveUi.Ready = this as CurveUi.Ready
 
@@ -98,11 +185,19 @@ class HealthMappersTest {
         assertEquals(5f, watts.min, 0f)
         assertEquals(15f, watts.max, 0f)
         assertEquals(15f, watts.latest, 0f)
-        assertEquals(35f, curve.series.first { it.metric == CurveMetric.Temperature }.points.last().y, 0f)
+        assertEquals(
+            35f,
+            curve.series
+                .first { it.metric == CurveMetric.Temperature }
+                .points
+                .last()
+                .y,
+            0f,
+        )
     }
 
     @Test
-    fun `thermal throttling from moderate up is marked on every series and summarised`() {
+    fun `device thermal status from moderate up is marked on every series and summarised`() {
         val curve = curveUi(chargingRun(), liveActive = false).ready()
 
         assertTrue(curve.throttleKnown)
@@ -115,7 +210,7 @@ class HealthMappersTest {
     }
 
     @Test
-    fun `light thermal status is not throttling and unknown status is not a finding`() {
+    fun `light device status is below the selected marker threshold and unknown status is not a finding`() {
         val light = chargingRun().map { it.copy(thermalStatus = 1) }
         val lightCurve = curveUi(light, liveActive = false).ready()
         assertTrue(lightCurve.throttleKnown)
@@ -124,7 +219,7 @@ class HealthMappersTest {
 
         val unknown = chargingRun().map { it.copy(thermalStatus = null) }
         val unknownCurve = curveUi(unknown, liveActive = false).ready()
-        assertFalse("without a thermal status 'no throttling' would be a guess", unknownCurve.throttleKnown)
+        assertFalse("without device status even a sample-scoped negative would be a guess", unknownCurve.throttleKnown)
         assertNull(unknownCurve.throttle)
     }
 
@@ -135,9 +230,10 @@ class HealthMappersTest {
 
     @Test
     fun `history events alone give level, temperature and voltage but never power or current`() {
-        val history = (0..5).map {
-            point(NOW_MS + it * MIN_MS, level = 30 + it * 10, watts = null, currentMa = null, thermal = null, fromHistory = true)
-        }
+        val history =
+            (0..5).map {
+                point(NOW_MS + it * MIN_MS, level = 30 + it * 10, watts = null, currentMa = null, thermal = null, fromHistory = true)
+            }
         val curve = curveUi(history, liveActive = false).ready()
 
         assertEquals(CurveSource.History, curve.source)
@@ -148,16 +244,28 @@ class HealthMappersTest {
 
     @Test
     fun `history followed by live samples reports where power and current begin`() {
-        val history = (0..2).map {
-            point(NOW_MS + it * MIN_MS, level = 10 + it * 10, watts = null, currentMa = null, thermal = null, fromHistory = true)
-        }
+        val history =
+            (0..2).map {
+                point(NOW_MS + it * MIN_MS, level = 10 + it * 10, watts = null, currentMa = null, thermal = null, fromHistory = true)
+            }
         val samples = (0..3).map { point(NOW_MS + 3 * MIN_MS + it * 10 * SEC_MS, level = 30 + it) }
         val curve = curveUi(history + samples, liveActive = false).ready()
 
         assertEquals(CurveSource.Recorded, curve.source)
         assertEquals(30, curve.detailFromLevelPct)
-        assertEquals("power exists only where samples exist", 4, curve.series.first { it.metric == CurveMetric.Watts }.points.size)
-        assertEquals(7, curve.series.first { it.metric == CurveMetric.Temperature }.points.size)
+        assertEquals(
+            "power exists only where samples exist",
+            4,
+            curve.series
+                .first { it.metric == CurveMetric.Watts }
+                .points.size,
+        )
+        assertEquals(
+            7,
+            curve.series
+                .first { it.metric == CurveMetric.Temperature }
+                .points.size,
+        )
     }
 
     @Test
@@ -169,7 +277,17 @@ class HealthMappersTest {
             CurveUi.None,
             curveUi(listOf(point(NOW_MS, level = 100), point(NOW_MS + SEC_MS, level = 100)), liveActive = false),
         )
-        val blank = (0..3).map { point(NOW_MS + it * SEC_MS, level = 40 + it, watts = null, currentMa = null, voltageMv = null, tempC = null) }
+        val blank =
+            (0..3).map {
+                point(
+                    NOW_MS + it * SEC_MS,
+                    level = 40 + it,
+                    watts = null,
+                    currentMa = null,
+                    voltageMv = null,
+                    tempC = null,
+                )
+            }
         assertEquals(CurveUi.None, curveUi(blank, liveActive = false))
     }
 
@@ -239,12 +357,13 @@ class HealthMappersTest {
 
     @Test
     fun `last charge span is the newest plug in, open while still plugged`() {
-        val events = listOf(
-            event(10 * MIN_MS, HistoryKind.PLUGGED),
-            event(20 * MIN_MS, HistoryKind.LEVEL),
-            event(30 * MIN_MS, HistoryKind.UNPLUGGED),
-            event(40 * MIN_MS, HistoryKind.PLUGGED),
-        )
+        val events =
+            listOf(
+                event(10 * MIN_MS, HistoryKind.PLUGGED),
+                event(20 * MIN_MS, HistoryKind.LEVEL),
+                event(30 * MIN_MS, HistoryKind.UNPLUGGED),
+                event(40 * MIN_MS, HistoryKind.PLUGGED),
+            )
         assertEquals(ChargeSpan(40 * MIN_MS, null), lastChargeSpan(events))
         assertEquals(ChargeSpan(10 * MIN_MS, 30 * MIN_MS), lastChargeSpan(events.dropLast(1)))
         assertEquals("unsorted input", ChargeSpan(10 * MIN_MS, 30 * MIN_MS), lastChargeSpan(events.dropLast(1).reversed()))
@@ -304,14 +423,15 @@ class HealthMappersTest {
     // ---- heat and voltage analysis --------------------------------------------------------------
 
     /** 11 readings 10 s apart: hot for the first five, at high voltage for the first three. */
-    private fun heatRun() = (0..10).map { i ->
-        point(
-            wallMs = NOW_MS + i * 10 * SEC_MS,
-            level = 20 + i,
-            tempC = if (i <= 4) 41.0 else 35.0,
-            voltageMv = if (i <= 2) 4_400 else 4_000,
-        )
-    }
+    private fun heatRun() =
+        (0..10).map { i ->
+            point(
+                wallMs = NOW_MS + i * 10 * SEC_MS,
+                level = 20 + i,
+                tempC = if (i <= 4) 41.0 else 35.0,
+                voltageMv = if (i <= 2) 4_400 else 4_000,
+            )
+        }
 
     @Test
     fun `hot and high voltage time are held per reading and counted against what was observed`() {
@@ -340,13 +460,14 @@ class HealthMappersTest {
 
     @Test
     fun `a hole in the readings is skipped, not filled`() {
-        val run = listOf(
-            point(NOW_MS, tempC = 45.0, voltageMv = 4_400),
-            point(NOW_MS + 10 * SEC_MS, tempC = 45.0, voltageMv = 4_400),
-            // The screen was closed for five minutes: far more than a live sample may be held over.
-            point(NOW_MS + 10 * SEC_MS + 5 * MIN_MS, tempC = 45.0, voltageMv = 4_400),
-            point(NOW_MS + 20 * SEC_MS + 5 * MIN_MS, tempC = 45.0, voltageMv = 4_400),
-        )
+        val run =
+            listOf(
+                point(NOW_MS, tempC = 45.0, voltageMv = 4_400),
+                point(NOW_MS + 10 * SEC_MS, tempC = 45.0, voltageMv = 4_400),
+                // The screen was closed for five minutes: far more than a live sample may be held over.
+                point(NOW_MS + 10 * SEC_MS + 5 * MIN_MS, tempC = 45.0, voltageMv = 4_400),
+                point(NOW_MS + 20 * SEC_MS + 5 * MIN_MS, tempC = 45.0, voltageMv = 4_400),
+            )
         val analysis = wearAnalysis(run, null, NOW_MS, liveActive = false)
 
         assertEquals(20 * SEC_MS, analysis?.hotMs)
@@ -356,11 +477,28 @@ class HealthMappersTest {
 
     @Test
     fun `history events are held up to twenty minutes and the analysis says it is sparse`() {
-        val run = listOf(
-            point(NOW_MS, level = 40, tempC = 42.0, voltageMv = 4_000, fromHistory = true, watts = null, currentMa = null),
-            point(NOW_MS + 15 * MIN_MS, level = 50, tempC = 42.0, voltageMv = 4_000, fromHistory = true, watts = null, currentMa = null),
-            point(NOW_MS + 40 * MIN_MS, level = 60, tempC = 42.0, voltageMv = 4_000, fromHistory = true, watts = null, currentMa = null),
-        )
+        val run =
+            listOf(
+                point(NOW_MS, level = 40, tempC = 42.0, voltageMv = 4_000, fromHistory = true, watts = null, currentMa = null),
+                point(
+                    NOW_MS + 15 * MIN_MS,
+                    level = 50,
+                    tempC = 42.0,
+                    voltageMv = 4_000,
+                    fromHistory = true,
+                    watts = null,
+                    currentMa = null,
+                ),
+                point(
+                    NOW_MS + 40 * MIN_MS,
+                    level = 60,
+                    tempC = 42.0,
+                    voltageMv = 4_000,
+                    fromHistory = true,
+                    watts = null,
+                    currentMa = null,
+                ),
+            )
         val analysis = wearAnalysis(run, null, NOW_MS, liveActive = false)
 
         assertEquals(15 * MIN_MS, analysis?.hotMs)
@@ -428,16 +566,17 @@ class HealthMappersTest {
 
     @Test
     fun `kernel figures give the share of design and the measured estimate comes from an independent session`() {
-        val card = healthCard(
-            kernelSnapshot(),
-            emptyList(),
-            listOf(
-                sessionRecord(endWallMs = 100, estimateMah = 4_200.0),
-                sessionRecord(endWallMs = 300, estimateMah = 3_000.0, accepted = false),
-                sessionRecord(endWallMs = 400, estimateMah = 3_100.0, independent = false),
-                sessionRecord(endWallMs = 500, estimateMah = null),
-            ),
-        )
+        val card =
+            healthCard(
+                kernelSnapshot(),
+                emptyList(),
+                listOf(
+                    sessionRecord(endWallMs = 100, estimateMah = 4_200.0),
+                    sessionRecord(endWallMs = 300, estimateMah = 3_000.0, accepted = false),
+                    sessionRecord(endWallMs = 400, estimateMah = 3_100.0, independent = false),
+                    sessionRecord(endWallMs = 500, estimateMah = null),
+                ),
+            )
 
         assertEquals(4_300.0, card.reported.mah ?: 0.0, 0.0)
         assertEquals(86.0, card.reported.pctOfDesign ?: 0.0, 1e-9)
@@ -450,14 +589,16 @@ class HealthMappersTest {
 
     @Test
     fun `without a kernel read the newest recorded health sample stands in`() {
-        val card = healthCard(
-            kernel = null,
-            samples = listOf(
-                healthSample(wallMs = 10, fcc = 4_000.0, cycles = 50),
-                healthSample(wallMs = 20, fcc = 4_400.0, design = 5_000.0, cycles = 70, measured = 4_100.0),
-            ),
-            sessions = emptyList(),
-        )
+        val card =
+            healthCard(
+                kernel = null,
+                samples =
+                    listOf(
+                        healthSample(wallMs = 10, fcc = 4_000.0, cycles = 50),
+                        healthSample(wallMs = 20, fcc = 4_400.0, design = 5_000.0, cycles = 70, measured = 4_100.0),
+                    ),
+                sessions = emptyList(),
+            )
 
         assertEquals(4_400.0, card.reported.mah ?: 0.0, 0.0)
         assertEquals(88.0, card.reported.pctOfDesign ?: 0.0, 1e-9)
@@ -467,28 +608,31 @@ class HealthMappersTest {
 
     @Test
     fun `the newer of a stored measurement and a charge session wins`() {
-        val sampleNewer = healthCard(
-            kernelSnapshot(),
-            listOf(healthSample(wallMs = 200, measured = 4_100.0)),
-            listOf(sessionRecord(endWallMs = 100, estimateMah = 4_200.0)),
-        )
+        val sampleNewer =
+            healthCard(
+                kernelSnapshot(),
+                listOf(healthSample(wallMs = 200, measured = 4_100.0)),
+                listOf(sessionRecord(endWallMs = 100, estimateMah = 4_200.0)),
+            )
         assertEquals(4_100.0, sampleNewer.measured.mah ?: 0.0, 0.0)
 
-        val sessionNewer = healthCard(
-            kernelSnapshot(),
-            listOf(healthSample(wallMs = 100, measured = 4_100.0)),
-            listOf(sessionRecord(endWallMs = 200, estimateMah = 4_200.0)),
-        )
+        val sessionNewer =
+            healthCard(
+                kernelSnapshot(),
+                listOf(healthSample(wallMs = 100, measured = 4_100.0)),
+                listOf(sessionRecord(endWallMs = 200, estimateMah = 4_200.0)),
+            )
         assertEquals(4_200.0, sessionNewer.measured.mah ?: 0.0, 0.0)
     }
 
     @Test
     fun `a zero capacity is missing, not a figure`() {
-        val card = healthCard(
-            kernelSnapshot(chargeFullMah = 0.0, designMah = 0.0),
-            listOf(healthSample(wallMs = 10, fcc = 4_000.0, design = 5_000.0)),
-            emptyList(),
-        )
+        val card =
+            healthCard(
+                kernelSnapshot(chargeFullMah = 0.0, designMah = 0.0),
+                listOf(healthSample(wallMs = 10, fcc = 4_000.0, design = 5_000.0)),
+                emptyList(),
+            )
         assertEquals("falls back to the recorded sample", 4_000.0, card.reported.mah ?: 0.0, 0.0)
         assertEquals(5_000.0, card.design.mah ?: 0.0, 0.0)
     }
@@ -497,12 +641,13 @@ class HealthMappersTest {
 
     @Test
     fun `wear chart accepts capacity samples without cycle counts`() {
-        val wear = wearUi(
-            listOf(
-                healthSample(10, fcc = 4_300.0).copy(cycleCount = null),
-                healthSample(20, fcc = 4_200.0).copy(cycleCount = null),
-            ),
-        )
+        val wear =
+            wearUi(
+                listOf(
+                    healthSample(10, fcc = 4_300.0).copy(cycleCount = null),
+                    healthSample(20, fcc = 4_200.0).copy(cycleCount = null),
+                ),
+            )
 
         assertTrue(wear is WearUi.Ready)
         assertEquals(2, (wear as WearUi.Ready).points.size)
@@ -527,13 +672,14 @@ class HealthMappersTest {
 
     @Test
     fun `wear is capacity over design in time order`() {
-        val wear = wearUi(
-            listOf(
-                healthSample(wallMs = 3 * HOUR_MS, fcc = 4_300.0),
-                healthSample(wallMs = HOUR_MS, fcc = 4_500.0),
-                healthSample(wallMs = 2 * HOUR_MS, fcc = 4_400.0),
-            ),
-        ) as WearUi.Ready
+        val wear =
+            wearUi(
+                listOf(
+                    healthSample(wallMs = 3 * HOUR_MS, fcc = 4_300.0),
+                    healthSample(wallMs = HOUR_MS, fcc = 4_500.0),
+                    healthSample(wallMs = 2 * HOUR_MS, fcc = 4_400.0),
+                ),
+            ) as WearUi.Ready
 
         assertEquals(HOUR_MS, wear.startMs)
         assertEquals(3 * HOUR_MS, wear.endMs)

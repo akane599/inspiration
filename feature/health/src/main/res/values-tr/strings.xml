@@ -17,10 +17,10 @@
     <string name="health_curve_caption_recorded">Bu ekran açıkken kaydedildi. Boşluklar ekranın kapalı olduğu anlardır.</string>
     <string name="health_curve_caption_partial" formatted="true">Güç ve akım, bu ekran açıkken %1$s seviyesinden itibaren kaydedildi. Öncesi pil geçmişinden geliyor; orada yalnızca seviye, sıcaklık ve gerilim var.</string>
     <string name="health_curve_caption_history">Pil geçmişinden çizildi. Arka planda şarjda yalnızca seviye, sıcaklık ve gerilim kaydedilir; bu yüzden güç ve akım gösterilmiyor.</string>
-    <string name="health_throttle_key">Isıl kısıtlama</string>
-    <string name="health_throttle_none">Sistem şarjı kısıtlamadı.</string>
-    <string name="health_throttle_range" formatted="true">Sistem şarjı pil %1$s ile %2$s arasında kısıtladı.</string>
-    <string name="health_throttle_at" formatted="true">Sistem şarjı pil %1$s iken kısıtladı.</string>
+    <string name="health_throttle_key">Cihazın ısıl durumu (orta ve üzeri)</string>
+    <string name="health_throttle_none">Kaydedilen örneklerde orta veya daha yüksek düzeyde cihaz ısıl durumu bildirilmedi.</string>
+    <string name="health_throttle_range" formatted="true">Kaydedilen örneklerde pil %1$s ile %2$s arasındayken orta veya daha yüksek düzeyde cihaz ısıl durumu bildirildi.</string>
+    <string name="health_throttle_at" formatted="true">Kaydedilen bir örnekte pil %1$s iken orta veya daha yüksek düzeyde cihaz ısıl durumu bildirildi.</string>
     <string name="health_curve_none_title">Yakın zamanda şarj yok</string>
     <string name="health_curve_none_body">Güç, akım, gerilim ve sıcaklığın canlı eğrisini görmek için telefonu bu ekran açıkken şarja takın. Son bir gündeki şarjlar pil geçmişinden burada görünür.</string>
     <string name="health_chart_desc" formatted="true">%1$s grafiği, %2$s, pil seviyesi %3$s</string>

@@ -5,7 +5,10 @@ import kotlinx.collections.immutable.ImmutableList
 
 /** A point of a chart. The meaning of [x] and [y] belongs to the series that owns it. */
 @Immutable
-data class ChartPoint(val x: Float, val y: Float)
+data class ChartPoint(
+    val x: Float,
+    val y: Float,
+)
 
 /** The four readings of the charge curve, each drawn in its own small chart (no dual axes). */
 enum class CurveMetric { Watts, Current, Voltage, Temperature }
@@ -21,16 +24,20 @@ enum class CurveSource { Live, Recorded, History }
 data class CurveSeriesUi(
     val metric: CurveMetric,
     val points: ImmutableList<ChartPoint>,
-    /** Where the system reported thermal throttling, on this series' own scale. */
+    /** Recorded device thermal status was moderate or higher here, on this series' own scale. */
     val throttled: ImmutableList<ChartPoint>,
     val min: Float,
     val max: Float,
     val latest: Float,
 )
 
-/** Thermal throttling seen during the curve; null when the data carries no thermal status at all. */
+/** Moderate-or-higher device thermal status observations; null when no reading reaches that threshold. */
 @Immutable
-data class ThrottleUi(val count: Int, val fromLevelPct: Int, val toLevelPct: Int)
+data class ThrottleUi(
+    val count: Int,
+    val fromLevelPct: Int,
+    val toLevelPct: Int,
+)
 
 sealed interface CurveUi {
     /** No charge in the data window, or too little of it to draw. */
@@ -44,7 +51,7 @@ sealed interface CurveUi {
         val endLevelPct: Int,
         /** Set when only the tail of the curve has power and current: the level where those readings begin. */
         val detailFromLevelPct: Int?,
-        /** True when the readings carry a thermal status, so "no throttling" is a finding and not a gap. */
+        /** At least one reading carries device thermal status; a negative summary applies only to those readings. */
         val throttleKnown: Boolean,
         val throttle: ThrottleUi?,
     ) : CurveUi
@@ -83,7 +90,9 @@ data class HealthCardUi(
 
 sealed interface WearUi {
     /** Fewer than two usable health records: a designed empty state, not a flat line. */
-    data class NotEnough(val sampleCount: Int) : WearUi
+    data class NotEnough(
+        val sampleCount: Int,
+    ) : WearUi
 
     /** x = milliseconds since [startMs], y = full-charge capacity as a percentage of design. */
     @Immutable
@@ -131,15 +140,16 @@ data class HealthState(
     val refreshing: Boolean,
 ) {
     companion object {
-        val Initial = HealthState(
-            phase = HealthPhase.Loading,
-            charging = false,
-            curve = CurveUi.None,
-            card = null,
-            wear = WearUi.NotEnough(0),
-            analysis = null,
-            refreshing = false,
-        )
+        val Initial =
+            HealthState(
+                phase = HealthPhase.Loading,
+                charging = false,
+                curve = CurveUi.None,
+                card = null,
+                wear = WearUi.NotEnough(0),
+                analysis = null,
+                refreshing = false,
+            )
     }
 }
 
@@ -151,7 +161,9 @@ sealed interface HealthIntent {
     data object Hidden : HealthIntent
 
     /** The plug state changed (or was first read) while the screen is visible. */
-    data class PlugChanged(val charging: Boolean) : HealthIntent
+    data class PlugChanged(
+        val charging: Boolean,
+    ) : HealthIntent
 
     /** Pull to refresh or a retry button. */
     data object Refresh : HealthIntent

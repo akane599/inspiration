@@ -38,7 +38,10 @@ internal const val HOT_TEMPERATURE_C = 40.0
  */
 internal const val HIGH_VOLTAGE_MV = 4_350
 
-/** `PowerManager.THERMAL_STATUS_MODERATE`: from here the system is actively throttling. */
+/**
+ * Selected device-severity marker threshold (`PowerManager.THERMAL_STATUS_MODERATE`). The OEM defines the
+ * thermal limits behind this status; it is neither an app-measured temperature nor evidence of charge limiting.
+ */
 internal const val THERMAL_STATUS_MODERATE = 2
 
 /** Chart series are thinned to about this many points (first and last always kept). */
@@ -113,7 +116,10 @@ internal fun HistoryEvent.toCurvePoint(): CurvePoint? {
 }
 
 /** A stretch of plugged-in time. [endMs] is null while the charge is still going. */
-internal data class ChargeSpan(val startMs: Long, val endMs: Long?)
+internal data class ChargeSpan(
+    val startMs: Long,
+    val endMs: Long?,
+)
 
 /**
  * The most recent plug-in span in [events]. A window that opens mid-charge (first plug event is an unplug) starts the
@@ -130,6 +136,7 @@ internal fun lastChargeSpan(events: List<HistoryEvent>): ChargeSpan? {
                 open = event.wallMs.takeIf { event.plugType != 0 }
                 baselineKnown = true
             }
+
             HistoryKind.SHUTDOWN -> {
                 open?.let { start ->
                     if (event.wallMs > start) last = ChargeSpan(start, event.wallMs)
@@ -137,10 +144,12 @@ internal fun lastChargeSpan(events: List<HistoryEvent>): ChargeSpan? {
                 open = null
                 baselineKnown = true
             }
+
             HistoryKind.PLUGGED -> {
                 if (open == null) open = event.wallMs
                 baselineKnown = true
             }
+
             HistoryKind.UNPLUGGED -> {
                 val start = open ?: sorted.firstOrNull()?.wallMs?.takeIf { !baselineKnown }
                 if (start != null && event.wallMs > start) last = ChargeSpan(start, event.wallMs)
@@ -162,7 +171,11 @@ internal fun lastRun(points: List<CurvePoint>): List<CurvePoint> {
 }
 
 /** Resolve the same span for both the curve points and their duration analysis. */
-internal fun effectiveChargeSpan(span: ChargeSpan?, samples: List<CurvePoint>, hasLive: Boolean): ChargeSpan? {
+internal fun effectiveChargeSpan(
+    span: ChargeSpan?,
+    samples: List<CurvePoint>,
+    hasLive: Boolean,
+): ChargeSpan? {
     val newest = samples.maxOfOrNull { it.wallMs }
     val extendsCompleted = span?.endMs?.let { end -> newest != null && newest > end } ?: false
     return if (hasLive && (span == null || extendsCompleted)) {
@@ -187,37 +200,43 @@ internal fun chargeSession(
     hasLive: Boolean,
 ): List<CurvePoint> {
     val effective = effectiveChargeSpan(span, samples, hasLive)
-    val sampleSession = if (effective == null) {
-        lastRun(samples)
-    } else {
-        samples.filter { it.wallMs >= effective.startMs && (effective.endMs == null || it.wallMs <= effective.endMs) }
-    }.sortedBy { it.wallMs }
-    val historySession = if (effective == null) {
-        emptyList()
-    } else {
-        history.filter { point ->
-            if (point.wallMs < effective.startMs || (effective.endMs != null && point.wallMs > effective.endMs)) {
-                false
-            } else {
-                val match = sampleSession.binarySearchBy(point.wallMs) { it.wallMs }
-                if (match >= 0) {
+    val sampleSession =
+        if (effective == null) {
+            lastRun(samples)
+        } else {
+            samples.filter { it.wallMs >= effective.startMs && (effective.endMs == null || it.wallMs <= effective.endMs) }
+        }.sortedBy { it.wallMs }
+    val historySession =
+        if (effective == null) {
+            emptyList()
+        } else {
+            history.filter { point ->
+                if (point.wallMs < effective.startMs || (effective.endMs != null && point.wallMs > effective.endMs)) {
                     false
                 } else {
-                    val next = -match - 1
-                    val covered = next > 0 && next < sampleSession.size &&
-                        sampleSession[next].wallMs - sampleSession[next - 1].wallMs <= SAMPLE_MAX_GAP_MS
-                    !covered
+                    val match = sampleSession.binarySearchBy(point.wallMs) { it.wallMs }
+                    if (match >= 0) {
+                        false
+                    } else {
+                        val next = -match - 1
+                        val covered =
+                            next > 0 && next < sampleSession.size &&
+                                sampleSession[next].wallMs - sampleSession[next - 1].wallMs <= SAMPLE_MAX_GAP_MS
+                        !covered
+                    }
                 }
             }
         }
-    }
     return (historySession + sampleSession).sortedBy { it.wallMs }
 }
 
 private fun CurvePoint.throttled(): Boolean = (thermalStatus ?: 0) >= THERMAL_STATUS_MODERATE
 
 /** Keeps at most [max] points, always the first and last, spread evenly. */
-internal fun <T> thin(points: List<T>, max: Int): List<T> {
+internal fun <T> thin(
+    points: List<T>,
+    max: Int,
+): List<T> {
     if (points.size <= max || max < 2) return points
     val step = (points.size - 1).toDouble() / (max - 1)
     return List(max) { i -> points[Math.round(i * step).toInt()] }
@@ -229,6 +248,7 @@ internal fun <T> thin(points: List<T>, max: Int): List<T> {
  */
 private fun throttleEdges(valued: List<Pair<CurvePoint, Float>>): List<ChartPoint> {
     val edges = ArrayList<ChartPoint>()
+
     fun mark(index: Int) = edges.add(ChartPoint(valued[index].first.levelPct.toFloat(), valued[index].second))
     var runStart = -1
     for (i in valued.indices) {
@@ -264,23 +284,28 @@ private fun series(
 }
 
 /** The charge curve for [points] (one charge, time-sorted); [CurveUi.None] when it has fewer than two levels. */
-internal fun curveUi(points: List<CurvePoint>, liveActive: Boolean): CurveUi {
+internal fun curveUi(
+    points: List<CurvePoint>,
+    liveActive: Boolean,
+): CurveUi {
     if (points.size < MIN_CURVE_POINTS) return CurveUi.None
     val levels = points.map { it.levelPct }
     if (levels.min() == levels.max()) return CurveUi.None
 
     val sampled = points.filter { !it.fromHistory }
-    val source = when {
-        sampled.isEmpty() -> CurveSource.History
-        liveActive -> CurveSource.Live
-        else -> CurveSource.Recorded
-    }
-    val series = listOfNotNull(
-        series(CurveMetric.Watts, points) { it.watts?.toFloat() },
-        series(CurveMetric.Current, points) { it.currentMa?.toFloat() },
-        series(CurveMetric.Voltage, points) { it.voltageMv?.toFloat() },
-        series(CurveMetric.Temperature, points) { it.temperatureC?.toFloat() },
-    )
+    val source =
+        when {
+            sampled.isEmpty() -> CurveSource.History
+            liveActive -> CurveSource.Live
+            else -> CurveSource.Recorded
+        }
+    val series =
+        listOfNotNull(
+            series(CurveMetric.Watts, points) { it.watts?.toFloat() },
+            series(CurveMetric.Current, points) { it.currentMa?.toFloat() },
+            series(CurveMetric.Voltage, points) { it.voltageMv?.toFloat() },
+            series(CurveMetric.Temperature, points) { it.temperatureC?.toFloat() },
+        )
     if (series.isEmpty()) return CurveUi.None
 
     val throttleKnown = points.any { it.thermalStatus != null }
@@ -290,15 +315,17 @@ internal fun curveUi(points: List<CurvePoint>, liveActive: Boolean): CurveUi {
         series = series.toImmutableList(),
         startLevelPct = points.first().levelPct,
         endLevelPct = points.last().levelPct,
-        detailFromLevelPct = if (source != CurveSource.History && points.any { it.fromHistory }) {
-            sampled.first().levelPct
-        } else {
-            null
-        },
+        detailFromLevelPct =
+            if (source != CurveSource.History && points.any { it.fromHistory }) {
+                sampled.first().levelPct
+            } else {
+                null
+            },
         throttleKnown = throttleKnown,
-        throttle = throttledPoints.takeIf { it.isNotEmpty() }?.let { hit ->
-            ThrottleUi(hit.size, hit.minOf { it.levelPct }, hit.maxOf { it.levelPct })
-        },
+        throttle =
+            throttledPoints.takeIf { it.isNotEmpty() }?.let { hit ->
+                ThrottleUi(hit.size, hit.minOf { it.levelPct }, hit.maxOf { it.levelPct })
+            },
     )
 }
 
@@ -336,13 +363,14 @@ internal fun wearAnalysis(
     val temperatures = points.mapNotNull { it.temperatureC }
     val voltages = points.mapNotNull { it.voltageMv }
     return WearAnalysisUi(
-        source = if (points.none { !it.fromHistory }) {
-            CurveSource.History
-        } else if (liveActive) {
-            CurveSource.Live
-        } else {
-            CurveSource.Recorded
-        },
+        source =
+            if (points.none { !it.fromHistory }) {
+                CurveSource.History
+            } else if (liveActive) {
+                CurveSource.Live
+            } else {
+                CurveSource.Recorded
+            },
         chargeMs = (endMs - startMs).coerceAtLeast(0),
         hotMs = hot.takeIf { temperatures.isNotEmpty() },
         hotObservedMs = hotObserved,
@@ -370,7 +398,10 @@ internal fun healthCard(
     val cycles = kernel?.cycleCount ?: latest?.cycleCount
     val unknown = if (kernel == null) MissingReason.NoKernelRead else MissingReason.NotReported
 
-    fun capacity(mah: Double?, missing: MissingReason) = CapacityUi(
+    fun capacity(
+        mah: Double?,
+        missing: MissingReason,
+    ) = CapacityUi(
         mah = mah,
         pctOfDesign = if (mah != null && design != null) mah / design * PERCENT else null,
         missing = if (mah == null) missing else null,
@@ -386,11 +417,15 @@ internal fun healthCard(
 }
 
 /** The newest independent capacity estimate: a stored health sample's, or an accepted charge session's. */
-private fun latestMeasuredMah(samples: List<HealthSample>, sessions: List<ChargeSessionRecord>): Double? {
+private fun latestMeasuredMah(
+    samples: List<HealthSample>,
+    sessions: List<ChargeSessionRecord>,
+): Double? {
     val fromSample = samples.filter { it.measuredMah != null }.maxByOrNull { it.wallMs }
-    val fromSession = sessions
-        .filter { it.accepted && it.independent && it.estimateMah != null }
-        .maxByOrNull { it.endWallMs }
+    val fromSession =
+        sessions
+            .filter { it.accepted && it.independent && it.estimateMah != null }
+            .maxByOrNull { it.endWallMs }
     val sampleAt = fromSample?.wallMs ?: Long.MIN_VALUE
     val sessionAt = fromSession?.endWallMs ?: Long.MIN_VALUE
     return if (sessionAt > sampleAt) fromSession?.estimateMah else fromSample?.measuredMah
@@ -400,10 +435,11 @@ private const val PERCENT = 100.0
 
 /** Full-charge capacity over design as a line; fewer than [MIN_WEAR_SAMPLES] usable records gives the empty state. */
 internal fun wearUi(samples: List<HealthSample>): WearUi {
-    val usable = samples
-        .filter { it.designMah > 0.0 && it.fccMah > 0.0 }
-        .distinctBy { it.wallMs }
-        .sortedBy { it.wallMs }
+    val usable =
+        samples
+            .filter { it.designMah > 0.0 && it.fccMah > 0.0 }
+            .distinctBy { it.wallMs }
+            .sortedBy { it.wallMs }
     if (usable.size < MIN_WEAR_SAMPLES) return WearUi.NotEnough(usable.size)
     val startMs = usable.first().wallMs
     val pct = usable.map { (it.wallMs - startMs).toFloat() to (it.fccMah / it.designMah * PERCENT).toFloat() }
@@ -419,9 +455,16 @@ internal fun wearUi(samples: List<HealthSample>): WearUi {
 }
 
 /** A value range padded so a line never touches the frame, at least [minSpan] tall so noise is not magnified. */
-internal data class AxisRange(val min: Float, val max: Float)
+internal data class AxisRange(
+    val min: Float,
+    val max: Float,
+)
 
-internal fun axisRange(min: Float, max: Float, minSpan: Float): AxisRange {
+internal fun axisRange(
+    min: Float,
+    max: Float,
+    minSpan: Float,
+): AxisRange {
     val span = maxOf(max - min, minSpan)
     val center = (min + max) / 2f
     val half = span * (1f + AXIS_PADDING) / 2f
@@ -435,18 +478,22 @@ private const val AXIS_PADDING = 0.1f
  * most [maxCount] ticks, so an axis reads 5 / 10 / 15 instead of 15.7 / 8.4 / 1.2. Two ticks or more are preferred;
  * when no round step gives that, one is better than an ugly pair, and a degenerate range keeps its own ends.
  */
-internal fun niceTicks(range: AxisRange, maxCount: Int = MAX_TICKS): List<Float> {
+internal fun niceTicks(
+    range: AxisRange,
+    maxCount: Int = MAX_TICKS,
+): List<Float> {
     val span = (range.max - range.min).toDouble()
     if (span <= 0.0) return listOf(range.min)
     val exponent = floor(log10(span)).toInt()
-    val ticksByStep = ((exponent - 2)..(exponent + 1)).flatMap { power ->
-        NICE_MULTIPLES.map { multiple ->
-            val step = multiple * 10.0.pow(power)
-            val first = ceil(range.min / step - TICK_EPSILON).toLong()
-            val last = floor(range.max / step + TICK_EPSILON).toLong()
-            (first..last).map { (it * step).toFloat() }
+    val ticksByStep =
+        ((exponent - 2)..(exponent + 1)).flatMap { power ->
+            NICE_MULTIPLES.map { multiple ->
+                val step = multiple * 10.0.pow(power)
+                val first = ceil(range.min / step - TICK_EPSILON).toLong()
+                val last = floor(range.max / step + TICK_EPSILON).toLong()
+                (first..last).map { (it * step).toFloat() }
+            }
         }
-    }
     return ticksByStep.firstOrNull { it.size in 2..maxCount }
         ?: ticksByStep.firstOrNull { it.size == 1 }
         ?: listOf(range.min, range.max)
