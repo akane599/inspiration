@@ -6,6 +6,7 @@ import com.akane.inspiration.telemetry.capacity.ChargeSegment
 import com.akane.inspiration.telemetry.capacity.ChargeSegmentExtractor
 import com.akane.inspiration.telemetry.capacity.Integrator
 import com.akane.inspiration.telemetry.capacity.KernelCapacity
+import com.akane.inspiration.telemetry.capacity.SegmentVerdict
 import com.akane.inspiration.telemetry.capture.SnapshotCapturer
 import com.akane.inspiration.telemetry.common.Clocks
 import com.akane.inspiration.telemetry.snapshot.CaptureTrigger
@@ -51,14 +52,15 @@ internal suspend fun runChargeJobCapture(
     val lastPowerConnectedWallMs = store.latestClockByTrigger(CaptureTrigger.POWER_CONNECTED)?.wallMs
     val lastChargeJobClock = store.latestClockByTrigger(CaptureTrigger.CHARGE_JOB)
     runner.run(
-        shouldCapture = CapturePolicy.chargeJobShouldRun(
-            lastPluggedHistoryWallMs = lastPluggedHistoryWallMs,
-            lastPowerConnectedWallMs = lastPowerConnectedWallMs,
-            lastChargeJobWallMs = lastChargeJobClock?.wallMs,
-            lastChargeJobBootCount = lastChargeJobClock?.bootCount,
-            currentBootCount = clocks.bootCount(),
-            historyAvailable = ingest.historyAvailable,
-        ),
+        shouldCapture =
+            CapturePolicy.chargeJobShouldRun(
+                lastPluggedHistoryWallMs = lastPluggedHistoryWallMs,
+                lastPowerConnectedWallMs = lastPowerConnectedWallMs,
+                lastChargeJobWallMs = lastChargeJobClock?.wallMs,
+                lastChargeJobBootCount = lastChargeJobClock?.bootCount,
+                currentBootCount = clocks.bootCount(),
+                historyAvailable = ingest.historyAvailable,
+            ),
         capture = { capturer.captureFull(ingest) },
         analyze = analyze,
         prune = { store.pruneRetention(clocks) },
@@ -84,28 +86,58 @@ class ChargeHealthPipeline(
     }
 
     private suspend fun evaluateSegments(kernel: KernelCapacity) {
-        val known = store.chargeSessions()
-        val knownKeys = known.mapTo(HashSet()) { it.startWallMs to it.endWallMs }
-        val accepted = store.acceptedEstimatesChronological(ACCEPTED_LIMIT).toMutableList()
-        var consecutiveRejections = known.takeLastWhile { !it.accepted }.size
+        // Missing design is a transient prerequisite, not a verdict about a charge segment.
+        if (kernel.designMah?.takeIf { it > 0.0 } == null) return
+        val (retry, terminal) =
+            store.chargeSessions().partition {
+                !it.accepted && it.rejectReason == "missing_design_capacity"
+            }
+        val knownKeys = terminal.mapTo(HashSet()) { it.startWallMs to it.endWallMs }
+        val terminalIdentities = terminal.mapTo(HashSet()) { it.statsStartMs to it.startHistoryTimeMs }
+        // Charge sessions outlive raw history and current samples. Reuse their evidence and storage identity.
+        val recovered =
+            retry.map { row ->
+                row.statsStartMs to
+                    ChargeSegment(
+                        startHistoryTimeMs = row.startHistoryTimeMs,
+                        startWallMs = row.startWallMs,
+                        endWallMs = row.endWallMs,
+                        startPct = row.startPct,
+                        endPct = row.endPct,
+                        deltaChargeUah = row.deltaChargeUah,
+                        integratedMah = row.integratedMah,
+                        maxTemperatureDeciC = row.maxTemperatureDeciC,
+                    )
+            }
 
         // One stream across stats sessions: a charge that ends in a reset spans two of them.
-        val segments = ChargeSegmentExtractor.fromSessions(store.historySessions())
-            // Wall times, not (statsStart, historyTime): a battery-stats reset changes the epoch key but not these.
-            .filter { (_, segment) -> (segment.startWallMs to segment.endWallMs) !in knownKeys }
-            .sortedBy { it.second.endWallMs }
+        val segments =
+            (recovered + ChargeSegmentExtractor.fromSessions(store.historySessions()))
+                // Prefer persisted evidence even if re-extraction changes its wall-clock frame or stats epoch.
+                .distinctBy { (statsStartMs, segment) -> statsStartMs to segment.startHistoryTimeMs }
+                .distinctBy { (_, segment) -> segment.startWallMs to segment.endWallMs }
+                .filter { (statsStartMs, segment) ->
+                    (statsStartMs to segment.startHistoryTimeMs) !in terminalIdentities &&
+                        (segment.startWallMs to segment.endWallMs) !in knownKeys
+                }.sortedBy { it.second.endWallMs }
+        val evaluated =
+            terminal
+                .map { row ->
+                    row.endWallMs to SegmentVerdict(row.estimateMah, row.independent, row.accepted, row.rejectReason)
+                }.toMutableList()
         for ((statsStartMs, segment) in segments) {
-            val verdict = guarded("charge segment ${segment.startHistoryTimeMs} failed") {
-                val enriched = withRecordedCurrent(segment)
-                CapacityEstimator.evaluate(enriched, kernel, accepted.takeLast(MEDIAN_WINDOW), consecutiveRejections)
-                    .also { store.upsertChargeSession(statsStartMs, enriched, it) }
-            } ?: continue
-            if (verdict.accepted) {
-                verdict.estimateMah?.let(accepted::add)
-                consecutiveRejections = 0
-            } else {
-                consecutiveRejections++
-            }
+            // A recovered segment can precede terminal rows: future (or tied) verdicts are not prior evidence.
+            val previous = evaluated.filter { it.first < segment.endWallMs }.sortedBy { it.first }.map { it.second }
+            val accepted = previous.filter { it.accepted }.mapNotNull { it.estimateMah }
+            val consecutiveRejections = previous.takeLastWhile { !it.accepted }.size
+            val verdict =
+                guarded("charge segment ${segment.startHistoryTimeMs} failed") {
+                    val enriched = withRecordedCurrent(segment)
+                    CapacityEstimator
+                        .evaluate(enriched, kernel, accepted.takeLast(MEDIAN_WINDOW), consecutiveRejections)
+                        .also { store.upsertChargeSession(statsStartMs, enriched, it) }
+                } ?: continue
+            evaluated += segment.endWallMs to verdict
         }
     }
 
@@ -118,28 +150,39 @@ class ChargeHealthPipeline(
         val startGap = first.wallMs - segment.startWallMs
         val endGap = segment.endWallMs - last.wallMs
         if (startGap !in 0L..MAX_SAMPLE_GAP_MS || endGap !in 0L..MAX_SAMPLE_GAP_MS ||
-            samples.any { it.bootCount != first.bootCount || it.currentMa == null ||
-                (it.plugged != true && it.wallMs != segment.endWallMs) } ||
+            samples.any {
+                it.bootCount != first.bootCount || it.currentMa == null ||
+                    (it.plugged != true && it.wallMs != segment.endWallMs)
+            } ||
             samples.zipWithNext().any { (a, b) ->
                 b.wallMs - a.wallMs !in 1L..MAX_SAMPLE_GAP_MS ||
                     b.elapsedRealtimeMs - a.elapsedRealtimeMs !in 1L..MAX_SAMPLE_GAP_MS
             }
-        ) return segment
+        ) {
+            return segment
+        }
 
         // Use monotonic times and extend only the short gaps at the session boundaries.
-        val points = buildList {
-            if (startGap > 0) add(first.elapsedRealtimeMs - startGap to first.currentMa!!.toDouble())
-            samples.forEach { add(it.elapsedRealtimeMs to it.currentMa!!.toDouble()) }
-            if (endGap > 0) add(last.elapsedRealtimeMs + endGap to last.currentMa!!.toDouble())
-        }
+        val points =
+            buildList {
+                if (startGap > 0) add(first.elapsedRealtimeMs - startGap to first.currentMa!!.toDouble())
+                samples.forEach { add(it.elapsedRealtimeMs to it.currentMa!!.toDouble()) }
+                if (endGap > 0) add(last.elapsedRealtimeMs + endGap to last.currentMa!!.toDouble())
+            }
         return segment.copy(
             integratedMah = Integrator.trapezoidMah(points),
-            maxTemperatureDeciC = (samples.mapNotNull { it.temperatureDeciC } +
-                listOfNotNull(segment.maxTemperatureDeciC)).maxOrNull(),
+            maxTemperatureDeciC =
+                (
+                    samples.mapNotNull { it.temperatureDeciC } +
+                        listOfNotNull(segment.maxTemperatureDeciC)
+                ).maxOrNull(),
         )
     }
 
-    private suspend fun recordHealth(kernel: KernelCapacity, nowWallMs: Long) {
+    private suspend fun recordHealth(
+        kernel: KernelCapacity,
+        nowWallMs: Long,
+    ) {
         val fcc = kernel.chargeFullMah ?: return
         val design = kernel.designMah ?: return
         val cycles = kernel.cycleCount
@@ -149,14 +192,18 @@ class ChargeHealthPipeline(
         if (latest == null || latest.copy(wallMs = sample.wallMs) != sample) store.insertHealthSample(sample)
     }
 
-    private suspend fun <T> guarded(what: String, block: suspend () -> T): T? = try {
-        block()
-    } catch (cancelled: CancellationException) {
-        throw cancelled
-    } catch (error: Exception) {
-        log(what, error)
-        null
-    }
+    private suspend fun <T> guarded(
+        what: String,
+        block: suspend () -> T,
+    ): T? =
+        try {
+            block()
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (error: Exception) {
+            log(what, error)
+            null
+        }
 
     private companion object {
         const val ACCEPTED_LIMIT = 1_000
