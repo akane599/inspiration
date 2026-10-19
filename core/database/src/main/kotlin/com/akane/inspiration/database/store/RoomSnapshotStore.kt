@@ -64,7 +64,7 @@ class RoomSnapshotStore(
         )
         snapshotDao.insertUids(snapshot.uids.map { it.toEntity(snapshotId) })
         snapshotDao.insertComponents(snapshot.componentEntities(snapshotId))
-        snapshot.mergeWakelocks(snapshotId, snapshotDao)
+        snapshotDao.mergeWakelocks(snapshot.wakelockEntities(snapshotId))
         snapshotDao.insertAlarms(snapshot.alarmEntities(snapshotId))
         snapshotDao.insertUidSensors(snapshot.sensorEntities(snapshotId))
         snapshotDao.insertCpuFrequencies(
@@ -459,40 +459,55 @@ class RoomSnapshotStore(
         }
     }
 
-    private suspend fun BatterySnapshot.mergeWakelocks(snapshotId: Long, snapshotDao: com.akane.inspiration.database.SnapshotDao) {
+    /** One row per (kind, uid, name) after blank names become [UNNAMED_WAKELOCK], durations and counts summed. */
+    private fun BatterySnapshot.wakelockEntities(snapshotId: Long): List<SnapshotWakelockEntity> = buildList {
         uids.forEach { uid ->
             uid.partialWakelocks.forEach { wakelock ->
-                snapshotDao.mergeWakelock(
-                    snapshotId = snapshotId,
-                    kind = PARTIAL_WAKELOCK,
-                    uid = uid.uid,
-                    name = wakelock.name.ifBlank { UNNAMED_WAKELOCK },
-                    durationMs = wakelock.durationMs,
-                    bgDurationMs = wakelock.bgDurationMs,
-                    count = wakelock.count,
+                add(
+                    SnapshotWakelockEntity(
+                        snapshotId = snapshotId,
+                        kind = PARTIAL_WAKELOCK,
+                        uid = uid.uid,
+                        name = wakelock.name.ifBlank { UNNAMED_WAKELOCK },
+                        durationMs = wakelock.durationMs,
+                        bgDurationMs = wakelock.bgDurationMs,
+                        count = wakelock.count,
+                    ),
                 )
             }
         }
         kernelWakelocks.forEach { wakelock ->
-            snapshotDao.mergeWakelock(
-                snapshotId = snapshotId,
-                kind = KERNEL_WAKELOCK,
-                uid = DEVICE_UID,
-                name = wakelock.name.ifBlank { UNNAMED_WAKELOCK },
-                durationMs = wakelock.durationMs,
-                bgDurationMs = 0L,
-                count = wakelock.count,
+            add(
+                SnapshotWakelockEntity(
+                    snapshotId = snapshotId,
+                    kind = KERNEL_WAKELOCK,
+                    uid = DEVICE_UID,
+                    name = wakelock.name.ifBlank { UNNAMED_WAKELOCK },
+                    durationMs = wakelock.durationMs,
+                    bgDurationMs = 0L,
+                    count = wakelock.count,
+                ),
             )
         }
         wakeupReasons.forEach { wakelock ->
-            snapshotDao.mergeWakelock(
-                snapshotId = snapshotId,
-                kind = WAKEUP_REASON,
-                uid = DEVICE_UID,
-                name = wakelock.name.ifBlank { UNNAMED_WAKELOCK },
-                durationMs = wakelock.durationMs,
-                bgDurationMs = 0L,
-                count = wakelock.count,
+            add(
+                SnapshotWakelockEntity(
+                    snapshotId = snapshotId,
+                    kind = WAKEUP_REASON,
+                    uid = DEVICE_UID,
+                    name = wakelock.name.ifBlank { UNNAMED_WAKELOCK },
+                    durationMs = wakelock.durationMs,
+                    bgDurationMs = 0L,
+                    count = wakelock.count,
+                ),
+            )
+        }
+    }.groupBy { Triple(it.kind, it.uid, it.name) }.values.map { rows ->
+        rows.reduce { merged, row ->
+            merged.copy(
+                durationMs = merged.durationMs + row.durationMs,
+                bgDurationMs = merged.bgDurationMs + row.bgDurationMs,
+                count = merged.count + row.count,
             )
         }
     }

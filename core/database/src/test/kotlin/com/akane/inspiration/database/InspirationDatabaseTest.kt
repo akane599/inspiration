@@ -140,6 +140,30 @@ class InspirationDatabaseTest {
     }
 
     @Test
+    fun `batched wakelock merge inserts new keys and adds to stored or repeated keys`() = runBlocking {
+        val snapshotId = database.snapshotDao().insert(snapshot(wallMs = 1L))
+        database.snapshotDao().mergeWakelock(snapshotId, "PARTIAL", 1000, "sync", 10L, 4L, 1L)
+
+        database.snapshotDao().mergeWakelocks(
+            listOf(
+                SnapshotWakelockEntity(snapshotId, "PARTIAL", 1000, "sync", 15L, 6L, 2L),
+                SnapshotWakelockEntity(snapshotId, "PARTIAL", 1001, "sync", 7L, 1L, 1L),
+                SnapshotWakelockEntity(snapshotId, "KERNEL", -1, "sync", 5L, 0L, 3L),
+                SnapshotWakelockEntity(snapshotId, "KERNEL", -1, "sync", 1L, 0L, 1L),
+            ),
+        )
+
+        assertEquals(
+            listOf(
+                SnapshotWakelockEntity(snapshotId, "KERNEL", -1, "sync", 6L, 0L, 4L),
+                SnapshotWakelockEntity(snapshotId, "PARTIAL", 1000, "sync", 25L, 10L, 3L),
+                SnapshotWakelockEntity(snapshotId, "PARTIAL", 1001, "sync", 7L, 1L, 1L),
+            ),
+            database.snapshotDao().wakelocksForSnapshot(snapshotId),
+        )
+    }
+
+    @Test
     fun `prune retains marker referenced snapshots and cascades unmarked children`() = runBlocking {
         val now = 100L * DAY_MS
         val oldSnapshotId = database.snapshotDao().insert(snapshot(wallMs = now - 31L * DAY_MS))

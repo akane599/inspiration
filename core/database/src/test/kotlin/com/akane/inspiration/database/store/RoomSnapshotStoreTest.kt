@@ -2,6 +2,7 @@ package com.akane.inspiration.database.store
 
 import androidx.test.core.app.ApplicationProvider
 import com.akane.inspiration.database.InspirationDatabase
+import com.akane.inspiration.database.SnapshotWakelockEntity
 import com.akane.inspiration.database.ToolkitActionEntity
 import com.akane.inspiration.ipc.model.HistoryEvent
 import com.akane.inspiration.ipc.model.HistoryKind
@@ -117,6 +118,42 @@ class RoomSnapshotStoreTest {
         val id = store.insert(snapshot)
 
         assertEquals(snapshot.copy(id = id), store.byId(id))
+    }
+
+    @Test
+    fun `insert merges duplicate and blank wakelock names per kind and uid`() = runBlocking {
+        val snapshot = fullSnapshot(
+            uids = listOf(
+                uidSnapshot().copy(
+                    partialWakelocks = listOf(
+                        UidWakelock("sync", 10L, 4L, 1L),
+                        UidWakelock("", 3L, 1L, 1L),
+                        UidWakelock("sync", 5L, 1L, 2L),
+                        UidWakelock("  ", 2L, 0L, 1L),
+                    ),
+                ),
+                uidSnapshot().copy(uid = 10_002, partialWakelocks = listOf(UidWakelock("sync", 7L, 0L, 1L))),
+            ),
+            kernelWakelocks = listOf(KernelWakelock("k", 30L, 3L), KernelWakelock("", 1L, 1L), KernelWakelock("k", 10L, 1L)),
+            wakeupReasons = listOf(KernelWakelock("r", 40L, 4L), KernelWakelock("r", 2L, 1L)),
+        )
+
+        val id = store.insert(snapshot)
+
+        assertEquals(
+            listOf(
+                SnapshotWakelockEntity(id, "KERNEL", -1, "<unnamed>", 1L, 0L, 1L),
+                SnapshotWakelockEntity(id, "KERNEL", -1, "k", 40L, 0L, 4L),
+                SnapshotWakelockEntity(id, "PARTIAL", 10_001, "<unnamed>", 5L, 1L, 2L),
+                SnapshotWakelockEntity(id, "PARTIAL", 10_001, "sync", 15L, 5L, 3L),
+                SnapshotWakelockEntity(id, "PARTIAL", 10_002, "sync", 7L, 0L, 1L),
+                SnapshotWakelockEntity(id, "WAKEUP_REASON", -1, "r", 42L, 0L, 5L),
+            ),
+            database.snapshotDao().wakelocksForSnapshot(id),
+        )
+        val read = store.byId(id)!!
+        assertEquals(listOf(KernelWakelock("<unnamed>", 1L, 1L), KernelWakelock("k", 40L, 4L)), read.kernelWakelocks)
+        assertEquals(listOf(KernelWakelock("r", 42L, 5L)), read.wakeupReasons)
     }
 
     @Test

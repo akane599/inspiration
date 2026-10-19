@@ -59,6 +59,32 @@ interface SnapshotDao {
         count: Long,
     )
 
+    /** Returns -1 for each row whose key is already stored; [mergeWakelocks] adds those through [mergeWakelock]. */
+    @Insert(onConflict = OnConflictStrategy.IGNORE)
+    suspend fun insertWakelocksIgnoringConflicts(wakelocks: List<SnapshotWakelockEntity>): List<Long>
+
+    /**
+     * [mergeWakelock] for a batch: new keys go in as one list insert, and a key that is already stored (or repeated
+     * in [wakelocks]) gets its durations and counts added. Merge repeated keys first so the batch stays one insert.
+     */
+    @Transaction
+    suspend fun mergeWakelocks(wakelocks: List<SnapshotWakelockEntity>) {
+        val ids = insertWakelocksIgnoringConflicts(wakelocks)
+        wakelocks.forEachIndexed { index, wakelock ->
+            if (ids[index] == -1L) {
+                mergeWakelock(
+                    snapshotId = wakelock.snapshotId,
+                    kind = wakelock.kind,
+                    uid = wakelock.uid,
+                    name = wakelock.name,
+                    durationMs = wakelock.durationMs,
+                    bgDurationMs = wakelock.bgDurationMs,
+                    count = wakelock.count,
+                )
+            }
+        }
+    }
+
     @Query("SELECT * FROM snapshot WHERE id = :id")
     suspend fun byId(id: Long): SnapshotEntity?
 
