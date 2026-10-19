@@ -49,7 +49,9 @@ fun ToolkitRoute(
         viewModel.effects.collect { effect ->
             when (effect) {
                 is ToolkitEffect.ResetFinished ->
-                    snackbarHostState.showSnackbar(resources.getString(R.string.toolkit_reset_finished, effect.restored, effect.total))
+                    snackbarHostState.showSnackbar(
+                        resources.getQuantityString(R.plurals.toolkit_reset_finished, effect.total, effect.restored, effect.total),
+                    )
                 ToolkitEffect.OpenNotificationSettings -> openNotificationSettings(context)
             }
         }

@@ -10,7 +10,10 @@
     <string name="toolkit_status_notification_blocked">Notifications are blocked</string>
     <string name="toolkit_status_notification_allow">Allow in settings</string>
     <string name="toolkit_reset_all">Reset all</string>
-    <string name="toolkit_reset_finished">Restored %1$d of %2$d changes.</string>
+    <plurals name="toolkit_reset_finished">
+        <item quantity="one">Restored %1$d of %2$d change.</item>
+        <item quantity="other">Restored %1$d of %2$d changes.</item>
+    </plurals>
     <string name="toolkit_seconds">%1$s s</string>
 
     <!-- Loading, error, blocked -->
@@ -87,7 +90,10 @@
 
     <!-- Reset all -->
     <string name="toolkit_reset_report_title">Reset result</string>
-    <string name="toolkit_reset_report_summary">%1$d of %2$d changes restored</string>
+    <plurals name="toolkit_reset_report_summary">
+        <item quantity="one">%1$d of %2$d change restored</item>
+        <item quantity="other">%1$d of %2$d changes restored</item>
+    </plurals>
     <string name="toolkit_reset_not_restored">Not restored: %1$s</string>
     <string name="toolkit_reset_report_failed_note">Changes that weren\'t restored stay active and listed. You can restore them one by one.</string>
     <string name="toolkit_reset_report_dismiss">Dismiss</string>

@@ -10,7 +10,10 @@
     <string name="toolkit_status_notification_blocked">Bildirimler engellenmiş</string>
     <string name="toolkit_status_notification_allow">Ayarlardan izin ver</string>
     <string name="toolkit_reset_all">Tümünü sıfırla</string>
-    <string name="toolkit_reset_finished">%2$d değişikliğin %1$d tanesi geri alındı.</string>
+    <plurals name="toolkit_reset_finished">
+        <item quantity="one">%2$d değişikliğin %1$d tanesi geri alındı.</item>
+        <item quantity="other">%2$d değişikliğin %1$d tanesi geri alındı.</item>
+    </plurals>
     <string name="toolkit_seconds">%1$s sn</string>
 
     <!-- Loading, error, blocked -->
@@ -87,7 +90,10 @@
 
     <!-- Reset all -->
     <string name="toolkit_reset_report_title">Sıfırlama sonucu</string>
-    <string name="toolkit_reset_report_summary">%2$d değişikliğin %1$d tanesi geri alındı</string>
+    <plurals name="toolkit_reset_report_summary">
+        <item quantity="one">%2$d değişikliğin %1$d tanesi geri alındı</item>
+        <item quantity="other">%2$d değişikliğin %1$d tanesi geri alındı</item>
+    </plurals>
     <string name="toolkit_reset_not_restored">Geri alınamadı: %1$s</string>
     <string name="toolkit_reset_report_failed_note">Geri alınamayan değişiklikler etkin ve listede kalır. Tek tek geri alabilirsiniz.</string>
     <string name="toolkit_reset_report_dismiss">Kapat</string>
