@@ -13,8 +13,13 @@ import com.akane.inspiration.telemetry.status.UnplugSummaryCalculator
 interface SnapshotStore {
     suspend fun insert(snapshot: BatterySnapshot): Long
 
+    /**
+     * The whole snapshot with this id. No production path reads by id; the store tests read every [insert] back through
+     * it, so it stays as their round-trip check (kept, audit §3).
+     */
     suspend fun byId(id: Long): BatterySnapshot?
 
+    /** The newest snapshot, of one [kind] or of either. Read by the debug probe and the store tests (kept, audit §3). */
     suspend fun latest(kind: SnapshotKind? = null): BatterySnapshot?
 
     /**
@@ -33,6 +38,11 @@ interface SnapshotStore {
         kind: SnapshotKind?,
     ): BatterySnapshot?
 
+    /**
+     * The newest snapshot taken for [trigger], the same row [latestClockByTrigger] reads. Production needs only that
+     * clock; this full read is the clock's default for fakes, and the store tests check the trigger ordering through it
+     * (kept, audit §3).
+     */
     suspend fun latestByTrigger(trigger: CaptureTrigger): BatterySnapshot?
 
     /**
