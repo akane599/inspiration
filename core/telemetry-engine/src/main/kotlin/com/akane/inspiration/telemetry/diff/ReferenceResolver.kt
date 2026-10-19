@@ -98,7 +98,12 @@ class ReferenceResolver(
     ): Boundary? =
         when (kind) {
             ReferenceKind.SinceUnplugged -> {
-                sinceLatest(events.lastOrNull { it.kind == HistoryKind.UNPLUGGED }?.wallMs, CaptureTrigger.POWER_DISCONNECTED, nowWallMs)
+                sinceLatest(
+                    historyWallMs = events.lastOrNull { it.kind == HistoryKind.UNPLUGGED }?.wallMs,
+                    trigger = CaptureTrigger.POWER_DISCONNECTED,
+                    nowWallMs = nowWallMs,
+                    reverts = { it.battery.plugged == true || it.trigger == CaptureTrigger.POWER_CONNECTED },
+                )
             }
 
             ReferenceKind.SinceScreenOff -> {
@@ -108,7 +113,12 @@ class ReferenceResolver(
             ReferenceKind.ScreenOnSession -> {
                 // A RESET with the screen on restates it as a SCREEN_ON at the reset (see HistoryKind.RESET), so a
                 // session that was already on then starts at the reset; battery-stats deltas cannot cross a reset anyway.
-                sinceLatest(events.lastOrNull { it.kind == HistoryKind.SCREEN_ON }?.wallMs, CaptureTrigger.SCREEN_ON, nowWallMs)
+                sinceLatest(
+                    historyWallMs = events.lastOrNull { it.kind == HistoryKind.SCREEN_ON }?.wallMs,
+                    trigger = CaptureTrigger.SCREEN_ON,
+                    nowWallMs = nowWallMs,
+                    reverts = { it.trigger == CaptureTrigger.SCREEN_OFF },
+                )
             }
 
             ReferenceKind.Last24h -> {
@@ -160,23 +170,28 @@ class ReferenceResolver(
 
     /**
      * From the newest history event ([historyWallMs]) or the newest [trigger] capture to now (see
-     * [CAPTURE_SLACK_MS] for how the two relate). The capture starts the window only when it is more than the slack
-     * past both that event and the history horizon: no ingest ran after it, so it is a newer event the history
-     * lacks (no FULL read since, or Shizuku down). A capture within the slack, or an earlier one, belongs to an
-     * event the history already holds (a deferred capture is delivered at the activation whose ingest moves the
-     * horizon), and the history time starts the window.
+     * [CAPTURE_SLACK_MS] for how the two relate). A capture within the slack after that event, or before it, is
+     * that event's or an older one's, and the history time starts the window. A later capture starts it when the
+     * history is provably stale: a snapshot between the two [reverts] the event (plugged in again after an unplug,
+     * the screen off again after a screen-on), so the capture is a newer event. Without that evidence the capture
+     * may be the history event's own, deferred to the next activation; it then starts the window only when it is
+     * more than the slack past the history horizon too. No ingest ran after it, so the history cannot hold its
+     * event (no FULL read since, or Shizuku down), whereas a deferred capture is delivered at the activation whose
+     * ingest moves the horizon.
      */
     private suspend fun sinceLatest(
         historyWallMs: Long?,
         trigger: CaptureTrigger,
         nowWallMs: Long,
+        reverts: (BatterySnapshot) -> Boolean,
     ): Boundary? {
         val captureWallMs = store.latestClockByTrigger(trigger)?.wallMs?.takeIf { it <= nowWallMs }
         val start =
             when {
                 historyWallMs == null -> captureWallMs
-                captureWallMs == null -> historyWallMs
-                captureWallMs > historyWallMs + CAPTURE_SLACK_MS && pastHistoryHorizon(captureWallMs) -> captureWallMs
+                captureWallMs == null || captureWallMs <= historyWallMs + CAPTURE_SLACK_MS -> historyWallMs
+                anyStrictlyBetween(historyWallMs + CAPTURE_SLACK_MS, captureWallMs, reverts) -> captureWallMs
+                pastHistoryHorizon(captureWallMs) -> captureWallMs
                 else -> historyWallMs
             }
         return start?.let { Boundary(it, nowWallMs) }
@@ -185,11 +200,20 @@ class ReferenceResolver(
     private suspend fun pastHistoryHorizon(captureWallMs: Long): Boolean =
         store.historyHorizonWallMs()?.let { horizon -> captureWallMs > horizon + CAPTURE_SLACK_MS } ?: true
 
+    /** True when a snapshot with `fromWallMs < wallMs < toWallMs` matches [predicate]; reads bare rows only. */
+    private suspend fun anyStrictlyBetween(
+        fromWallMs: Long,
+        toWallMs: Long,
+        predicate: (BatterySnapshot) -> Boolean,
+    ): Boolean = toWallMs - fromWallMs > 1 && store.snapshotsBetween(fromWallMs + 1, toWallMs - 1).any(predicate)
+
     /**
      * The newest completed screen-off period. A captured period that starts after the history's newest completed
-     * one ended is newer than anything the history holds, and wins. Otherwise the history times the period, and
-     * it ends at the first snapshot within [CAPTURE_SLACK_MS] after the history's SCREEN_ON (normally that
-     * broadcast's own capture), so the snapshot that closes the period is inside the window, not just past it.
+     * one ended is newer than anything the history holds, and wins. Otherwise the history times the period, and a
+     * snapshot within [CAPTURE_SLACK_MS] of the history's SCREEN_ON must close it: the first one at or after it
+     * (normally that broadcast's own capture, which lands after it) becomes the end, so it is inside the window,
+     * else the newest one before it. With neither, no snapshot measures the period's end, and an earlier one would
+     * stand for a sliver of it, so the result is null.
      */
     private suspend fun sinceScreenOff(
         events: List<HistoryEvent>,
@@ -198,18 +222,26 @@ class ReferenceResolver(
         val history = completedScreenOff(events) ?: return completedScreenOffFromSnapshots(nowWallMs)
         val captured = completedScreenOffFromSnapshots(nowWallMs)
         if (captured != null && captured.fromWallMs > history.toWallMs) return captured
-        val anchorWallMs =
-            store
-                .snapshotsBetween(history.toWallMs, minOf(history.toWallMs + CAPTURE_SLACK_MS, nowWallMs))
-                .minOfOrNull { it.clock.wallMs }
-        return anchorWallMs?.let { history.copy(toWallMs = it) } ?: history
+        val near =
+            store.snapshotsBetween(
+                history.toWallMs - CAPTURE_SLACK_MS,
+                minOf(history.toWallMs + CAPTURE_SLACK_MS, nowWallMs),
+            )
+        val anchorWallMs = near.filter { it.clock.wallMs >= history.toWallMs }.minOfOrNull { it.clock.wallMs }
+        return when {
+            anchorWallMs != null -> history.copy(toWallMs = anchorWallMs)
+            near.any { it.clock.wallMs < history.toWallMs } -> history
+            else -> null
+        }
     }
 
     /**
-     * The newest SCREEN_OFF to SCREEN_ON pair in [events]. The screen state a RESET restates at its instant counts as
-     * a transition, so a period that spans a reset is cut at it: it starts at a reset made with the screen off, or ends
-     * at one made with the screen on. That is deliberate: battery stats restart at a reset, and [SnapshotDiffer]
-     * invalidates every battery-stats delta whose endpoints straddle one, so no per-UID window can reach across it.
+     * The newest SCREEN_OFF to SCREEN_ON pair in [events]; of consecutive SCREEN_OFF events the last one starts the
+     * period. The screen state a RESET restates at its instant counts as a transition, so a period that spans a reset
+     * is cut at it: it starts at a reset made with the screen off, or ends at one made with the screen on. That is
+     * deliberate: battery stats restart at a reset, and [SnapshotDiffer] invalidates every battery-stats delta whose
+     * endpoints straddle one, so no per-UID window can reach across it (and at an unplug reset the time before it was
+     * spent charging).
      */
     private fun completedScreenOff(events: List<HistoryEvent>): Boundary? {
         var candidate: Boundary? = null
@@ -229,14 +261,19 @@ class ReferenceResolver(
         return candidate
     }
 
+    /**
+     * The newest SCREEN_OFF capture and the newest SCREEN_ON capture after it, as one screen-off period. From
+     * API 34 both broadcasts share one delivery group, so a cached app receives only the newest pending one: the
+     * two captures can then bound several periods with screen-on time between them. An app open or a marker
+     * between them proves that (the screen was on), and the pair is rejected. An on-period in which the app was
+     * neither opened nor marked leaves no capture and goes undetected.
+     */
     private suspend fun completedScreenOffFromSnapshots(nowWallMs: Long): Boundary? {
         val screenOff = store.latestClockByTrigger(CaptureTrigger.SCREEN_OFF) ?: return null
         val screenOn = store.latestClockByTrigger(CaptureTrigger.SCREEN_ON) ?: return null
-        return if (screenOff.wallMs < screenOn.wallMs && screenOn.wallMs <= nowWallMs) {
-            Boundary(screenOff.wallMs, screenOn.wallMs)
-        } else {
-            null
-        }
+        if (screenOff.wallMs >= screenOn.wallMs || screenOn.wallMs > nowWallMs) return null
+        if (anyStrictlyBetween(screenOff.wallMs, screenOn.wallMs) { it.trigger in SCREEN_ON_PROOF }) return null
+        return Boundary(screenOff.wallMs, screenOn.wallMs)
     }
 
     private data class Boundary(
@@ -259,5 +296,12 @@ class ReferenceResolver(
          * window that ends at an anchor takes in.
          */
         const val CAPTURE_SLACK_MS = 10_000L
+
+        /**
+         * Captures a user in front of a lit screen makes: opening the app, setting a marker. A failed refresh
+         * retried when Shizuku becomes ready can store an APP_OPEN with the screen off; a pair rejected for it
+         * errs on the safe side.
+         */
+        val SCREEN_ON_PROOF = setOf(CaptureTrigger.APP_OPEN, CaptureTrigger.MARKER)
     }
 }

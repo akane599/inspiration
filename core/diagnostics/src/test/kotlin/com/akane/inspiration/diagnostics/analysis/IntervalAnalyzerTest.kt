@@ -3,6 +3,7 @@ package com.akane.inspiration.diagnostics.analysis
 import com.akane.inspiration.diagnostics.story.StorySentence
 import com.akane.inspiration.ipc.model.HistoryKind
 import com.akane.inspiration.telemetry.diff.ReferenceKind
+import com.akane.inspiration.telemetry.diff.ReferenceResolver
 import com.akane.inspiration.telemetry.snapshot.BatterySnapshot
 import com.akane.inspiration.telemetry.snapshot.CaptureTrigger
 import com.akane.inspiration.telemetry.snapshot.SnapshotKind
@@ -126,6 +127,11 @@ class IntervalAnalyzerTest {
             val stored = FakeSnapshotStore(snapshots = listOf(rebooted, marked))
             val analyzer = IntervalAnalyzer(withMarker(stored, marked), ruleEngine())
 
+            // The resolver keeps a cross-boot marker pair (the differ flags it), so only the analyzer's guard empties it.
+            val resolved = ReferenceResolver(withMarker(stored, marked)).resolve(ReferenceKind.CustomMarker(1), 5 * hour)!!
+            assertEquals(marked, resolved.ref)
+            assertEquals(rebooted, resolved.now)
+            assertEquals(resolved.coveredFromWallMs, resolved.coveredToWallMs)
             assertNull(analyzer.analyze(ReferenceKind.CustomMarker(1), nowWallMs = 5 * hour))
         }
 

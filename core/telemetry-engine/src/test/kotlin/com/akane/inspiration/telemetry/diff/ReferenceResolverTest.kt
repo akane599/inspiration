@@ -264,6 +264,124 @@ class ReferenceResolverTest {
             }
         }
 
+    @Test
+    fun `a newer event right after an ingest beats the stale history when a snapshot between proves it`() =
+        runTest {
+            // Yesterday's unplug and screen-on are stored. The app is opened while charging (ingest at T), then
+            // the device is unplugged and the screen turned off and on again within seconds of that ingest.
+            val events = listOf(history(NOW - 20 * HOUR_MS, HistoryKind.UNPLUGGED), history(NOW - 20 * HOUR_MS, HistoryKind.SCREEN_ON))
+            val ingestAt = NOW - HOUR_MS
+            val pluggedIngest = snapshot(ingestAt, CaptureTrigger.APP_OPEN, ingestedHistory = true, plugged = true)
+            val unplug = snapshot(ingestAt + 5_000L, CaptureTrigger.POWER_DISCONNECTED, SnapshotKind.LIGHT)
+            val screenOff = snapshot(ingestAt + 6_000L, CaptureTrigger.SCREEN_OFF, SnapshotKind.LIGHT)
+            val screenOn = snapshot(ingestAt + 8_000L, CaptureTrigger.SCREEN_ON, SnapshotKind.LIGHT)
+            val end = snapshot(NOW - 1_000L, CaptureTrigger.BATTERY_OKAY, SnapshotKind.LIGHT)
+            val resolver = ReferenceResolver(LoadCountingStore(listOf(pluggedIngest, unplug, screenOff, screenOn, end)))
+
+            assertEquals(unplug.clock.wallMs, resolver.resolve(ReferenceKind.SinceUnplugged, NOW, events)!!.boundaryFromWallMs)
+            assertEquals(screenOn.clock.wallMs, resolver.resolve(ReferenceKind.ScreenOnSession, NOW, events)!!.boundaryFromWallMs)
+
+            // A POWER_CONNECTED capture proves the replug as well as a plugged-in snapshot does.
+            val unpluggedIngest = pluggedIngest.copy(battery = pluggedIngest.battery.copy(plugged = false))
+            val connected = snapshot(ingestAt + 2_000L, CaptureTrigger.POWER_CONNECTED, SnapshotKind.LIGHT)
+            assertEquals(
+                unplug.clock.wallMs,
+                ReferenceResolver(LoadCountingStore(listOf(unpluggedIngest, connected, unplug, end)))
+                    .resolve(ReferenceKind.SinceUnplugged, NOW, events)!!
+                    .boundaryFromWallMs,
+            )
+        }
+
+    @Test
+    fun `a captured pair with an app open or marker between its captures is not one screen-off period`() =
+        runTest {
+            // API 34+: the newest pending screen broadcast replaces the older one for a cached app, so the newest
+            // SCREEN_OFF and SCREEN_ON captures can bound several periods. The user opened the app in between.
+            val off = snapshot(NOW - 5 * HOUR_MS, CaptureTrigger.SCREEN_OFF, SnapshotKind.LIGHT)
+            val deferredOn = snapshot(NOW - HOUR_MS, CaptureTrigger.SCREEN_ON, SnapshotKind.LIGHT)
+            for (proof in listOf(CaptureTrigger.APP_OPEN, CaptureTrigger.MARKER)) {
+                val store = LoadCountingStore(listOf(off, snapshot(NOW - 3 * HOUR_MS, proof), deferredOn))
+                assertNull(ReferenceResolver(store).resolve(ReferenceKind.SinceScreenOff, NOW, emptyList()))
+            }
+
+            // A rejected pair cannot outrank the history's period either.
+            val historyOff = NOW - 8 * HOUR_MS
+            val historyOn = NOW - 7 * HOUR_MS
+            val events = listOf(history(historyOff, HistoryKind.SCREEN_OFF), history(historyOn, HistoryKind.SCREEN_ON))
+            val historyOffCapture = snapshot(historyOff + 20L, CaptureTrigger.SCREEN_OFF, SnapshotKind.LIGHT)
+            val historyOnCapture = snapshot(historyOn + 5L, CaptureTrigger.SCREEN_ON, SnapshotKind.LIGHT)
+            val store =
+                LoadCountingStore(
+                    listOf(historyOffCapture, historyOnCapture, off, snapshot(NOW - 3 * HOUR_MS, CaptureTrigger.APP_OPEN), deferredOn),
+                )
+            val resolved = ReferenceResolver(store).resolve(ReferenceKind.SinceScreenOff, NOW, events)!!
+            assertEquals(historyOff, resolved.boundaryFromWallMs)
+            assertEquals(historyOnCapture, resolved.now)
+
+            // Leftover: an on-period without an app open or marker leaves no capture, and the pair stands.
+            val unproven = LoadCountingStore(listOf(off, snapshot(NOW - 3 * HOUR_MS, CaptureTrigger.CHARGE_JOB), deferredOn))
+            assertEquals(
+                off.clock.wallMs,
+                ReferenceResolver(unproven).resolve(ReferenceKind.SinceScreenOff, NOW, emptyList())!!.boundaryFromWallMs,
+            )
+        }
+
+    @Test
+    fun `since screen off with no snapshot near the history screen-on is empty, not a sliver`() =
+        runTest {
+            // The redroid rows of audit N-02 without the captures in the 10 s after the history SCREEN_ON: the app
+            // was opened only 30 s later. The charge job 10 ms into the period must not stand for its end.
+            val off = NOW - 45_000L
+            val on = NOW - 5_600L
+            val offCapture = snapshot(off + 26, CaptureTrigger.SCREEN_OFF, SnapshotKind.LIGHT)
+            val chargeJob = snapshot(off + 36, CaptureTrigger.CHARGE_JOB)
+            val events = listOf(history(off, HistoryKind.SCREEN_OFF), history(on, HistoryKind.SCREEN_ON))
+
+            assertNull(
+                ReferenceResolver(LoadCountingStore(listOf(offCapture, chargeJob, snapshot(NOW + 30_000L, CaptureTrigger.APP_OPEN))))
+                    .resolve(ReferenceKind.SinceScreenOff, NOW + 30_000L, events),
+            )
+
+            // A SCREEN_ON capture that lands a few ms before the history time still closes the period.
+            val earlyOn = snapshot(on - 5, CaptureTrigger.SCREEN_ON, SnapshotKind.LIGHT)
+            val resolved =
+                ReferenceResolver(LoadCountingStore(listOf(offCapture, chargeJob, earlyOn)))
+                    .resolve(ReferenceKind.SinceScreenOff, NOW, events)!!
+            assertEquals(on, resolved.boundaryToWallMs)
+            assertEquals(chargeJob, resolved.ref)
+            assertEquals(earlyOn, resolved.now)
+        }
+
+    @Test
+    fun `a screen-off period spanning a battery-stats reset starts at the reset`() =
+        runTest {
+            // Screen off while charging; at full charge the unplug resets battery stats, and the walker restates
+            // the screen state as a SCREEN_OFF at the RESET's time (audit N-01).
+            val off = NOW - 6 * HOUR_MS
+            val reset = NOW - 4 * HOUR_MS
+            val on = NOW - HOUR_MS
+            val events =
+                listOf(
+                    history(off, HistoryKind.SCREEN_OFF),
+                    history(reset, HistoryKind.RESET),
+                    history(reset, HistoryKind.SCREEN_OFF),
+                    history(reset + 50L, HistoryKind.UNPLUGGED),
+                    history(on, HistoryKind.SCREEN_ON),
+                )
+            val unplug = snapshot(reset + 80L, CaptureTrigger.POWER_DISCONNECTED, SnapshotKind.LIGHT)
+            val onCapture = snapshot(on + 1L, CaptureTrigger.SCREEN_ON, SnapshotKind.LIGHT)
+            val store =
+                LoadCountingStore(
+                    listOf(snapshot(off + 20L, CaptureTrigger.SCREEN_OFF, SnapshotKind.LIGHT, plugged = true), unplug, onCapture),
+                )
+
+            val resolved = ReferenceResolver(store).resolve(ReferenceKind.SinceScreenOff, NOW, events)!!
+
+            assertEquals(reset, resolved.boundaryFromWallMs)
+            assertEquals(unplug, resolved.ref)
+            assertEquals(onCapture, resolved.now)
+        }
+
     private fun history(
         wallMs: Long,
         kind: Int,
@@ -274,12 +392,13 @@ class ReferenceResolverTest {
         trigger: CaptureTrigger,
         kind: SnapshotKind = SnapshotKind.FULL,
         ingestedHistory: Boolean = false,
+        plugged: Boolean = false,
     ) = BatterySnapshot(
         id = wallMs,
         kind = kind,
         trigger = trigger,
         clock = SnapshotClock(wallMs, wallMs, wallMs, 1, 10L, null),
-        battery = BatteryState(60, false, "discharging", 300, 4_000, -200, 1_000_000L, null),
+        battery = BatteryState(60, plugged, "discharging", 300, 4_000, -200, 1_000_000L, null),
         system = null,
         uids = emptyList(),
         deviceComponentsMah = emptyMap(),
