@@ -7,6 +7,11 @@ enum class RuleId { NIGHT_VAMPIRE, AWAKE_VIOLATION, MODEM_DRAIN, SENSOR_LEAK }
 /** Declaration order is ascending severity. */
 enum class Severity { AMBER, RED }
 
+/**
+ * Which window [AwakeViolation.culprits] were counted over. Only the debug probe reads it today. It is kept for the
+ * unbuilt culprit card ("Suçlu Kartı", TEMPLATE.md §5 Rule 2; phase-3 F4/F5), which must say whether the
+ * contributors are screen-off only.
+ */
 enum class CulpritScope { SCREEN_OFF_ONLY, WHOLE_INTERVAL_CONTRIBUTORS }
 
 enum class SensorKind { GPS, ACCELEROMETER, GYROSCOPE, OTHER }
@@ -36,6 +41,11 @@ data class NightVampire(
     override val rule: RuleId get() = RuleId.NIGHT_VAMPIRE
 }
 
+/**
+ * R2. [culpritScope] and [culprits] (the top partial wakelock, kernel wakelock and wakeup alarm) are computed on every
+ * analysis but only the debug probe reads them today. They are kept as the input of the unbuilt culprit card
+ * (TEMPLATE.md §5 Rule 2) and its one-tap Shizuku fix (TEMPLATE.md §1; phase-3 F4–F6, phase-5 H14).
+ */
 data class AwakeViolation(
     override val severity: Severity,
     val awakeRatio: Double,
@@ -70,6 +80,11 @@ data class SensorLeak(
     override val rule: RuleId get() = RuleId.SENSOR_LEAK
 }
 
+/**
+ * [skippedInvalidUids] counts the UIDs no rule considered because their delta was invalid or their package changed
+ * (phase-3 F4/F5). Only the debug probe reads it today. It is kept so the unbuilt culprit card (TEMPLATE.md §5 Rule 2)
+ * can state how many apps went unchecked instead of implying it saw every app.
+ */
 data class DiagnosticReport(
     val insights: List<Insight>,
     val notEvaluable: Map<RuleId, String>,
