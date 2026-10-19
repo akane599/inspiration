@@ -22,7 +22,6 @@ import com.akane.inspiration.ipc.model.HistoryEvent
 import com.akane.inspiration.ipc.model.HistoryKind
 import com.akane.inspiration.ipc.model.KernelBatterySnapshot
 import com.akane.inspiration.ipc.model.UidUsage
-import com.akane.inspiration.telemetry.calibration.CalibrationInput
 import com.akane.inspiration.telemetry.capacity.ChargeSegment
 import com.akane.inspiration.telemetry.capacity.SegmentVerdict
 import com.akane.inspiration.telemetry.capture.CaptureResult
@@ -524,17 +523,6 @@ class AndroidTelemetrySourceDeadlineTest {
         context = RuntimeEnvironment.getApplication(),
         shizuku = shizuku,
         clocks = clocks,
-        calibrationInputReader =
-            CalibrationInputReader {
-                CalibrationInput(
-                    null,
-                    null,
-                    null,
-                    null,
-                    isCharging = false,
-                    plugged = false,
-                )
-            },
     )
 
     /** Real manager + AIDL proxy, with virtual time only for its 3 s idle-unbind cleanup. */

@@ -6,7 +6,6 @@ import com.akane.inspiration.ipc.ITelemetryUserService
 import com.akane.inspiration.ipc.ShizukuManager
 import com.akane.inspiration.ipc.ShizukuState
 import com.akane.inspiration.ipc.model.KernelBatterySnapshot
-import com.akane.inspiration.telemetry.calibration.CalibrationInput
 import com.akane.inspiration.telemetry.calibration.PowerCalibrator
 import com.akane.inspiration.telemetry.common.Clocks
 import com.akane.inspiration.telemetry.live.LiveTelemetry
@@ -26,23 +25,13 @@ import org.robolectric.Shadows.shadowOf
 import org.robolectric.annotation.Config
 
 /**
- * `kernelReading()` with a calibration reader that cached sysfs at process start (150 mA) while the
- * device now draws 1.2 A: a kernel read missing a node must never bring the cached value back.
+ * `kernelReading()` while the device draws 1.2 A: every calibration input comes from that one reading, so a kernel
+ * read missing a node falls back to the fresh BatteryManager value and never to an older one.
  */
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [35])
 class AndroidTelemetrySourceKernelReadingTest {
     private val context = RuntimeEnvironment.getApplication()
-
-    private val cachedAtStart =
-        CalibrationInput(
-            sysfsCurrentRaw = -150_000L,
-            sysfsVoltageRaw = 3_900_000L,
-            bmCurrentNowUa = -150_000,
-            bmVoltageMv = 3_900,
-            isCharging = false,
-            plugged = false,
-        )
 
     private fun source(kernel: KernelBatterySnapshot): AndroidTelemetrySource {
         shadowOf(context.getSystemService(BatteryManager::class.java))
@@ -51,7 +40,6 @@ class AndroidTelemetrySourceKernelReadingTest {
             context = context,
             shizuku = DirectShizuku(KernelService(kernel)),
             clocks = FixedClocks,
-            calibrationInputReader = CalibrationInputReader { cachedAtStart },
         )
     }
 
@@ -65,12 +53,12 @@ class AndroidTelemetrySourceKernelReadingTest {
                     .readings(periodMs = 1L)
                     .first()
 
-            assertEquals("fresh -1200 mA, not the -150 mA cached at process start", -1_200, reading.currentMa)
+            assertEquals("the fresh -1200 mA from BatteryManager", -1_200, reading.currentMa)
             assertEquals("calibrated from the fresh current and the kernel voltage", -4.8, reading.watts ?: Double.NaN, 1e-9)
         }
 
     @Test
-    fun `a kernel read without sysfs values never substitutes the ones cached at process start`() =
+    fun `a kernel read without sysfs values gives the calibrator no sysfs values`() =
         runBlocking {
             val input = checkNotNull(source(KernelBatterySnapshot.unavailable("no battery supply")).kernelReading()?.calibrationInput)
 
@@ -97,7 +85,6 @@ class AndroidTelemetrySourceKernelReadingTest {
                     context = context,
                     shizuku = DirectShizuku(service),
                     clocks = FixedClocks,
-                    calibrationInputReader = CalibrationInputReader { cachedAtStart },
                 )
 
             val input = checkNotNull(source.kernelReading()?.calibrationInput)

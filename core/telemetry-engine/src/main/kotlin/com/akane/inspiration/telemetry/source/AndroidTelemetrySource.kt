@@ -9,6 +9,7 @@ import com.akane.inspiration.ipc.ShizukuManager
 import com.akane.inspiration.ipc.model.BatteryHistorySnapshot
 import com.akane.inspiration.ipc.model.DumpTarget
 import com.akane.inspiration.ipc.model.KernelBatterySnapshot
+import com.akane.inspiration.telemetry.calibration.CalibrationInput
 import com.akane.inspiration.telemetry.common.Clocks
 import com.akane.inspiration.telemetry.dump.DumpParse
 import com.akane.inspiration.telemetry.dump.DumpParser
@@ -33,7 +34,6 @@ class AndroidTelemetrySource(
     private val context: Context,
     private val shizuku: ShizukuManager,
     private val clocks: Clocks = AndroidClocks(context),
-    private val calibrationInputReader: CalibrationInputReader = AndroidCalibrationInputReader(context),
     private val bindTimeoutMs: Long = DEFAULT_BIND_TIMEOUT_MS,
     private val dumpReadTimeoutMs: Long = DEFAULT_DUMP_READ_TIMEOUT_MS,
     private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
@@ -158,7 +158,7 @@ class AndroidTelemetrySource(
             }
         }
 
-    // The battery-manager reads and the sysfs reads (first call) block, so the whole reading runs on IO.
+    // The battery-manager reads block, so the whole reading runs on IO.
     override suspend fun kernelReading(): KernelRead? =
         withContext(ioDispatcher) {
             val light = light()
@@ -167,10 +167,10 @@ class AndroidTelemetrySource(
             // after the kernel read returns: the one in light(), read before the service round trip, can be a
             // different load.
             val bmCurrentNowUa = batteryManagerCurrentNowUa()
-            // sysfs values come only from this kernel read, never the reader's process-start cache; a missing
-            // one makes PowerCalibrator fall back to the fresh BatteryManager current/voltage below.
+            // Every value is from this reading: sysfs only from this kernel read, never cached. A missing one makes
+            // PowerCalibrator fall back to the fresh BatteryManager current/voltage below.
             val calibration =
-                calibrationInputReader.read().copy(
+                CalibrationInput(
                     sysfsCurrentRaw = kernel.currentNowRaw,
                     sysfsVoltageRaw = kernel.voltageNowRaw,
                     bmCurrentNowUa = bmCurrentNowUa,

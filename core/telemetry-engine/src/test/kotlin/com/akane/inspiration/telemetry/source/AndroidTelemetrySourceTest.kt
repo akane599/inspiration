@@ -3,10 +3,8 @@ package com.akane.inspiration.telemetry.source
 import com.akane.inspiration.ipc.ITelemetryUserService
 import com.akane.inspiration.ipc.ShizukuManager
 import com.akane.inspiration.ipc.ShizukuState
-import com.akane.inspiration.telemetry.calibration.CalibrationInput
 import com.akane.inspiration.telemetry.common.Clocks
 import com.akane.inspiration.telemetry.snapshot.CaptureTrigger
-import java.util.concurrent.Executors
 import kotlinx.coroutines.asCoroutineDispatcher
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -17,6 +15,7 @@ import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.RuntimeEnvironment
 import org.robolectric.annotation.Config
+import java.util.concurrent.Executors
 
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [35])
@@ -26,13 +25,13 @@ class AndroidTelemetrySourceTest {
         val executor = Executors.newSingleThreadExecutor { Thread(it, IO_THREAD) }
         val shizuku = RecordingShizuku()
         try {
-            val source = AndroidTelemetrySource(
-                context = RuntimeEnvironment.getApplication(),
-                shizuku = shizuku,
-                clocks = RecordingClocks,
-                calibrationInputReader = CalibrationInputReader { CalibrationInput(null, null, null, null, isCharging = false, plugged = false) },
-                ioDispatcher = executor.asCoroutineDispatcher(),
-            )
+            val source =
+                AndroidTelemetrySource(
+                    context = RuntimeEnvironment.getApplication(),
+                    shizuku = shizuku,
+                    clocks = RecordingClocks,
+                    ioDispatcher = executor.asCoroutineDispatcher(),
+                )
 
             runBlocking { source.full(CaptureTrigger.MARKER, historyCursor = null) }
 
@@ -45,9 +44,13 @@ class AndroidTelemetrySourceTest {
 
     private object RecordingClocks : Clocks {
         var lastThread: String? = null
+
         override fun wallMs(): Long = 1L.also { lastThread = Thread.currentThread().name.substringBefore(" @") }
+
         override fun elapsedRealtimeMs(): Long = 2L
+
         override fun uptimeMs(): Long = 3L
+
         override fun bootCount(): Int = 4
     }
 
@@ -55,13 +58,21 @@ class AndroidTelemetrySourceTest {
         var lastThread: String? = null
         override val state: StateFlow<ShizukuState> get() = error("unused")
         override val telemetryService: StateFlow<ITelemetryUserService?> = MutableStateFlow(null)
+
         override fun requestPermission() = Unit
+
         override fun start() = Unit
-        override suspend fun <T> withTelemetryService(timeoutMs: Long, block: suspend (ITelemetryUserService) -> T): T? {
+
+        override suspend fun <T> withTelemetryService(
+            timeoutMs: Long,
+            block: suspend (ITelemetryUserService) -> T,
+        ): T? {
             lastThread = Thread.currentThread().name.substringBefore(" @")
             return null
         }
+
         override fun holdBinding(): AutoCloseable = AutoCloseable {}
+
         override fun stop() = Unit
     }
 
