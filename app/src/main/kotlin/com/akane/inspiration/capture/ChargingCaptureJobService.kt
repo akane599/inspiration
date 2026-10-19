@@ -43,7 +43,9 @@ class ChargingCaptureJobService : JobService() {
                         },
                         finish = { jobFinished(params, false) },
                         immediateArmSinceStart = { ChargingCaptureScheduler.immediateArmCount() != immediateArmsAtStart },
-                        reArm = { ChargingCaptureScheduler.arm(this@ChargingCaptureJobService, reArmFromJob = true) },
+                        reArm = {
+                            ChargingCaptureScheduler.reArmIfUnchanged(this@ChargingCaptureJobService, immediateArmsAtStart)
+                        },
                         log = { message, error -> Log.w(TAG, message, error) },
                     )
                 } finally {
