@@ -1,8 +1,12 @@
 package com.akane.inspiration.xray
 
 import com.akane.inspiration.telemetry.diff.ReferenceKind
+import com.akane.inspiration.telemetry.diff.SnapshotDiffer
 import com.akane.inspiration.telemetry.dump.UidAlarm
 import com.akane.inspiration.telemetry.dump.UidWakelock
+import com.akane.inspiration.telemetry.snapshot.SnapshotKind
+import com.akane.inspiration.telemetry.snapshot.SourceAvailability
+import com.akane.inspiration.telemetry.snapshot.UidSnapshot
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
@@ -10,9 +14,78 @@ import org.junit.Test
 
 class XRayMapperTest {
     @Test
+    fun `truncated usage never displays whole-session uid energy or incomplete component totals`() {
+        val previousUid =
+            UidSnapshot(
+                uid = 10_001,
+                packageName = MAPS,
+                totalMah = 40.0,
+                fgMah = null,
+                bgMah = null,
+                fgsMah = null,
+                cachedMah = null,
+                componentsMah = emptyMap(),
+                cpuUserMs = 0,
+                cpuSystemMs = 0,
+                fgActivityMs = 0,
+                fgServiceMs = 0,
+                partialWakelocks = emptyList(),
+                wakeupAlarms = emptyList(),
+            )
+        val ref =
+            snapshotAt(1_000).let { snapshot ->
+                snapshot.copy(
+                    kind = SnapshotKind.FULL,
+                    clock = snapshot.clock.copy(statsStartMs = 100_000, statsDurationMs = 1_000),
+                    uids = listOf(previousUid),
+                    deviceComponentsMah = mapOf("CPU" to 4.0),
+                )
+            }
+        val now =
+            ref.copy(
+                clock = ref.clock.copy(wallMs = 2_000, elapsedRealtimeMs = 2_000, statsDurationMs = 2_000),
+                uids = listOf(previousUid.copy(totalMah = 50.0)),
+                deviceComponentsMah = mapOf("CPU" to 5.0),
+            )
+        val complete = XRayMapper.apps(SnapshotDiffer.diff(ref, now), perUidAvailable = true)
+        assertEquals(10.0, complete.single().totalMah, 0.0)
+
+        for ((refTruncated, nowTruncated) in listOf(1 to 0, 0 to 1, 1 to 1)) {
+            val dropped =
+                ref.copy(
+                    truncatedUids = refTruncated,
+                    uids = listOf(if (refTruncated > 0) previousUid.copy(totalMah = 0.0) else previousUid),
+                )
+            val retained = now.copy(truncatedUids = nowTruncated)
+            val diff = SnapshotDiffer.diff(dropped, retained)
+            assertTrue(XRayMapper.apps(diff, perUidAvailable = true).isEmpty())
+            assertEquals(1.0, XRayMapper.components(diff).single { it.key == "CPU" }.mah!!, 0.0)
+
+            val summed = mapOf("usage" to SourceAvailability(true, "device_from_uid_sum"))
+            val incompleteAggregate =
+                SnapshotDiffer.diff(
+                    dropped.copy(availability = summed),
+                    retained.copy(availability = summed),
+                )
+            assertTrue(XRayMapper.components(incompleteAggregate).isEmpty())
+        }
+    }
+
+    @Test
     fun `missing dump leaves energy visible and detail counters unavailable`() {
-        val base = diffOf(uids = listOf(uidDelta(10_001, "app", 3.0,
-            wakelocks = listOf(UidWakelock("held", 1_000, 0, 1)), alarms = listOf(UidAlarm("alarm", 1)))))
+        val base =
+            diffOf(
+                uids =
+                    listOf(
+                        uidDelta(
+                            10_001,
+                            "app",
+                            3.0,
+                            wakelocks = listOf(UidWakelock("held", 1_000, 0, 1)),
+                            alarms = listOf(UidAlarm("alarm", 1)),
+                        ),
+                    ),
+            )
         val rows = XRayMapper.apps(base.copy(validity = base.validity.copy(dumpCounters = false, alarmDumpCounters = false)), true)
         val app = rows.single()
         assertEquals(3.0, app.totalMah, 0.0)
@@ -24,9 +97,10 @@ class XRayMapperTest {
 
     @Test
     fun `components are ranked by energy with a share of the listed total`() {
-        val rows = XRayMapper.components(
-            diffOf(components = mapOf("SCREEN" to 50.0, "CPU" to 30.0, "MOBILE_RADIO" to 15.0, "WIFI" to 5.0)),
-        )
+        val rows =
+            XRayMapper.components(
+                diffOf(components = mapOf("SCREEN" to 50.0, "CPU" to 30.0, "MOBILE_RADIO" to 15.0, "WIFI" to 5.0)),
+            )
 
         assertEquals(listOf("SCREEN", "CPU", "MOBILE_RADIO", "WIFI"), rows.take(4).map { it.key })
         assertEquals(50.0, rows[0].sharePct!!, 1e-9)
@@ -50,9 +124,10 @@ class XRayMapperTest {
 
     @Test
     fun `a component the diff marks invalid is unavailable and outside the total`() {
-        val rows = XRayMapper.components(
-            diffOf(components = mapOf("SCREEN" to 30.0, "CPU" to 10.0, "WIFI" to 999.0), invalidComponents = setOf("WIFI")),
-        )
+        val rows =
+            XRayMapper.components(
+                diffOf(components = mapOf("SCREEN" to 30.0, "CPU" to 10.0, "WIFI" to 999.0), invalidComponents = setOf("WIFI")),
+            )
 
         val wifi = rows.single { it.key == "WIFI" }
         assertNull(wifi.mah)
@@ -97,16 +172,18 @@ class XRayMapperTest {
 
     @Test
     fun `invalid, package-changed, empty and non-finite uids are left out`() {
-        val diff = diffOf(
-            uids = listOf(
-                uidDelta(1, "ok", 3.0),
-                uidDelta(2, "invalid", 9.0, valid = false),
-                uidDelta(3, "changed", 9.0, packageChanged = true),
-                uidDelta(4, "zero", 0.0),
-                uidDelta(5, "nan", Double.NaN),
-                uidDelta(6, "negative", -1.0),
-            ),
-        )
+        val diff =
+            diffOf(
+                uids =
+                    listOf(
+                        uidDelta(1, "ok", 3.0),
+                        uidDelta(2, "invalid", 9.0, valid = false),
+                        uidDelta(3, "changed", 9.0, packageChanged = true),
+                        uidDelta(4, "zero", 0.0),
+                        uidDelta(5, "nan", Double.NaN),
+                        uidDelta(6, "negative", -1.0),
+                    ),
+            )
 
         assertEquals(listOf("ok"), XRayMapper.apps(diff, true).map { it.packageName })
     }
@@ -126,11 +203,13 @@ class XRayMapperTest {
     @Test
     fun `wakelocks and alarms are the busiest few, with the alarm dump used only when the stats have none`() {
         val wakelocks = (1..7).map { UidWakelock("wl$it", durationMs = it * 1000L, bgDurationMs = 0, count = it.toLong()) }
-        val diff = diffOf(
-            uids = listOf(
-                uidDelta(1, "a", 5.0, wakelocks = wakelocks, alarms = listOf(UidAlarm("sync", 3), UidAlarm("idle", 0))),
-            ),
-        )
+        val diff =
+            diffOf(
+                uids =
+                    listOf(
+                        uidDelta(1, "a", 5.0, wakelocks = wakelocks, alarms = listOf(UidAlarm("sync", 3), UidAlarm("idle", 0))),
+                    ),
+            )
 
         val app = XRayMapper.apps(diff, true).single()
 

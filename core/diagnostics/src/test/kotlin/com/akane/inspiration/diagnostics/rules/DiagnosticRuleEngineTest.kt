@@ -1,5 +1,6 @@
 package com.akane.inspiration.diagnostics.rules
 
+import com.akane.inspiration.diagnostics.analysis.lightSnapshot
 import com.akane.inspiration.diagnostics.model.AwakeViolation
 import com.akane.inspiration.diagnostics.model.ModemDrain
 import com.akane.inspiration.diagnostics.model.NightVampire
@@ -7,6 +8,11 @@ import com.akane.inspiration.diagnostics.model.RuleId
 import com.akane.inspiration.diagnostics.model.SensorLeak
 import com.akane.inspiration.diagnostics.model.insightOrder
 import com.akane.inspiration.diagnostics.sensor.GPS_SENSOR_HANDLE
+import com.akane.inspiration.telemetry.diff.SnapshotDiffer
+import com.akane.inspiration.telemetry.dump.KernelWakelock
+import com.akane.inspiration.telemetry.snapshot.SnapshotKind
+import com.akane.inspiration.telemetry.snapshot.SourceAvailability
+import com.akane.inspiration.telemetry.snapshot.UidSnapshot
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -15,32 +21,147 @@ class DiagnosticRuleEngineTest {
     private val engine = DiagnosticRuleEngine(fakeCatalog)
 
     @Test
-    fun changedPackageCountersNeverBecomeAnomaliesOrAwakeCulprits() {
-        val uid = uidDelta(
-            10_001, totalMah = 10.0, bgMah = 9.0,
-            sensors = listOf(sensor(GPS_SENSOR_HANDLE, 6 * MIN)),
-            wakelocks = listOf(wakelock("old identity", HOUR)),
+    fun truncatedUsageNeverBecomesVampiresSensorLeaksOrUidCulprits() {
+        val previousUid =
+            UidSnapshot(
+                uid = 10_001,
+                packageName = "pkg.10001",
+                totalMah = 40.0,
+                fgMah = null,
+                bgMah = 39.0,
+                fgsMah = null,
+                cachedMah = null,
+                componentsMah = emptyMap(),
+                cpuUserMs = 0,
+                cpuSystemMs = 0,
+                fgActivityMs = 0,
+                fgServiceMs = 0,
+                partialWakelocks = listOf(wakelock("partial", 0)),
+                wakeupAlarms = emptyList(),
+                sensors = listOf(sensor(GPS_SENSOR_HANDLE, 0)),
+            )
+        val ref =
+            lightSnapshot(0).let { snapshot ->
+                snapshot.copy(
+                    kind = SnapshotKind.FULL,
+                    clock = snapshot.clock.copy(statsStartMs = 100_000, statsDurationMs = HOUR),
+                    uids = listOf(previousUid),
+                    deviceComponentsMah = mapOf("SCREEN" to 10.0, "MOBILE_RADIO" to 20.0),
+                    kernelWakelocks = listOf(KernelWakelock("independent kernel", 0, 0)),
+                )
+            }
+        val now =
+            ref.copy(
+                clock = ref.clock.copy(wallMs = 2 * HOUR, elapsedRealtimeMs = 2 * HOUR, statsDurationMs = 3 * HOUR),
+                uids =
+                    listOf(
+                        previousUid.copy(
+                            totalMah = 50.0,
+                            bgMah = 49.0,
+                            partialWakelocks = listOf(wakelock("partial", HOUR)),
+                            sensors = listOf(sensor(GPS_SENSOR_HANDLE, 6 * MIN)),
+                        ),
+                    ),
+                deviceComponentsMah = mapOf("SCREEN" to 20.0, "MOBILE_RADIO" to 40.0),
+                kernelWakelocks = listOf(KernelWakelock("independent kernel", HOUR, 1)),
+            )
+
+        fun report(
+            refTruncated: Int,
+            nowTruncated: Int,
+            summed: Boolean = false,
+        ) = engine.evaluate(
+            inputOf(
+                SnapshotDiffer
+                    .diff(
+                        ref.copy(
+                            truncatedUids = refTruncated,
+                            uids = listOf(if (refTruncated > 0) previousUid.copy(totalMah = 0.0, bgMah = null) else previousUid),
+                            availability = if (summed) mapOf("usage" to SourceAvailability(true, "device_from_uid_sum")) else emptyMap(),
+                        ),
+                        now.copy(truncatedUids = nowTruncated),
+                    ).copy(sleep = sleepStats(2 * HOUR, HOUR)),
+                metricsOf(),
+            ),
         )
-        fun evaluate(changed: Boolean) = engine.evaluate(inputOf(
-            diffOf(uids = listOf(uid.copy(packageChanged = changed)), sleep = sleepStats(2 * HOUR, HOUR)),
-            metricsOf(),
-        ))
+
+        val complete = report(0, 0)
+        assertTrue(complete.insights.any { it is NightVampire })
+        assertTrue(complete.insights.any { it is SensorLeak })
+        assertTrue(
+            complete.insights
+                .filterIsInstance<AwakeViolation>()
+                .single()
+                .culprits
+                .any { it.uid == 10_001 },
+        )
+
+        for ((refTruncated, nowTruncated) in listOf(1 to 0, 0 to 1, 1 to 1)) {
+            val truncated = report(refTruncated, nowTruncated)
+            assertEquals(1, truncated.skippedInvalidUids)
+            assertTrue(truncated.insights.none { it is NightVampire || it is SensorLeak })
+            val culprits =
+                truncated.insights
+                    .filterIsInstance<AwakeViolation>()
+                    .single()
+                    .culprits
+            assertEquals(listOf("independent kernel"), culprits.map { it.name })
+            assertTrue(culprits.all { it.uid == null })
+            assertTrue(truncated.insights.any { it is ModemDrain })
+        }
+        // The same component values are not independent when the truncated endpoint sums UID rows.
+        val incompleteAggregate = report(1, 0, summed = true)
+        assertTrue(incompleteAggregate.insights.none { it is ModemDrain })
+        assertEquals("screen_power_zero", incompleteAggregate.notEvaluable[RuleId.MODEM_DRAIN])
+    }
+
+    @Test
+    fun changedPackageCountersNeverBecomeAnomaliesOrAwakeCulprits() {
+        val uid =
+            uidDelta(
+                10_001,
+                totalMah = 10.0,
+                bgMah = 9.0,
+                sensors = listOf(sensor(GPS_SENSOR_HANDLE, 6 * MIN)),
+                wakelocks = listOf(wakelock("old identity", HOUR)),
+            )
+
+        fun evaluate(changed: Boolean) =
+            engine.evaluate(
+                inputOf(
+                    diffOf(uids = listOf(uid.copy(packageChanged = changed)), sleep = sleepStats(2 * HOUR, HOUR)),
+                    metricsOf(),
+                ),
+            )
         val comparable = evaluate(false)
         assertTrue(comparable.insights.any { it is NightVampire })
         assertTrue(comparable.insights.any { it is SensorLeak })
-        assertTrue(comparable.insights.filterIsInstance<AwakeViolation>().single().culprits.isNotEmpty())
+        assertTrue(
+            comparable.insights
+                .filterIsInstance<AwakeViolation>()
+                .single()
+                .culprits
+                .isNotEmpty(),
+        )
         val changed = evaluate(true)
         assertEquals(1, changed.skippedInvalidUids)
         assertTrue(changed.insights.none { it is NightVampire || it is SensorLeak })
-        assertTrue(changed.insights.filterIsInstance<AwakeViolation>().single().culprits.isEmpty())
+        assertTrue(
+            changed.insights
+                .filterIsInstance<AwakeViolation>()
+                .single()
+                .culprits
+                .isEmpty(),
+        )
     }
 
     @Test
     fun missingDumpDoesNotInventForegroundInactivityOrSuppressValidEnergyRules() {
-        val base = diffOf(
-            uids = listOf(uidDelta(10_001, totalMah = 10.0, bgMah = 9.0)),
-            components = mapOf("SCREEN" to 10.0, "MOBILE_RADIO" to 20.0),
-        )
+        val base =
+            diffOf(
+                uids = listOf(uidDelta(10_001, totalMah = 10.0, bgMah = 9.0)),
+                components = mapOf("SCREEN" to 10.0, "MOBILE_RADIO" to 20.0),
+            )
         val report = engine.evaluate(inputOf(base.copy(validity = base.validity.copy(dumpCounters = false))))
         assertEquals("source_absent", report.notEvaluable[RuleId.NIGHT_VAMPIRE])
         assertEquals("source_absent", report.notEvaluable[RuleId.SENSOR_LEAK])
@@ -65,9 +186,10 @@ class DiagnosticRuleEngineTest {
 
     @Test
     fun invalidBatteryStatsGatesR1R3R4ButNotR2() {
-        val report = engine.evaluate(
-            inputOf(diffOf(batteryStats = false, sleep = sleepStats(2 * HOUR, 1_000)), metricsOf()),
-        )
+        val report =
+            engine.evaluate(
+                inputOf(diffOf(batteryStats = false, sleep = sleepStats(2 * HOUR, 1_000)), metricsOf()),
+            )
         assertEquals(
             mapOf(
                 RuleId.NIGHT_VAMPIRE to "battery_stats_invalid",
@@ -80,13 +202,14 @@ class DiagnosticRuleEngineTest {
 
     @Test
     fun missingPerUidDataGatesR1AndR4Only() {
-        val report = engine.evaluate(
-            inputOf(
-                diffOf(sleep = sleepStats(2 * HOUR, 1_000), components = mapOf("SCREEN" to 10.0)),
-                metricsOf(),
-                perUidAvailable = false,
-            ),
-        )
+        val report =
+            engine.evaluate(
+                inputOf(
+                    diffOf(sleep = sleepStats(2 * HOUR, 1_000), components = mapOf("SCREEN" to 10.0)),
+                    metricsOf(),
+                    perUidAvailable = false,
+                ),
+            )
         assertEquals(
             mapOf(RuleId.NIGHT_VAMPIRE to "per_uid_unavailable", RuleId.SENSOR_LEAK to "per_uid_unavailable"),
             report.notEvaluable,
@@ -95,26 +218,29 @@ class DiagnosticRuleEngineTest {
 
     @Test
     fun skippedInvalidUidsAreCountedEvenWhenAGateTrips() {
-        val report = engine.evaluate(
-            inputOf(
-                diffOf(uids = listOf(uidDelta(10_001, valid = false), uidDelta(10_002), uidDelta(10_003, valid = false))),
-                perUidAvailable = false,
-            ),
-        )
+        val report =
+            engine.evaluate(
+                inputOf(
+                    diffOf(uids = listOf(uidDelta(10_001, valid = false), uidDelta(10_002), uidDelta(10_003, valid = false))),
+                    perUidAvailable = false,
+                ),
+            )
         assertEquals(2, report.skippedInvalidUids)
     }
 
     @Test
     fun insightsAreSortedByInsightOrder() {
-        val diff = diffOf(
-            uids = listOf(
-                uidDelta(10_001, totalMah = 5.0, bgMah = 4.5),
-                uidDelta(10_002, totalMah = 9.0, bgMah = 8.5),
-                uidDelta(10_003, sensors = listOf(sensor(GPS_SENSOR_HANDLE, 6 * MIN), sensor(ACCEL_HANDLE, 13 * MIN))),
-            ),
-            sleep = sleepStats(2 * HOUR, 720_000),
-            components = mapOf("SCREEN" to 10.0, "MOBILE_RADIO" to 9.0),
-        )
+        val diff =
+            diffOf(
+                uids =
+                    listOf(
+                        uidDelta(10_001, totalMah = 5.0, bgMah = 4.5),
+                        uidDelta(10_002, totalMah = 9.0, bgMah = 8.5),
+                        uidDelta(10_003, sensors = listOf(sensor(GPS_SENSOR_HANDLE, 6 * MIN), sensor(ACCEL_HANDLE, 13 * MIN))),
+                    ),
+                sleep = sleepStats(2 * HOUR, 720_000),
+                components = mapOf("SCREEN" to 10.0, "MOBILE_RADIO" to 9.0),
+            )
         val report = engine.evaluate(inputOf(diff, metricsOf(screenOffMs = 2 * HOUR)))
 
         assertEquals(report.insights.sortedWith(insightOrder), report.insights)

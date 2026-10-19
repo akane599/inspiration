@@ -18,7 +18,10 @@ import kotlin.math.abs
 object SnapshotDiffer {
     private const val SESSION_TOLERANCE_MS = 2_000L
 
-    fun diff(ref: BatterySnapshot, now: BatterySnapshot): SnapshotDiff {
+    fun diff(
+        ref: BatterySnapshot,
+        now: BatterySnapshot,
+    ): SnapshotDiff {
         val problems = mutableListOf<String>()
         val sessionSkew = hasSessionSkew(ref) || hasSessionSkew(now)
         if (sessionSkew) problems += "session_skew"
@@ -27,78 +30,97 @@ object SnapshotDiffer {
         val kernelCounterSessionValid = sameBootWithIncreasingElapsed(ref, now)
         val batteryStatsValid = batteryStatsSessionValid
         val kernelCountersValid = kernelCounterSessionValid
-        val dumpCountersValid = batteryStatsSessionValid && !sessionSkew &&
-            ref.sourceAvailable("dump") && now.sourceAvailable("dump")
+        val dumpCountersValid =
+            batteryStatsSessionValid && !sessionSkew &&
+                ref.sourceAvailable("dump") && now.sourceAvailable("dump")
         val kernelWakelocksValid = kernelCounterSessionValid && dumpCountersValid
         val cpuFreqValid = kernelCounterSessionValid && ref.sourceAvailable("cpu") && now.sourceAvailable("cpu")
-        val alarmDumpValid = batteryStatsSessionValid && kernelCounterSessionValid &&
-            ref.sourceAvailable("alarm") && now.sourceAvailable("alarm")
+        val alarmDumpValid =
+            batteryStatsSessionValid && kernelCounterSessionValid &&
+                ref.sourceAvailable("alarm") && now.sourceAvailable("alarm")
         if (!batteryStatsSessionValid) problems += "battery_stats_session"
         if (!kernelCounterSessionValid) problems += "kernel_clock_session"
 
-        val uids = if (batteryStatsSessionValid) {
-            diffUids(ref, now, problems, dumpCountersValid, alarmDumpValid)
-        } else {
-            emptyList()
-        }
-        val components = if (batteryStatsSessionValid) {
-            diffComponents(ref.deviceComponentsMah, now.deviceComponentsMah, "device_component", problems)
-        } else {
-            emptyMap()
-        }
-        val kernelWakelocks = if (kernelWakelocksValid) {
-            diffKernelWakelocks(ref.kernelWakelocks, now.kernelWakelocks, problems)
-        } else {
-            emptyList()
-        }
+        val observedUids =
+            if (batteryStatsSessionValid) {
+                diffUids(ref, now, problems, dumpCountersValid, alarmDumpValid)
+            } else {
+                emptyList()
+            }
+        // A dump/alarm union row can hide a parcel-dropped usage baseline behind zero energy.
+        // Without per-UID source provenance, neither endpoint's UID energy is safely comparable.
+        val incompleteUidUsage = ref.truncatedUids > 0 || now.truncatedUids > 0
+        if (incompleteUidUsage) problems += "truncated_uid_usage"
+        val uids = if (incompleteUidUsage) observedUids.map { it.copy(valid = false) } else observedUids
+        val incompleteDeviceComponents = ref.hasTruncatedUidComponents() || now.hasTruncatedUidComponents()
+        if (incompleteDeviceComponents) problems += "truncated_device_components"
+        val components =
+            if (batteryStatsSessionValid && !incompleteDeviceComponents) {
+                diffComponents(ref.deviceComponentsMah, now.deviceComponentsMah, "device_component", problems)
+            } else {
+                emptyMap()
+            }
+        val kernelWakelocks =
+            if (kernelWakelocksValid) {
+                diffKernelWakelocks(ref.kernelWakelocks, now.kernelWakelocks, problems)
+            } else {
+                emptyList()
+            }
 
         val refSystem = ref.system.takeIf { dumpCountersValid }
         val nowSystem = now.system.takeIf { dumpCountersValid }
-        val signalStrength = diffSignalBins(
-            refSystem?.signalStrengthMs.orEmpty(),
-            nowSystem?.signalStrengthMs.orEmpty(),
-            problems,
-        )
-        val signalScanning = diffTimer(
-            refSystem?.signalScanningMs,
-            nowSystem?.signalScanningMs,
-            "negative_signal_scanning",
-            problems,
-        )
-        val mobileRadioActive = diffTimer(
-            refSystem?.mobileRadioActiveMs,
-            nowSystem?.mobileRadioActiveMs,
-            "negative_mobile_radio_active",
-            problems,
-        )
+        val signalStrength =
+            diffSignalBins(
+                refSystem?.signalStrengthMs.orEmpty(),
+                nowSystem?.signalStrengthMs.orEmpty(),
+                problems,
+            )
+        val signalScanning =
+            diffTimer(
+                refSystem?.signalScanningMs,
+                nowSystem?.signalScanningMs,
+                "negative_signal_scanning",
+                problems,
+            )
+        val mobileRadioActive =
+            diffTimer(
+                refSystem?.mobileRadioActiveMs,
+                nowSystem?.mobileRadioActiveMs,
+                "negative_mobile_radio_active",
+                problems,
+            )
 
         return SnapshotDiff(
             ref = ref.clock,
             now = now.clock,
-            validity = DiffValidity(
-                batteryStats = batteryStatsValid,
-                kernelCounters = kernelCountersValid,
-                dumpCounters = dumpCountersValid,
-                kernelWakelocks = kernelWakelocksValid,
-                cpuFreq = cpuFreqValid,
-                alarmDumpCounters = alarmDumpValid,
-                problems = problems,
-                invalidDeviceComponents = components.filterValues { it < 0.0 }.keys,
-                invalidKernelWakelocks = kernelWakelocks
-                    .filter { it.durationMs < 0 || it.count < 0 }
-                    .mapTo(sortedSetOf()) { it.name },
-            ),
+            validity =
+                DiffValidity(
+                    batteryStats = batteryStatsValid,
+                    kernelCounters = kernelCountersValid,
+                    dumpCounters = dumpCountersValid,
+                    kernelWakelocks = kernelWakelocksValid,
+                    cpuFreq = cpuFreqValid,
+                    alarmDumpCounters = alarmDumpValid,
+                    problems = problems,
+                    invalidDeviceComponents = components.filterValues { it < 0.0 }.keys,
+                    invalidKernelWakelocks =
+                        kernelWakelocks
+                            .filter { it.durationMs < 0 || it.count < 0 }
+                            .mapTo(sortedSetOf()) { it.name },
+                ),
             durationMs = now.clock.elapsedRealtimeMs - ref.clock.elapsedRealtimeMs,
             uids = uids,
             deviceComponentsMah = components,
             kernelWakelocks = kernelWakelocks,
             sleep = sleepStats(ref, now, dumpCountersValid, kernelCounterSessionValid),
-            levelDropPct = ref.battery.levelPct?.let { previous ->
-                now.battery.levelPct?.let { current -> previous - current }
-            },
-            dischargedMah = ref.battery.dischargedMah?.let { previous ->
-                now.battery.dischargedMah?.minus(previous)
-            },
+            levelDropPct =
+                ref.battery.levelPct?.let { previous ->
+                    now.battery.levelPct?.let { current -> previous - current }
+                },
+            dischargedMah =
+                ref.battery.dischargedMah?.let { previous ->
+                    now.battery.dischargedMah?.minus(previous)
+                },
             signalStrengthMs = signalStrength,
             signalScanningMs = signalScanning,
             mobileRadioActiveMs = mobileRadioActive,
@@ -110,11 +132,17 @@ object SnapshotDiffer {
 
     // Empty maps predate explicit source availability (and are used by legacy fixtures).
     // Once metadata exists, a missing source is unknown rather than an observed zero.
-    private fun BatterySnapshot.sourceAvailable(source: String): Boolean =
-        availability[source]?.available ?: availability.isEmpty()
+    private fun BatterySnapshot.sourceAvailable(source: String): Boolean = availability[source]?.available ?: availability.isEmpty()
+
+    private fun BatterySnapshot.hasTruncatedUidComponents(): Boolean =
+        truncatedUids > 0 && availability["usage"]?.reason == "device_from_uid_sum"
 
     /** Null unless both sides carry system timers from the same battery-stats session (equal, known statsStartMs). */
-    private fun dischargeDelta(ref: BatterySnapshot, now: BatterySnapshot, field: (SystemTimers) -> Double): Double? {
+    private fun dischargeDelta(
+        ref: BatterySnapshot,
+        now: BatterySnapshot,
+        field: (SystemTimers) -> Double,
+    ): Double? {
         val refStart = ref.clock.statsStartMs ?: return null
         if (refStart != now.clock.statsStartMs) return null
         val previous = ref.system ?: return null
@@ -142,7 +170,10 @@ object SnapshotDiffer {
             }
     }
 
-    private fun sameBatteryStatsSession(ref: BatterySnapshot, now: BatterySnapshot): Boolean {
+    private fun sameBatteryStatsSession(
+        ref: BatterySnapshot,
+        now: BatterySnapshot,
+    ): Boolean {
         val refStart = ref.clock.statsStartMs ?: return false
         val nowStart = now.clock.statsStartMs ?: return false
         val refDuration = ref.clock.statsDurationMs ?: return false
@@ -150,8 +181,10 @@ object SnapshotDiffer {
         return abs(nowStart - refStart) <= SESSION_TOLERANCE_MS && nowDuration >= refDuration
     }
 
-    private fun sameBootWithIncreasingElapsed(ref: BatterySnapshot, now: BatterySnapshot): Boolean =
-        ref.clock.bootCount == now.clock.bootCount && now.clock.elapsedRealtimeMs > ref.clock.elapsedRealtimeMs
+    private fun sameBootWithIncreasingElapsed(
+        ref: BatterySnapshot,
+        now: BatterySnapshot,
+    ): Boolean = ref.clock.bootCount == now.clock.bootCount && now.clock.elapsedRealtimeMs > ref.clock.elapsedRealtimeMs
 
     private fun hasSessionSkew(snapshot: BatterySnapshot): Boolean {
         val statsStart = snapshot.clock.statsStartMs ?: return false
@@ -168,16 +201,17 @@ object SnapshotDiffer {
     ): List<UidDelta> {
         // Missing observations are not zero baselines. Keep independently measured usage energy,
         // but omit incomparable dump counters and expose their availability on DiffValidity.
-        fun UidSnapshot.comparable() = copy(
-            cpuUserMs = if (dumpCountersValid) cpuUserMs else 0L,
-            cpuSystemMs = if (dumpCountersValid) cpuSystemMs else 0L,
-            fgActivityMs = if (dumpCountersValid) fgActivityMs else 0L,
-            fgServiceMs = if (dumpCountersValid) fgServiceMs else 0L,
-            partialWakelocks = if (dumpCountersValid) partialWakelocks else emptyList(),
-            wakeupAlarms = if (dumpCountersValid) wakeupAlarms else emptyList(),
-            sensors = if (dumpCountersValid) sensors else emptyList(),
-            alarmDumpWakeups = if (alarmDumpValid) alarmDumpWakeups else emptyList(),
-        )
+        fun UidSnapshot.comparable() =
+            copy(
+                cpuUserMs = if (dumpCountersValid) cpuUserMs else 0L,
+                cpuSystemMs = if (dumpCountersValid) cpuSystemMs else 0L,
+                fgActivityMs = if (dumpCountersValid) fgActivityMs else 0L,
+                fgServiceMs = if (dumpCountersValid) fgServiceMs else 0L,
+                partialWakelocks = if (dumpCountersValid) partialWakelocks else emptyList(),
+                wakeupAlarms = if (dumpCountersValid) wakeupAlarms else emptyList(),
+                sensors = if (dumpCountersValid) sensors else emptyList(),
+                alarmDumpWakeups = if (alarmDumpValid) alarmDumpWakeups else emptyList(),
+            )
         val refByUid = ref.uids.map { it.comparable() }.associateBy(UidSnapshot::uid)
         val nowByUid = now.uids.map { it.comparable() }.associateBy(UidSnapshot::uid)
         return (refByUid.keys + nowByUid.keys).sorted().map { uid ->
@@ -210,35 +244,51 @@ object SnapshotDiffer {
                 // UID was reused; real reuse also shows up as negative deltas, which `valid` already gates.
                 val previousPackage = previous?.packageName?.substringBefore(':')
                 val currentPackage = current.packageName?.substringBefore(':')
-                val packageChanged = uid >= FIRST_APPLICATION_UID &&
-                    previousPackage != null && currentPackage != null && previousPackage != currentPackage
+                val packageChanged =
+                    uid >= FIRST_APPLICATION_UID &&
+                        previousPackage != null && currentPackage != null && previousPackage != currentPackage
                 val baseline = if (packageChanged) null else previous
-                val delta = UidDelta(
-                    uid = uid,
-                    packageName = current.packageName,
-                    packageChanged = packageChanged,
-                    valid = true,
-                    totalMah = current.totalMah - (baseline?.totalMah ?: 0.0),
-                    fgMah = delta(current.fgMah, baseline?.fgMah),
-                    bgMah = delta(current.bgMah, baseline?.bgMah),
-                    fgsMah = delta(current.fgsMah, baseline?.fgsMah),
-                    cachedMah = delta(current.cachedMah, baseline?.cachedMah),
-                    componentsMah = diffComponents(baseline?.componentsMah.orEmpty(), current.componentsMah, "uid_component:$uid", problems),
-                    cpuUserMs = current.cpuUserMs - (baseline?.cpuUserMs ?: 0),
-                    cpuSystemMs = current.cpuSystemMs - (baseline?.cpuSystemMs ?: 0),
-                    fgActivityMs = current.fgActivityMs - (baseline?.fgActivityMs ?: 0),
-                    fgServiceMs = current.fgServiceMs - (baseline?.fgServiceMs ?: 0),
-                    partialWakelocks = diffUidWakelocks(baseline?.partialWakelocks.orEmpty(), current.partialWakelocks, uid, problems),
-                    wakeupAlarms = diffUidAlarms(baseline?.wakeupAlarms.orEmpty(), current.wakeupAlarms, uid, problems, "negative_uid_alarm"),
-                    sensors = diffUidSensors(baseline?.sensors.orEmpty(), current.sensors, uid, problems),
-                    alarmDumpWakeups = diffUidAlarms(
-                        baseline?.alarmDumpWakeups.orEmpty(),
-                        current.alarmDumpWakeups,
-                        uid,
-                        problems,
-                        "negative_uid_alarm_dump",
-                    ),
-                )
+                val delta =
+                    UidDelta(
+                        uid = uid,
+                        packageName = current.packageName,
+                        packageChanged = packageChanged,
+                        valid = true,
+                        totalMah = current.totalMah - (baseline?.totalMah ?: 0.0),
+                        fgMah = delta(current.fgMah, baseline?.fgMah),
+                        bgMah = delta(current.bgMah, baseline?.bgMah),
+                        fgsMah = delta(current.fgsMah, baseline?.fgsMah),
+                        cachedMah = delta(current.cachedMah, baseline?.cachedMah),
+                        componentsMah =
+                            diffComponents(
+                                baseline?.componentsMah.orEmpty(),
+                                current.componentsMah,
+                                "uid_component:$uid",
+                                problems,
+                            ),
+                        cpuUserMs = current.cpuUserMs - (baseline?.cpuUserMs ?: 0),
+                        cpuSystemMs = current.cpuSystemMs - (baseline?.cpuSystemMs ?: 0),
+                        fgActivityMs = current.fgActivityMs - (baseline?.fgActivityMs ?: 0),
+                        fgServiceMs = current.fgServiceMs - (baseline?.fgServiceMs ?: 0),
+                        partialWakelocks = diffUidWakelocks(baseline?.partialWakelocks.orEmpty(), current.partialWakelocks, uid, problems),
+                        wakeupAlarms =
+                            diffUidAlarms(
+                                baseline?.wakeupAlarms.orEmpty(),
+                                current.wakeupAlarms,
+                                uid,
+                                problems,
+                                "negative_uid_alarm",
+                            ),
+                        sensors = diffUidSensors(baseline?.sensors.orEmpty(), current.sensors, uid, problems),
+                        alarmDumpWakeups =
+                            diffUidAlarms(
+                                baseline?.alarmDumpWakeups.orEmpty(),
+                                current.alarmDumpWakeups,
+                                uid,
+                                problems,
+                                "negative_uid_alarm_dump",
+                            ),
+                    )
                 val valid = !hasNegative(delta)
                 if (!valid) problems += "negative_uid:$uid"
                 delta.copy(valid = valid)
@@ -251,23 +301,26 @@ object SnapshotDiffer {
         now: Map<String, Double>,
         label: String,
         problems: MutableList<String>,
-    ): Map<String, Double> = (ref.keys + now.keys).sorted().associateWith { name ->
-        val value = (now[name] ?: 0.0) - (ref[name] ?: 0.0)
-        if (value < 0.0) problems += "negative_$label:$name"
-        value
-    }
+    ): Map<String, Double> =
+        (ref.keys + now.keys).sorted().associateWith { name ->
+            val value = (now[name] ?: 0.0) - (ref[name] ?: 0.0)
+            if (value < 0.0) problems += "negative_$label:$name"
+            value
+        }
 
     private fun diffKernelWakelocks(
         ref: List<KernelWakelock>,
         now: List<KernelWakelock>,
         problems: MutableList<String>,
     ): List<KernelWakelock> {
-        val refByName = ref.groupBy(KernelWakelock::name).mapValues { (_, values) ->
-            KernelWakelock(values.first().name, values.sumOf(KernelWakelock::durationMs), values.sumOf(KernelWakelock::count))
-        }
-        val nowByName = now.groupBy(KernelWakelock::name).mapValues { (_, values) ->
-            KernelWakelock(values.first().name, values.sumOf(KernelWakelock::durationMs), values.sumOf(KernelWakelock::count))
-        }
+        val refByName =
+            ref.groupBy(KernelWakelock::name).mapValues { (_, values) ->
+                KernelWakelock(values.first().name, values.sumOf(KernelWakelock::durationMs), values.sumOf(KernelWakelock::count))
+            }
+        val nowByName =
+            now.groupBy(KernelWakelock::name).mapValues { (_, values) ->
+                KernelWakelock(values.first().name, values.sumOf(KernelWakelock::durationMs), values.sumOf(KernelWakelock::count))
+            }
         return (refByName.keys + nowByName.keys).sorted().map { name ->
             val previous = refByName[name]
             val current = nowByName[name]
@@ -391,17 +444,19 @@ object SnapshotDiffer {
                 screenOffAwakeMs = screenOffUptime,
                 screenOffMs = screenOffRealtime,
                 screenOnMs = now.system.screenOnMs - ref.system.screenOnMs,
-                deepSleepRatio = if (screenOffRealtime > 0) {
-                    (screenOffRealtime - screenOffUptime).toDouble() / screenOffRealtime
-                } else {
-                    null
-                },
+                deepSleepRatio =
+                    if (screenOffRealtime > 0) {
+                        (screenOffRealtime - screenOffUptime).toDouble() / screenOffRealtime
+                    } else {
+                        null
+                    },
             )
         }
         if (kernelCountersValid) {
             return SleepStats(
-                deepSleepMs = (now.clock.elapsedRealtimeMs - ref.clock.elapsedRealtimeMs) -
-                    (now.clock.uptimeMs - ref.clock.uptimeMs),
+                deepSleepMs =
+                    (now.clock.elapsedRealtimeMs - ref.clock.elapsedRealtimeMs) -
+                        (now.clock.uptimeMs - ref.clock.uptimeMs),
                 screenOffDeepSleepMs = null,
                 screenOffAwakeMs = null,
                 screenOffMs = null,
@@ -425,7 +480,10 @@ object SnapshotDiffer {
             delta.alarmDumpWakeups.any { it.count < 0 } ||
             delta.sensors.any { it.totalMs < 0 || it.bgMs < 0 || it.count < 0 }
 
-    private fun delta(now: Double?, ref: Double?): Double? = now?.minus(ref ?: 0.0)
+    private fun delta(
+        now: Double?,
+        ref: Double?,
+    ): Double? = now?.minus(ref ?: 0.0)
 
     private const val FIRST_APPLICATION_UID = 10_000
 }
