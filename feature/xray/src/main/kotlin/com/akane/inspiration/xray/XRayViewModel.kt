@@ -37,6 +37,9 @@ import kotlinx.coroutines.launch
 /** A toolkit call threw instead of answering (a Room error from the audit log, say): there is no code, only the failure. */
 private val CALL_FAILED = ActionNotice.Rejected(Problem.Failed(code = null))
 
+/** A write waiting for its confirmation, pinned to the app the dialog named when it was planned. */
+private data class PendingAction(val request: ActionRequest, val uid: Int, val pkg: String)
+
 /**
  * MVI ViewModel of the X-Ray screen (H5). It reads the shared analysis and Shizuku state only while the route
  * is visible ([XRayIntent.Visible] to [XRayIntent.Hidden], H13). Nothing polls: refresh is asked for once per
@@ -56,7 +59,7 @@ class XRayViewModel(private val deps: XRayDependencies) : ViewModel() {
     private var overridesJob: Job? = null
     private var planJob: Job? = null
     private var visible = false
-    private var pending: ActionRequest? = null
+    private var pending: PendingAction? = null
 
     fun onIntent(intent: XRayIntent) {
         when (intent) {
@@ -167,7 +170,8 @@ class XRayViewModel(private val deps: XRayDependencies) : ViewModel() {
                 apps = apps,
                 slice = slice,
                 detail = current.detail?.let { detail ->
-                    apps.firstOrNull { it.uid == detail.app.uid }?.let { detail.copy(app = it) } ?: detail
+                    // An open sheet keeps its package: a newer row of its UID refreshes it only while it names the same one.
+                    apps.firstOrNull { it.uid == detail.app.uid && it.packageName == detail.app.packageName }?.let { detail.copy(app = it) } ?: detail
                 },
             )
         }
@@ -206,24 +210,24 @@ class XRayViewModel(private val deps: XRayDependencies) : ViewModel() {
         overridesJob?.cancel()
         val pkg = detail.app.packageName
         if (pkg == null) {
-            updateDetail(uid) { it.copy(actions = ActionsState.NoPackage, overrides = persistentListOf()) }
+            updateDetail(uid, pkg) { it.copy(actions = ActionsState.NoPackage, overrides = persistentListOf()) }
             return
         }
         val blocked = deps.shizukuState.value.blockedReason()
         if (blocked != null) {
-            updateDetail(uid) { it.copy(actions = ActionsState.Blocked(blocked), overrides = persistentListOf()) }
+            updateDetail(uid, pkg) { it.copy(actions = ActionsState.Blocked(blocked), overrides = persistentListOf()) }
             return
         }
-        updateDetail(uid) { it.copy(actions = ActionsState.Loading) }
+        updateDetail(uid, pkg) { it.copy(actions = ActionsState.Loading) }
         controlsJob = viewModelScope.launch {
             val actions = readActions(pkg)
-            updateDetail(uid) { it.copy(actions = actions) }
+            updateDetail(uid, pkg) { it.copy(actions = actions) }
         }
         overridesJob = viewModelScope.launch {
             // A read that throws (a Room error from the audit log) keeps the list it showed; the controls stay usable.
             deps.toolkit.activeOverrides().catch { }.collect { all ->
                 val rows = all.filter { it.pkg == pkg && it.kind != OverrideKind.DOZE }.map(::overrideRow)
-                updateDetail(uid) { it.copy(overrides = rows.toImmutableList()) }
+                updateDetail(uid, pkg) { it.copy(overrides = rows.toImmutableList()) }
             }
         }
     }
@@ -257,10 +261,11 @@ class XRayViewModel(private val deps: XRayDependencies) : ViewModel() {
         restorable = override.restorable,
     )
 
-    private fun updateDetail(uid: Int, transform: (AppDetail) -> AppDetail) {
+    /** Changes the open sheet only while it is the one for [uid] and [pkg]: a late result never lands on another app's sheet. */
+    private fun updateDetail(uid: Int, pkg: String?, transform: (AppDetail) -> AppDetail) {
         _state.update { current ->
             val detail = current.detail
-            if (detail != null && detail.app.uid == uid) current.copy(detail = transform(detail)) else current
+            if (detail != null && detail.app.uid == uid && detail.app.packageName == pkg) current.copy(detail = transform(detail)) else current
         }
     }
 
@@ -274,17 +279,17 @@ class XRayViewModel(private val deps: XRayDependencies) : ViewModel() {
         // A restore only ever targets a change of this app that read-back still shows.
         if (request is ActionRequest.Restore && detail.overrides.none { it.actionId == request.actionId }) return
         val uid = detail.app.uid
-        updateDetail(uid) { it.copy(busy = true, notice = null) }
+        updateDetail(uid, pkg) { it.copy(busy = true, notice = null) }
         planJob = viewModelScope.launch {
             val plan = attempt { planOf(request, pkg) }
             // The plan is only a read: if the screen or the sheet went away while it ran, nothing follows from it.
             ensureActive()
             when (plan) {
-                null -> updateDetail(uid) { it.copy(busy = false, notice = CALL_FAILED) }
+                null -> updateDetail(uid, pkg) { it.copy(busy = false, notice = CALL_FAILED) }
                 // The write is its own job, so leaving cancels a plan but never a write already in flight.
                 ToolkitPlan.Ready -> viewModelScope.launch { executeContained(uid, request, pkg, confirmed = false) }
                 is ToolkitPlan.NeedsConfirmation -> {
-                    pending = request
+                    pending = PendingAction(request, uid, pkg)
                     _state.update { current ->
                         current.copy(
                             confirmation = Confirmation(
@@ -294,22 +299,20 @@ class XRayViewModel(private val deps: XRayDependencies) : ViewModel() {
                             ),
                         )
                     }
-                    updateDetail(uid) { it.copy(busy = false) }
+                    updateDetail(uid, pkg) { it.copy(busy = false) }
                 }
                 is ToolkitPlan.Refused ->
-                    updateDetail(uid) { it.copy(busy = false, notice = ActionNotice.Rejected(Problem.Refused(plan.reason))) }
+                    updateDetail(uid, pkg) { it.copy(busy = false, notice = ActionNotice.Rejected(Problem.Refused(plan.reason))) }
             }
         }
     }
 
     private fun confirmPending() {
-        val request = pending ?: return
-        val detail = _state.value.detail ?: return
-        val pkg = detail.app.packageName ?: return
+        // The write goes to the app the dialog named, pinned when it was planned, never to whatever the sheet shows now.
+        val (request, uid, pkg) = pending ?: return
         pending = null
         _state.update { it.copy(confirmation = null) }
-        val uid = detail.app.uid
-        updateDetail(uid) { it.copy(busy = true, notice = null) }
+        updateDetail(uid, pkg) { it.copy(busy = true, notice = null) }
         viewModelScope.launch { executeContained(uid, request, pkg, confirmed = true) }
     }
 
@@ -333,7 +336,7 @@ class XRayViewModel(private val deps: XRayDependencies) : ViewModel() {
     private suspend fun executeContained(uid: Int, request: ActionRequest, pkg: String, confirmed: Boolean) {
         if (attempt { execute(uid, request, pkg, confirmed) } != null) return
         val actions = readActions(pkg)
-        updateDetail(uid) { it.copy(busy = false, notice = CALL_FAILED, actions = actions) }
+        updateDetail(uid, pkg) { it.copy(busy = false, notice = CALL_FAILED, actions = actions) }
     }
 
     private suspend fun execute(uid: Int, request: ActionRequest, pkg: String, confirmed: Boolean) {
@@ -351,7 +354,7 @@ class XRayViewModel(private val deps: XRayDependencies) : ViewModel() {
         }
         // Whatever happened, the controls show what the system reports now.
         val actions = readActions(pkg)
-        updateDetail(uid) { it.copy(busy = false, notice = notice, actions = actions) }
+        updateDetail(uid, pkg) { it.copy(busy = false, notice = notice, actions = actions) }
     }
 
     private fun modeOf(request: ActionRequest.SetRestricted) = if (request.restricted) AppOpMode.IGNORE else AppOpMode.DEFAULT
