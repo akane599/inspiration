@@ -199,7 +199,8 @@ class CockpitViewModel(
             systemEstimate
                 ?.takeIf { reading.wallMs - it.wallMs <= SYSTEM_ESTIMATE_MAX_AGE_MS }
                 ?.remainingMs
-        _state.update { it.copy(live = liveUi(reading, estimate)) }
+        // The shown gauge is the last live reading's: cleared when hidden or stale, so it never carries over a gap.
+        _state.update { it.copy(live = liveUi(reading, estimate, previous = it.live)) }
     }
 
     private fun startRefresh(userInitiated: Boolean) {

@@ -303,6 +303,38 @@ class CockpitMappersTest {
     }
 
     @Test
+    fun `a label the deadband decided holds until the current is 10 mA back inside it`() {
+        fun plugged(currentMa: Int) = liveReading(currentMa = currentMa, plugged = true, status = null)
+        val pnc = GaugeChargeState.PluggedNotCharging
+
+        assertEquals(pnc, chargeState(plugged(-45), previous = pnc))
+        assertEquals(pnc, chargeState(plugged(-40), previous = pnc))
+        assertEquals(GaugeChargeState.Charging, chargeState(plugged(-39), previous = pnc))
+        assertEquals(
+            "entering still takes the full deadband",
+            GaugeChargeState.Charging,
+            chargeState(plugged(-45), GaugeChargeState.Charging),
+        )
+
+        // With the plug unknown as well, a charge current keeps its label down to 40 mA.
+        fun unknownPlug(currentMa: Int) = liveReading(currentMa = currentMa, plugged = null, status = null)
+        assertEquals(GaugeChargeState.Charging, chargeState(unknownPlug(40), previous = GaugeChargeState.Charging))
+        assertEquals(GaugeChargeState.Discharging, chargeState(unknownPlug(39), previous = GaugeChargeState.Charging))
+        assertEquals(GaugeChargeState.Discharging, chargeState(unknownPlug(45), previous = GaugeChargeState.Discharging))
+    }
+
+    @Test
+    fun `a time to empty on a charger holds until the drain is 10 mA back inside the deadband`() {
+        fun full(currentMa: Int) = liveReading(currentMa = currentMa, plugged = true, chargeCounterUah = 3_000_000, status = "full")
+        val counted = liveUi(full(-50), 42L)
+
+        // 3,000,000 uAh / 40 mA = 75 h
+        assertEquals(75 * HOUR_MS, remainingMs(full(-40), 42L, previous = counted))
+        assertNull(remainingMs(full(-39), 42L, previous = counted))
+        assertNull("entering still takes the full deadband", remainingMs(full(-45), 42L, previous = liveUi(full(-30), 42L)))
+    }
+
+    @Test
     fun `a charging battery near zero keeps its charging status`() {
         // The end of a taper: the charger regulates around zero, so the label must not flicker.
         val reading = liveReading(currentMa = -20, plugged = true, chargeCounterUah = 3_000_000, status = "charging")

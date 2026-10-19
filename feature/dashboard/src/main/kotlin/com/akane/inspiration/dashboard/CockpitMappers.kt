@@ -43,6 +43,12 @@ private const val DECI = 10.0
  */
 private const val CHARGING_DRAIN_DEADBAND_MA = 50
 
+/**
+ * How far back inside [CHARGING_DRAIN_DEADBAND_MA] a current must come before the label or time left it decided
+ * changes again, so a drain hovering at the deadband does not flip them every reading.
+ */
+private const val DEADBAND_HYSTERESIS_MA = 10
+
 // LiveReading.status values (the battery's own BATTERY_STATUS_*).
 private const val STATUS_CHARGING = "charging"
 private const val STATUS_DISCHARGING = "discharging"
@@ -160,12 +166,18 @@ internal fun sliceUi(
 /**
  * What the battery is doing, from its own status and the measured current, never from the plug alone: a plugged
  * battery can be full, held at a charge limit, or losing to the load. The plug decides only without a usable status,
- * and then a drain past [CHARGING_DRAIN_DEADBAND_MA] still overrides it.
+ * and then a drain past [CHARGING_DRAIN_DEADBAND_MA] still overrides it. A label the current decided against the
+ * deadband ([previous], the last reading's) holds until the current is [DEADBAND_HYSTERESIS_MA] back inside it.
  */
-internal fun chargeState(reading: LiveReading): GaugeChargeState {
+internal fun chargeState(
+    reading: LiveReading,
+    previous: GaugeChargeState? = null,
+): GaugeChargeState {
     val currentMa = reading.currentMa
     val plugged = reading.plugged
-    val drainingPastDeadband = currentMa != null && currentMa <= -CHARGING_DRAIN_DEADBAND_MA
+    val drainDeadbandMa = CHARGING_DRAIN_DEADBAND_MA.heldBy(previous == GaugeChargeState.PluggedNotCharging)
+    val chargeDeadbandMa = CHARGING_DRAIN_DEADBAND_MA.heldBy(previous == GaugeChargeState.Charging)
+    val drainingPastDeadband = currentMa != null && currentMa <= -drainDeadbandMa
     return when {
         // Unplugged, the battery can only discharge.
         plugged == false -> {
@@ -191,7 +203,7 @@ internal fun chargeState(reading: LiveReading): GaugeChargeState {
         }
 
         // Neither plug nor status: only a clear charge current reads as charging.
-        currentMa != null && currentMa >= CHARGING_DRAIN_DEADBAND_MA -> {
+        currentMa != null && currentMa >= chargeDeadbandMa -> {
             GaugeChargeState.Charging
         }
 
@@ -201,23 +213,28 @@ internal fun chargeState(reading: LiveReading): GaugeChargeState {
     }
 }
 
+private fun Int.heldBy(held: Boolean): Int = if (held) this - DEADBAND_HYSTERESIS_MA else this
+
 /**
  * Time to empty whenever the battery is not charging: `chargeCounterUah / |currentMa|` while it drains, else the
  * system's own estimate. On a charger only a drain past [CHARGING_DRAIN_DEADBAND_MA] counts: a held battery has no
  * time to empty (its few mA would extrapolate to days), and the system's discharge estimate was made off the charger.
- * [systemEstimateMs] must already be checked for age by the caller.
+ * [systemEstimateMs] must already be checked for age by the caller. A time left a drain past the deadband gave
+ * ([previous], the last reading's) holds until the drain is [DEADBAND_HYSTERESIS_MA] back inside it.
  */
 internal fun remainingMs(
     reading: LiveReading,
     systemEstimateMs: Long?,
+    previous: LiveUi? = null,
 ): Long? {
     val onCharger =
-        when (chargeState(reading)) {
+        when (chargeState(reading, previous?.chargeState)) {
             GaugeChargeState.Charging -> return null
             GaugeChargeState.PluggedNotCharging -> true
             GaugeChargeState.Discharging -> false
         }
-    val minDrainMa = if (onCharger) CHARGING_DRAIN_DEADBAND_MA else 1
+    val drainCounted = previous?.chargeState == GaugeChargeState.PluggedNotCharging && previous.remainingMs != null
+    val minDrainMa = if (onCharger) CHARGING_DRAIN_DEADBAND_MA.heldBy(drainCounted) else 1
     val drainMa = reading.currentMa?.let { -it }?.takeIf { it >= minDrainMa }
     val counterUah = reading.chargeCounterUah
     val extrapolated =
@@ -230,17 +247,19 @@ internal fun remainingMs(
         ?: systemEstimateMs?.takeIf { it > 0 && !onCharger }
 }
 
+/** The gauge for [reading]; [previous] is the last reading's, so a current hovering at the deadband keeps its label. */
 internal fun liveUi(
     reading: LiveReading,
     systemEstimateMs: Long?,
+    previous: LiveUi? = null,
 ): LiveUi =
     LiveUi(
         currentMa = reading.currentMa,
         watts = reading.watts,
         voltageMv = reading.voltageMv,
         temperatureC = reading.temperatureDeciC?.let { it / DECI },
-        remainingMs = remainingMs(reading, systemEstimateMs),
-        chargeState = chargeState(reading),
+        remainingMs = remainingMs(reading, systemEstimateMs, previous),
+        chargeState = chargeState(reading, previous?.chargeState),
     )
 
 /**

@@ -2,6 +2,7 @@ package com.akane.inspiration.dashboard
 
 import com.akane.inspiration.designsystem.chart.model.LaneKind
 import com.akane.inspiration.designsystem.chart.model.LaneSegment
+import com.akane.inspiration.designsystem.component.GaugeChargeState
 import com.akane.inspiration.designsystem.component.PulseStatus
 import com.akane.inspiration.diagnostics.analysis.AnalysisState
 import com.akane.inspiration.diagnostics.analysis.SegmentKind
@@ -188,6 +189,42 @@ class CockpitViewModelTest {
                     vm.state.value.live
                         ?.currentMa,
                 )
+            } finally {
+                vm.onIntent(CockpitIntent.Hidden)
+            }
+        }
+
+    @Test
+    fun `a drain hovering at the deadband on a charger keeps its label and its time left`() =
+        runTest(dispatcher) {
+            // Each status's readings arrive a period apart: past the 50 mA deadband, back within 10 mA of it, then out.
+            fun readings(status: String) =
+                listOf(-50, -45, -35).map { liveReading(currentMa = it, plugged = true, chargeCounterUah = 3_000_000, status = status) }
+            deps.liveFlow =
+                flow {
+                    (readings("charging") + readings("full")).forEach {
+                        emit(it)
+                        delay(LIVE_PERIOD_MS)
+                    }
+                    awaitCancellation()
+                }
+            val vm = viewModel()
+            vm.onIntent(CockpitIntent.Visible)
+            try {
+                runCurrent()
+                val seen = mutableListOf(vm.state.value.live)
+                repeat(5) {
+                    advanceTimeBy(LIVE_PERIOD_MS)
+                    runCurrent()
+                    seen += vm.state.value.live
+                }
+
+                assertEquals(
+                    listOf(GaugeChargeState.PluggedNotCharging, GaugeChargeState.PluggedNotCharging, GaugeChargeState.Charging),
+                    seen.take(3).map { it?.chargeState },
+                )
+                // 3,000,000 uAh at 50 mA is 60 h, at 45 mA 66 h 40 min; at 35 mA a held battery has no time to empty.
+                assertEquals(listOf(60 * HOUR_MS, 66 * HOUR_MS + 40 * MIN_MS, null), seen.drop(3).map { it?.remainingMs })
             } finally {
                 vm.onIntent(CockpitIntent.Hidden)
             }
