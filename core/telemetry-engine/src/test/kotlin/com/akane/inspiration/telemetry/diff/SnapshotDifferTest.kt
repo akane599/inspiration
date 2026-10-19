@@ -440,9 +440,23 @@ class SnapshotDifferTest {
     }
 
     @Test
+    fun `discharge deltas use the same session tolerance as the other battery-stats counters`() {
+        // A wall-clock step shifts BatteryStatsImpl's reported start by less than the session tolerance.
+        val ref = discharge(snapshot(elapsed = 1_000), total = 10.0, screenOff = 4.0)
+        val stepped = discharge(snapshot(elapsed = 2_000, duration = 2_000, statsStart = 101_500), total = 16.5, screenOff = 5.0)
+
+        val diff = SnapshotDiffer.diff(ref, stepped)
+
+        assertTrue(diff.validity.batteryStats)
+        assertTrue(diff.validity.dumpCounters)
+        assertEquals(6.5, diff.dischargeMah!!, 0.000_001)
+        assertEquals(1.0, diff.dischargeScreenOffMah!!, 0.000_001)
+    }
+
+    @Test
     fun `discharge deltas are null when statsStart differs or a side lacks system timers`() {
         val ref = discharge(snapshot(elapsed = 1_000), total = 10.0, screenOff = 4.0)
-        val reset = discharge(snapshot(elapsed = 2_000, duration = 2_000, statsStart = 100_001), total = 1.0, screenOff = 0.5)
+        val reset = discharge(snapshot(elapsed = 2_000, duration = 2_000, statsStart = 102_001), total = 1.0, screenOff = 0.5)
         val mismatched = SnapshotDiffer.diff(ref, reset)
         assertNull(mismatched.dischargeMah)
         assertNull(mismatched.dischargeScreenOffMah)

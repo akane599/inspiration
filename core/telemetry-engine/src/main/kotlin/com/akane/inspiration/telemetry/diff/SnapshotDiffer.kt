@@ -15,11 +15,8 @@ import com.akane.inspiration.telemetry.snapshot.UidDelta
 import com.akane.inspiration.telemetry.snapshot.UidOwnerFingerprint
 import com.akane.inspiration.telemetry.snapshot.UidSnapshot
 import com.akane.inspiration.telemetry.snapshot.isApplicationUid
-import kotlin.math.abs
 
 object SnapshotDiffer {
-    private const val SESSION_TOLERANCE_MS = 2_000L
-
     fun diff(
         ref: BatterySnapshot,
         now: BatterySnapshot,
@@ -139,14 +136,13 @@ object SnapshotDiffer {
     private fun BatterySnapshot.hasTruncatedUidComponents(): Boolean =
         truncatedUids > 0 && availability["usage"]?.reason == "device_from_uid_sum"
 
-    /** Null unless both sides carry system timers from the same battery-stats session (equal, known statsStartMs). */
+    /** Null unless both sides carry system timers from the same battery-stats session ([BatteryStatsSession.same]). */
     private fun dischargeDelta(
         ref: BatterySnapshot,
         now: BatterySnapshot,
         field: (SystemTimers) -> Double,
     ): Double? {
-        val refStart = ref.clock.statsStartMs ?: return null
-        if (refStart != now.clock.statsStartMs) return null
+        if (!sameBatteryStatsSession(ref, now)) return null
         val previous = ref.system ?: return null
         val current = now.system ?: return null
         return field(current) - field(previous)
@@ -175,13 +171,7 @@ object SnapshotDiffer {
     private fun sameBatteryStatsSession(
         ref: BatterySnapshot,
         now: BatterySnapshot,
-    ): Boolean {
-        val refStart = ref.clock.statsStartMs ?: return false
-        val nowStart = now.clock.statsStartMs ?: return false
-        val refDuration = ref.clock.statsDurationMs ?: return false
-        val nowDuration = now.clock.statsDurationMs ?: return false
-        return abs(nowStart - refStart) <= SESSION_TOLERANCE_MS && nowDuration >= refDuration
-    }
+    ): Boolean = BatteryStatsSession.same(ref.clock, now.clock)
 
     private fun sameBootWithIncreasingElapsed(
         ref: BatterySnapshot,
@@ -209,7 +199,7 @@ object SnapshotDiffer {
     private fun hasSessionSkew(snapshot: BatterySnapshot): Boolean {
         val statsStart = snapshot.clock.statsStartMs ?: return false
         val dumpStart = snapshot.system?.startClockTimeMs ?: return false
-        return abs(dumpStart - statsStart) > SESSION_TOLERANCE_MS
+        return !BatteryStatsSession.sameStart(dumpStart, statsStart)
     }
 
     private fun diffUids(

@@ -17,6 +17,10 @@ interface SnapshotStore {
 
     suspend fun latest(kind: SnapshotKind? = null): BatterySnapshot?
 
+    /**
+     * The earliest snapshot with `wallMs >= [wallMs]` matching the non-null filters. [statsStartMs] selects the
+     * battery-stats session it starts ([com.akane.inspiration.telemetry.diff.BatteryStatsSession.sameStart]).
+     */
     suspend fun firstAtOrAfter(
         wallMs: Long,
         kind: SnapshotKind?,
@@ -24,7 +28,10 @@ interface SnapshotStore {
         bootCount: Int?,
     ): BatterySnapshot?
 
-    suspend fun lastAtOrBefore(wallMs: Long, kind: SnapshotKind?): BatterySnapshot?
+    suspend fun lastAtOrBefore(
+        wallMs: Long,
+        kind: SnapshotKind?,
+    ): BatterySnapshot?
 
     suspend fun latestByTrigger(trigger: CaptureTrigger): BatterySnapshot?
 
@@ -38,7 +45,10 @@ interface SnapshotStore {
      * Snapshots of both kinds with `from <= wallMs <= to`, oldest first. Only the snapshot and battery columns
      * are filled: the system timers are null and every per-UID, wakelock and cpu list is empty.
      */
-    suspend fun snapshotsBetween(fromWallMs: Long, toWallMs: Long): List<BatterySnapshot>
+    suspend fun snapshotsBetween(
+        fromWallMs: Long,
+        toWallMs: Long,
+    ): List<BatterySnapshot>
 
     /**
      * The newest part of [snapshotsBetween] that [UnplugSummaryCalculator] needs for a "now" at [toWallMs], so the
@@ -48,12 +58,20 @@ interface SnapshotStore {
      * forward, else at the mark; with no mark it is the whole range. The default returns the whole range (for
      * fakes); the Room store bounds it in SQL.
      */
-    suspend fun unplugWindowSnapshots(fromWallMs: Long, toWallMs: Long): List<BatterySnapshot> =
-        snapshotsBetween(fromWallMs, toWallMs)
+    suspend fun unplugWindowSnapshots(
+        fromWallMs: Long,
+        toWallMs: Long,
+    ): List<BatterySnapshot> = snapshotsBetween(fromWallMs, toWallMs)
 
-    suspend fun insertHistory(events: List<HistoryEvent>, statsStartMs: Long)
+    suspend fun insertHistory(
+        events: List<HistoryEvent>,
+        statsStartMs: Long,
+    )
 
-    suspend fun historyBetween(fromWallMs: Long, toWallMs: Long): List<HistoryEvent>
+    suspend fun historyBetween(
+        fromWallMs: Long,
+        toWallMs: Long,
+    ): List<HistoryEvent>
 
     /** Retain epoch provenance for analysis whose clocks restart with battery statistics. */
     suspend fun historySessions(): Map<Long, List<HistoryEvent>> =
@@ -73,9 +91,16 @@ interface SnapshotStore {
 
     suspend fun historyCursor(): Pair<Long, Long>?
 
-    suspend fun setHistoryCursor(statsStartMs: Long, lastHistoryTimeMs: Long)
+    suspend fun setHistoryCursor(
+        statsStartMs: Long,
+        lastHistoryTimeMs: Long,
+    )
 
-    suspend fun addMarker(snapshotId: Long, label: String, wallMs: Long): Long
+    suspend fun addMarker(
+        snapshotId: Long,
+        label: String,
+        wallMs: Long,
+    ): Long
 
     suspend fun marker(id: Long): Pair<Long, BatterySnapshot>?
 
@@ -85,7 +110,10 @@ interface SnapshotStore {
     suspend fun insertSamples(samples: List<LiveReading>)
 
     /** Samples with `from <= wallMs <= to`, oldest first. */
-    suspend fun samplesBetween(from: Long, to: Long): List<TelemetrySample>
+    suspend fun samplesBetween(
+        from: Long,
+        to: Long,
+    ): List<TelemetrySample>
 
     suspend fun upsertChargeSession(
         statsStartMs: Long,
@@ -118,7 +146,11 @@ interface SnapshotStore {
     /** Deletes the audit rows [ids] in one transaction; PENDING rows are kept. A store without retention keeps all. */
     suspend fun deleteToolkitActions(ids: List<Long>) {}
 
-    suspend fun recordMiss(wallMs: Long, trigger: CaptureTrigger, reason: String)
+    suspend fun recordMiss(
+        wallMs: Long,
+        trigger: CaptureTrigger,
+        reason: String,
+    )
 
     /**
      * The smallest `wallMs - elapsedRealtimeMs` among the stored snapshots of boot [bootCount], null when that boot

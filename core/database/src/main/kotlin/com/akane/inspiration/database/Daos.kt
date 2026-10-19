@@ -97,7 +97,8 @@ interface SnapshotDao {
         SELECT * FROM snapshot
         WHERE wallMs >= :wallMs
           AND (:kind IS NULL OR kind = :kind)
-          AND (:statsStartMs IS NULL OR statsStartMs = :statsStartMs)
+          AND (:statsStartMs IS NULL OR statsStartMs BETWEEN :statsStartMs - :statsStartToleranceMs
+            AND :statsStartMs + :statsStartToleranceMs)
           AND (:bootCount IS NULL OR bootCount = :bootCount)
         ORDER BY wallMs ASC, id ASC
         LIMIT 1
@@ -108,6 +109,7 @@ interface SnapshotDao {
         kind: String? = null,
         statsStartMs: Long? = null,
         bootCount: Int? = null,
+        statsStartToleranceMs: Long = 0L,
     ): SnapshotEntity?
 
     @Query("SELECT * FROM snapshot WHERE wallMs <= :wallMs AND (:kind IS NULL OR kind = :kind) ORDER BY wallMs DESC, id DESC LIMIT 1")

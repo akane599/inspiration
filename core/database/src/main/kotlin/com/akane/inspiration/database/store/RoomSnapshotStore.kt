@@ -22,6 +22,7 @@ import com.akane.inspiration.database.ToolkitActionEntity
 import com.akane.inspiration.ipc.model.HistoryEvent
 import com.akane.inspiration.telemetry.capacity.ChargeSegment
 import com.akane.inspiration.telemetry.capacity.SegmentVerdict
+import com.akane.inspiration.telemetry.diff.BatteryStatsSession
 import com.akane.inspiration.telemetry.dump.KernelWakelock
 import com.akane.inspiration.telemetry.dump.SystemTimers
 import com.akane.inspiration.telemetry.dump.UidAlarm
@@ -108,6 +109,7 @@ class RoomSnapshotStore(
                     kind = kind?.name,
                     statsStartMs = statsStartMs,
                     bootCount = bootCount,
+                    statsStartToleranceMs = BatteryStatsSession.START_TOLERANCE_MS,
                 )?.let { readSnapshot(it) }
         }
 

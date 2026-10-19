@@ -2,6 +2,7 @@ package com.akane.inspiration.telemetry.capture
 
 import com.akane.inspiration.ipc.model.HistoryEvent
 import com.akane.inspiration.telemetry.common.Clocks
+import com.akane.inspiration.telemetry.diff.BatteryStatsSession
 import com.akane.inspiration.telemetry.dump.AlarmDump
 import com.akane.inspiration.telemetry.dump.DumpParse
 import com.akane.inspiration.telemetry.dump.DumpSnapshot
@@ -26,7 +27,6 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
-import kotlin.math.abs
 
 class SnapshotCapturer(
     private val source: TelemetrySource,
@@ -126,7 +126,8 @@ class SnapshotCapturer(
         val usage = read.usage?.takeIf { it.available }
         val identity = read.uidIdentity?.takeIf { usage != null && usage.truncatedUids == 0 && it.scope.isKnown() }
         val dump = (read.batteryStats as? DumpParse.Ok)?.value
-        val sessionSkew = usage != null && dump != null && abs(dump.system.startClockTimeMs - usage.statsStartMs) > MAX_SESSION_SKEW_MS
+        val sessionSkew =
+            usage != null && dump != null && !BatteryStatsSession.sameStart(dump.system.startClockTimeMs, usage.statsStartMs)
         val usableDump = dump?.takeUnless { sessionSkew }
         val clock =
             read.light.clock.copy(
@@ -277,7 +278,6 @@ class SnapshotCapturer(
             }
 
     private companion object {
-        const val MAX_SESSION_SKEW_MS = 2_000L
         const val SOURCE_USAGE = "usage"
         const val SOURCE_DUMP = "dump"
         const val SOURCE_KERNEL = "kernel"

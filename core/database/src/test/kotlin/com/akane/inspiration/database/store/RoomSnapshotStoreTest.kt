@@ -432,7 +432,7 @@ class RoomSnapshotStoreTest {
                         bootCount = 1,
                     ),
                 )
-            val wrongSession = store.insert(fullSnapshot(wallMs = 3_000L, statsStartMs = 20L, bootCount = 1))
+            val wrongSession = store.insert(fullSnapshot(wallMs = 3_000L, statsStartMs = 2_011L, bootCount = 1))
             val match = store.insert(fullSnapshot(wallMs = 4_000L, statsStartMs = 10L, bootCount = 1))
             val wrongBoot = store.insert(fullSnapshot(wallMs = 5_000L, statsStartMs = 10L, bootCount = 2))
 
@@ -442,6 +442,16 @@ class RoomSnapshotStoreTest {
             assertEquals(wrongBoot, store.latest()?.id)
             assertEquals(old, store.lastAtOrBefore(1_000L, SnapshotKind.FULL)?.id)
             assertNotNull(store.byId(wrongSession))
+        }
+
+    @Test
+    fun `firstAtOrAfter matches a battery-stats session shifted by a wall-clock step within tolerance`() =
+        runBlocking {
+            store.insert(fullSnapshot(wallMs = 2_000L, statsStartMs = 12_001L, bootCount = 1))
+            val shifted = store.insert(fullSnapshot(wallMs = 3_000L, statsStartMs = 8_500L, bootCount = 1))
+
+            assertEquals(shifted, store.firstAtOrAfter(1_500L, SnapshotKind.FULL, 10_000L, 1)?.id)
+            assertNull(store.firstAtOrAfter(1_500L, SnapshotKind.FULL, 20_000L, 1))
         }
 
     @Test
