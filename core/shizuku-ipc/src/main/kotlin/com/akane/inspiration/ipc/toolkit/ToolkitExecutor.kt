@@ -57,7 +57,10 @@ internal class ToolkitExecutor(
         synchronized(writeLock) {
             protectedCache = null
             val op = AppOp.fromCode(opCode) ?: return ToolkitResult.refused(ToolkitCode.ARG_VALUE)
-            val mode = AppOpMode.fromCode(modeCode) ?: return ToolkitResult.refused(ToolkitCode.ARG_VALUE)
+            // Only ignore/allow are writable: `default` would leave background ops restricted.
+            val mode =
+                AppOpMode.fromCode(modeCode)?.takeIf { it.writable }
+                    ?: return ToolkitResult.refused(ToolkitCode.ARG_VALUE)
             val target =
                 when (val gate = gate(pkg)) {
                     is Gate.Denied -> return gate.result

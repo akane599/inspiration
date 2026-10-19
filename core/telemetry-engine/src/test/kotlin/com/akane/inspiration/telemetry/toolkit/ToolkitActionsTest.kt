@@ -73,7 +73,7 @@ class ToolkitActionsTest {
     fun harmlessActionsAreReady() = runTest {
         assertEquals(ToolkitPlan.Ready, actions.plan(ToolkitAction.SetAppOp(PKG, AppOp.RUN_IN_BACKGROUND, AppOpMode.IGNORE)))
         assertEquals(ToolkitPlan.Ready, actions.plan(ToolkitAction.SetBucket(PKG, StandbyBucket.RARE)))
-        assertEquals(ToolkitPlan.Ready, actions.plan(ToolkitAction.SetAppOp(PKG, AppOp.WAKE_LOCK, AppOpMode.DEFAULT)))
+        assertEquals(ToolkitPlan.Ready, actions.plan(ToolkitAction.SetAppOp(PKG, AppOp.WAKE_LOCK, AppOpMode.ALLOW)))
     }
 
     @Test
@@ -393,9 +393,9 @@ class ToolkitActionsTest {
     fun restoreOfAnAppOpDecodesTheStoredModeThroughTheEnum() = runTest {
         val original = (actions.execute(ToolkitAction.SetAppOp(PKG, AppOp.RUN_IN_BACKGROUND, AppOpMode.IGNORE)) as ToolkitOutcome.Done).value
         actions.restore(original.id)
-        // stored before was the system's "allow", which is the DEFAULT mode
-        assertEquals("default", backend.device(PKG)[AppOp.RUN_IN_BACKGROUND])
-        assertEquals("setAppOp($PKG,RUN_IN_BACKGROUND,default)", backend.writes.last())
+        // stored before was the system's "allow", which is written back as allow
+        assertEquals("allow", backend.device(PKG)[AppOp.RUN_IN_BACKGROUND])
+        assertEquals("setAppOp($PKG,RUN_IN_BACKGROUND,allow)", backend.writes.last())
     }
 
     @Test
@@ -611,7 +611,7 @@ class ToolkitActionsTest {
         backend.updatedSystem += PKG
         val state = (actions.appState(PKG) as ToolkitOutcome.Done).value
         assertEquals(AppOpMode.IGNORE, state.appOps[AppOp.WAKE_LOCK])
-        assertEquals(AppOpMode.DEFAULT, state.appOps[AppOp.RUN_IN_BACKGROUND])
+        assertEquals(AppOpMode.ALLOW, state.appOps[AppOp.RUN_IN_BACKGROUND])
         assertEquals(StandbyBucket.FREQUENT, state.bucket)
         assertTrue(state.updatedSystemApp)
     }

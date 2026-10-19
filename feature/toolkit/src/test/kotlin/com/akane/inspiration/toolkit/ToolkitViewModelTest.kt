@@ -385,7 +385,11 @@ class ToolkitViewModelTest {
         restrict(MAIL)
 
         assertEquals(listOf(MAIL, CALC, CHATTY, MAPS), state.apps.items.map { it.packageName })
-        assertTrue(state.apps.items.first().restricted)
+        assertTrue(
+            state.apps.items
+                .first()
+                .restricted,
+        )
 
         vm.onIntent(ToolkitIntent.SetQuery("MAI"))
         assertEquals(listOf(MAIL), state.apps.items.map { it.packageName })
@@ -405,7 +409,12 @@ class ToolkitViewModelTest {
     fun `an entry without a label gets one from the label source`() {
         start { apps = listOf(AppEntry("com.example.nolabel", "", launchable = true, restricted = false)) }
 
-        assertEquals("Label of com.example.nolabel", state.apps.items.single().label)
+        assertEquals(
+            "Label of com.example.nolabel",
+            state.apps.items
+                .single()
+                .label,
+        )
     }
 
     @Test
@@ -539,10 +548,25 @@ class ToolkitViewModelTest {
         act(ToolkitRequest.SetAppOp(AppOp.RUN_ANY_IN_BACKGROUND, ignored = false))
         val override = state.overrides.single()
         assertEquals(OverrideWhat.AppOpIgnored(AppOp.RUN_ANY_IN_BACKGROUND, false), override.what)
-        assertEquals("default", device.app(CHATTY).ops[AppOp.RUN_ANY_IN_BACKGROUND])
+        assertEquals("allow", device.app(CHATTY).ops[AppOp.RUN_ANY_IN_BACKGROUND])
         act(ToolkitRequest.Restore(override.actionId))
         confirm()
         assertEquals("ignore", device.app(CHATTY).ops[AppOp.RUN_ANY_IN_BACKGROUND])
+    }
+
+    @Test
+    fun `a live default mode is shown restricted and allowing it writes allow`() {
+        // An older release's "allow" left `default`, which Android still enforces as restricted (F-01).
+        start { device.app(CHATTY).ops[AppOp.RUN_ANY_IN_BACKGROUND] = "default" }
+        open(CHATTY)
+        val op = controls.ops.first { it.op == AppOp.RUN_ANY_IN_BACKGROUND }
+        assertTrue(op.ignored)
+        assertTrue(op.editable)
+
+        act(ToolkitRequest.SetAppOp(AppOp.RUN_ANY_IN_BACKGROUND, ignored = false))
+
+        assertEquals("allow", device.app(CHATTY).ops[AppOp.RUN_ANY_IN_BACKGROUND])
+        assertFalse(controls.ops.first { it.op == AppOp.RUN_ANY_IN_BACKGROUND }.ignored)
     }
 
     @Test
@@ -557,28 +581,55 @@ class ToolkitViewModelTest {
 
         act(ToolkitRequest.Restore(override.actionId))
 
-        assertEquals("default", device.app(CHATTY).ops[AppOp.RUN_ANY_IN_BACKGROUND])
+        assertEquals("allow", device.app(CHATTY).ops[AppOp.RUN_ANY_IN_BACKGROUND])
         assertTrue(state.overrides.isEmpty())
         assertEquals(ToolkitNotice.Applied(Change.Restored), state.overridesNotice)
-        assertEquals(ToolkitActionStatus.RESTORED, device.store.rows.first { it.id == override.actionId }.status)
+        assertEquals(
+            ToolkitActionStatus.RESTORED,
+            device.store.rows
+                .first { it.id == override.actionId }
+                .status,
+        )
     }
 
     @Test
     fun `restriction changes update picker badges ordering and active search`() {
         start()
         restrict(MAPS)
-        assertEquals(MAPS, state.apps.items.first().packageName)
-        assertTrue(state.apps.items.first().restricted)
+        assertEquals(
+            MAPS,
+            state.apps.items
+                .first()
+                .packageName,
+        )
+        assertTrue(
+            state.apps.items
+                .first()
+                .restricted,
+        )
 
         vm.onIntent(ToolkitIntent.SetQuery("Maps"))
         val override = state.overrides.single()
         act(ToolkitRequest.Restore(override.actionId))
         assertEquals(listOf(MAPS), state.apps.items.map { it.packageName })
-        assertFalse(state.apps.items.single().restricted)
+        assertFalse(
+            state.apps.items
+                .single()
+                .restricted,
+        )
 
         vm.onIntent(ToolkitIntent.SetQuery(""))
-        assertEquals(CALC, state.apps.items.first().packageName)
-        assertFalse(state.apps.items.first { it.packageName == MAPS }.restricted)
+        assertEquals(
+            CALC,
+            state.apps.items
+                .first()
+                .packageName,
+        )
+        assertFalse(
+            state.apps.items
+                .first { it.packageName == MAPS }
+                .restricted,
+        )
     }
 
     @Test
@@ -622,40 +673,41 @@ class ToolkitViewModelTest {
     // ---- reset all ------------------------------------------------------------------------------
 
     @Test
-    fun `reset all asks first and reports every item, including the one that failed`() = runTest(scheduler) {
-        start()
-        restrict(CHATTY)
-        open(MAPS)
-        act(ToolkitRequest.SetBucket(StandbyBucket.RARE))
-        vm.onIntent(ToolkitIntent.CloseApp)
-        assertEquals(2, state.overrides.size)
-        device.refuseWritesFor += MAPS
-        val writes = device.writes.size
+    fun `reset all asks first and reports every item, including the one that failed`() =
+        runTest(scheduler) {
+            start()
+            restrict(CHATTY)
+            open(MAPS)
+            act(ToolkitRequest.SetBucket(StandbyBucket.RARE))
+            vm.onIntent(ToolkitIntent.CloseApp)
+            assertEquals(2, state.overrides.size)
+            device.refuseWritesFor += MAPS
+            val writes = device.writes.size
 
-        act(ToolkitRequest.ResetAll)
+            act(ToolkitRequest.ResetAll)
 
-        assertEquals(2, state.confirmation?.count)
-        assertEquals(writes, device.writes.size)
+            assertEquals(2, state.confirmation?.count)
+            assertEquals(writes, device.writes.size)
 
-        confirm()
+            confirm()
 
-        val report = state.resetReport
-        assertNotNull(report)
-        assertEquals(2, report!!.lines.size)
-        assertEquals(1, report.restored)
-        assertEquals(1, report.failed)
-        assertEquals(ResetResult.Restored, report.lines.first { it.item.label == "Chatty" }.result)
-        assertEquals(
-            ResetResult.NotRestored(Problem.Refused(ToolkitRefusal.PROTECTED_APP)),
-            report.lines.first { it.item.label == "Maps" }.result,
-        )
-        assertEquals(ToolkitEffect.ResetFinished(restored = 1, total = 2), vm.effects.first())
-        assertEquals(listOf("Maps"), state.overrides.map { it.label })
-        assertFalse(state.busy)
+            val report = state.resetReport
+            assertNotNull(report)
+            assertEquals(2, report!!.lines.size)
+            assertEquals(1, report.restored)
+            assertEquals(1, report.failed)
+            assertEquals(ResetResult.Restored, report.lines.first { it.item.label == "Chatty" }.result)
+            assertEquals(
+                ResetResult.NotRestored(Problem.Refused(ToolkitRefusal.PROTECTED_APP)),
+                report.lines.first { it.item.label == "Maps" }.result,
+            )
+            assertEquals(ToolkitEffect.ResetFinished(restored = 1, total = 2), vm.effects.first())
+            assertEquals(listOf("Maps"), state.overrides.map { it.label })
+            assertFalse(state.busy)
 
-        vm.onIntent(ToolkitIntent.DismissResetReport)
-        assertNull(state.resetReport)
-    }
+            vm.onIntent(ToolkitIntent.DismissResetReport)
+            assertNull(state.resetReport)
+        }
 
     @Test
     fun `reset all does not restrict again an app the user switched back by hand`() {
@@ -670,8 +722,15 @@ class ToolkitViewModelTest {
         confirm()
 
         assertEquals(1, state.resetReport?.lines?.size)
-        assertEquals(OverrideWhat.Doze(DozeProfile.BALANCED), state.resetReport?.lines?.single()?.item?.what)
-        assertEquals("default", device.app(CHATTY).ops[AppOp.RUN_ANY_IN_BACKGROUND])
+        assertEquals(
+            OverrideWhat.Doze(DozeProfile.BALANCED),
+            state.resetReport
+                ?.lines
+                ?.single()
+                ?.item
+                ?.what,
+        )
+        assertEquals("allow", device.app(CHATTY).ops[AppOp.RUN_ANY_IN_BACKGROUND])
         assertNull(device.dozeRaw)
     }
 
@@ -700,7 +759,13 @@ class ToolkitViewModelTest {
         confirm()
 
         assertEquals(StandbyBucket.ACTIVE.rawValue, device.app(MAPS).bucket)
-        assertEquals(ResetResult.Restored, state.resetReport?.lines?.single()?.result)
+        assertEquals(
+            ResetResult.Restored,
+            state.resetReport
+                ?.lines
+                ?.single()
+                ?.result,
+        )
         assertTrue(state.overrides.isEmpty())
     }
 
@@ -718,34 +783,36 @@ class ToolkitViewModelTest {
     }
 
     @Test
-    fun `a reset that finishes while the screen is hidden raises no effect and none replays on return`() = runTest(scheduler) {
-        start()
-        restrict(CHATTY)
-        act(ToolkitRequest.ResetAll)
-        val gate = CompletableDeferred<Unit>()
-        device.gate = gate
-        confirm()
+    fun `a reset that finishes while the screen is hidden raises no effect and none replays on return`() =
+        runTest(scheduler) {
+            start()
+            restrict(CHATTY)
+            act(ToolkitRequest.ResetAll)
+            val gate = CompletableDeferred<Unit>()
+            device.gate = gate
+            confirm()
 
-        vm.onIntent(ToolkitIntent.Hidden)
-        gate.complete(Unit)
-        vm.onIntent(ToolkitIntent.Visible)
+            vm.onIntent(ToolkitIntent.Hidden)
+            gate.complete(Unit)
+            vm.onIntent(ToolkitIntent.Visible)
 
-        assertEquals(1, state.resetReport?.restored)
-        assertNull(withTimeoutOrNull(1_000) { vm.effects.first() })
-    }
+            assertEquals(1, state.resetReport?.restored)
+            assertNull(withTimeoutOrNull(1_000) { vm.effects.first() })
+        }
 
     @Test
-    fun `an effect nobody collected before Hidden is not replayed on the next visit`() = runTest(scheduler) {
-        start()
-        restrict(CHATTY)
-        act(ToolkitRequest.ResetAll)
-        confirm() // the effect is queued; no collector is running
+    fun `an effect nobody collected before Hidden is not replayed on the next visit`() =
+        runTest(scheduler) {
+            start()
+            restrict(CHATTY)
+            act(ToolkitRequest.ResetAll)
+            confirm() // the effect is queued; no collector is running
 
-        vm.onIntent(ToolkitIntent.Hidden)
-        vm.onIntent(ToolkitIntent.Visible)
+            vm.onIntent(ToolkitIntent.Hidden)
+            vm.onIntent(ToolkitIntent.Visible)
 
-        assertNull(withTimeoutOrNull(1_000) { vm.effects.first() })
-    }
+            assertNull(withTimeoutOrNull(1_000) { vm.effects.first() })
+        }
 
     // ---- bg-dexopt ------------------------------------------------------------------------------
 
@@ -794,17 +861,23 @@ class ToolkitViewModelTest {
     @Test
     fun `an unknown job may still be running, offers cancel and cannot be started over`() {
         start {
-            device.dexopt = ServiceDexopt(
-                BgDexoptState.UNKNOWN, 0, 0, 0, 0,
-            )
+            device.dexopt =
+                ServiceDexopt(
+                    BgDexoptState.UNKNOWN,
+                    0,
+                    0,
+                    0,
+                    0,
+                )
             // A job we started earlier whose outcome was never confirmed.
-            device.store.rows += ToolkitActionRecord(
-                id = 1L,
-                startedAt = 1L,
-                kind = "dexopt",
-                op = "bg_dexopt",
-                status = ToolkitActionStatus.PENDING,
-            )
+            device.store.rows +=
+                ToolkitActionRecord(
+                    id = 1L,
+                    startedAt = 1L,
+                    kind = "dexopt",
+                    op = "bg_dexopt",
+                    status = ToolkitActionStatus.PENDING,
+                )
         }
         assertEquals(BgDexoptStatus.Unknown, state.dexopt.status)
 
@@ -898,11 +971,12 @@ class ToolkitViewModelTest {
     }
 
     @Test
-    fun `Allow in settings emits the open-settings effect`() = runTest {
-        start { notificationsBlocked = true }
+    fun `Allow in settings emits the open-settings effect`() =
+        runTest {
+            start { notificationsBlocked = true }
 
-        vm.onIntent(ToolkitIntent.OpenNotificationSettings)
+            vm.onIntent(ToolkitIntent.OpenNotificationSettings)
 
-        assertEquals(ToolkitEffect.OpenNotificationSettings, vm.effects.first())
-    }
+            assertEquals(ToolkitEffect.OpenNotificationSettings, vm.effects.first())
+        }
 }

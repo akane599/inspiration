@@ -244,7 +244,7 @@ class ToolkitActions internal constructor(
         return ToolkitOutcome.Done(
             AppToolkitState(
                 pkg = pkg,
-                appOps = ops.value.modes.mapValues { (_, raw) -> modeOf(raw) },
+                appOps = ops.value.modes.mapValues { (_, raw) -> observedModeOf(raw) },
                 bucket = bucketRaw?.let { bucketOf(it) },
                 bucketRaw = bucketRaw,
                 updatedSystemApp = ops.value.updatedSystem || bucket.value.updatedSystem,
@@ -470,8 +470,8 @@ class ToolkitActions internal constructor(
     }
 
     /**
-     * Whether restoring [restoring] would write what the target already reads back (same state, "allow" being
-     * the default mode): its chain is already at the original, whoever got it there, so nothing is written.
+     * Whether restoring [restoring] would write what the target already reads back (the same observed state;
+     * `default` is not `allow`): its chain is already at the original, whoever got it there, so nothing is written.
      */
     private fun alreadyRestored(
         action: ToolkitAction,
@@ -593,7 +593,12 @@ class ToolkitActions internal constructor(
             }
         }
 
+    /** [isMalformed], or a mode the service never writes (`default` would leave background ops restricted). */
     private fun isInvalid(action: ToolkitAction): Boolean =
+        isMalformed(action) || (action is ToolkitAction.SetAppOp && !action.mode.writable)
+
+    /** Inputs that cannot be stored or replayed at all. A legacy recorded `default` intent is not malformed. */
+    private fun isMalformed(action: ToolkitAction): Boolean =
         when (action) {
             is ToolkitAction.SetAppOp -> !PackageNames.isValid(action.pkg)
             is ToolkitAction.SetBucket -> !PackageNames.isValid(action.pkg)
@@ -950,7 +955,7 @@ class ToolkitActions internal constructor(
      * of a chain does not turn an older row's `before` into the original of the rows above it. A completed
      * restore or a gap (something else changed the target in between) ends it. A partial restore instead
      * anchors the original in its typed intended value, even if its confirmed `before` was external. [rows]
-     * is [overrideRows], newest first.
+     * is [overrideRows], newest first. The links are matched on raw values; the answer is [originalState].
      */
     private fun chainOriginal(
         row: ToolkitActionRecord,
@@ -964,8 +969,19 @@ class ToolkitActions internal constructor(
             partialRestore(older)?.let { return it.original }
             original = older.beforeRaw
         }
-        return original
+        return originalState(row.kind, original)
     }
+
+    /**
+     * The state a recorded original stands for. Older releases recorded an app op with no entry ("No
+     * operations.", i.e. allowed) as `default`, and their "allow" wrote the stored mode `default`, which
+     * Android still enforces as restricted. A recorded app-op original of `default` therefore means `allow`:
+     * that is what restore writes, so a target left at `default` is still an override Reset all repairs.
+     */
+    private fun originalState(
+        kind: String,
+        raw: String?,
+    ): String? = if (kind == KIND_APPOP && raw == AppOpMode.DEFAULT.argv) AppOpMode.ALLOW.argv else raw
 
     /** Wraps a typed restore target so an unset doze original is distinct from "not a partial restore". */
     private class PartialRestore(
@@ -980,9 +996,9 @@ class ToolkitActions internal constructor(
     private fun partialRestore(row: ToolkitActionRecord): PartialRestore? {
         if (row.restoresId == null || !landedElsewhere(row)) return null
         val action = intendedAction(row) ?: return null
-        if (isInvalid(action)) return null
+        if (isMalformed(action)) return null
         return when (action) {
-            is ToolkitAction.SetAppOp -> PartialRestore(action.mode.argv)
+            is ToolkitAction.SetAppOp -> PartialRestore(originalState(row.kind, action.mode.argv))
             is ToolkitAction.SetBucket -> PartialRestore(action.bucket.rawValue.toString())
             is ToolkitAction.RestoreDoze -> PartialRestore(norm(action.rawOrNull))
             else -> null
@@ -993,8 +1009,9 @@ class ToolkitActions internal constructor(
 
     /**
      * Compare observed state, not just writable modes: app-op reads can also report e.g. "foreground".
-     * Equal known raw values match, "allow" aliases DEFAULT, and a missing app-op value stays unknown.
-     * This does not make observed-only modes replayable; [restoreAction] still requires [modeOf].
+     * Only equal known raw values match: `allow` and `default` are different states (Android restricts
+     * background work under `default`), and a missing app-op value stays unknown. This does not make
+     * observed-only modes replayable; [restoreAction] still requires [modeOf].
      */
     private fun sameState(
         kind: String,
@@ -1003,9 +1020,7 @@ class ToolkitActions internal constructor(
     ): Boolean {
         if (kind != KIND_APPOP) return norm(current) == norm(original)
         val raw = norm(current) ?: return false
-        if (raw == norm(original)) return true
-        val mode = modeOf(raw)
-        return mode != null && mode == original?.let { modeOf(it) }
+        return raw == norm(original)
     }
 
     // ---- active overrides ------------------------------------------------------------------
@@ -1206,7 +1221,7 @@ class ToolkitActions internal constructor(
                 }
             if (link.id >= keepFrom) break
             val next = links.getOrNull(i + 1)
-            val closed = sameState(link.kind, link.afterRaw, original)
+            val closed = sameState(link.kind, link.afterRaw, originalState(link.kind, original))
             val endsHere = if (next == null) closesChain(link) || closed else !continues(link, next) || closed
             if (endsHere) cut = i + 1
         }
@@ -1294,7 +1309,7 @@ class ToolkitActions internal constructor(
                 when (read) {
                     is ToolkitOutcome.Done -> {
                         read.value.modes[action.op].let { current ->
-                            if (current != null && modeOf(current) == action.mode) Verdict.Matched(current) else Verdict.Mismatch(current)
+                            if (current != null && current == action.mode.argv) Verdict.Matched(current) else Verdict.Mismatch(current)
                         }
                     }
 
@@ -1692,11 +1707,24 @@ class ToolkitActions internal constructor(
         /** Unset and empty are the same `device_idle_constants` state. */
         fun norm(raw: String?): String? = raw?.takeIf { it.isNotEmpty() }
 
-        /** `ignore` and `default` are what this surface can set; `allow` is what the system calls its default. */
+        /**
+         * The write that puts a recorded original back. `ignore` and `allow` are what this surface sets; a
+         * recorded `default` (how older releases stored "No operations.", and what their "allow" wrote) is
+         * restored as `allow`, because the stored `default` mode keeps background ops restricted.
+         */
         fun modeOf(raw: String): AppOpMode? =
             when (raw) {
                 AppOpMode.IGNORE.argv -> AppOpMode.IGNORE
-                AppOpMode.DEFAULT.argv, "allow" -> AppOpMode.DEFAULT
+                AppOpMode.ALLOW.argv, AppOpMode.DEFAULT.argv -> AppOpMode.ALLOW
+                else -> null
+            }
+
+        /** A live reading as it is: `default` stays [AppOpMode.DEFAULT] so the UI can show it as restricted. */
+        fun observedModeOf(raw: String): AppOpMode? =
+            when (raw) {
+                AppOpMode.IGNORE.argv -> AppOpMode.IGNORE
+                AppOpMode.ALLOW.argv -> AppOpMode.ALLOW
+                AppOpMode.DEFAULT.argv -> AppOpMode.DEFAULT
                 else -> null
             }
 

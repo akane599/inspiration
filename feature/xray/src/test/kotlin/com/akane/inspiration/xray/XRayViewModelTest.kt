@@ -531,6 +531,18 @@ class XRayViewModelTest {
     }
 
     @Test
+    fun `a live default mode is shown restricted and allowing it writes allow`() {
+        deps.device.runAnyInBackground = "default" // left by an older release; Android enforces it as restricted
+        openChatty()
+        assertTrue(controls.restricted)
+
+        vm.onIntent(XRayIntent.Act(ActionRequest.SetRestricted(false)))
+
+        assertEquals("allow", deps.device.runAnyInBackground)
+        assertFalse(controls.restricted)
+    }
+
+    @Test
     fun `a change made here is listed for this app and can be restored`() {
         openChatty()
         vm.onIntent(XRayIntent.Act(ActionRequest.SetRestricted(true)))

@@ -12,19 +12,33 @@ import com.akane.inspiration.telemetry.store.ToolkitActionRecord
  * `ToolkitActions` and again by the service.
  */
 sealed interface ToolkitAction {
-    data class SetAppOp(val pkg: String, val op: AppOp, val mode: AppOpMode) : ToolkitAction
+    data class SetAppOp(
+        val pkg: String,
+        val op: AppOp,
+        val mode: AppOpMode,
+    ) : ToolkitAction
 
-    data class SetBucket(val pkg: String, val bucket: StandbyBucket) : ToolkitAction
+    data class SetBucket(
+        val pkg: String,
+        val bucket: StandbyBucket,
+    ) : ToolkitAction
 
-    data class ApplyDoze(val profile: DozeProfile) : ToolkitAction
+    data class ApplyDoze(
+        val profile: DozeProfile,
+    ) : ToolkitAction
 
-    data class ForceStop(val pkg: String) : ToolkitAction
+    data class ForceStop(
+        val pkg: String,
+    ) : ToolkitAction
 
     /**
      * Replays a stored `device_idle_constants` value ([rawOrNull] null deletes it), but only while the
      * current value is [expectedCurrentRaw]; otherwise it needs confirmation.
      */
-    data class RestoreDoze(val rawOrNull: String?, val expectedCurrentRaw: String?) : ToolkitAction
+    data class RestoreDoze(
+        val rawOrNull: String?,
+        val expectedCurrentRaw: String?,
+    ) : ToolkitAction
 }
 
 /** Why a plan or an attempt must be confirmed by the user first. The UI owns the (localized) wording. */
@@ -100,20 +114,35 @@ sealed interface ToolkitPlan {
         val others: List<ToolkitWarning> = emptyList(),
     ) : ToolkitPlan
 
-    data class Refused(val reason: ToolkitRefusal) : ToolkitPlan
+    data class Refused(
+        val reason: ToolkitRefusal,
+    ) : ToolkitPlan
 }
 
 sealed interface ToolkitOutcome<out T> {
-    data class Done<T>(val value: T) : ToolkitOutcome<T>
+    data class Done<T>(
+        val value: T,
+    ) : ToolkitOutcome<T>
 
-    data class Refused(val reason: ToolkitRefusal, val code: Int? = null) : ToolkitOutcome<Nothing>
+    data class Refused(
+        val reason: ToolkitRefusal,
+        val code: Int? = null,
+    ) : ToolkitOutcome<Nothing>
 
-    data class Unavailable(val reason: ToolkitUnavailable, val code: Int? = null) : ToolkitOutcome<Nothing>
+    data class Unavailable(
+        val reason: ToolkitUnavailable,
+        val code: Int? = null,
+    ) : ToolkitOutcome<Nothing>
 
-    data class Failed(val code: Int?) : ToolkitOutcome<Nothing>
+    data class Failed(
+        val code: Int?,
+    ) : ToolkitOutcome<Nothing>
 }
 
-/** Read-back state of one app. A null mode or bucket means the value is not one this surface can set. */
+/**
+ * Read-back state of one app. A null mode or bucket means the value is not one this surface can set. An app-op
+ * mode of [AppOpMode.DEFAULT] is a live `default` reading: background work is restricted, so show it as such.
+ */
 data class AppToolkitState(
     val pkg: String,
     val appOps: Map<AppOp, AppOpMode?>,
@@ -164,18 +193,29 @@ object ToolkitAuditLog {
 }
 
 /** One [resetAll][ToolkitActions.resetAll] item: what was restored and how it went. */
-data class ResetItem(val override: Override, val outcome: ToolkitOutcome<ToolkitActionRecord>)
+data class ResetItem(
+    val override: Override,
+    val outcome: ToolkitOutcome<ToolkitActionRecord>,
+)
 
 enum class BgDexoptCancelReason { USER, UNPLUGGED, TIMEOUT, OTHER }
 
 sealed interface BgDexoptStatus {
     data object Idle : BgDexoptStatus
 
-    data class Running(val startedAtMs: Long) : BgDexoptStatus
+    data class Running(
+        val startedAtMs: Long,
+    ) : BgDexoptStatus
 
-    data class Finished(val exitCode: Int, val endedAtMs: Long) : BgDexoptStatus
+    data class Finished(
+        val exitCode: Int,
+        val endedAtMs: Long,
+    ) : BgDexoptStatus
 
-    data class Cancelled(val reason: BgDexoptCancelReason, val endedAtMs: Long) : BgDexoptStatus
+    data class Cancelled(
+        val reason: BgDexoptCancelReason,
+        val endedAtMs: Long,
+    ) : BgDexoptStatus
 
     /** A job may still be running that this service instance does not know about; Cancel is idempotent. */
     data object Unknown : BgDexoptStatus

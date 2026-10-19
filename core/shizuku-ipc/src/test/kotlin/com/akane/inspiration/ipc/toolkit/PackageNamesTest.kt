@@ -88,12 +88,14 @@ class PackageNamesTest {
         DozeProfile.entries.forEach { assertEquals(it, DozeProfile.fromCode(it.code)) }
         assertNull(AppOp.fromCode(0))
         assertNull(AppOp.fromCode(-1))
-        assertNull(AppOpMode.fromCode(3))
+        assertNull(AppOpMode.fromCode(4))
+        assertNull(AppOpMode.fromCode(0))
         assertNull(StandbyBucket.fromCode(0))
         assertNull(StandbyBucket.fromCode(6))
         assertNull(DozeProfile.fromCode(-1))
         assertNull(DozeProfile.fromCode(3))
         assertEquals(3, AppOp.entries.size)
-        assertEquals(2, AppOpMode.entries.size)
+        assertEquals(3, AppOpMode.entries.size)
+        assertEquals(setOf(AppOpMode.IGNORE, AppOpMode.ALLOW), AppOpMode.entries.filter { it.writable }.toSet())
     }
 }

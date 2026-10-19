@@ -6,7 +6,10 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class ToolkitParsersTest {
-    private fun effectiveMode(op: AppOp, output: String): String? = ToolkitParsers.appOpState(op, output)?.effectiveMode
+    private fun effectiveMode(
+        op: AppOp,
+        output: String,
+    ): String? = ToolkitParsers.appOpState(op, output)?.effectiveMode
 
     @Test
     fun `UID appop override wins over a package mode and is readable alone`() {
@@ -29,7 +32,9 @@ class ToolkitParsersTest {
         assertEquals("ignore", effectiveMode(AppOp.WAKE_LOCK, "WAKE_LOCK: ignore\n"))
         assertEquals("default", effectiveMode(AppOp.WAKE_LOCK, "WAKE_LOCK: default"))
         assertEquals("allow", effectiveMode(AppOp.WAKE_LOCK, "WAKE_LOCK: allow; time=+1m ago"))
-        assertEquals("default", effectiveMode(AppOp.WAKE_LOCK, "No operations.\nDefault mode: allow"))
+        // No entry: the op's default mode (allow) applies; it is not the stored, restricting `default` mode.
+        assertEquals("allow", effectiveMode(AppOp.WAKE_LOCK, "No operations.\nDefault mode: allow"))
+        assertEquals("allow", effectiveMode(AppOp.RUN_ANY_IN_BACKGROUND, "No operations."))
         assertNull(effectiveMode(AppOp.WAKE_LOCK, "RUN_IN_BACKGROUND: ignore"))
         assertNull(effectiveMode(AppOp.WAKE_LOCK, "Error: Unknown operation"))
         assertNull(effectiveMode(AppOp.WAKE_LOCK, "WAKE_LOCK: ig nore!"))
@@ -51,9 +56,10 @@ class ToolkitParsersTest {
 
     @Test
     fun `settings block stops at the next section and skips non durations`() {
-        val text = "  Flags:\n    a=true\n\n  Settings:\n    light_after_inactive_to=+4m0s0ms\n" +
-            "    light_idle_factor=2.0\n    location_accuracy=20.0m\n    sensing_to=0\n    wait_for_unlock=true\n" +
-            "  Whitelist (except idle) system apps:\n    inactive_to=+9s0ms\n"
+        val text =
+            "  Flags:\n    a=true\n\n  Settings:\n    light_after_inactive_to=+4m0s0ms\n" +
+                "    light_idle_factor=2.0\n    location_accuracy=20.0m\n    sensing_to=0\n    wait_for_unlock=true\n" +
+                "  Whitelist (except idle) system apps:\n    inactive_to=+9s0ms\n"
 
         val settings = ToolkitParsers.dozeSettings(text)
 
@@ -74,19 +80,22 @@ class ToolkitParsersTest {
 
     @Test
     fun `device admins are read from the enabled admins section`() {
-        val dump = "Current Device Policy Manager state:\n  Immutable state:\n    mHasFeature=true\n  \n" +
-            "  Enabled Device Admins (User 0, provisioningState: 0):\n    com.corp.mdm/.AdminReceiver:\n" +
-            "      uid=10120\n      policies:\n    mPasswordOwner=-1\n  \n  Constants:\n    X: 1\n"
+        val dump =
+            "Current Device Policy Manager state:\n  Immutable state:\n    mHasFeature=true\n  \n" +
+                "  Enabled Device Admins (User 0, provisioningState: 0):\n    com.corp.mdm/.AdminReceiver:\n" +
+                "      uid=10120\n      policies:\n    mPasswordOwner=-1\n  \n  Constants:\n    X: 1\n"
 
         assertEquals(setOf("com.corp.mdm"), ToolkitParsers.deviceAdmins(dump, truncated = false))
     }
 
     @Test
     fun `device admins are found after a preamble larger than 4 KB`() {
-        val preamble = "Current Device Policy Manager state:\n  Immutable state:\n" +
-            "    mSomeLongPreambleLine=true\n".repeat(1_000)
-        val dump = preamble + "  Enabled Device Admins (User 0, provisioningState: 0):\n" +
-            "    com.corp.mdm/.AdminReceiver:\n      uid=10120\n  \n  Constants:\n"
+        val preamble =
+            "Current Device Policy Manager state:\n  Immutable state:\n" +
+                "    mSomeLongPreambleLine=true\n".repeat(1_000)
+        val dump =
+            preamble + "  Enabled Device Admins (User 0, provisioningState: 0):\n" +
+                "    com.corp.mdm/.AdminReceiver:\n      uid=10120\n  \n  Constants:\n"
         assertTrue(dump.length > 4 * RETENTION_CAP_BYTES)
 
         assertEquals(setOf("com.corp.mdm"), ToolkitParsers.deviceAdmins(dump, truncated = false))

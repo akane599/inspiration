@@ -47,7 +47,9 @@ private val CALL_FAILED = ToolkitNotice.Rejected(Problem.Failed(code = null))
  * by `ToolkitActions` itself, so this class never calls `holdBinding()`. The package an action targets is the
  * one of the app opened from the in-app list, and a restore only takes an id of a shown override (H12).
  */
-class ToolkitViewModel(private val deps: ToolkitDependencies) : ViewModel() {
+class ToolkitViewModel(
+    private val deps: ToolkitDependencies,
+) : ViewModel() {
     private val _state = MutableStateFlow(ToolkitState())
     val state: StateFlow<ToolkitState> = _state.asStateFlow()
 
@@ -57,6 +59,7 @@ class ToolkitViewModel(private val deps: ToolkitDependencies) : ViewModel() {
     private var visibleJob: Job? = null
     private var detailJob: Job? = null
     private var allApps: List<AppItem> = emptyList()
+
     private data class PreparedRequest(
         val request: ToolkitRequest,
         val action: ToolkitAction?,
@@ -111,16 +114,17 @@ class ToolkitViewModel(private val deps: ToolkitDependencies) : ViewModel() {
         // The user may have changed this in system settings while the screen was away.
         val blocked = deps.notificationsBlocked()
         _state.update { it.copy(statusNotification = it.statusNotification.copy(blocked = blocked)) }
-        visibleJob = viewModelScope.launch {
-            launch {
-                deps.statusNotificationEnabled.collect { enabled ->
-                    _state.update { it.copy(statusNotification = it.statusNotification.copy(enabled = enabled)) }
+        visibleJob =
+            viewModelScope.launch {
+                launch {
+                    deps.statusNotificationEnabled.collect { enabled ->
+                        _state.update { it.copy(statusNotification = it.statusNotification.copy(enabled = enabled)) }
+                    }
                 }
+                // The log is local, so it is shown whatever Shizuku says. A log that cannot be read keeps what it showed.
+                launch { attempt { deps.toolkit.history(HISTORY_LIMIT).collect { showHistory(it) } } }
+                deps.shizukuState.collectLatest { follow(it) }
             }
-            // The log is local, so it is shown whatever Shizuku says. A log that cannot be read keeps what it showed.
-            launch { attempt { deps.toolkit.history(HISTORY_LIMIT).collect { showHistory(it) } } }
-            deps.shizukuState.collectLatest { follow(it) }
-        }
     }
 
     private fun onHidden() {
@@ -180,7 +184,15 @@ class ToolkitViewModel(private val deps: ToolkitDependencies) : ViewModel() {
     // ---- reading ---------------------------------------------------------------------------
 
     private suspend fun load() {
-        _state.update { if (it.status == ToolkitPhase.READY) it.copy(blocked = null) else it.copy(status = ToolkitPhase.LOADING, blocked = null) }
+        _state.update {
+            if (it.status ==
+                ToolkitPhase.READY
+            ) {
+                it.copy(blocked = null)
+            } else {
+                it.copy(status = ToolkitPhase.LOADING, blocked = null)
+            }
+        }
         // A read that throws instead of answering is the same error state, with the same retry.
         val doze = attempt { deps.toolkit.dozeState() }
         if (doze == null || doze is ToolkitOutcome.Unavailable) {
@@ -196,37 +208,48 @@ class ToolkitViewModel(private val deps: ToolkitDependencies) : ViewModel() {
 
     /** A null [outcome] is a read that threw instead of answering. */
     private fun showDoze(outcome: ToolkitOutcome<DozeState>?) {
-        val load = when (outcome) {
-            is ToolkitOutcome.Done -> DozeLoad.Loaded(ToolkitMapper.doze(outcome.value))
-            null -> DozeLoad.Unavailable(Problem.Failed(code = null))
-            else -> DozeLoad.Unavailable(ToolkitMapper.problem(outcome))
-        }
+        val load =
+            when (outcome) {
+                is ToolkitOutcome.Done -> DozeLoad.Loaded(ToolkitMapper.doze(outcome.value))
+                null -> DozeLoad.Unavailable(Problem.Failed(code = null))
+                else -> DozeLoad.Unavailable(ToolkitMapper.problem(outcome))
+            }
         _state.update { it.copy(doze = it.doze.copy(load = load)) }
     }
 
     private suspend fun loadApps() {
-        val entries = try {
-            deps.installedApps()
-        } catch (e: CancellationException) {
-            throw e
-        } catch (_: Exception) {
-            null
-        }
+        val entries =
+            try {
+                deps.installedApps()
+            } catch (e: CancellationException) {
+                throw e
+            } catch (_: Exception) {
+                null
+            }
         if (entries == null) {
             _state.update { it.copy(apps = it.apps.copy(phase = AppsPhase.FAILED)) }
             return
         }
-        allApps = entries.map { appItem(it) }
-            .sortedWith(compareByDescending<AppItem> { it.restricted }.thenBy(String.CASE_INSENSITIVE_ORDER) { it.label }.thenBy { it.packageName })
+        allApps =
+            entries
+                .map { appItem(it) }
+                .sortedWith(
+                    compareByDescending<AppItem> { it.restricted }
+                        .thenBy(
+                            String.CASE_INSENSITIVE_ORDER,
+                        ) { it.label }
+                        .thenBy { it.packageName },
+                )
         _state.update { it.copy(apps = it.apps.copy(phase = AppsPhase.READY)) }
         applyQuery()
     }
 
-    private suspend fun appItem(entry: AppEntry): AppItem = AppItem(
-        packageName = entry.packageName,
-        label = entry.label.ifBlank { deps.appLabels.label(entry.packageName) },
-        restricted = entry.restricted,
-    )
+    private suspend fun appItem(entry: AppEntry): AppItem =
+        AppItem(
+            packageName = entry.packageName,
+            label = entry.label.ifBlank { deps.appLabels.label(entry.packageName) },
+            restricted = entry.restricted,
+        )
 
     private fun setQuery(query: String) {
         _state.update { it.copy(apps = it.apps.copy(query = query)) }
@@ -236,11 +259,12 @@ class ToolkitViewModel(private val deps: ToolkitDependencies) : ViewModel() {
     private fun applyQuery() {
         _state.update { current ->
             val needle = current.apps.query.trim()
-            val shown = if (needle.isEmpty()) {
-                allApps
-            } else {
-                allApps.filter { it.label.contains(needle, ignoreCase = true) || it.packageName.contains(needle, ignoreCase = true) }
-            }
+            val shown =
+                if (needle.isEmpty()) {
+                    allApps
+                } else {
+                    allApps.filter { it.label.contains(needle, ignoreCase = true) || it.packageName.contains(needle, ignoreCase = true) }
+                }
             current.copy(apps = current.apps.copy(items = shown.toImmutableList(), total = allApps.size))
         }
     }
@@ -254,8 +278,16 @@ class ToolkitViewModel(private val deps: ToolkitDependencies) : ViewModel() {
         val items = all.map { override -> overrideItem(override) }
         _state.update { it.copy(overrides = items.toImmutableList()) }
         val restrictedPackages = all.mapNotNull { it.pkg }.toSet()
-        allApps = allApps.map { it.copy(restricted = it.packageName in restrictedPackages) }
-            .sortedWith(compareByDescending<AppItem> { it.restricted }.thenBy(String.CASE_INSENSITIVE_ORDER) { it.label }.thenBy { it.packageName })
+        allApps =
+            allApps
+                .map { it.copy(restricted = it.packageName in restrictedPackages) }
+                .sortedWith(
+                    compareByDescending<AppItem> { it.restricted }
+                        .thenBy(
+                            String.CASE_INSENSITIVE_ORDER,
+                        ) { it.label }
+                        .thenBy { it.packageName },
+                )
         applyQuery()
     }
 
@@ -287,12 +319,15 @@ class ToolkitViewModel(private val deps: ToolkitDependencies) : ViewModel() {
     }
 
     private suspend fun showControls(pkg: String) {
-        val controls = when (val outcome = attempt { deps.toolkit.appState(pkg) }) {
-            is ToolkitOutcome.Done -> ControlsState.Loaded(ToolkitMapper.controls(outcome.value))
-            // A read that threw instead of answering: the controls offer a retry, never a guess.
-            null -> ControlsState.Unavailable(Problem.Failed(code = null))
-            else -> ControlsState.Unavailable(ToolkitMapper.problem(outcome))
-        }
+        val controls =
+            when (val outcome = attempt { deps.toolkit.appState(pkg) }) {
+                is ToolkitOutcome.Done -> ControlsState.Loaded(ToolkitMapper.controls(outcome.value))
+
+                // A read that threw instead of answering: the controls offer a retry, never a guess.
+                null -> ControlsState.Unavailable(Problem.Failed(code = null))
+
+                else -> ControlsState.Unavailable(ToolkitMapper.problem(outcome))
+            }
         _state.update { current ->
             val detail = current.detail
             if (detail != null && detail.app.packageName == pkg) current.copy(detail = detail.copy(controls = controls)) else current
@@ -319,54 +354,113 @@ class ToolkitViewModel(private val deps: ToolkitDependencies) : ViewModel() {
             if (prepared.generation != generation) return@launch
             planning = false
             when (plan) {
-                null -> finish(prepared, CALL_FAILED)
-                ToolkitPlan.Ready -> executeContained(prepared, confirmed = false)
+                null -> {
+                    finish(prepared, CALL_FAILED)
+                }
+
+                ToolkitPlan.Ready -> {
+                    executeContained(prepared, confirmed = false)
+                }
+
                 is ToolkitPlan.NeedsConfirmation -> {
                     ask(confirmationOf(prepared, listOf(plan.warning) + plan.others), prepared)
                     _state.update { it.copy(busy = false) }
                 }
-                is ToolkitPlan.Refused -> finish(prepared, ToolkitNotice.Rejected(Problem.Refused(plan.reason)))
+
+                is ToolkitPlan.Refused -> {
+                    finish(prepared, ToolkitNotice.Rejected(Problem.Refused(plan.reason)))
+                }
             }
         }
     }
 
     /** Only requests the visible screen could have produced are acted on. */
-    private fun accepts(request: ToolkitRequest, state: ToolkitState): Boolean = when (request) {
-        is ToolkitRequest.ApplyDoze -> state.doze.load is DozeLoad.Loaded
-        is ToolkitRequest.SetAppOp, is ToolkitRequest.SetBucket, ToolkitRequest.ForceStop ->
-            state.detail?.controls is ControlsState.Loaded
-        is ToolkitRequest.Restore -> state.overrides.any { it.actionId == request.actionId && it.restorable }
-        ToolkitRequest.ResetAll -> state.overrides.isNotEmpty()
-    }
+    private fun accepts(
+        request: ToolkitRequest,
+        state: ToolkitState,
+    ): Boolean =
+        when (request) {
+            is ToolkitRequest.ApplyDoze -> {
+                state.doze.load is DozeLoad.Loaded
+            }
+
+            is ToolkitRequest.SetAppOp, is ToolkitRequest.SetBucket, ToolkitRequest.ForceStop -> {
+                state.detail?.controls is ControlsState.Loaded
+            }
+
+            is ToolkitRequest.Restore -> {
+                state.overrides.any { it.actionId == request.actionId && it.restorable }
+            }
+
+            ToolkitRequest.ResetAll -> {
+                state.overrides.isNotEmpty()
+            }
+        }
 
     private fun actionOf(request: ToolkitRequest): ToolkitAction? {
-        val pkg = _state.value.detail?.app?.packageName
+        val pkg =
+            _state.value.detail
+                ?.app
+                ?.packageName
         return when (request) {
-            is ToolkitRequest.ApplyDoze -> ToolkitAction.ApplyDoze(request.profile)
-            is ToolkitRequest.SetAppOp ->
-                pkg?.let { ToolkitAction.SetAppOp(it, request.op, if (request.ignored) AppOpMode.IGNORE else AppOpMode.DEFAULT) }
-            is ToolkitRequest.SetBucket -> pkg?.let { ToolkitAction.SetBucket(it, request.bucket) }
-            ToolkitRequest.ForceStop -> pkg?.let { ToolkitAction.ForceStop(it) }
-            is ToolkitRequest.Restore, ToolkitRequest.ResetAll -> null
+            is ToolkitRequest.ApplyDoze -> {
+                ToolkitAction.ApplyDoze(request.profile)
+            }
+
+            is ToolkitRequest.SetAppOp -> {
+                pkg?.let { ToolkitAction.SetAppOp(it, request.op, if (request.ignored) AppOpMode.IGNORE else AppOpMode.ALLOW) }
+            }
+
+            is ToolkitRequest.SetBucket -> {
+                pkg?.let { ToolkitAction.SetBucket(it, request.bucket) }
+            }
+
+            ToolkitRequest.ForceStop -> {
+                pkg?.let { ToolkitAction.ForceStop(it) }
+            }
+
+            is ToolkitRequest.Restore, ToolkitRequest.ResetAll -> {
+                null
+            }
         }
     }
 
-    private suspend fun planOf(prepared: PreparedRequest): ToolkitPlan = when (val request = prepared.request) {
-        is ToolkitRequest.Restore -> deps.toolkit.planRestore(request.actionId)
-        ToolkitRequest.ResetAll -> ToolkitPlan.Ready
-        else -> prepared.action?.let { deps.toolkit.plan(it) } ?: ToolkitPlan.Refused(ToolkitRefusal.INVALID_ARGUMENT)
-    }
+    private suspend fun planOf(prepared: PreparedRequest): ToolkitPlan =
+        when (val request = prepared.request) {
+            is ToolkitRequest.Restore -> deps.toolkit.planRestore(request.actionId)
+            ToolkitRequest.ResetAll -> ToolkitPlan.Ready
+            else -> prepared.action?.let { deps.toolkit.plan(it) } ?: ToolkitPlan.Refused(ToolkitRefusal.INVALID_ARGUMENT)
+        }
 
-    private fun confirmationOf(prepared: PreparedRequest, warnings: List<ToolkitWarning>, stale: Boolean = false) =
-        Confirmation(request = prepared.request, target = prepared.target, warnings = warnings.distinct().toImmutableList(), stale = stale)
+    private fun confirmationOf(
+        prepared: PreparedRequest,
+        warnings: List<ToolkitWarning>,
+        stale: Boolean = false,
+    ) = Confirmation(request = prepared.request, target = prepared.target, warnings = warnings.distinct().toImmutableList(), stale = stale)
 
-    private fun targetOf(request: ToolkitRequest): String? = when (request) {
-        is ToolkitRequest.SetAppOp, is ToolkitRequest.SetBucket, ToolkitRequest.ForceStop -> _state.value.detail?.app?.label
-        is ToolkitRequest.Restore -> _state.value.overrides.firstOrNull { it.actionId == request.actionId }?.label
-        is ToolkitRequest.ApplyDoze, ToolkitRequest.ResetAll -> null
-    }
+    private fun targetOf(request: ToolkitRequest): String? =
+        when (request) {
+            is ToolkitRequest.SetAppOp, is ToolkitRequest.SetBucket, ToolkitRequest.ForceStop -> {
+                _state.value.detail
+                    ?.app
+                    ?.label
+            }
 
-    private fun ask(confirmation: Confirmation, prepared: PreparedRequest) {
+            is ToolkitRequest.Restore -> {
+                _state.value.overrides
+                    .firstOrNull { it.actionId == request.actionId }
+                    ?.label
+            }
+
+            is ToolkitRequest.ApplyDoze, ToolkitRequest.ResetAll -> {
+                null
+            }
+        }
+
+    private fun ask(
+        confirmation: Confirmation,
+        prepared: PreparedRequest,
+    ) {
         if (!visible || prepared.generation != generation) return
         pending = prepared
         _state.update { it.copy(confirmation = confirmation) }
@@ -389,28 +483,48 @@ class ToolkitViewModel(private val deps: ToolkitDependencies) : ViewModel() {
      * [execute], with a call that throws instead of answering (the audit row of a write cannot be stored on a
      * full disk, say) reported as a failed action: the screen shows what the system reports now and is usable again.
      */
-    private suspend fun executeContained(prepared: PreparedRequest, confirmed: Boolean) {
+    private suspend fun executeContained(
+        prepared: PreparedRequest,
+        confirmed: Boolean,
+    ) {
         if (attempt { execute(prepared, confirmed) } == null) finish(prepared, CALL_FAILED)
     }
 
-    private suspend fun execute(prepared: PreparedRequest, confirmed: Boolean) {
+    private suspend fun execute(
+        prepared: PreparedRequest,
+        confirmed: Boolean,
+    ) {
         val request = prepared.request
         if (request == ToolkitRequest.ResetAll) {
             resetAll()
             return
         }
-        val outcome: ToolkitOutcome<*> = when (request) {
-            is ToolkitRequest.Restore -> deps.toolkit.restore(request.actionId, confirmed)
-            else -> {
-                val action = prepared.action ?: return finish(prepared, ToolkitNotice.Rejected(Problem.Refused(ToolkitRefusal.INVALID_ARGUMENT)))
-                deps.toolkit.execute(action, confirmed)
+        val outcome: ToolkitOutcome<*> =
+            when (request) {
+                is ToolkitRequest.Restore -> {
+                    deps.toolkit.restore(request.actionId, confirmed)
+                }
+
+                else -> {
+                    val action =
+                        prepared.action ?: return finish(prepared, ToolkitNotice.Rejected(Problem.Refused(ToolkitRefusal.INVALID_ARGUMENT)))
+                    deps.toolkit.execute(action, confirmed)
+                }
             }
-        }
         if (outcome is ToolkitOutcome.Refused && outcome.reason == ToolkitRefusal.STALE) {
             askAgain(prepared)
             return
         }
-        finish(prepared, if (outcome is ToolkitOutcome.Done<*>) ToolkitNotice.Applied(changeOf(request)) else ToolkitNotice.Rejected(ToolkitMapper.problem(outcome)))
+        finish(
+            prepared,
+            if (outcome is ToolkitOutcome.Done<*>) {
+                ToolkitNotice.Applied(
+                    changeOf(request),
+                )
+            } else {
+                ToolkitNotice.Rejected(ToolkitMapper.problem(outcome))
+            },
+        )
     }
 
     /** The setting moved between plan and write: read it again and let the user decide with the value that is there now. */
@@ -427,8 +541,14 @@ class ToolkitViewModel(private val deps: ToolkitDependencies) : ViewModel() {
             return
         }
         when (plan) {
-            ToolkitPlan.Ready -> ask(confirmationOf(prepared, emptyList(), stale = true), prepared)
-            is ToolkitPlan.NeedsConfirmation -> ask(confirmationOf(prepared, listOf(plan.warning) + plan.others, stale = true), prepared)
+            ToolkitPlan.Ready -> {
+                ask(confirmationOf(prepared, emptyList(), stale = true), prepared)
+            }
+
+            is ToolkitPlan.NeedsConfirmation -> {
+                ask(confirmationOf(prepared, listOf(plan.warning) + plan.others, stale = true), prepared)
+            }
+
             is ToolkitPlan.Refused -> {
                 showNotice(request, ToolkitNotice.Rejected(Problem.Refused(plan.reason)))
             }
@@ -436,16 +556,20 @@ class ToolkitViewModel(private val deps: ToolkitDependencies) : ViewModel() {
         _state.update { it.copy(busy = false) }
     }
 
-    private fun changeOf(request: ToolkitRequest): Change = when (request) {
-        is ToolkitRequest.ApplyDoze -> Change.DozeApplied(request.profile)
-        is ToolkitRequest.SetAppOp -> Change.AppOpSet(request.op, request.ignored)
-        is ToolkitRequest.SetBucket -> Change.BucketSet(request.bucket)
-        ToolkitRequest.ForceStop -> Change.ForceStopped
-        is ToolkitRequest.Restore, ToolkitRequest.ResetAll -> Change.Restored
-    }
+    private fun changeOf(request: ToolkitRequest): Change =
+        when (request) {
+            is ToolkitRequest.ApplyDoze -> Change.DozeApplied(request.profile)
+            is ToolkitRequest.SetAppOp -> Change.AppOpSet(request.op, request.ignored)
+            is ToolkitRequest.SetBucket -> Change.BucketSet(request.bucket)
+            ToolkitRequest.ForceStop -> Change.ForceStopped
+            is ToolkitRequest.Restore, ToolkitRequest.ResetAll -> Change.Restored
+        }
 
     /** Whatever happened, the screen then shows what the system reports now. Never throws: [refresh] contains its reads. */
-    private suspend fun finish(prepared: PreparedRequest, notice: ToolkitNotice) {
+    private suspend fun finish(
+        prepared: PreparedRequest,
+        notice: ToolkitNotice,
+    ) {
         refresh(prepared.request)
         if (prepared.generation == generation) showNotice(prepared.request, notice)
         _state.update { it.copy(busy = false) }
@@ -454,19 +578,35 @@ class ToolkitViewModel(private val deps: ToolkitDependencies) : ViewModel() {
     private suspend fun refresh(request: ToolkitRequest) {
         val touchesDoze = request is ToolkitRequest.ApplyDoze || request is ToolkitRequest.Restore || request == ToolkitRequest.ResetAll
         if (touchesDoze) showDoze(attempt { deps.toolkit.dozeState() })
-        val open = _state.value.detail?.app?.packageName
+        val open =
+            _state.value.detail
+                ?.app
+                ?.packageName
         if (open != null && request !is ToolkitRequest.ApplyDoze) showControls(open)
     }
 
-    private fun showNotice(request: ToolkitRequest, notice: ToolkitNotice?) {
+    private fun showNotice(
+        request: ToolkitRequest,
+        notice: ToolkitNotice?,
+    ) {
         _state.update { current ->
             when (request) {
-                is ToolkitRequest.ApplyDoze -> current.copy(doze = current.doze.copy(notice = notice))
-                is ToolkitRequest.SetAppOp, is ToolkitRequest.SetBucket, ToolkitRequest.ForceStop ->
+                is ToolkitRequest.ApplyDoze -> {
+                    current.copy(doze = current.doze.copy(notice = notice))
+                }
+
+                is ToolkitRequest.SetAppOp, is ToolkitRequest.SetBucket, ToolkitRequest.ForceStop -> {
                     current.copy(detail = current.detail?.copy(notice = notice))
-                is ToolkitRequest.Restore -> current.copy(overridesNotice = notice)
+                }
+
+                is ToolkitRequest.Restore -> {
+                    current.copy(overridesNotice = notice)
+                }
+
                 // Only a reset that failed as a whole gets a notice; a finished one has its report instead.
-                ToolkitRequest.ResetAll -> current.copy(overridesNotice = notice)
+                ToolkitRequest.ResetAll -> {
+                    current.copy(overridesNotice = notice)
+                }
             }
         }
     }
@@ -476,12 +616,20 @@ class ToolkitViewModel(private val deps: ToolkitDependencies) : ViewModel() {
      * item; the items are the ones `activeOverrides` shows. A failed item does not stop the others.
      */
     private suspend fun resetAll() {
-        val lines = deps.toolkit.resetAll().map { item ->
-            ResetLine(
-                item = overrideItem(item.override),
-                result = if (item.outcome is ToolkitOutcome.Done) ResetResult.Restored else ResetResult.NotRestored(ToolkitMapper.problem(item.outcome)),
-            )
-        }
+        val lines =
+            deps.toolkit.resetAll().map { item ->
+                ResetLine(
+                    item = overrideItem(item.override),
+                    result =
+                        if (item.outcome is ToolkitOutcome.Done) {
+                            ResetResult.Restored
+                        } else {
+                            ResetResult.NotRestored(
+                                ToolkitMapper.problem(item.outcome),
+                            )
+                        },
+                )
+            }
         val report = ResetReport(lines.toImmutableList())
         refresh(ToolkitRequest.ResetAll)
         _state.update { it.copy(resetReport = report, overridesNotice = null, busy = false) }
@@ -514,11 +662,15 @@ class ToolkitViewModel(private val deps: ToolkitDependencies) : ViewModel() {
     }
 
     /** A null [outcome] is a call that threw instead of answering (the job's audit row could not be stored, say). */
-    private fun dexoptNotice(outcome: ToolkitOutcome<*>?, change: Change): ToolkitNotice = when (outcome) {
-        is ToolkitOutcome.Done -> ToolkitNotice.Applied(change)
-        null -> CALL_FAILED
-        else -> ToolkitNotice.Rejected(ToolkitMapper.problem(outcome))
-    }
+    private fun dexoptNotice(
+        outcome: ToolkitOutcome<*>?,
+        change: Change,
+    ): ToolkitNotice =
+        when (outcome) {
+            is ToolkitOutcome.Done -> ToolkitNotice.Applied(change)
+            null -> CALL_FAILED
+            else -> ToolkitNotice.Rejected(ToolkitMapper.problem(outcome))
+        }
 
     private fun setDexopt(transform: (DexoptSection) -> DexoptSection) {
         _state.update { it.copy(dexopt = transform(it.dexopt)) }
@@ -526,8 +678,9 @@ class ToolkitViewModel(private val deps: ToolkitDependencies) : ViewModel() {
 
     companion object {
         /** The factory the route hands to `viewModel(...)`; the ViewModel only ever sees [ToolkitDependencies]. */
-        fun factory(deps: ToolkitDependencies): ViewModelProvider.Factory = viewModelFactory {
-            initializer { ToolkitViewModel(deps) }
-        }
+        fun factory(deps: ToolkitDependencies): ViewModelProvider.Factory =
+            viewModelFactory {
+                initializer { ToolkitViewModel(deps) }
+            }
     }
 }

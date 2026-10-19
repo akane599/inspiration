@@ -195,7 +195,7 @@ class ToolkitActionsRetentionTest {
                 }
             assertEquals("foreground", audit.byId(repeated.first()).beforeRaw)
             assertEquals(
-                "default",
+                "allow",
                 actions
                     .activeOverrides()
                     .first()
@@ -211,12 +211,12 @@ class ToolkitActionsRetentionTest {
             val override = recreated.activeOverrides().first().single { it.kind == OverrideKind.APP_OP }
             assertEquals(repeated.last(), override.actionId)
             assertEquals("ignore", override.currentRaw)
-            assertEquals("default", override.previousRaw)
+            assertEquals("allow", override.previousRaw)
             backend.writes.clear()
             val report = recreated.resetAll()
             assertTrue(report.single { it.override.kind == OverrideKind.APP_OP }.outcome is ToolkitOutcome.Done)
-            assertTrue("the original default is replayed, not foreground", "setAppOp($A,${op.argv},default)" in backend.writes)
-            assertEquals("default", backend.device(A)[op])
+            assertTrue("the original allow is replayed, not foreground", "setAppOp($A,${op.argv},allow)" in backend.writes)
+            assertEquals("allow", backend.device(A)[op])
             assertTrue(recreated.activeOverrides().first().isEmpty())
         }
 

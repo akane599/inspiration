@@ -77,7 +77,7 @@ class ToolkitActionsUncertainWriteTest {
 
         // ... and Reset all undoes it.
         actions.resetAll()
-        assertEquals("default", backend.device(PKG)[op])
+        assertEquals("allow", backend.device(PKG)[op])
         assertTrue(actions.activeOverrides().first().isEmpty())
     }
 

@@ -43,217 +43,245 @@ class ToolkitActionsChainTest {
     // ---- m1: a chain that ends where it began is not an override ---------------------------
 
     @Test
-    fun appOpIgnoreThenDefaultIsNoOverrideAndItsRestoreWritesNothing() = runTest {
-        run(ToolkitAction.SetAppOp(PKG, op, AppOpMode.IGNORE))
-        val back = run(ToolkitAction.SetAppOp(PKG, op, AppOpMode.DEFAULT))
+    fun appOpIgnoreThenAllowIsNoOverrideAndItsRestoreWritesNothing() =
+        runTest {
+            run(ToolkitAction.SetAppOp(PKG, op, AppOpMode.IGNORE))
+            val back = run(ToolkitAction.SetAppOp(PKG, op, AppOpMode.ALLOW))
 
-        assertNoOverrides()
-        assertRestoreWritesNothing(back)
-        assertEquals("default", opNow())
-        backend.writes.clear()
-        assertTrue(actions.resetAll().isEmpty())
-        assertTrue(backend.writes.isEmpty())
-    }
-
-    @Test
-    fun bucketRestrictedThenBackToTheOriginalIsNoOverrideAndItsRestoreWritesNothing() = runTest {
-        run(ToolkitAction.SetBucket(PKG, StandbyBucket.RESTRICTED))
-        val back = run(ToolkitAction.SetBucket(PKG, StandbyBucket.ACTIVE))
-
-        assertNoOverrides()
-        assertRestoreWritesNothing(back)
-        assertEquals(StandbyBucket.ACTIVE.rawValue, backend.buckets[PKG])
-    }
+            assertNoOverrides()
+            assertRestoreWritesNothing(back)
+            assertEquals("allow", opNow())
+            backend.writes.clear()
+            assertTrue(actions.resetAll().isEmpty())
+            assertTrue(backend.writes.isEmpty())
+        }
 
     @Test
-    fun bucketAThroughBBackToAIsNoOverride() = runTest {
-        run(ToolkitAction.SetBucket(PKG, StandbyBucket.RARE))
-        run(ToolkitAction.SetBucket(PKG, StandbyBucket.FREQUENT))
-        val back = run(ToolkitAction.SetBucket(PKG, StandbyBucket.ACTIVE))
+    fun bucketRestrictedThenBackToTheOriginalIsNoOverrideAndItsRestoreWritesNothing() =
+        runTest {
+            run(ToolkitAction.SetBucket(PKG, StandbyBucket.RESTRICTED))
+            val back = run(ToolkitAction.SetBucket(PKG, StandbyBucket.ACTIVE))
 
-        assertNoOverrides()
-        assertRestoreWritesNothing(back)
-        backend.writes.clear()
-        assertTrue(actions.resetAll().isEmpty())
-        assertTrue(backend.writes.isEmpty())
-    }
+            assertNoOverrides()
+            assertRestoreWritesNothing(back)
+            assertEquals(StandbyBucket.ACTIVE.rawValue, backend.buckets[PKG])
+        }
 
     @Test
-    fun dozeBalancedThenStandardWhenItWasUnsetIsNoOverride() = runTest {
-        run(ToolkitAction.ApplyDoze(DozeProfile.BALANCED))
-        val back = run(ToolkitAction.ApplyDoze(DozeProfile.STANDARD))
+    fun bucketAThroughBBackToAIsNoOverride() =
+        runTest {
+            run(ToolkitAction.SetBucket(PKG, StandbyBucket.RARE))
+            run(ToolkitAction.SetBucket(PKG, StandbyBucket.FREQUENT))
+            val back = run(ToolkitAction.SetBucket(PKG, StandbyBucket.ACTIVE))
 
-        assertNoOverrides()
-        assertRestoreWritesNothing(back)
-        assertNull(backend.dozeRaw)
-    }
+            assertNoOverrides()
+            assertRestoreWritesNothing(back)
+            backend.writes.clear()
+            assertTrue(actions.resetAll().isEmpty())
+            assertTrue(backend.writes.isEmpty())
+        }
+
+    @Test
+    fun dozeBalancedThenStandardWhenItWasUnsetIsNoOverride() =
+        runTest {
+            run(ToolkitAction.ApplyDoze(DozeProfile.BALANCED))
+            val back = run(ToolkitAction.ApplyDoze(DozeProfile.STANDARD))
+
+            assertNoOverrides()
+            assertRestoreWritesNothing(back)
+            assertNull(backend.dozeRaw)
+        }
 
     // ---- per-item restore goes to the chain original ---------------------------------------
 
     @Test
-    fun restoreOfTheNewestRowOfAChainWritesTheChainOriginalNotTheIntermediate() = runTest {
-        run(ToolkitAction.SetBucket(PKG, StandbyBucket.RARE))
-        val newest = run(ToolkitAction.SetBucket(PKG, StandbyBucket.RESTRICTED))
-        backend.writes.clear()
+    fun restoreOfTheNewestRowOfAChainWritesTheChainOriginalNotTheIntermediate() =
+        runTest {
+            run(ToolkitAction.SetBucket(PKG, StandbyBucket.RARE))
+            val newest = run(ToolkitAction.SetBucket(PKG, StandbyBucket.RESTRICTED))
+            backend.writes.clear()
 
-        assertEquals(ToolkitPlan.Ready, actions.planRestore(newest.id))
-        assertTrue(actions.restore(newest.id) is ToolkitOutcome.Done)
+            assertEquals(ToolkitPlan.Ready, actions.planRestore(newest.id))
+            assertTrue(actions.restore(newest.id) is ToolkitOutcome.Done)
 
-        assertEquals(listOf("setBucket($PKG,active)"), backend.writes)
-        assertEquals(StandbyBucket.ACTIVE.rawValue, backend.buckets[PKG])
-        assertNoOverrides()
-    }
-
-    @Test
-    fun restoreOfTheNewestRowRefusesWhenTheChainOriginalIsNotRestorable() = runTest {
-        backend.nullBeforeOnBucketWrite = true
-        run(ToolkitAction.SetBucket(PKG, StandbyBucket.RARE))
-        backend.nullBeforeOnBucketWrite = false
-        val newest = run(ToolkitAction.SetBucket(PKG, StandbyBucket.FREQUENT))
-        backend.writes.clear()
-
-        assertEquals(ToolkitPlan.Refused(ToolkitRefusal.NOT_RESTORABLE), actions.planRestore(newest.id))
-        assertEquals(ToolkitOutcome.Refused(ToolkitRefusal.NOT_RESTORABLE), actions.restore(newest.id, confirmed = true))
-        assertTrue(backend.writes.isEmpty())
-        assertEquals(false, actions.activeOverrides().first().single().restorable)
-    }
+            assertEquals(listOf("setBucket($PKG,active)"), backend.writes)
+            assertEquals(StandbyBucket.ACTIVE.rawValue, backend.buckets[PKG])
+            assertNoOverrides()
+        }
 
     @Test
-    fun restoreOfARowInTheMiddleOfAChainGoesToTheChainOriginal() = runTest {
-        run(ToolkitAction.SetBucket(PKG, StandbyBucket.RARE))
-        val middle = run(ToolkitAction.SetBucket(PKG, StandbyBucket.RESTRICTED))
-        run(ToolkitAction.SetBucket(PKG, StandbyBucket.FREQUENT))
+    fun restoreOfTheNewestRowRefusesWhenTheChainOriginalIsNotRestorable() =
+        runTest {
+            backend.nullBeforeOnBucketWrite = true
+            run(ToolkitAction.SetBucket(PKG, StandbyBucket.RARE))
+            backend.nullBeforeOnBucketWrite = false
+            val newest = run(ToolkitAction.SetBucket(PKG, StandbyBucket.FREQUENT))
+            backend.writes.clear()
 
-        // the target is no longer at the middle row's `after`, so this needs confirmation
-        assertEquals(ToolkitWarning.RESTORE_STATE_CHANGED, (actions.planRestore(middle.id) as ToolkitPlan.NeedsConfirmation).warning)
-        assertTrue(actions.restore(middle.id, confirmed = true) is ToolkitOutcome.Done)
-
-        assertEquals(StandbyBucket.ACTIVE.rawValue, backend.buckets[PKG])
-        assertEquals(ToolkitActionStatus.RESTORED, audit.byId(middle.id).status)
-    }
-
-    // ---- m2: app op mode equivalence in the chain walk -------------------------------------
+            assertEquals(ToolkitPlan.Refused(ToolkitRefusal.NOT_RESTORABLE), actions.planRestore(newest.id))
+            assertEquals(ToolkitOutcome.Refused(ToolkitRefusal.NOT_RESTORABLE), actions.restore(newest.id, confirmed = true))
+            assertTrue(backend.writes.isEmpty())
+            assertEquals(
+                false,
+                actions
+                    .activeOverrides()
+                    .first()
+                    .single()
+                    .restorable,
+            )
+        }
 
     @Test
-    fun aChainJoinsAcrossDefaultAndAllowSpellingsOfTheSameMode() = runTest {
-        backend.device(PKG)[op] = "ignore" // the user's own setting
-        run(ToolkitAction.SetAppOp(PKG, op, AppOpMode.DEFAULT)) // after "default"
-        backend.device(PKG)[op] = "allow" // the system reports the same mode as "allow"
-        run(ToolkitAction.SetAppOp(PKG, op, AppOpMode.IGNORE)) // before "allow"
+    fun restoreOfARowInTheMiddleOfAChainGoesToTheChainOriginal() =
+        runTest {
+            run(ToolkitAction.SetBucket(PKG, StandbyBucket.RARE))
+            val middle = run(ToolkitAction.SetBucket(PKG, StandbyBucket.RESTRICTED))
+            run(ToolkitAction.SetBucket(PKG, StandbyBucket.FREQUENT))
 
-        // chain original is the user's "ignore", which is where the target is now
-        assertNoOverrides()
-        backend.writes.clear()
-        assertTrue(actions.resetAll().isEmpty())
-        assertTrue(backend.writes.isEmpty())
-    }
+            // the target is no longer at the middle row's `after`, so this needs confirmation
+            assertEquals(ToolkitWarning.RESTORE_STATE_CHANGED, (actions.planRestore(middle.id) as ToolkitPlan.NeedsConfirmation).warning)
+            assertTrue(actions.restore(middle.id, confirmed = true) is ToolkitOutcome.Done)
+
+            assertEquals(StandbyBucket.ACTIVE.rawValue, backend.buckets[PKG])
+            assertEquals(ToolkitActionStatus.RESTORED, audit.byId(middle.id).status)
+        }
+
+    // ---- m2: app op modes in the chain walk (F-01: `default` is not `allow`) ----------------
+
+    @Test
+    fun aChainDoesNotJoinAcrossDefaultAndAllow() =
+        runTest {
+            backend.device(PKG)[op] = "ignore" // the user's own setting
+            run(ToolkitAction.SetAppOp(PKG, op, AppOpMode.ALLOW)) // after "allow"
+            backend.device(PKG)[op] = "default" // something else stored the restricting `default` mode
+            val newest = run(ToolkitAction.SetAppOp(PKG, op, AppOpMode.IGNORE)) // before "default"
+
+            // the gap ends the chain: the newest row's original is `default`, i.e. allow (see originalState)
+            val override = actions.activeOverrides().first().single()
+            assertEquals(newest.id, override.actionId)
+            assertEquals("allow", override.previousRaw)
+        }
 
     // ---- m4: chain shapes -----------------------------------------------------------------
 
     @Test
-    fun aFailedRowBetweenTwoRowsOfOneTargetDoesNotBreakTheChain() = runTest {
-        run(ToolkitAction.SetBucket(PKG, StandbyBucket.RARE))
-        backend.writeFailure = IllegalStateException("binder exploded")
-        try {
-            actions.execute(ToolkitAction.SetBucket(PKG, StandbyBucket.WORKING_SET))
-        } catch (_: IllegalStateException) {
+    fun aFailedRowBetweenTwoRowsOfOneTargetDoesNotBreakTheChain() =
+        runTest {
+            run(ToolkitAction.SetBucket(PKG, StandbyBucket.RARE))
+            backend.writeFailure = IllegalStateException("binder exploded")
+            try {
+                actions.execute(ToolkitAction.SetBucket(PKG, StandbyBucket.WORKING_SET))
+            } catch (_: IllegalStateException) {
+            }
+            backend.writeFailure = null
+            actions.reconcile() // Only readback can prove the throwing write had no effect.
+            assertEquals(ToolkitActionStatus.FAILED, audit.rows.last().status)
+            run(ToolkitAction.SetBucket(PKG, StandbyBucket.FREQUENT))
+
+            val report = actions.resetAll()
+
+            assertEquals(StandbyBucket.ACTIVE.rawValue, backend.buckets[PKG])
+            assertTrue(report.single().outcome is ToolkitOutcome.Done)
         }
-        backend.writeFailure = null
-        actions.reconcile() // Only readback can prove the throwing write had no effect.
-        assertEquals(ToolkitActionStatus.FAILED, audit.rows.last().status)
-        run(ToolkitAction.SetBucket(PKG, StandbyBucket.FREQUENT))
-
-        val report = actions.resetAll()
-
-        assertEquals(StandbyBucket.ACTIVE.rawValue, backend.buckets[PKG])
-        assertTrue(report.single().outcome is ToolkitOutcome.Done)
-    }
 
     @Test
-    fun aPendingRowBetweenTwoRowsOfOneTargetDoesNotBreakTheChain() = runTest {
-        run(ToolkitAction.SetBucket(PKG, StandbyBucket.RARE))
-        audit.insert(
-            ToolkitActionRecord(
-                startedAt = 1L,
-                kind = "bucket",
-                pkg = PKG,
-                op = "set",
-                param = "working_set",
-                status = ToolkitActionStatus.PENDING,
-                beforeRaw = StandbyBucket.RARE.rawValue.toString(),
-            ),
-        )
-        run(ToolkitAction.SetBucket(PKG, StandbyBucket.FREQUENT))
+    fun aPendingRowBetweenTwoRowsOfOneTargetDoesNotBreakTheChain() =
+        runTest {
+            run(ToolkitAction.SetBucket(PKG, StandbyBucket.RARE))
+            audit.insert(
+                ToolkitActionRecord(
+                    startedAt = 1L,
+                    kind = "bucket",
+                    pkg = PKG,
+                    op = "set",
+                    param = "working_set",
+                    status = ToolkitActionStatus.PENDING,
+                    beforeRaw = StandbyBucket.RARE.rawValue.toString(),
+                ),
+            )
+            run(ToolkitAction.SetBucket(PKG, StandbyBucket.FREQUENT))
 
-        val report = actions.resetAll()
+            val report = actions.resetAll()
 
-        assertEquals(StandbyBucket.ACTIVE.rawValue, backend.buckets[PKG])
-        assertTrue(report.single().outcome is ToolkitOutcome.Done)
-    }
-
-    @Test
-    fun aCustomDozeRawIsTheChainOriginalAndComesBack() = runTest {
-        backend.dozeRaw = "inactive_to=1234"
-        run(ToolkitAction.ApplyDoze(DozeProfile.BALANCED))
-        run(ToolkitAction.ApplyDoze(DozeProfile.AGGRESSIVE_NIGHT))
-
-        val report = actions.resetAll()
-
-        assertEquals("inactive_to=1234", backend.dozeRaw)
-        assertTrue(report.single().outcome is ToolkitOutcome.Done)
-        assertNoOverrides()
-    }
+            assertEquals(StandbyBucket.ACTIVE.rawValue, backend.buckets[PKG])
+            assertTrue(report.single().outcome is ToolkitOutcome.Done)
+        }
 
     @Test
-    fun anEmptyStoredDozeBeforeMeansUnsetAndIsRestoredAsUnset() = runTest {
-        backend.dozeRaw = DozeProfile.BALANCED.constants
-        val row = audit.insert(
-            ToolkitActionRecord(
-                startedAt = 1L,
-                endedAt = 2L,
-                kind = "doze",
-                op = "apply_profile",
-                param = "balanced",
-                status = ToolkitActionStatus.DONE,
-                beforeRaw = "",
-                afterRaw = DozeProfile.BALANCED.constants,
-            ),
-        )
-        assertEquals(setOf(row), actions.activeOverrides().first().map { it.actionId }.toSet())
+    fun aCustomDozeRawIsTheChainOriginalAndComesBack() =
+        runTest {
+            backend.dozeRaw = "inactive_to=1234"
+            run(ToolkitAction.ApplyDoze(DozeProfile.BALANCED))
+            run(ToolkitAction.ApplyDoze(DozeProfile.AGGRESSIVE_NIGHT))
 
-        val report = actions.resetAll()
+            val report = actions.resetAll()
 
-        assertNull(backend.dozeRaw)
-        assertTrue(report.single().outcome is ToolkitOutcome.Done)
-    }
+            assertEquals("inactive_to=1234", backend.dozeRaw)
+            assertTrue(report.single().outcome is ToolkitOutcome.Done)
+            assertNoOverrides()
+        }
 
     @Test
-    fun interleavedBucketAndAppOpRowsOnOnePackageAreChainsOfTheirOwn() = runTest {
-        run(ToolkitAction.SetBucket(PKG, StandbyBucket.RARE))
-        run(ToolkitAction.SetAppOp(PKG, op, AppOpMode.IGNORE))
-        val bucket = run(ToolkitAction.SetBucket(PKG, StandbyBucket.RESTRICTED))
-        run(ToolkitAction.SetAppOp(PKG, op, AppOpMode.DEFAULT))
+    fun anEmptyStoredDozeBeforeMeansUnsetAndIsRestoredAsUnset() =
+        runTest {
+            backend.dozeRaw = DozeProfile.BALANCED.constants
+            val row =
+                audit.insert(
+                    ToolkitActionRecord(
+                        startedAt = 1L,
+                        endedAt = 2L,
+                        kind = "doze",
+                        op = "apply_profile",
+                        param = "balanced",
+                        status = ToolkitActionStatus.DONE,
+                        beforeRaw = "",
+                        afterRaw = DozeProfile.BALANCED.constants,
+                    ),
+                )
+            assertEquals(
+                setOf(row),
+                actions
+                    .activeOverrides()
+                    .first()
+                    .map { it.actionId }
+                    .toSet(),
+            )
 
-        // the app op came back to its original, the bucket did not
-        assertEquals(listOf(bucket.id), actions.activeOverrides().first().map { it.actionId })
-        backend.writes.clear()
+            val report = actions.resetAll()
 
-        val report = actions.resetAll()
-
-        assertEquals(listOf("setBucket($PKG,active)"), backend.writes)
-        assertEquals(1, report.size)
-        assertEquals(StandbyBucket.ACTIVE.rawValue, backend.buckets[PKG])
-    }
+            assertNull(backend.dozeRaw)
+            assertTrue(report.single().outcome is ToolkitOutcome.Done)
+        }
 
     @Test
-    fun aSecondResetAllAfterASuccessfulOneIsANoOp() = runTest {
-        run(ToolkitAction.SetBucket(PKG, StandbyBucket.RARE))
-        run(ToolkitAction.SetAppOp(PKG, op, AppOpMode.IGNORE))
-        run(ToolkitAction.ApplyDoze(DozeProfile.BALANCED))
-        assertEquals(3, actions.resetAll().count { it.outcome is ToolkitOutcome.Done })
-        backend.writes.clear()
+    fun interleavedBucketAndAppOpRowsOnOnePackageAreChainsOfTheirOwn() =
+        runTest {
+            run(ToolkitAction.SetBucket(PKG, StandbyBucket.RARE))
+            run(ToolkitAction.SetAppOp(PKG, op, AppOpMode.IGNORE))
+            val bucket = run(ToolkitAction.SetBucket(PKG, StandbyBucket.RESTRICTED))
+            run(ToolkitAction.SetAppOp(PKG, op, AppOpMode.ALLOW))
 
-        assertTrue(actions.resetAll().isEmpty())
-        assertTrue(backend.writes.isEmpty())
-    }
+            // the app op came back to its original, the bucket did not
+            assertEquals(listOf(bucket.id), actions.activeOverrides().first().map { it.actionId })
+            backend.writes.clear()
+
+            val report = actions.resetAll()
+
+            assertEquals(listOf("setBucket($PKG,active)"), backend.writes)
+            assertEquals(1, report.size)
+            assertEquals(StandbyBucket.ACTIVE.rawValue, backend.buckets[PKG])
+        }
+
+    @Test
+    fun aSecondResetAllAfterASuccessfulOneIsANoOp() =
+        runTest {
+            run(ToolkitAction.SetBucket(PKG, StandbyBucket.RARE))
+            run(ToolkitAction.SetAppOp(PKG, op, AppOpMode.IGNORE))
+            run(ToolkitAction.ApplyDoze(DozeProfile.BALANCED))
+            assertEquals(3, actions.resetAll().count { it.outcome is ToolkitOutcome.Done })
+            backend.writes.clear()
+
+            assertTrue(actions.resetAll().isEmpty())
+            assertTrue(backend.writes.isEmpty())
+        }
 }

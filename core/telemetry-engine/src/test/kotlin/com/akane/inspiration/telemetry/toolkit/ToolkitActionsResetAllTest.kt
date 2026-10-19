@@ -30,12 +30,12 @@ class ToolkitActionsResetAllTest {
     fun resetAllDoesNotRestrictAnAppTheUserSwitchedBackByHand() =
         runTest {
             actions.execute(ToolkitAction.SetAppOp(PKG, op, AppOpMode.IGNORE), confirmed = true)
-            actions.execute(ToolkitAction.SetAppOp(PKG, op, AppOpMode.DEFAULT))
+            actions.execute(ToolkitAction.SetAppOp(PKG, op, AppOpMode.ALLOW))
             backend.writes.clear()
 
             val report = actions.resetAll()
 
-            assertEquals("default", opNow())
+            assertEquals("allow", opNow())
             assertTrue("no write may restrict the app again: ${backend.writes}", backend.writes.none { "ignore" in it })
             // back at its original value, so it is no active override at all (SQ-92)
             assertTrue(report.isEmpty())
@@ -45,7 +45,7 @@ class ToolkitActionsResetAllTest {
     fun backToTheOriginalByTwoChangesWritesNothing() =
         runTest {
             backend.device(PKG)[op] = "ignore" // the user's own setting before this app touched it
-            actions.execute(ToolkitAction.SetAppOp(PKG, op, AppOpMode.DEFAULT))
+            actions.execute(ToolkitAction.SetAppOp(PKG, op, AppOpMode.ALLOW))
             actions.execute(ToolkitAction.SetAppOp(PKG, op, AppOpMode.IGNORE), confirmed = true)
             backend.writes.clear()
 

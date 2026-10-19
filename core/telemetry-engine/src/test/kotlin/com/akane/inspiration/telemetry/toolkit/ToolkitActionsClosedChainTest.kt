@@ -30,7 +30,7 @@ class ToolkitActionsClosedChainTest {
                 actions.execute(ToolkitAction.SetBucket(pkg, StandbyBucket.RARE))
                 actions.execute(ToolkitAction.SetBucket(pkg, StandbyBucket.ACTIVE)) // back to the original
                 actions.execute(ToolkitAction.SetAppOp(pkg, AppOp.RUN_IN_BACKGROUND, AppOpMode.IGNORE))
-                actions.execute(ToolkitAction.SetAppOp(pkg, AppOp.RUN_IN_BACKGROUND, AppOpMode.DEFAULT)) // back again
+                actions.execute(ToolkitAction.SetAppOp(pkg, AppOp.RUN_IN_BACKGROUND, AppOpMode.ALLOW)) // back again
             }
             backend.reads.clear()
 

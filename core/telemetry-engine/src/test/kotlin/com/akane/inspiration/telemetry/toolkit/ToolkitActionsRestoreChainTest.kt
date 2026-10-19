@@ -119,13 +119,13 @@ class ToolkitActionsRestoreChainTest {
     }
 
     @Test
-    fun appOpIgnoreThenAllowSpelledAsDefaultMakesTheFirstRowsRestoreAlreadyRestored() = runTest {
+    fun appOpIgnoreThenAllowMakesTheFirstRowsRestoreAlreadyRestored() = runTest {
         val r1 = (actions.execute(ToolkitAction.SetAppOp(PKG, op, AppOpMode.IGNORE), confirmed = true) as ToolkitOutcome.Done).value
-        actions.execute(ToolkitAction.SetAppOp(PKG, op, AppOpMode.DEFAULT), confirmed = true)
+        actions.execute(ToolkitAction.SetAppOp(PKG, op, AppOpMode.ALLOW), confirmed = true)
 
-        // the device started as "allow" and now reads "default": the same mode
+        // the device started as "allow" and reads "allow" again
         assertRestoreIsAlreadyRestored(r1)
-        assertEquals("default", backend.device(PKG)[op])
+        assertEquals("allow", backend.device(PKG)[op])
     }
 
     // ---- (4) an external mid-chain change, then an older-row restore -----------------------
@@ -212,8 +212,8 @@ class ToolkitActionsRestoreChainTest {
 
         assertEquals(listOf(appOp.id), report.map { it.override.actionId })
         assertTrue(report.single().outcome is ToolkitOutcome.Done)
-        assertEquals(listOf("setAppOp($PKG,${op.argv},default)"), backend.writes)
-        assertEquals("default", backend.device(PKG)[op])
+        assertEquals(listOf("setAppOp($PKG,${op.argv},allow)"), backend.writes)
+        assertEquals("allow", backend.device(PKG)[op])
         assertEquals(original, backend.buckets[PKG])
         assertTrue(actions.activeOverrides().first().isEmpty())
     }

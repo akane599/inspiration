@@ -61,7 +61,7 @@ class ToolkitActionsRestoreOracleTest {
     fun restoreWithoutConfirmationIsAlreadyRestoredWhenTheOriginalIsAnIgnoredRiskyOpAndTheTargetReadsIt() = runTest {
         for (op in listOf(AppOp.WAKE_LOCK, AppOp.RUN_ANY_IN_BACKGROUND)) {
             backend.device(PKG)[op] = "ignore" // the user's own setting
-            val row = appOp(op, AppOpMode.DEFAULT)
+            val row = appOp(op, AppOpMode.ALLOW)
             backend.device(PKG)[op] = "ignore" // put back by hand
 
             assertAlreadyRestoredEverywhere(row)
@@ -126,7 +126,7 @@ class ToolkitActionsRestoreOracleTest {
         assertEquals(rowsBefore, audit.rows.size)
 
         val first = appOp(AppOp.RUN_ANY_IN_BACKGROUND, AppOpMode.IGNORE)
-        appOp(AppOp.RUN_ANY_IN_BACKGROUND, AppOpMode.DEFAULT) // back to the original: nothing left to undo
+        appOp(AppOp.RUN_ANY_IN_BACKGROUND, AppOpMode.ALLOW) // back to the original: nothing left to undo
         val rowsAfterChain = audit.rows.size
 
         assertEquals(alreadyRestored, actions.restore(first.id, confirmed = true))
@@ -232,7 +232,7 @@ class ToolkitActionsRestoreOracleTest {
         assertEquals(setOf(bucketRow.id, opRow.id), report.keys)
         assertEquals(alreadyRestored, report.getValue(bucketRow.id).outcome)
         assertTrue(report.getValue(opRow.id).outcome is ToolkitOutcome.Done)
-        assertEquals(listOf("setAppOp($PKG,${AppOp.RUN_ANY_IN_BACKGROUND.argv},default)"), backend.writes)
+        assertEquals(listOf("setAppOp($PKG,${AppOp.RUN_ANY_IN_BACKGROUND.argv},allow)"), backend.writes)
         assertEquals(rowsBefore + 1, audit.rows.size)
         assertEquals(ToolkitActionStatus.DONE, audit.byId(bucketRow.id).status)
         assertEquals(StandbyBucket.ACTIVE.rawValue, backend.buckets[PKG])

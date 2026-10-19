@@ -235,7 +235,7 @@ internal class FakeDevice {
                         val before = runAnyInBackground
                         val mode = AppOpMode.fromCode(args[2] as Int)!!
                         check(AppOp.fromCode(args[1] as Int) == AppOp.RUN_ANY_IN_BACKGROUND)
-                        runAnyInBackground = if (mode == AppOpMode.IGNORE) "ignore" else "allow"
+                        runAnyInBackground = mode.argv
                         ToolkitResult.done(before = before, after = runAnyInBackground)
                     }
                 }

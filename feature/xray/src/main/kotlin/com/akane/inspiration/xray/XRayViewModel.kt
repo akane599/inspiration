@@ -299,7 +299,8 @@ class XRayViewModel(
     private fun controlsOf(state: AppToolkitState): AppControls {
         val mode = state.appOps[AppOp.RUN_ANY_IN_BACKGROUND]
         return AppControls(
-            restricted = mode == AppOpMode.IGNORE,
+            // A live `default` is still enforced as restricted (only `allow` lifts it).
+            restricted = mode == AppOpMode.IGNORE || mode == AppOpMode.DEFAULT,
             restrictionEditable = mode != null,
             bucket = state.bucket,
             bucketRaw = state.bucketRaw,
@@ -471,7 +472,7 @@ class XRayViewModel(
         updateDetail(uid, pkg) { it.copy(busy = false, notice = notice, actions = actions) }
     }
 
-    private fun modeOf(request: ActionRequest.SetRestricted) = if (request.restricted) AppOpMode.IGNORE else AppOpMode.DEFAULT
+    private fun modeOf(request: ActionRequest.SetRestricted) = if (request.restricted) AppOpMode.IGNORE else AppOpMode.ALLOW
 
     private inline fun noticeOf(
         outcome: ToolkitOutcome<*>,

@@ -76,7 +76,7 @@ class ToolkitExecutorTest {
         val read = executor.getAppOps(APP)
         assertEquals(ToolkitStatus.DONE, read.status)
         assertTrue(read.afterRaw.orEmpty().contains("RUN_ANY_IN_BACKGROUND=ignore"))
-        val result = executor.setAppOp(APP, AppOp.RUN_ANY_IN_BACKGROUND.code, AppOpMode.DEFAULT.code)
+        val result = executor.setAppOp(APP, AppOp.RUN_ANY_IN_BACKGROUND.code, AppOpMode.ALLOW.code)
         assertEquals(ToolkitStatus.REFUSED, result.status)
         assertEquals(ToolkitCode.NOT_EFFECTIVE, result.code)
         assertEquals("ignore", result.beforeRaw)
@@ -84,9 +84,36 @@ class ToolkitExecutorTest {
     }
 
     @Test
+    fun `the permissive write is allow, never default`() {
+        appModes["RUN_ANY_IN_BACKGROUND"] = "ignore"
+
+        val result = executor().setAppOp(APP, AppOp.RUN_ANY_IN_BACKGROUND.code, AppOpMode.ALLOW.code)
+
+        assertEquals(ToolkitResult.done(before = "ignore", after = "allow"), result)
+        assertTrue(listOf(CMD, "appops", "set", "--user", "0", APP, "RUN_ANY_IN_BACKGROUND", "allow") in runner.calls)
+        assertTrue(runner.calls.none { "default" in it })
+    }
+
+    @Test
+    fun `mode default is refused as a write without running a set`() {
+        val result = executor().setAppOp(APP, AppOp.RUN_ANY_IN_BACKGROUND.code, AppOpMode.DEFAULT.code)
+
+        assertEquals(ToolkitResult.refused(ToolkitCode.ARG_VALUE), result)
+        assertTrue(runner.calls.none { it.getOrNull(2) == "set" })
+    }
+
+    @Test
+    fun `an op with no entry reads back as allow`() {
+        val read = executor().getAppOps(APP)
+
+        assertEquals(ToolkitStatus.DONE, read.status)
+        assertEquals(AppOp.entries.joinToString(",") { "${it.argv}=allow" }, read.afterRaw)
+    }
+
+    @Test
     fun `setAppOp issues the exact argv for every op and mode row`() {
         for (op in AppOp.entries) {
-            for (mode in AppOpMode.entries) {
+            for (mode in AppOpMode.entries.filter { it.writable }) {
                 runner.calls.clear()
                 val result = executor().setAppOp(APP, op.code, mode.code)
 
@@ -115,7 +142,8 @@ class ToolkitExecutorTest {
 
         assertEquals(ToolkitCode.ARG_VALUE, executor.setAppOp(APP, 0, AppOpMode.IGNORE.code).code)
         assertEquals(ToolkitCode.ARG_VALUE, executor.setAppOp(APP, 4, AppOpMode.IGNORE.code).code)
-        assertEquals(ToolkitCode.ARG_VALUE, executor.setAppOp(APP, AppOp.WAKE_LOCK.code, 3).code)
+        assertEquals(ToolkitCode.ARG_VALUE, executor.setAppOp(APP, AppOp.WAKE_LOCK.code, 4).code)
+        assertEquals(ToolkitCode.ARG_VALUE, executor.setAppOp(APP, AppOp.WAKE_LOCK.code, 0).code)
         assertEquals(ToolkitCode.ARG_VALUE, executor.setStandbyBucket(APP, 6).code)
         assertEquals(ToolkitCode.ARG_VALUE, executor.applyDozeProfile(3, null).code)
         assertTrue(runner.calls.isEmpty())
@@ -139,7 +167,7 @@ class ToolkitExecutorTest {
 
         val result = executor().getAppOps(APP)
 
-        assertEquals("RUN_ANY_IN_BACKGROUND=ignore,RUN_IN_BACKGROUND=default,WAKE_LOCK=default", result.afterRaw)
+        assertEquals("RUN_ANY_IN_BACKGROUND=ignore,RUN_IN_BACKGROUND=allow,WAKE_LOCK=allow", result.afterRaw)
         for (op in AppOp.entries) {
             assertTrue(listOf(CMD, "appops", "get", "--user", "0", APP, op.argv) in runner.calls)
         }
@@ -189,7 +217,7 @@ class ToolkitExecutorTest {
 
         assertEquals(ToolkitStatus.FAILED, result.status)
         assertEquals(ToolkitCode.EXEC, result.code)
-        assertEquals("default", result.beforeRaw)
+        assertEquals("allow", result.beforeRaw)
     }
 
     @Test
@@ -222,7 +250,7 @@ class ToolkitExecutorTest {
 
         val result = executor.setAppOp(APP, AppOp.WAKE_LOCK.code, AppOpMode.IGNORE.code)
 
-        assertEquals(ToolkitResult.unavailable(ToolkitCode.UNVERIFIED, before = "default"), result)
+        assertEquals(ToolkitResult.unavailable(ToolkitCode.UNVERIFIED, before = "allow"), result)
         assertEquals("ignore", appModes["WAKE_LOCK"])
     }
 

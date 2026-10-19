@@ -332,7 +332,7 @@ class ToolkitActionsObservedChangeTest {
         }
 
     @Test
-    fun aPartialAppOpRestoreUsesItsTypedDefaultTargetForResetAll() =
+    fun aPartialAppOpRestoreUsesItsTypedAllowTargetForResetAll() =
         runTest {
             val op = AppOp.RUN_IN_BACKGROUND
             val initial = (actions.execute(ToolkitAction.SetAppOp(PKG, op, AppOpMode.IGNORE)) as ToolkitOutcome.Done).value
@@ -345,14 +345,14 @@ class ToolkitActionsObservedChangeTest {
             val override = actions.activeOverrides().first().single()
             assertEquals(partial.id, override.actionId)
             assertEquals("foreground", override.currentRaw)
-            assertEquals("default", override.previousRaw)
+            assertEquals("allow", override.previousRaw)
             assertEquals(ToolkitPlan.Ready, actions.planRestore(partial.id))
             backend.writes.clear()
             val report = actions.resetAll()
             assertEquals(partial.id, report.single().override.actionId)
             assertTrue(report.single().outcome is ToolkitOutcome.Done)
-            assertEquals(listOf("setAppOp($PKG,${op.argv},default)"), backend.writes)
-            assertEquals("default", backend.device(PKG)[op])
+            assertEquals(listOf("setAppOp($PKG,${op.argv},allow)"), backend.writes)
+            assertEquals("allow", backend.device(PKG)[op])
             assertTrue(actions.activeOverrides().first().isEmpty())
         }
 

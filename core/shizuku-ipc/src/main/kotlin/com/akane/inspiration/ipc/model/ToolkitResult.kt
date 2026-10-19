@@ -26,14 +26,23 @@ data class ToolkitResult(
             message: String? = null,
         ): ToolkitResult = ToolkitResult(ToolkitStatus.DONE, code, before, after, message)
 
-        fun refused(code: Int, before: String? = null, after: String? = null): ToolkitResult =
-            ToolkitResult(ToolkitStatus.REFUSED, code, before, after, null)
+        fun refused(
+            code: Int,
+            before: String? = null,
+            after: String? = null,
+        ): ToolkitResult = ToolkitResult(ToolkitStatus.REFUSED, code, before, after, null)
 
-        fun unavailable(code: Int, before: String? = null, after: String? = null): ToolkitResult =
-            ToolkitResult(ToolkitStatus.UNAVAILABLE, code, before, after, null)
+        fun unavailable(
+            code: Int,
+            before: String? = null,
+            after: String? = null,
+        ): ToolkitResult = ToolkitResult(ToolkitStatus.UNAVAILABLE, code, before, after, null)
 
-        fun failed(code: Int, before: String? = null, after: String? = null): ToolkitResult =
-            ToolkitResult(ToolkitStatus.FAILED, code, before, after, null)
+        fun failed(
+            code: Int,
+            before: String? = null,
+            after: String? = null,
+        ): ToolkitResult = ToolkitResult(ToolkitStatus.FAILED, code, before, after, null)
     }
 }
 
@@ -82,7 +91,10 @@ object ToolkitCode {
     const val DOZE_CUSTOM = 99
 }
 
-/** Service API level. Version 2 added txns 20-31; the client refuses writes below it. */
+/**
+ * Service API level. Version 2 added txns 20-31; version 3 added app-op mode code 3 (`allow`) and stopped
+ * accepting code 2 (`default`) as a write. The client refuses writes below it (STALE_SERVICE).
+ */
 object ToolkitApi {
-    const val VERSION = 2
+    const val VERSION = 3
 }

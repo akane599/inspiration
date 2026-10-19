@@ -16,33 +16,39 @@ import com.akane.inspiration.ipc.toolkit.ThrowingRunner
 import com.akane.inspiration.ipc.toolkit.ToolkitExecutor
 import com.akane.inspiration.ipc.toolkit.ok
 import com.akane.inspiration.ipc.toolkit.userApp
-import java.io.File
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import java.io.File
 
 class TelemetryUserServiceToolkitTest {
     private val spawn = ThrowingRunner()
 
-    private fun toolkit(runner: CommandRunner = spawn, inspector: FakeInspector = FakeInspector(mutableMapOf("com.example.app" to userApp()))) =
-        ToolkitExecutor(runner, inspector, BgDexoptController(runner, { true }, { 0L }, { }), "com.akane.inspiration") { }
+    private fun toolkit(
+        runner: CommandRunner = spawn,
+        inspector: FakeInspector = FakeInspector(mutableMapOf("com.example.app" to userApp())),
+    ) = ToolkitExecutor(runner, inspector, BgDexoptController(runner, { true }, { 0L }, { }), "com.akane.inspiration") { }
 
-    private fun service(appUid: Int?, callingUid: () -> Int, toolkit: ToolkitExecutor) =
-        TelemetryUserService(appUid = appUid, fileRoot = File("/"), callingUid = callingUid, toolkit = toolkit)
+    private fun service(
+        appUid: Int?,
+        callingUid: () -> Int,
+        toolkit: ToolkitExecutor,
+    ) = TelemetryUserService(appUid = appUid, fileRoot = File("/"), callingUid = callingUid, toolkit = toolkit)
 
-    private fun everyWrite(service: TelemetryUserService): List<ToolkitResult> = listOf(
-        service.setAppOp("com.example.app", 3, 1),
-        service.getAppOps("com.example.app"),
-        service.setStandbyBucket("com.example.app", 5),
-        service.getStandbyBucket("com.example.app"),
-        service.applyDozeProfile(1, null),
-        service.getDozeState(),
-        service.forceStop("com.example.app"),
-        service.startBgDexopt(),
-        service.cancelBgDexopt(),
-        service.restoreDozeRaw(null, null),
-    )
+    private fun everyWrite(service: TelemetryUserService): List<ToolkitResult> =
+        listOf(
+            service.setAppOp("com.example.app", 3, 1),
+            service.getAppOps("com.example.app"),
+            service.setStandbyBucket("com.example.app", 5),
+            service.getStandbyBucket("com.example.app"),
+            service.applyDozeProfile(1, null),
+            service.getDozeState(),
+            service.forceStop("com.example.app"),
+            service.startBgDexopt(),
+            service.cancelBgDexopt(),
+            service.restoreDozeRaw(null, null),
+        )
 
     @Test
     fun `a wrong UID is refused on every typed transaction with no process spawned`() {
@@ -89,14 +95,16 @@ class TelemetryUserServiceToolkitTest {
     }
 
     @Test
-    fun `the allowed caller reaches the executor and the api version is 2`() {
-        val runner = FakeRunner { argv ->
-            if (argv.contains("get")) ok("WAKE_LOCK: default") else ok()
-        }
+    fun `the allowed caller reaches the executor and the api version is 3`() {
+        val runner =
+            FakeRunner { argv ->
+                if (argv.contains("get")) ok("WAKE_LOCK: default") else ok()
+            }
         val service = service(APP_UID, { APP_UID }, toolkit(runner))
 
-        assertEquals(2, ToolkitApi.VERSION)
-        assertEquals(2, service.getApiVersion())
+        // 3: app-op mode code 3 (allow) crosses AIDL, so a stale running v2 service is STALE_SERVICE.
+        assertEquals(3, ToolkitApi.VERSION)
+        assertEquals(3, service.getApiVersion())
         service.setAppOp("com.example.app", 3, 1)
 
         assertTrue(listOf(CMD, "appops", "set", "--user", "0", "com.example.app", "WAKE_LOCK", "ignore") in runner.calls)
@@ -108,30 +116,35 @@ class TelemetryUserServiceToolkitTest {
     private val cancelArgv = listOf(CMD, "package", "bg-dexopt-job", "--cancel")
 
     /** One ordered log shared by the fake runner and the exit hook, so ordering is observable. */
-    private class Harness(runnerFor: (MutableList<String>) -> FakeRunner) {
+    private class Harness(
+        runnerFor: (MutableList<String>) -> FakeRunner,
+    ) {
         val events = mutableListOf<String>()
         val runner = runnerFor(events)
         var caller = APP_UID
-        val service = TelemetryUserService(
-            appUid = APP_UID,
-            fileRoot = File("/"),
-            callingUid = { caller },
-            toolkit = ToolkitExecutor(
-                runner,
-                FakeInspector(),
-                BgDexoptController(runner, { true }, { 0L }, { }),
-                "com.akane.inspiration",
-            ) { },
-            exitProcess = { events += "exit" },
-        )
+        val service =
+            TelemetryUserService(
+                appUid = APP_UID,
+                fileRoot = File("/"),
+                callingUid = { caller },
+                toolkit =
+                    ToolkitExecutor(
+                        runner,
+                        FakeInspector(),
+                        BgDexoptController(runner, { true }, { 0L }, { }),
+                        "com.akane.inspiration",
+                    ) { },
+                exitProcess = { events += "exit" },
+            )
     }
 
-    private fun harness() = Harness { events ->
-        FakeRunner { argv ->
-            events += argv.last()
-            ok()
+    private fun harness() =
+        Harness { events ->
+            FakeRunner { argv ->
+                events += argv.last()
+                ok()
+            }
         }
-    }
 
     @Test
     fun `destroy cancels a running bg-dexopt job with a bounded wait before exiting`() {
@@ -160,13 +173,14 @@ class TelemetryUserServiceToolkitTest {
     fun `destroy still exits when the cancel cannot be spawned`() {
         val spawnFails = ThrowingRunner()
         var exited = false
-        val service = TelemetryUserService(
-            appUid = APP_UID,
-            fileRoot = File("/"),
-            callingUid = { APP_UID },
-            toolkit = toolkit(spawnFails),
-            exitProcess = { exited = true },
-        )
+        val service =
+            TelemetryUserService(
+                appUid = APP_UID,
+                fileRoot = File("/"),
+                callingUid = { APP_UID },
+                toolkit = toolkit(spawnFails),
+                exitProcess = { exited = true },
+            )
         service.startBgDexopt()
 
         service.destroy()
@@ -202,13 +216,14 @@ class TelemetryUserServiceToolkitTest {
     @Test
     fun `a throwing caller lookup refuses destroy`() {
         var exited = false
-        val service = TelemetryUserService(
-            appUid = APP_UID,
-            fileRoot = File("/"),
-            callingUid = { throw IllegalStateException() },
-            toolkit = toolkit(),
-            exitProcess = { exited = true },
-        )
+        val service =
+            TelemetryUserService(
+                appUid = APP_UID,
+                fileRoot = File("/"),
+                callingUid = { throw IllegalStateException() },
+                toolkit = toolkit(),
+                exitProcess = { exited = true },
+            )
 
         service.destroy()
 
