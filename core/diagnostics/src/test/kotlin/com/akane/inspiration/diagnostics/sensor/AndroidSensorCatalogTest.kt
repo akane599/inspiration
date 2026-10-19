@@ -11,6 +11,7 @@ import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.Shadows.shadowOf
 import org.robolectric.annotation.Config
+import org.robolectric.shadows.ShadowLog
 import org.robolectric.shadows.ShadowSensor
 
 @RunWith(RobolectricTestRunner::class)
@@ -61,5 +62,17 @@ class AndroidSensorCatalogTest {
         val catalog = AndroidSensorCatalog(broken)
         assertEquals(SensorKind.OTHER, catalog.kindOf(3))
         assertEquals(SensorKind.GPS, catalog.kindOf(-10000))
+    }
+
+    @Test
+    fun sensorServiceFailureIsLoggedOnce() {
+        val broken = object : android.content.ContextWrapper(context) {
+            override fun getSystemServiceName(serviceClass: Class<*>): String = throw IllegalStateException("no sensors")
+        }
+        val catalog = AndroidSensorCatalog(broken)
+        assertEquals(SensorKind.OTHER, catalog.kindOf(3))
+        assertEquals(SensorKind.OTHER, catalog.kindOf(4))
+        assertEquals(SensorKind.OTHER, catalog.kindOf(5))
+        assertEquals(1, ShadowLog.getLogsForTag("AndroidSensorCatalog").size)
     }
 }
