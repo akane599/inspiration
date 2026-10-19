@@ -20,6 +20,11 @@ data class PowerCalibration(
     val currentScaleToMa: Double,
     val dischargeIsNegative: Boolean,
     val voltageScaleToMv: Double,
+    /**
+     * 2 when the pack voltage reads as dual-cell or the current reads as per-cell, else 1. It is diagnostic only: the
+     * scales above already apply it, and the debug probe's calibration log is its one reader. Kept (audit §3) as the
+     * evidence for a dual-cell device's doubled current.
+     */
     val cellCount: Int,
     val confidence: Confidence,
     /** For a reading without a sysfs current. µA by contract, but a HAL that passes `current_now` through reports mA. */
