@@ -1,6 +1,8 @@
 package com.akane.inspiration.di
 
+import android.util.Log
 import com.akane.inspiration.ipc.ShizukuState
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.buffer
@@ -17,11 +19,26 @@ import kotlinx.coroutines.flow.map
  * The transitions are observed in their own coroutine (the unlimited buffer): [state] conflates, so a
  * Ready -> down -> Ready flip while [reconcile] is suspended would otherwise reach the collector as the
  * same `true` and be dropped by [distinctUntilChanged].
+ *
+ * A [reconcile] that throws (a Room error, say) is handed to [onFailure] and the next Ready runs it again:
+ * one failure must not end the collector for the life of the process. Cancellation still ends it.
  */
-suspend fun reconcileOnEachReady(state: Flow<ShizukuState>, reconcile: suspend () -> Unit) {
+suspend fun reconcileOnEachReady(
+    state: Flow<ShizukuState>,
+    onFailure: (Throwable) -> Unit = { Log.w("ReconcileOnReady", "reconcile on Shizuku Ready failed", it) },
+    reconcile: suspend () -> Unit,
+) {
     state.map { it is ShizukuState.Ready }
         .distinctUntilChanged()
         .buffer(Channel.UNLIMITED)
         .filter { it }
-        .collect { reconcile() }
+        .collect {
+            try {
+                reconcile()
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                onFailure(e)
+            }
+        }
 }

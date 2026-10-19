@@ -10,6 +10,7 @@ import com.akane.inspiration.ipc.toolkit.AppOp
 import com.akane.inspiration.ipc.toolkit.AppOpMode
 import com.akane.inspiration.ipc.toolkit.StandbyBucket
 import com.akane.inspiration.telemetry.app.RefreshResult
+import com.akane.inspiration.telemetry.app.attempt
 import com.akane.inspiration.telemetry.diff.ReferenceKind
 import com.akane.inspiration.telemetry.toolkit.AppToolkitState
 import com.akane.inspiration.telemetry.toolkit.Override
@@ -26,11 +27,15 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+
+/** A toolkit call threw instead of answering (a Room error from the audit log, say): there is no code, only the failure. */
+private val CALL_FAILED = ActionNotice.Rejected(Problem.Failed(code = null))
 
 /**
  * MVI ViewModel of the X-Ray screen (H5). It reads the shared analysis and Shizuku state only while the route
@@ -121,11 +126,11 @@ class XRayViewModel(private val deps: XRayDependencies) : ViewModel() {
         _state.update { it.copy(refreshing = true) }
         refreshJob = viewModelScope.launch {
             val result = try {
-                deps.refresh()
+                attempt { deps.refresh() }
             } finally {
                 _state.update { it.copy(refreshing = false) }
             }
-            if (result is RefreshResult.Failed) emit(XRayEffect.RefreshFailed)
+            if (result == null || result is RefreshResult.Failed) emit(XRayEffect.RefreshFailed)
         }
     }
 
@@ -215,7 +220,8 @@ class XRayViewModel(private val deps: XRayDependencies) : ViewModel() {
             updateDetail(uid) { it.copy(actions = actions) }
         }
         overridesJob = viewModelScope.launch {
-            deps.toolkit.activeOverrides().collect { all ->
+            // A read that throws (a Room error from the audit log) keeps the list it showed; the controls stay usable.
+            deps.toolkit.activeOverrides().catch { }.collect { all ->
                 val rows = all.filter { it.pkg == pkg && it.kind != OverrideKind.DOZE }.map(::overrideRow)
                 updateDetail(uid) { it.copy(overrides = rows.toImmutableList()) }
             }
@@ -224,8 +230,10 @@ class XRayViewModel(private val deps: XRayDependencies) : ViewModel() {
 
     private suspend fun readActions(pkg: String): ActionsState {
         deps.shizukuState.value.blockedReason()?.let { return ActionsState.Blocked(it) }
-        return when (val outcome = deps.toolkit.appState(pkg)) {
+        return when (val outcome = attempt { deps.toolkit.appState(pkg) }) {
             is ToolkitOutcome.Done -> ActionsState.Loaded(controlsOf(outcome.value))
+            // A read that threw instead of answering: the sheet offers a retry, never a guess.
+            null -> ActionsState.Unavailable(Problem.Failed(code = null))
             else -> ActionsState.Unavailable(problemOf(outcome))
         }
     }
@@ -268,12 +276,13 @@ class XRayViewModel(private val deps: XRayDependencies) : ViewModel() {
         val uid = detail.app.uid
         updateDetail(uid) { it.copy(busy = true, notice = null) }
         planJob = viewModelScope.launch {
-            val plan = planOf(request, pkg)
+            val plan = attempt { planOf(request, pkg) }
             // The plan is only a read: if the screen or the sheet went away while it ran, nothing follows from it.
             ensureActive()
             when (plan) {
+                null -> updateDetail(uid) { it.copy(busy = false, notice = CALL_FAILED) }
                 // The write is its own job, so leaving cancels a plan but never a write already in flight.
-                ToolkitPlan.Ready -> viewModelScope.launch { execute(uid, request, pkg, confirmed = false) }
+                ToolkitPlan.Ready -> viewModelScope.launch { executeContained(uid, request, pkg, confirmed = false) }
                 is ToolkitPlan.NeedsConfirmation -> {
                     pending = request
                     _state.update { current ->
@@ -301,7 +310,7 @@ class XRayViewModel(private val deps: XRayDependencies) : ViewModel() {
         _state.update { it.copy(confirmation = null) }
         val uid = detail.app.uid
         updateDetail(uid) { it.copy(busy = true, notice = null) }
-        viewModelScope.launch { execute(uid, request, pkg, confirmed = true) }
+        viewModelScope.launch { executeContained(uid, request, pkg, confirmed = true) }
     }
 
     private fun dismissConfirmation() {
@@ -314,6 +323,17 @@ class XRayViewModel(private val deps: XRayDependencies) : ViewModel() {
         is ActionRequest.SetBucket -> deps.toolkit.plan(ToolkitAction.SetBucket(pkg, request.bucket))
         ActionRequest.ForceStop -> deps.toolkit.plan(ToolkitAction.ForceStop(pkg))
         is ActionRequest.Restore -> deps.toolkit.planRestore(request.actionId)
+    }
+
+    /**
+     * [execute], with a call that throws instead of answering (the audit row of a write cannot be stored on a
+     * full disk, say) reported as a failed action: the controls show what the system reports now and the sheet is
+     * usable again.
+     */
+    private suspend fun executeContained(uid: Int, request: ActionRequest, pkg: String, confirmed: Boolean) {
+        if (attempt { execute(uid, request, pkg, confirmed) } != null) return
+        val actions = readActions(pkg)
+        updateDetail(uid) { it.copy(busy = false, notice = CALL_FAILED, actions = actions) }
     }
 
     private suspend fun execute(uid: Int, request: ActionRequest, pkg: String, confirmed: Boolean) {

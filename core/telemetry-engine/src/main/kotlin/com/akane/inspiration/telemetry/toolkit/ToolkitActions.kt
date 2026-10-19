@@ -1194,7 +1194,11 @@ class ToolkitActions internal constructor(
         const val DEXOPT_CAP_MS = 60L * 60_000L
         const val DEXOPT_CAP_MARGIN_MS = 2L * 60_000L
 
-        fun defaultSupervisorScope(): CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        /** The hold supervisor outlives every screen: a failure in it (a Room error settling a dexopt row) is logged, never a crash. */
+        fun defaultSupervisorScope(): CoroutineScope = CoroutineScope(
+            SupervisorJob() + Dispatchers.Default +
+                kotlinx.coroutines.CoroutineExceptionHandler { _, error -> android.util.Log.w("ToolkitActions", "uncaught in the hold supervisor", error) },
+        )
         // Recovery must not truncate the retained original/restore chain. history(limit) stays bounded.
         const val MAX_ROWS = Int.MAX_VALUE
 

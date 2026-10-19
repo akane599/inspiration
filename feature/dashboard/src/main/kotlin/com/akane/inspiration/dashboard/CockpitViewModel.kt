@@ -8,10 +8,10 @@ import androidx.lifecycle.viewmodel.viewModelFactory
 import com.akane.inspiration.designsystem.chart.model.TimeRange
 import com.akane.inspiration.diagnostics.analysis.AnalysisState
 import com.akane.inspiration.telemetry.app.RefreshResult
+import com.akane.inspiration.telemetry.app.attempt
 import com.akane.inspiration.telemetry.diff.ReferenceKind
 import com.akane.inspiration.telemetry.snapshot.LiveReading
 import kotlinx.collections.immutable.toImmutableList
-import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.Flow
@@ -220,16 +220,6 @@ class CockpitViewModel(private val deps: CockpitDependencies) : ViewModel() {
         visible = false
         closeBinding()
     }
-
-    /** Containers answer with values, but a throwing data source must degrade a card, not crash the screen. */
-    private suspend fun <T> attempt(block: suspend () -> T): T? =
-        try {
-            block()
-        } catch (e: CancellationException) {
-            throw e
-        } catch (_: Exception) {
-            null
-        }
 
     companion object {
         fun factory(deps: CockpitDependencies): ViewModelProvider.Factory = viewModelFactory {

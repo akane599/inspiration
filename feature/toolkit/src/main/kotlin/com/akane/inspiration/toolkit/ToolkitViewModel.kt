@@ -8,6 +8,7 @@ import androidx.lifecycle.viewmodel.viewModelFactory
 import com.akane.inspiration.ipc.ShizukuState
 import com.akane.inspiration.ipc.toolkit.AppOpMode
 import com.akane.inspiration.telemetry.app.AppEntry
+import com.akane.inspiration.telemetry.app.attempt
 import com.akane.inspiration.telemetry.store.ToolkitActionRecord
 import com.akane.inspiration.telemetry.toolkit.BgDexoptStatus
 import com.akane.inspiration.telemetry.toolkit.DozeState
@@ -33,6 +34,9 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
 private const val HISTORY_LIMIT = 20
+
+/** A toolkit call threw instead of answering (a Room error from the audit log, say): there is no code, only the failure. */
+private val CALL_FAILED = ToolkitNotice.Rejected(Problem.Failed(code = null))
 
 /**
  * MVI ViewModel of the Toolkit screen (H5). Everything privileged goes through `deps.toolkit` (plan, confirm,
@@ -113,8 +117,8 @@ class ToolkitViewModel(private val deps: ToolkitDependencies) : ViewModel() {
                     _state.update { it.copy(statusNotification = it.statusNotification.copy(enabled = enabled)) }
                 }
             }
-            // The log is local, so it is shown whatever Shizuku says.
-            launch { deps.toolkit.history(HISTORY_LIMIT).collect { showHistory(it) } }
+            // The log is local, so it is shown whatever Shizuku says. A log that cannot be read keeps what it showed.
+            launch { attempt { deps.toolkit.history(HISTORY_LIMIT).collect { showHistory(it) } } }
             deps.shizukuState.collectLatest { follow(it) }
         }
     }
@@ -136,8 +140,9 @@ class ToolkitViewModel(private val deps: ToolkitDependencies) : ViewModel() {
             return
         }
         coroutineScope {
-            launch { deps.toolkit.activeOverrides().collect { showOverrides(it) } }
-            launch { deps.toolkit.bgDexoptStatus().collect { status -> setDexopt { it.copy(status = status) } } }
+            // A read that throws (a Room error from the audit log) stops only its own card; the rest stays usable.
+            launch { attempt { deps.toolkit.activeOverrides().collect { showOverrides(it) } } }
+            launch { attempt { deps.toolkit.bgDexoptStatus().collect { status -> setDexopt { it.copy(status = status) } } } }
             load()
         }
     }
@@ -176,9 +181,11 @@ class ToolkitViewModel(private val deps: ToolkitDependencies) : ViewModel() {
 
     private suspend fun load() {
         _state.update { if (it.status == ToolkitPhase.READY) it.copy(blocked = null) else it.copy(status = ToolkitPhase.LOADING, blocked = null) }
-        val doze = deps.toolkit.dozeState()
-        if (doze is ToolkitOutcome.Unavailable) {
-            _state.update { it.copy(status = ToolkitPhase.FAILED, doze = DozeSection(DozeLoad.Unavailable(ToolkitMapper.problem(doze)))) }
+        // A read that throws instead of answering is the same error state, with the same retry.
+        val doze = attempt { deps.toolkit.dozeState() }
+        if (doze == null || doze is ToolkitOutcome.Unavailable) {
+            val problem = doze?.let(ToolkitMapper::problem) ?: Problem.Failed(code = null)
+            _state.update { it.copy(status = ToolkitPhase.FAILED, doze = DozeSection(DozeLoad.Unavailable(problem))) }
             return
         }
         showDoze(doze)
@@ -187,9 +194,11 @@ class ToolkitViewModel(private val deps: ToolkitDependencies) : ViewModel() {
         if (_state.value.detail != null) loadDetail()
     }
 
-    private fun showDoze(outcome: ToolkitOutcome<DozeState>) {
+    /** A null [outcome] is a read that threw instead of answering. */
+    private fun showDoze(outcome: ToolkitOutcome<DozeState>?) {
         val load = when (outcome) {
             is ToolkitOutcome.Done -> DozeLoad.Loaded(ToolkitMapper.doze(outcome.value))
+            null -> DozeLoad.Unavailable(Problem.Failed(code = null))
             else -> DozeLoad.Unavailable(ToolkitMapper.problem(outcome))
         }
         _state.update { it.copy(doze = it.doze.copy(load = load)) }
@@ -278,8 +287,10 @@ class ToolkitViewModel(private val deps: ToolkitDependencies) : ViewModel() {
     }
 
     private suspend fun showControls(pkg: String) {
-        val controls = when (val outcome = deps.toolkit.appState(pkg)) {
+        val controls = when (val outcome = attempt { deps.toolkit.appState(pkg) }) {
             is ToolkitOutcome.Done -> ControlsState.Loaded(ToolkitMapper.controls(outcome.value))
+            // A read that threw instead of answering: the controls offer a retry, never a guess.
+            null -> ControlsState.Unavailable(Problem.Failed(code = null))
             else -> ControlsState.Unavailable(ToolkitMapper.problem(outcome))
         }
         _state.update { current ->
@@ -304,11 +315,12 @@ class ToolkitViewModel(private val deps: ToolkitDependencies) : ViewModel() {
         _state.update { it.copy(busy = true) }
         showNotice(request, null)
         viewModelScope.launch {
-            val plan = planOf(prepared)
+            val plan = attempt { planOf(prepared) }
             if (prepared.generation != generation) return@launch
             planning = false
             when (plan) {
-                ToolkitPlan.Ready -> execute(prepared, confirmed = false)
+                null -> finish(prepared, CALL_FAILED)
+                ToolkitPlan.Ready -> executeContained(prepared, confirmed = false)
                 is ToolkitPlan.NeedsConfirmation -> {
                     ask(confirmationOf(prepared, listOf(plan.warning) + plan.others), prepared)
                     _state.update { it.copy(busy = false) }
@@ -365,12 +377,20 @@ class ToolkitViewModel(private val deps: ToolkitDependencies) : ViewModel() {
         if (_state.value.busy) return
         pending = null
         _state.update { it.copy(confirmation = null, busy = true) }
-        viewModelScope.launch { execute(prepared, confirmed = true) }
+        viewModelScope.launch { executeContained(prepared, confirmed = true) }
     }
 
     private fun dismissConfirmation() {
         pending = null
         _state.update { it.copy(confirmation = null) }
+    }
+
+    /**
+     * [execute], with a call that throws instead of answering (the audit row of a write cannot be stored on a
+     * full disk, say) reported as a failed action: the screen shows what the system reports now and is usable again.
+     */
+    private suspend fun executeContained(prepared: PreparedRequest, confirmed: Boolean) {
+        if (attempt { execute(prepared, confirmed) } == null) finish(prepared, CALL_FAILED)
     }
 
     private suspend fun execute(prepared: PreparedRequest, confirmed: Boolean) {
@@ -424,7 +444,7 @@ class ToolkitViewModel(private val deps: ToolkitDependencies) : ViewModel() {
         is ToolkitRequest.Restore, ToolkitRequest.ResetAll -> Change.Restored
     }
 
-    /** Whatever happened, the screen then shows what the system reports now. */
+    /** Whatever happened, the screen then shows what the system reports now. Never throws: [refresh] contains its reads. */
     private suspend fun finish(prepared: PreparedRequest, notice: ToolkitNotice) {
         refresh(prepared.request)
         if (prepared.generation == generation) showNotice(prepared.request, notice)
@@ -433,7 +453,7 @@ class ToolkitViewModel(private val deps: ToolkitDependencies) : ViewModel() {
 
     private suspend fun refresh(request: ToolkitRequest) {
         val touchesDoze = request is ToolkitRequest.ApplyDoze || request is ToolkitRequest.Restore || request == ToolkitRequest.ResetAll
-        if (touchesDoze) showDoze(deps.toolkit.dozeState())
+        if (touchesDoze) showDoze(attempt { deps.toolkit.dozeState() })
         val open = _state.value.detail?.app?.packageName
         if (open != null && request !is ToolkitRequest.ApplyDoze) showControls(open)
     }
@@ -445,7 +465,8 @@ class ToolkitViewModel(private val deps: ToolkitDependencies) : ViewModel() {
                 is ToolkitRequest.SetAppOp, is ToolkitRequest.SetBucket, ToolkitRequest.ForceStop ->
                     current.copy(detail = current.detail?.copy(notice = notice))
                 is ToolkitRequest.Restore -> current.copy(overridesNotice = notice)
-                ToolkitRequest.ResetAll -> current
+                // Only a reset that failed as a whole gets a notice; a finished one has its report instead.
+                ToolkitRequest.ResetAll -> current.copy(overridesNotice = notice)
             }
         }
     }
@@ -475,13 +496,8 @@ class ToolkitViewModel(private val deps: ToolkitDependencies) : ViewModel() {
         if (dexopt.status is BgDexoptStatus.Running || dexopt.status == BgDexoptStatus.Unknown) return
         setDexopt { it.copy(busy = true, notice = null) }
         viewModelScope.launch {
-            val outcome = deps.toolkit.startBgDexopt()
-            setDexopt {
-                it.copy(
-                    busy = false,
-                    notice = if (outcome is ToolkitOutcome.Done) ToolkitNotice.Applied(Change.DexoptStarted) else ToolkitNotice.Rejected(ToolkitMapper.problem(outcome)),
-                )
-            }
+            val outcome = attempt { deps.toolkit.startBgDexopt() }
+            setDexopt { it.copy(busy = false, notice = dexoptNotice(outcome, Change.DexoptStarted)) }
         }
     }
 
@@ -492,14 +508,16 @@ class ToolkitViewModel(private val deps: ToolkitDependencies) : ViewModel() {
         if (dexopt.status !is BgDexoptStatus.Running && dexopt.status != BgDexoptStatus.Unknown) return
         setDexopt { it.copy(busy = true, notice = null) }
         viewModelScope.launch {
-            val outcome = deps.toolkit.cancelBgDexopt()
-            setDexopt {
-                it.copy(
-                    busy = false,
-                    notice = if (outcome is ToolkitOutcome.Done) ToolkitNotice.Applied(Change.DexoptCancelled) else ToolkitNotice.Rejected(ToolkitMapper.problem(outcome)),
-                )
-            }
+            val outcome = attempt { deps.toolkit.cancelBgDexopt() }
+            setDexopt { it.copy(busy = false, notice = dexoptNotice(outcome, Change.DexoptCancelled)) }
         }
+    }
+
+    /** A null [outcome] is a call that threw instead of answering (the job's audit row could not be stored, say). */
+    private fun dexoptNotice(outcome: ToolkitOutcome<*>?, change: Change): ToolkitNotice = when (outcome) {
+        is ToolkitOutcome.Done -> ToolkitNotice.Applied(change)
+        null -> CALL_FAILED
+        else -> ToolkitNotice.Rejected(ToolkitMapper.problem(outcome))
     }
 
     private fun setDexopt(transform: (DexoptSection) -> DexoptSection) {

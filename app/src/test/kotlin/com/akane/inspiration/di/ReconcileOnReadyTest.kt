@@ -3,12 +3,15 @@ package com.akane.inspiration.di
 import com.akane.inspiration.ipc.ShizukuState
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.awaitCancellation
+import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 @OptIn(ExperimentalCoroutinesApi::class)
@@ -70,5 +73,42 @@ class ReconcileOnReadyTest {
 
         assertEquals(2, runs)
         job.cancel()
+    }
+
+    @Test
+    fun `a reconcile that throws is reported and the next transition into Ready reconciles again`() = runTest(UnconfinedTestDispatcher()) {
+        val state = MutableStateFlow<ShizukuState>(ShizukuState.Ready(2000, 13))
+        val failures = mutableListOf<Throwable>()
+        val diskFull = IllegalStateException("database or disk is full")
+        var runs = 0
+        val job = launch {
+            reconcileOnEachReady(state, onFailure = { failures += it }) {
+                runs += 1
+                if (runs == 1) throw diskFull
+            }
+        }
+        assertEquals(1, runs)
+        assertEquals(listOf<Throwable>(diskFull), failures)
+        assertTrue("one failure must not end the collector", job.isActive)
+
+        state.value = ShizukuState.NotRunning
+        state.value = ShizukuState.Ready(2000, 13)
+
+        assertEquals("the next Ready reconciles again", 2, runs)
+        assertEquals(1, failures.size)
+        job.cancel()
+    }
+
+    @Test
+    fun `cancelling the collector while a reconcile runs ends it and reports no failure`() = runTest {
+        val state = MutableStateFlow<ShizukuState>(ShizukuState.Ready(2000, 13))
+        val failures = mutableListOf<Throwable>()
+        val job = launch { reconcileOnEachReady(state, onFailure = { failures += it }) { awaitCancellation() } }
+        runCurrent()
+
+        job.cancelAndJoin()
+
+        assertTrue(job.isCancelled)
+        assertTrue("a cancellation is not a reconcile failure: $failures", failures.isEmpty())
     }
 }

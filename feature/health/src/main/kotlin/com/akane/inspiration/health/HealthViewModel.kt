@@ -8,6 +8,7 @@ import androidx.lifecycle.viewmodel.viewModelFactory
 import com.akane.inspiration.ipc.model.HistoryEvent
 import com.akane.inspiration.telemetry.app.KernelCapacitySnapshot
 import com.akane.inspiration.telemetry.app.RefreshResult
+import com.akane.inspiration.telemetry.app.attempt
 import com.akane.inspiration.telemetry.snapshot.LiveReading
 import com.akane.inspiration.telemetry.store.ChargeSessionRecord
 import com.akane.inspiration.telemetry.store.HealthSample
@@ -219,16 +220,6 @@ class HealthViewModel(private val deps: HealthDependencies) : ViewModel() {
         visible = false
         closeBinding()
     }
-
-    /** Containers answer with values, but a throwing data source must degrade a card, not crash the screen. */
-    private suspend fun <T> attempt(block: suspend () -> T): T? =
-        try {
-            block()
-        } catch (e: CancellationException) {
-            throw e
-        } catch (_: Exception) {
-            null
-        }
 
     companion object {
         fun factory(deps: HealthDependencies): ViewModelProvider.Factory = viewModelFactory {

@@ -231,6 +231,9 @@ internal class MemoryStore : SnapshotStore {
     val rows = mutableListOf<ToolkitActionRecord>()
     var insertGate: CompletableDeferred<Unit>? = null
 
+    /** When set, reading the audit log throws it, as Room does on a closed or unreadable database. */
+    var readFailure: RuntimeException? = null
+
     override suspend fun insertToolkitAction(record: ToolkitActionRecord): Long {
         insertGate?.await()
         val id = rows.size + 1L
@@ -243,10 +246,15 @@ internal class MemoryStore : SnapshotStore {
         if (index >= 0) rows[index] = record
     }
 
-    override suspend fun toolkitActions(limit: Int): List<ToolkitActionRecord> = rows.sortedByDescending { it.id }.take(limit)
+    override suspend fun toolkitActions(limit: Int): List<ToolkitActionRecord> {
+        readFailure?.let { throw it }
+        return rows.sortedByDescending { it.id }.take(limit)
+    }
 
-    override suspend fun pendingToolkitActions(): List<ToolkitActionRecord> =
-        rows.filter { it.status == ToolkitActionStatus.PENDING }.sortedBy { it.id }
+    override suspend fun pendingToolkitActions(): List<ToolkitActionRecord> {
+        readFailure?.let { throw it }
+        return rows.filter { it.status == ToolkitActionStatus.PENDING }.sortedBy { it.id }
+    }
 
     override suspend fun insert(snapshot: BatterySnapshot): Long = 0L
     override suspend fun byId(id: Long): BatterySnapshot? = null
