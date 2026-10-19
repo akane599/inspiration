@@ -65,7 +65,7 @@ core/
       capacity/CapacityEstimator.kt
       capture/SnapshotCapturer.kt
       common/Clocks.kt
-      diff/{ReferenceResolver,SnapshotDiffer}.kt
+      diff/{BatteryStatsSession,ReferenceResolver,SnapshotDiffer}.kt
       dump/{DumpModels,DumpParser,DumpReader}.kt
       interval/IntervalMetrics.kt
       app/AppFacingModels.kt       # RefreshResult, KernelCapacitySnapshot, AppEntry, AppLabels, packageForUid
@@ -74,7 +74,7 @@ core/
       snapshot/{SnapshotModels,UidIdentity}.kt
       source/{AndroidCalibrationInputReader,AndroidClocks,AndroidTelemetrySource,
         TelemetrySource,UidIdentityReader}.kt
-      store/{RetentionPrune,SnapshotStore,StoreModels}.kt
+      store/{HistoryHorizon,RetentionPrune,SnapshotStore,StoreModels}.kt
       toolkit/{ToolkitActions,ToolkitGateway,ToolkitModels}.kt
     src/test/kotlin/com/akane/inspiration/telemetry/**
     src/test/resources/proto/{alarm-api35,alarm-api36,alarm-api37,
