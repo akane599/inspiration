@@ -6,6 +6,7 @@ import com.akane.inspiration.ipc.model.HistoryEvent
 import com.akane.inspiration.ipc.model.HistoryKind
 import com.akane.inspiration.telemetry.app.RefreshResult
 import com.akane.inspiration.telemetry.snapshot.LiveReading
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -568,6 +569,207 @@ class HealthViewModelTest {
 
             assertEquals(HealthPhase.Empty, vm.state.value.phase)
             vm.onIntent(HealthIntent.Hidden)
+        }
+
+    private enum class KernelRead {
+        Available,
+        Unavailable,
+        Throws,
+    }
+
+    private fun failStoredReads() {
+        deps.healthSamples = null
+        deps.sessions = null
+        deps.history = null
+        deps.samples = null
+    }
+
+    @Test
+    fun `null and throwing kernel reads distinguish every failed or empty storage combination`() =
+        runTest(dispatcher) {
+            for (kernelRead in KernelRead.entries) {
+                for (successfulReads in 0 until 16) {
+                    deps =
+                        FakeHealthDeps().apply {
+                            kernel = if (kernelRead == KernelRead.Available) kernelSnapshot() else null
+                            kernelThrows = kernelRead == KernelRead.Throws
+                            healthSamples = if (successfulReads and 1 != 0) emptyList() else null
+                            sessions = if (successfulReads and 2 != 0) emptyList() else null
+                            history = if (successfulReads and 4 != 0) emptyList() else null
+                            samples = if (successfulReads and 8 != 0) emptyList() else null
+                        }
+                    val vm = viewModel()
+                    try {
+                        vm.onIntent(HealthIntent.Visible)
+                        runCurrent()
+                        val expected =
+                            when {
+                                kernelRead == KernelRead.Available -> HealthPhase.Ready
+                                successfulReads == 0 -> HealthPhase.Error
+                                else -> HealthPhase.Empty
+                            }
+                        assertEquals("kernel=$kernelRead, successful storage mask=$successfulReads", expected, vm.state.value.phase)
+                        assertEquals(CurveUi.None, vm.state.value.curve)
+                        assertFalse(vm.state.value.refreshing)
+                    } finally {
+                        vm.onIntent(HealthIntent.Hidden)
+                    }
+                }
+            }
+        }
+
+    @Test
+    fun `each useful stored source keeps the screen ready when all other reads fail`() =
+        runTest(dispatcher) {
+            for (source in 0 until 4) {
+                deps = FakeHealthDeps().apply { kernel = null }
+                failStoredReads()
+                when (source) {
+                    0 -> {
+                        deps.healthSamples = listOf(healthSample(NOW_MS))
+                    }
+
+                    1 -> {
+                        deps.sessions = listOf(sessionRecord(NOW_MS))
+                    }
+
+                    2 -> {
+                        deps.history =
+                            listOf(
+                                event(NOW_MS - 10 * SEC_MS, HistoryKind.PLUGGED),
+                                event(NOW_MS - 6 * SEC_MS, level = 40),
+                                event(NOW_MS - 3 * SEC_MS, level = 41),
+                            )
+                    }
+
+                    3 -> {
+                        deps.samples = listOf(sample(NOW_MS - 3 * SEC_MS, level = 40), sample(NOW_MS, level = 41))
+                    }
+                }
+                val vm = viewModel()
+                try {
+                    vm.onIntent(HealthIntent.Visible)
+                    runCurrent()
+                    assertEquals("useful source=$source", HealthPhase.Ready, vm.state.value.phase)
+                } finally {
+                    vm.onIntent(HealthIntent.Hidden)
+                }
+            }
+        }
+
+    @Test
+    fun `useful live observations remain ready despite null kernel and failed storage`() =
+        runTest(dispatcher) {
+            deps.kernel = null
+            failStoredReads()
+            val readings = MutableSharedFlow<LiveReading>()
+            val vm = viewModel(readings)
+            try {
+                vm.onIntent(HealthIntent.Visible)
+                vm.onIntent(HealthIntent.PlugChanged(true))
+                runCurrent()
+                assertEquals("charging alone is not a useful observation", HealthPhase.Error, vm.state.value.phase)
+
+                readings.emit(liveReading(NOW_MS, levelPct = null))
+                readings.emit(liveReading(NOW_MS, plugged = false))
+                runCurrent()
+                assertEquals("rejected readings must not hide the read error", HealthPhase.Error, vm.state.value.phase)
+
+                readings.emit(liveReading(NOW_MS, levelPct = 40))
+                runCurrent()
+                assertEquals(HealthPhase.Ready, vm.state.value.phase)
+                assertEquals(CurveUi.None, vm.state.value.curve)
+                deps.clocks.wall = NOW_MS + 3 * SEC_MS
+                readings.emit(liveReading(deps.clocks.wall, levelPct = 41))
+                runCurrent()
+                assertEquals(HealthPhase.Ready, vm.state.value.phase)
+                assertEquals(CurveSource.Live, (vm.state.value.curve as CurveUi.Ready).source)
+
+                vm.onIntent(HealthIntent.Refresh)
+                runCurrent()
+                assertEquals("a failed reload must not hide the retained observations", HealthPhase.Ready, vm.state.value.phase)
+                vm.onIntent(HealthIntent.PlugChanged(false))
+                runCurrent()
+                assertEquals(HealthPhase.Ready, vm.state.value.phase)
+                assertEquals(CurveSource.Recorded, (vm.state.value.curve as CurveUi.Ready).source)
+            } finally {
+                vm.onIntent(HealthIntent.Hidden)
+            }
+            assertEquals("Hidden clears the live evidence", HealthPhase.Error, vm.state.value.phase)
+        }
+
+    @Test
+    fun `null kernel with failed storage recovers through empty and populated reads`() =
+        runTest(dispatcher) {
+            deps.kernel = null
+            failStoredReads()
+            val vm = viewModel()
+            try {
+                vm.onIntent(HealthIntent.Visible)
+                runCurrent()
+                assertEquals(HealthPhase.Error, vm.state.value.phase)
+
+                deps.healthSamples = emptyList()
+                vm.onIntent(HealthIntent.Refresh)
+                runCurrent()
+                assertEquals("a successful empty read is not a read failure", HealthPhase.Empty, vm.state.value.phase)
+
+                deps.healthSamples = listOf(healthSample(NOW_MS, fcc = 4_000.0))
+                vm.onIntent(HealthIntent.Refresh)
+                runCurrent()
+                assertEquals(HealthPhase.Ready, vm.state.value.phase)
+                assertEquals(
+                    4_000.0,
+                    vm.state.value.card
+                        ?.reported
+                        ?.mah ?: 0.0,
+                    0.0,
+                )
+
+                deps.healthSamples = null
+                vm.onIntent(HealthIntent.Refresh)
+                runCurrent()
+                assertEquals(HealthPhase.Error, vm.state.value.phase)
+            } finally {
+                vm.onIntent(HealthIntent.Hidden)
+            }
+        }
+
+    @Test
+    fun `kernel and storage cancellation abort the load instead of becoming error or empty`() =
+        runTest(dispatcher) {
+            for (cancelKernel in listOf(true, false)) {
+                var cancelRead = true
+                var sessionReads = 0
+                val source =
+                    object : HealthDependencies by deps {
+                        override suspend fun kernelBattery() =
+                            if (cancelRead && cancelKernel) throw CancellationException("kernel cancelled") else deps.kernelBattery()
+
+                        override suspend fun healthSamples() =
+                            if (cancelRead && !cancelKernel) throw CancellationException("storage cancelled") else deps.healthSamples()
+
+                        override suspend fun chargeSessions() = deps.chargeSessions().also { sessionReads++ }
+                    }
+                val store = ViewModelStore()
+                val vm = ViewModelProvider(store, HealthViewModel.factory(source))[HealthViewModel::class.java]
+                try {
+                    val refreshesBefore = deps.refreshCalls
+                    vm.onIntent(HealthIntent.Visible)
+                    runCurrent()
+                    assertEquals(HealthPhase.Loading, vm.state.value.phase)
+                    assertEquals("load must stop at cancellation", 0, sessionReads)
+                    assertEquals(refreshesBefore, deps.refreshCalls)
+
+                    cancelRead = false
+                    vm.onIntent(HealthIntent.Refresh)
+                    runCurrent()
+                    assertEquals(HealthPhase.Ready, vm.state.value.phase)
+                    assertFalse(vm.state.value.refreshing)
+                } finally {
+                    store.clear()
+                }
+            }
         }
 
     @Test

@@ -13,7 +13,6 @@ import com.akane.inspiration.telemetry.snapshot.LiveReading
 import com.akane.inspiration.telemetry.store.ChargeSessionRecord
 import com.akane.inspiration.telemetry.store.HealthSample
 import com.akane.inspiration.telemetry.store.TelemetrySample
-import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.Flow
@@ -28,7 +27,6 @@ import kotlinx.coroutines.launch
 /** What the last load read. A null read failed; an empty list is a real "nothing recorded". */
 private class HealthInputs(
     val kernel: KernelCapacitySnapshot?,
-    val kernelFailed: Boolean,
     val healthSamples: List<HealthSample>?,
     val sessions: List<ChargeSessionRecord>?,
     val history: List<HistoryEvent>?,
@@ -36,7 +34,7 @@ private class HealthInputs(
     val loadedAtMs: Long,
 ) {
     val everyReadFailed: Boolean
-        get() = kernelFailed && healthSamples == null && sessions == null && history == null && samples == null
+        get() = kernel == null && healthSamples == null && sessions == null && history == null && samples == null
 }
 
 /**
@@ -180,20 +178,10 @@ class HealthViewModel(
     private suspend fun load() {
         val to = deps.clocks.wallMs()
         val from = to - DATA_WINDOW_MS
-        var kernelFailed = false
-        val kernel =
-            try {
-                deps.kernelBattery()
-            } catch (e: CancellationException) {
-                throw e
-            } catch (_: Exception) {
-                kernelFailed = true
-                null
-            }
+        val kernel = attempt { deps.kernelBattery() }
         inputs =
             HealthInputs(
                 kernel = kernel,
-                kernelFailed = kernelFailed,
                 healthSamples = attempt { deps.healthSamples() },
                 sessions = attempt { deps.chargeSessions() },
                 history = attempt { deps.historyBetween(from, to) },
@@ -237,7 +225,7 @@ class HealthViewModel(
             it.copy(
                 phase =
                     when {
-                        loaded.everyReadFailed -> HealthPhase.Error
+                        loaded.everyReadFailed && live.isEmpty() -> HealthPhase.Error
                         nothing -> HealthPhase.Empty
                         else -> HealthPhase.Ready
                     },
