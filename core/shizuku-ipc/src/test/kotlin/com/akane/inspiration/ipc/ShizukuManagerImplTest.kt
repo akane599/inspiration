@@ -6,7 +6,9 @@ import android.content.ContextWrapper
 import android.content.ServiceConnection
 import android.content.pm.PackageManager
 import android.os.Binder
+import android.os.DeadObjectException
 import android.os.IBinder
+import android.os.RemoteException
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -718,6 +720,144 @@ class ShizukuManagerImplTest {
             holder.close()
         }
 
+    // F-17: after a slow shutdown the fallback bind shares the old process's stub, whose only died() goes to the old
+    // process's death. The new process's later death is then reported by no stub; the manager must not keep it.
+    @Test
+    fun theFallbackBindingsDeathAfterTheSharedStubFiredStillRecoversToAFreshBinding() =
+        runTest {
+            val fixture = Fixture(this)
+            fixture.manager.start()
+            fixture.manager
+                .holdBinding()
+                .apply { fixture.facade.deliverServiceConnected(LiveBinder()) }
+                .close()
+            advanceTimeBy(LINGER_MS + 1)
+            val holder = fixture.manager.holdBinding()
+            advanceTimeBy(SETTLE_TIMEOUT_MS + 1)
+            assertEquals(2, fixture.facade.bindCalls)
+            val newService = LiveBinder()
+            fixture.facade.deliverServiceConnected(newService)
+            fixture.facade.deliverServiceDied() // the old process's late death spends the shared stub
+            assertSame(
+                newService,
+                fixture.manager.telemetryService.value
+                    ?.asBinder(),
+            )
+
+            newService.kill() // the new process dies: the spent stub reports nothing
+
+            assertNull("a dead service must not stay in use", fixture.manager.telemetryService.value)
+            val result = async { fixture.manager.withTelemetryService(1_000L) { "rebound" } }
+            runCurrent()
+            assertEquals("the next user binds a fresh service", 3, fixture.facade.bindCalls)
+            fixture.facade.deliverServiceConnected(LiveBinder())
+            assertEquals("rebound", result.await())
+            holder.close()
+        }
+
+    @Test
+    fun aDeadBinderFailingACallIsDroppedEvenBeforeItsDeathNotice() =
+        runTest {
+            val fixture = Fixture(this)
+            fixture.manager.start()
+            fixture.manager
+                .holdBinding()
+                .apply { fixture.facade.deliverServiceConnected(LiveBinder()) }
+                .close()
+            advanceTimeBy(LINGER_MS + 1)
+            val holder = fixture.manager.holdBinding()
+            advanceTimeBy(SETTLE_TIMEOUT_MS + 1)
+            val newService = LiveBinder()
+            fixture.facade.deliverServiceConnected(newService)
+            fixture.facade.deliverServiceDied()
+
+            newService.alive = false // the process is gone; the call fails before any death notice is delivered
+            assertNull(fixture.manager.withTelemetryService(1_000L) { throw DeadObjectException() })
+
+            assertNull("the dead binder is invalidated", fixture.manager.telemetryService.value)
+            val result = async { fixture.manager.withTelemetryService(1_000L) { "rebound" } }
+            runCurrent()
+            assertEquals(3, fixture.facade.bindCalls)
+            fixture.facade.deliverServiceConnected(LiveBinder())
+            assertEquals("rebound", result.await())
+            holder.close()
+        }
+
+    @Test
+    fun aDeadBinderWhoseStubStillReportsWaitsForTheStubsPostedCleanup() =
+        runTest {
+            val fixture = Fixture(this)
+            fixture.manager.start()
+            val holder = fixture.manager.holdBinding()
+            val service = LiveBinder()
+            fixture.facade.deliverServiceConnected(service)
+
+            service.alive = false
+            assertNull(fixture.manager.withTelemetryService(1_000L) { throw DeadObjectException() })
+
+            assertEquals("no bind may share the live stub before its died() cleans up (SQ-114)", 1, fixture.facade.bindCalls)
+            fixture.facade.deliverServiceDied()
+            assertNull(fixture.manager.telemetryService.value)
+            val result = async { fixture.manager.withTelemetryService(1_000L) { "rebound" } }
+            runCurrent()
+            assertEquals(2, fixture.facade.bindCalls)
+            fixture.facade.deliverServiceConnected(LiveBinder())
+            assertEquals("rebound", result.await())
+            holder.close()
+        }
+
+    @Test
+    fun realShizukuSpentStubAfterAFallbackBindStillLetsTheManagerRecover() =
+        runTest {
+            val main = CallbackMainDispatcher(StandardTestDispatcher(testScheduler))
+            Dispatchers.setMain(main)
+            LibraryConnectionFacade().use { facade ->
+                val manager =
+                    ShizukuManagerImpl(
+                        context = TestContext(),
+                        facade = facade,
+                        scope = this,
+                        applicationInfoProvider = ShizukuApplicationInfoProvider { ShizukuApplicationInfo(42, true) },
+                        ioDispatcher = StandardTestDispatcher(testScheduler),
+                    )
+                manager.start()
+                val first = manager.holdBinding()
+                val sharedWrapper = facade.boundWrappers.single()
+                val oldBinder = LiveBinder()
+                facade.deliverConnected(sharedWrapper, oldBinder)
+                first.close()
+                advanceTimeBy(LINGER_MS + 1)
+                assertEquals(1, facade.unbindCalls)
+
+                // The old process outlives the settle timeout, so the fallback bind reuses its cached wrapper.
+                val holder = manager.holdBinding()
+                advanceTimeBy(SETTLE_TIMEOUT_MS + 1)
+                assertEquals(2, facade.boundWrappers.size)
+                assertSame(sharedWrapper, facade.boundWrappers.last())
+                val newBinder = LiveBinder()
+                facade.deliverConnected(sharedWrapper, newBinder)
+
+                // The old process exits: the library's death link spends the wrapper's once-only died().
+                oldBinder.kill()
+                main.runCallback { facade.deliverDeathCallback(sharedWrapper) }
+                assertSame("the live new binding is kept", newBinder, manager.telemetryService.value?.asBinder())
+
+                newBinder.kill() // died() returns at once on the spent wrapper
+
+                assertNull("a dead service must not stay in use", manager.telemetryService.value)
+                val result = async { manager.withTelemetryService(1_000L) { "fresh" } }
+                runCurrent()
+                assertEquals(3, facade.boundWrappers.size)
+                val freshWrapper = facade.boundWrappers.last()
+                assertNotSame("the evicted wrapper is not reused", sharedWrapper, freshWrapper)
+                facade.deliverConnected(freshWrapper, LiveBinder())
+                assertEquals("fresh", result.await())
+                holder.close()
+                manager.stop()
+                advanceUntilIdle()
+            }
+        }
+
     // SQ-118 L1: stop() unbinds for good, even with a holder still open and a later death or settle timeout.
     @Test
     fun stopNeverRebindsAfterALaterSettleTimeoutOrDeath() =
@@ -956,11 +1096,34 @@ class ShizukuManagerImplTest {
         }
     }
 
-    /** A binder whose liveness the test controls (the android.jar stub reports every binder dead). */
+    /**
+     * A binder whose liveness the test controls (the android.jar stub reports every binder dead). It keeps its
+     * death links like a remote binder: [kill] is the hosting process exiting, which notifies each link once.
+     */
     private class LiveBinder : Binder() {
         @Volatile var alive = true
+        private val deathLinks = mutableListOf<IBinder.DeathRecipient>()
 
         override fun isBinderAlive(): Boolean = alive
+
+        override fun linkToDeath(
+            recipient: IBinder.DeathRecipient,
+            flags: Int,
+        ) {
+            if (!alive) throw DeadObjectException()
+            synchronized(deathLinks) { deathLinks += recipient }
+        }
+
+        override fun unlinkToDeath(
+            recipient: IBinder.DeathRecipient,
+            flags: Int,
+        ): Boolean = synchronized(deathLinks) { deathLinks.remove(recipient) }
+
+        fun kill() {
+            alive = false
+            val notified = synchronized(deathLinks) { deathLinks.toList().also { deathLinks.clear() } }
+            notified.forEach { it.binderDied() }
+        }
     }
 
     private class TestContext : ContextWrapper(null) {
@@ -1126,11 +1289,21 @@ class ShizukuManagerImplTest {
         private var permissionListener: Shizuku.OnRequestPermissionResultListener? = null
 
         /**
-         * Mirrors rikka.shizuku.ShizukuServiceConnection (api 13.1.5): one connection set per user-service
-         * class, reused across binds. unbindUserService(remove=true) does NOT clear it; the old process's
-         * died() notifies every connection in it, then clears the set (a later connected() reaches nobody).
+         * Mirrors rikka.shizuku.ShizukuServiceConnection(s) (api 13.1.5): a bind reuses the stub cached for the
+         * service tag, and unbindUserService(remove=true) neither clears nor evicts it. connected() links each
+         * delivered binder to the stub's died(). died() runs once per stub (its dead flag): it notifies every
+         * connection, then clears them and evicts the stub. A later connected() on it reaches nobody, the next
+         * bind gets a fresh stub, and the death of any other binder linked to a spent stub reports nothing.
          */
-        private val connections = linkedSetOf<ServiceConnection>()
+        private class ConnectionStub {
+            val connections = linkedSetOf<ServiceConnection>()
+            var dead = false
+        }
+
+        private var cachedStub: ConnectionStub? = null
+
+        /** The stub handed to the daemon by the latest bind: the one its service's connected() reaches. */
+        private var boundStub: ConnectionStub? = null
 
         override fun pingBinder(): Boolean = binderAlive
 
@@ -1190,7 +1363,9 @@ class ShizukuManagerImplTest {
         ) {
             bindCalls += 1
             if (bindFailure) error("daemon died during bind")
-            connections += connection
+            val stub = cachedStub ?: ConnectionStub().also { cachedStub = it }
+            stub.connections += connection
+            boundStub = stub
         }
 
         override fun unbindUserService(
@@ -1212,15 +1387,35 @@ class ShizukuManagerImplTest {
         }
 
         fun deliverServiceConnected(binder: IBinder = Binder()) {
-            connections.toList().forEach { it.onServiceConnected(ComponentName("test", "service"), binder) }
+            val stub = boundStub ?: return
+            try {
+                binder.linkToDeath({ died(stub) }, 0)
+            } catch (_: RemoteException) {
+                // The library ignores a binder that is already dead here.
+            }
+            stub.connections.toList().forEach { it.onServiceConnected(ComponentName("test", "service"), binder) }
         }
 
-        /** The bound process exited (e.g. after unbind remove=true): Shizuku's died() path. */
+        /** The bound process exited (e.g. after unbind remove=true): the cached stub's died() path. */
         fun deliverServiceDied(beforeCleanup: () -> Unit = {}) {
-            val notified = connections.toList()
-            notified.forEach { it.onServiceDisconnected(ComponentName("test", "service")) }
+            val stub = cachedStub
+            if (stub == null) {
+                beforeCleanup()
+                return
+            }
+            died(stub, beforeCleanup)
+        }
+
+        private fun died(
+            stub: ConnectionStub,
+            beforeCleanup: () -> Unit = {},
+        ) {
+            if (stub.dead) return
+            stub.dead = true
+            stub.connections.toList().forEach { it.onServiceDisconnected(ComponentName("test", "service")) }
             beforeCleanup()
-            connections.clear()
+            stub.connections.clear()
+            if (cachedStub === stub) cachedStub = null
         }
     }
 }

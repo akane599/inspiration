@@ -74,10 +74,17 @@ class ShizukuManagerImpl private constructor(
      * Set when [UNBIND_SETTLE_TIMEOUT_MS] bound before the unbound process's death arrived. The new binding
      * then shares that process's connection stub, so its late death still reaches [userServiceConnection]
      * (SQ-118). That one disconnect is swallowed while the new binder is alive; a dead or not-yet-connected
-     * new binder is handled as a real disconnect. This only preserves the live reference: Shizuku still
-     * clears the shared wrapper's registrations afterward, so timeout-path handover is not fully fenced.
+     * new binder is handled as a real disconnect. Shizuku's died() then clears and evicts the shared stub and
+     * never fires again, so it will not report the new process's death: [spentStubGeneration] marks that.
      */
     private var unboundDeathOwed = false
+
+    /**
+     * The [serviceGeneration] whose binding sits on a connection stub that already spent its once-only died()
+     * on the previous process (the swallowed owed death above). Only the manager's own death link on the
+     * accepted binder, or a call failing on that dead binder, can then end the binding (F-17).
+     */
+    private var spentStubGeneration = NO_GENERATION
     private var settleTimeout: Job? = null
     private var idleUnbind: Job? = null
 
@@ -91,6 +98,7 @@ class ShizukuManagerImpl private constructor(
                     // A late connect from a binding already unbound must not resurrect a dying service.
                     if (serviceBound && !awaitingUnboundDeath) {
                         mutableTelemetryService.value = ITelemetryUserService.Stub.asInterface(service)
+                        linkServiceDeathLocked(service)
                     }
                 }
             }
@@ -116,6 +124,7 @@ class ShizukuManagerImpl private constructor(
                     if (unboundDeathOwed) {
                         unboundDeathOwed = false
                         if (mutableTelemetryService.value?.asBinder()?.isBinderAlive == true) {
+                            spentStubGeneration = serviceGeneration
                             return // the old process's late death, not ours
                         }
                     }
@@ -219,6 +228,9 @@ class ShizukuManagerImpl private constructor(
                     null
                 }
             } catch (_: RemoteException) {
+                // The call may beat the death notice; a dead binder must not keep failing every later call.
+                val binder = service.asBinder()
+                if (!binder.isBinderAlive) synchronized(bindingLock) { serviceBinderDiedLocked(binder) }
                 null
             }
         } finally {
@@ -245,6 +257,34 @@ class ShizukuManagerImpl private constructor(
                 ServiceUse.AWAIT_RUNNING -> mutableState.first { it !is ShizukuState.NotRunning }
             }
         }
+    }
+
+    /**
+     * Shizuku's stub links the same binder, so this link is only a backstop: [serviceBinderDiedLocked] acts
+     * only when that stub can no longer report the death.
+     */
+    private fun linkServiceDeathLocked(service: IBinder) {
+        try {
+            service.linkToDeath({ synchronized(bindingLock) { serviceBinderDiedLocked(service) } }, 0)
+        } catch (_: RemoteException) {
+            serviceBinderDiedLocked(service) // already dead
+        }
+    }
+
+    /**
+     * Ends the binding whose accepted [binder] died, when its Shizuku stub is spent (F-17). While the stub is
+     * live, its died() posts onServiceDisconnected and evicts the stub only afterwards; dropping the binding
+     * here first would let a bind share that dying stub (SQ-114), so the stub stays in charge. A spent stub is
+     * already evicted, so the next acquisition binds a fresh one.
+     */
+    private fun serviceBinderDiedLocked(binder: IBinder) {
+        if (mutableTelemetryService.value?.asBinder() !== binder) return // already dropped or replaced
+        if (spentStubGeneration != serviceGeneration) return
+        spentStubGeneration = NO_GENERATION
+        serviceBound = false
+        serviceGeneration += 1
+        serviceArgs = null
+        mutableTelemetryService.value = null
     }
 
     private fun currentServiceAndGeneration(): Pair<ITelemetryUserService, Int>? =
@@ -494,6 +534,7 @@ class ShizukuManagerImpl private constructor(
 
     private companion object {
         const val PERMISSION_REQUEST_CODE = 1
+        const val NO_GENERATION = -1
         const val TAG = "ShizukuManager"
 
         /** Older servers build TelemetryUserService without a Context, and it then rejects every caller. */
@@ -502,7 +543,11 @@ class ShizukuManagerImpl private constructor(
         /** Idle linger before unbind(remove=true); short on purpose (H13). */
         const val IDLE_UNBIND_DELAY_MS = 3_000L
 
-        /** Fallback when an unbound service's death never arrives (e.g. it never started). */
+        /**
+         * Fallback when an unbound service's death never arrives (e.g. it never started). It stays below the
+         * service's bounded shutdown on purpose: a longer wait would eat most of the callers' 5 s bind window
+         * whenever no death comes, and a slower exit is handled by the spent-stub recovery (F-17).
+         */
         const val UNBIND_SETTLE_TIMEOUT_MS = 2_000L
         const val TELEMETRY_USER_SERVICE_CLASS =
             "com.akane.inspiration.ipc.service.TelemetryUserService"
