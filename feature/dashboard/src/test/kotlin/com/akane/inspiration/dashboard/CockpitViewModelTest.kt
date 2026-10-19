@@ -350,7 +350,7 @@ class CockpitViewModelTest {
         }
 
     @Test
-    fun `a marker's capture reloads the chart`() =
+    fun `a marker's capture reloads the chart through its store tick`() =
         runTest(dispatcher) {
             val vm = viewModel()
             vm.onIntent(CockpitIntent.Visible)

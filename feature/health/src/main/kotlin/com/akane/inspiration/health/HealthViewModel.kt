@@ -171,9 +171,9 @@ class HealthViewModel(
         if (visible) return
         visible = true
         syncLive()
-        // The first value loads this visit's data. Every later one is a refresh that stored history, samples and
-        // health records after that load: this screen's own, the app-open capture its on-enter refresh joined (which
-        // then comes back Debounced), or the re-run when Shizuku became ready, which this screen never asked for.
+        // The first value loads this visit's data. Every later one is a capture that stored history, samples or health
+        // records after that load: this screen's own refresh, the app-open capture its on-enter refresh joined (which
+        // then comes back Debounced), the re-run when Shizuku became ready, a marker, or the charge job's pass.
         ticksJob = viewModelScope.launch { deps.lastRefreshWallMs.collect { reload() } }
         startRefresh(userInitiated = false)
     }

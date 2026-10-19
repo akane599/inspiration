@@ -12,6 +12,7 @@ import com.akane.inspiration.di.CachedAppLabels
 import com.akane.inspiration.di.PackageManagerAppLabelSource
 import com.akane.inspiration.di.Preloaded
 import com.akane.inspiration.di.RefreshCoordinator
+import com.akane.inspiration.di.StoreTicks
 import com.akane.inspiration.di.TimelineEvents
 import com.akane.inspiration.di.newApplicationScope
 import com.akane.inspiration.di.reconcileOnEachReady
@@ -133,11 +134,14 @@ class AppContainer(
             capture = ::captureFull,
         )
 
+    /** Ticked by every capture that ingests the battery history: the app-open refresh, a marker, the charge job. */
+    val storeTicks = StoreTicks(clocks::wallMs)
+
     /**
-     * Wall time of the last successful refresh; it feeds [analysisSession] as its refresh tick, and the Cockpit
-     * timeline and Health re-read the store on it while they are visible.
+     * The last [storeTicks] value, not the refresh debounce's clock: it feeds [analysisSession] as its refresh tick,
+     * and the Cockpit timeline and Health re-read the store on it while they are visible, whoever stored the history.
      */
-    override val lastRefreshWallMs: StateFlow<Long?> = refreshCoordinator.lastRefreshWallMs
+    override val lastRefreshWallMs: StateFlow<Long?> = storeTicks.lastWallMs
 
     /** FULL capture plus history ingest, mutex-guarded and debounced to 60 s. Nothing calls it on a timer. */
     override suspend fun refresh(): RefreshResult = refreshCoordinator.refresh()
@@ -147,6 +151,7 @@ class AppContainer(
             is CaptureResult.Saved -> {
                 store.pruneRetention(clocks)
                 emitStatusTick()
+                storeTicks.tick()
                 RefreshResult.Refreshed(clocks.wallMs())
             }
 
@@ -159,7 +164,7 @@ class AppContainer(
 
     override val selection = AnalysisSelection()
 
-    /** The one process-wide session, recomputed on a selection change or a refresh and shared by every screen. */
+    /** The one process-wide session, recomputed on a selection change or a store tick and shared by every screen. */
     val analysisSession =
         AnalysisSession(
             analyzer = IntervalAnalyzer(store, ruleEngine),
@@ -218,7 +223,12 @@ class AppContainer(
     override suspend fun createMarker(label: String): Long? {
         val saved = capturer.captureFull(CaptureTrigger.MARKER, FULL_CAPTURE_DEADLINE_MS, ingestHistory = true)
         if (saved !is CaptureResult.Saved) return null
-        return store.addMarker(saved.id, label, clocks.wallMs())
+        return try {
+            store.addMarker(saved.id, label, clocks.wallMs())
+        } finally {
+            // The capture ingested history and moved the horizon whether or not the marker row was written.
+            storeTicks.tick()
+        }
     }
 
     override suspend fun kernelBattery(): KernelCapacitySnapshot? =

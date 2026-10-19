@@ -25,6 +25,7 @@ import com.akane.inspiration.ipc.client.BatteryStatsClient
 import com.akane.inspiration.ipc.model.DumpTarget
 import com.akane.inspiration.telemetry.calibration.CalibrationInput
 import com.akane.inspiration.telemetry.calibration.PowerCalibrator
+import com.akane.inspiration.telemetry.capture.CaptureResult
 import com.akane.inspiration.telemetry.diff.ReferenceKind
 import com.akane.inspiration.telemetry.diff.ReferenceResolver
 import com.akane.inspiration.telemetry.diff.SnapshotDiffer
@@ -266,6 +267,8 @@ class ProbeReceiver : BroadcastReceiver() {
                 deadlineMs = PROBE_TIMEOUT_MS,
                 ingestHistory = true,
             )
+        // Like every history-ingesting capture: a screen open meanwhile re-reads what it stored.
+        if (result is CaptureResult.Saved) app.appContainer.storeTicks.tick()
         val latest = app.appContainer.store.latest()
         log(
             JSONObject().put(

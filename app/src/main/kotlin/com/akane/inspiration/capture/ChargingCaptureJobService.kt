@@ -38,6 +38,8 @@ class ChargingCaptureJobService : JobService() {
                                         log = { message, error -> Log.w(TAG, message, error) },
                                     ).run(container.clocks.wallMs())
                                 },
+                                // The job runs in the app process, so a Cockpit or Health on screen re-reads at once.
+                                onHistoryStored = container.storeTicks::tick,
                                 runner = runner,
                             )
                         },

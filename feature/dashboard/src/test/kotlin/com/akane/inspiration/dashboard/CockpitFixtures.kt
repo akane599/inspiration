@@ -30,6 +30,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.flow.update
 import kotlin.coroutines.ContinuationInterceptor
 
 internal const val HOUR_MS = 3_600_000L
@@ -133,7 +134,11 @@ internal class FakeCockpitDeps(
 
     override suspend fun createMarker(label: String): Long? {
         createdLabels += label
-        return createMarkerResult?.also { id -> markerList = markerList + Marker(id, snapshotId = id, label = label, wallMs = clocks.wall) }
+        return createMarkerResult?.also { id ->
+            markerList = markerList + Marker(id, snapshotId = id, label = label, wallMs = clocks.wall)
+            // Like the container's store tick: the marker's capture ingested history, a new value however close in time.
+            lastRefreshWallMs.update { last -> if (last != null && clocks.wall <= last) last + 1 else clocks.wall }
+        }
     }
 }
 

@@ -157,9 +157,9 @@ class CockpitViewModel(
                         clearLive()
                     }
             }
-        // The first value reads this visit's chart. Every later one is a refresh that stored history and moved the
-        // history horizon after that read: this screen's own, the app-open capture its on-enter refresh joined (which
-        // then comes back Debounced), or the re-run when Shizuku became ready, which this screen never asked for.
+        // The first value reads this visit's chart. Every later one is a capture that stored history and moved the
+        // history horizon after that read: this screen's own refresh, the app-open capture its on-enter refresh joined
+        // (which then comes back Debounced), the re-run when Shizuku became ready, a marker, or the charge job.
         ticksJob = viewModelScope.launch { deps.lastRefreshWallMs.collect { reloadTimeline() } }
         startRefresh(userInitiated = false)
     }
@@ -311,8 +311,7 @@ class CockpitViewModel(
                 _state.update { it.copy(markerSheet = it.markerSheet?.copy(creating = false, failed = true)) }
             } else {
                 _state.update { it.copy(markerSheet = it.markerSheet?.copy(creating = false)) }
-                // The marker's FULL capture ingested history and moved the horizon without a refresh tick.
-                reloadTimeline()
+                // The marker's FULL capture ingested history; its store tick re-reads the chart.
                 loadMarkers()
             }
         }

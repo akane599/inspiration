@@ -33,6 +33,9 @@ class ChargingCaptureRunner {
  * One charge-job pass. A single full read ingests the history, the policy decides from it, and a due capture
  * saves that same read: the job never dumps batterystats twice. The PLUGGED lookup reads one row per history
  * kind, not the whole history table.
+ *
+ * The pass ends with [onHistoryStored], however it ends: by then the store holds the ingested history and what
+ * [analyze] derived from it (charge sessions, a health sample), which a screen open meanwhile must re-read.
  */
 internal suspend fun runChargeJobCapture(
     capturer: SnapshotCapturer,
@@ -40,31 +43,36 @@ internal suspend fun runChargeJobCapture(
     clocks: Clocks,
     deadlineMs: Long,
     analyze: suspend () -> Unit,
+    onHistoryStored: () -> Unit,
     runner: ChargingCaptureRunner = ChargingCaptureRunner(),
 ) {
-    val ingest = capturer.ingestHistory(CaptureTrigger.CHARGE_JOB, deadlineMs)
-    val lastPluggedHistoryWallMs =
-        if (ingest.historyAvailable) {
-            store.lastHistoryOfEachKindBefore(Long.MAX_VALUE).lastOrNull { it.kind == HistoryKind.PLUGGED }?.wallMs
-        } else {
-            null
-        }
-    val lastPowerConnectedWallMs = store.latestClockByTrigger(CaptureTrigger.POWER_CONNECTED)?.wallMs
-    val lastChargeJobClock = store.latestClockByTrigger(CaptureTrigger.CHARGE_JOB)
-    runner.run(
-        shouldCapture =
-            CapturePolicy.chargeJobShouldRun(
-                lastPluggedHistoryWallMs = lastPluggedHistoryWallMs,
-                lastPowerConnectedWallMs = lastPowerConnectedWallMs,
-                lastChargeJobWallMs = lastChargeJobClock?.wallMs,
-                lastChargeJobBootCount = lastChargeJobClock?.bootCount,
-                currentBootCount = clocks.bootCount(),
-                historyAvailable = ingest.historyAvailable,
-            ),
-        capture = { capturer.captureFull(ingest) },
-        analyze = analyze,
-        prune = { store.pruneRetention(clocks) },
-    )
+    try {
+        val ingest = capturer.ingestHistory(CaptureTrigger.CHARGE_JOB, deadlineMs)
+        val lastPluggedHistoryWallMs =
+            if (ingest.historyAvailable) {
+                store.lastHistoryOfEachKindBefore(Long.MAX_VALUE).lastOrNull { it.kind == HistoryKind.PLUGGED }?.wallMs
+            } else {
+                null
+            }
+        val lastPowerConnectedWallMs = store.latestClockByTrigger(CaptureTrigger.POWER_CONNECTED)?.wallMs
+        val lastChargeJobClock = store.latestClockByTrigger(CaptureTrigger.CHARGE_JOB)
+        runner.run(
+            shouldCapture =
+                CapturePolicy.chargeJobShouldRun(
+                    lastPluggedHistoryWallMs = lastPluggedHistoryWallMs,
+                    lastPowerConnectedWallMs = lastPowerConnectedWallMs,
+                    lastChargeJobWallMs = lastChargeJobClock?.wallMs,
+                    lastChargeJobBootCount = lastChargeJobClock?.bootCount,
+                    currentBootCount = clocks.bootCount(),
+                    historyAvailable = ingest.historyAvailable,
+                ),
+            capture = { capturer.captureFull(ingest) },
+            analyze = analyze,
+            prune = { store.pruneRetention(clocks) },
+        )
+    } finally {
+        onHistoryStored()
+    }
 }
 
 /**
