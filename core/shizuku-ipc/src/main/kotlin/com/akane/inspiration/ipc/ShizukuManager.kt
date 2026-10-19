@@ -24,5 +24,10 @@ interface ShizukuManager {
 
     fun holdBinding(): AutoCloseable
 
+    /**
+     * Removes the Shizuku listeners and unbinds the user service; a later [start] registers them again. The app's
+     * manager lives as long as its process, so only tests call this, to leave no listener or binding behind (kept,
+     * audit §3).
+     */
     fun stop()
 }
