@@ -43,7 +43,7 @@ Every finding was produced by a fresh subsystem worker and then re-traced by a s
 
 ### HIGH
 
-- **[N-01] [HIGH] History consumers treat a battery-stats RESET as a state-less boundary, although at an unplug reset it carries the live screen and doze state and closes the charge. After every routine full-charge unplug, the first screen stretch is lost or mis-booked and Health's "last charge" is dropped**
+- **[N-01] [HIGH] [FIXED in 1145c30, 1bd46be, d29693a] History consumers treat a battery-stats RESET as a state-less boundary, although at an unplug reset it carries the live screen and doze state and closes the charge. After every routine full-charge unplug, the first screen stretch is lost or mis-booked and Health's "last charge" is dropped**
   - **Category:** Logic Bug (one root cause, the RESET record semantics, with symptoms in the IPC walker and in three consumer modules)
   - **Severity rationale:** validator V2 rated the two symptoms MEDIUM each. Both fire on the same routine trigger: AOSP resets stats on unplug at ≥90% or full by default (`config_battery_stats.xml:26,28`). The default "Since unplugged" view and the Health charge card are wrong every morning, so the combined severity is HIGH.
   - **Location:**
@@ -105,7 +105,7 @@ Every finding was produced by a fresh subsystem worker and then re-traced by a s
     - Replace the tests that lock in the current behaviour (`BatteryHistoryTest.kt:120-122`, `IntervalMetricsCalculatorTest.kt:101-119`) with "RESET with screen on" cases. Add `PLUGGED → RESET(plugType 0) → UNPLUGGED` to the `lastChargeSpan` tests.
     - Device check: wake the screen, run `dumpsys batterystats --reset`, open the app, turn the screen off, then open the app again. `history_event` should show RESET, SCREEN_ON, then SCREEN_OFF.
 
-- **[N-02] [HIGH] Reference windows built from battery history are never reconciled with capture anchors. "Since screen off" comes out null or degenerate in practice, and stale history beats a newer unplug capture**
+- **[N-02] [HIGH] [FIXED in 4886c58, 3d2ac0c] Reference windows built from battery history are never reconciled with capture anchors. "Since screen off" comes out null or degenerate in practice, and stale history beats a newer unplug capture**
   - **Category:** Logic Bug
   - **Location:**
     - `core/telemetry-engine/src/main/kotlin/com/akane/inspiration/telemetry/diff/ReferenceResolver.kt`: `:57-65` (`resolve`: `val end = store.lastAtOrBefore(boundary.toWallMs, null)` at `:60`, `ref` at `:64`), `:96-113` (`boundaryFor`), `:135-157` (`closestReference`/`precedes`), `:159-185` (`completedScreenOff` and its snapshot fallback).
@@ -152,7 +152,7 @@ Every finding was produced by a fresh subsystem worker and then re-traced by a s
     ```
     Set `CAPTURE_SLACK_MS` to about the 10 s broadcast guard. Add resolver tests in which every capture is offset by +1 ms to +2 s from its history event, plus a stale-history test with an older `UNPLUGGED` and a newer `POWER_DISCONNECTED`.
 
-- **[N-03] [HIGH] On Android 12, 12L and 13, bg-dexopt "cancel" does not cancel the system job. The unplug guard, the 60-minute cap, user Cancel and the destroy hook all fail, and on API 31/32 the app reports "cancelled"**
+- **[N-03] [HIGH] [FIXED in 746341e, 7e4c93c, b930802] On Android 12, 12L and 13, bg-dexopt "cancel" does not cancel the system job. The unplug guard, the 60-minute cap, user Cancel and the destroy hook all fail, and on API 31/32 the app reports "cancelled"**
   - **Category:** Logic Bug (framework-version mismatch). The power-safety guard fails silently.
   - **Location:**
     - Argv definitions: `core/shizuku-ipc/src/main/kotlin/com/akane/inspiration/ipc/toolkit/BgDexoptController.kt:10-11`.
@@ -191,7 +191,7 @@ Every finding was produced by a fresh subsystem worker and then re-traced by a s
     - Add `ToolkitCode.UNSUPPORTED_API`, bump `ToolkitApi.VERSION`, and hide or disable the card below API 33 with an explanation.
     - Replace the argv-pinning tests with tests parameterised over `sdkInt` 31, 32, 33 and 34.
 
-- **[N-04] [HIGH] The Cockpit timeline (and Health's history-derived data) is loaded before the app-open history ingest finishes and is never reloaded afterwards, so the default chart misses everything since the previous open**
+- **[N-04] [HIGH] [FIXED in 609ff54, 8ab216b, c213f8d] The Cockpit timeline (and Health's history-derived data) is loaded before the app-open history ingest finishes and is never reloaded afterwards, so the default chart misses everything since the previous open**
   - **Category:** Concurrency / state lifecycle (stale asynchronous result)
   - **Location:**
     - `feature/dashboard/src/main/kotlin/com/akane/inspiration/dashboard/CockpitViewModel.kt:178-217` (`startRefresh`; `loadTimeline()` at `:194`, `deps.refresh()` at `:195`, result handling `:196-211`)
@@ -244,7 +244,7 @@ Every finding was produced by a fresh subsystem worker and then re-traced by a s
 
 ### MEDIUM
 
-- **[N-05] [MEDIUM] Live current is re-scaled on every tick from a truncated BatteryManager value read at a different moment. Near-zero currents come out 1000× too large, and load swings get doubled**
+- **[N-05] [MEDIUM] [FIXED in 8a10605, ae56340, 67cfb99] Live current is re-scaled on every tick from a truncated BatteryManager value read at a different moment. Near-zero currents come out 1000× too large, and load swings get doubled**
   - **Category:** Logic Bug (measurement)
   - **Location:**
     - `core/telemetry-engine/src/main/kotlin/com/akane/inspiration/telemetry/source/AndroidTelemetrySource.kt:137` (`currentMa = currentUa?.div(1_000)`), `:159-175` (`kernelReading`; `bmCurrentNowUa = light.currentMa?.times(1_000)` at `:169`)
@@ -278,7 +278,7 @@ Every finding was produced by a fresh subsystem worker and then re-traced by a s
     ```
     In `LiveTelemetry`, keep the scale once a ratio comparison above a noise floor (for example |current| ≥ 50 mA) succeeds, and reuse it. It is a device constant. Apply the dual-cell factor only after repeated agreement. Add calibrator tests with truncated and skewed inputs.
 
-- **[N-06] [MEDIUM] An override whose read-back is refused or fails disappears from the Toolkit list, the X-Ray card and Reset all, while the restriction stays on the device and the UI says "No active changes"** *(blindness-limited, see §5)*
+- **[N-06] [MEDIUM] [FIXED in 24b9945, 0cbd168] An override whose read-back is refused or fails disappears from the Toolkit list, the X-Ray card and Reset all, while the restriction stays on the device and the UI says "No active changes"** *(blindness-limited, see §5)*
   - **Category:** Logic Bug (error that looks like success; the UI disagrees with the device)
   - **Location:**
     - Reads that go through the write gate: `core/shizuku-ipc/src/main/kotlin/com/akane/inspiration/ipc/toolkit/ToolkitExecutor.kt:95-101, 132-138, 280-294, 317-321`; `ipc/toolkit/Inspection.kt:72-94`.
@@ -318,7 +318,7 @@ Every finding was produced by a fresh subsystem worker and then re-traced by a s
     - Decide whether a restore-direction write to the logged chain original may pass the protected gate.
     - Add a test that restricts MAPS, then adds MAPS to `device.protectedPackages`, and asserts that it stays listed and that Reset all reports it as NotRestored.
 
-- **[N-07] [MEDIUM] Toolkit writes that never reached the service are recorded as uncertain PENDING writes. Reconcile can turn them into a phantom "our override" that Reset all then "restores", and an unsent dexopt start locks the card in Unknown**
+- **[N-07] [MEDIUM] [FIXED in 0c0b5f1, 1974128] Toolkit writes that never reached the service are recorded as uncertain PENDING writes. Reconcile can turn them into a phantom "our override" that Reset all then "restores", and an unsent dexopt start locks the card in Unknown**
   - **Category:** Logic Bug (state lifecycle across the IPC boundary)
   - **Location:**
     - Gateway: `core/telemetry-engine/src/main/kotlin/com/akane/inspiration/telemetry/toolkit/ToolkitGateway.kt:112-128`.
@@ -356,7 +356,7 @@ Every finding was produced by a fresh subsystem worker and then re-traced by a s
     ```
     A `RemoteException` or generation change after `dispatched = true` must stay PENDING. Add a fake mode that fails before `writes += name`, and test that the row ends FAILED with no override listed and that an unsent dexopt start returns to Idle.
 
-- **[N-08] [MEDIUM] When Shizuku is provided by Sui (root, no manager app), the live binder is reported as `NotInstalled`, so the app is unusable**
+- **[N-08] [MEDIUM] [FIXED in b769f8d, 7a505de] When Shizuku is provided by Sui (root, no manager app), the live binder is reported as `NotInstalled`, so the app is unusable**
   - **Category:** Logic Bug (environment detection)
   - **Location:**
     - `core/shizuku-ipc/src/main/kotlin/com/akane/inspiration/ipc/ShizukuManagerImpl.kt:388-395` (package check before `pingBinder()`) and `:557-571`.
@@ -368,7 +368,7 @@ Every finding was produced by a fresh subsystem worker and then re-traced by a s
   - **Failure / Exploit Scenario:** A Magisk/Sui user installs the app. Every screen says Shizuku is not installed, and no privileged feature ever runs. The only workaround is to install the manager app without starting it.
   - **Concrete Fix:** check `facade.pingBinder()` first and use the manager-package check only to tell NotInstalled from NotRunning when there is no binder. Then confirm on a Sui device that `bindUserService` works there. `TelemetryUserService.isCallerAllowed` compares only the app UID, so a root-UID service is not rejected. Alternatively, if Sui is out of scope, disable Sui initialisation explicitly and document that choice.
 
-- **[N-09] [MEDIUM] The Cockpit and Sleep Lab ViewModels keep the shared analysis flow subscribed for the Activity's whole life. That defeats `AnalysisSession`'s observe-to-compute gating, so a return after a failed or debounced refresh shows a frozen interval**
+- **[N-09] [MEDIUM] [FIXED in 4549dcf] The Cockpit and Sleep Lab ViewModels keep the shared analysis flow subscribed for the Activity's whole life. That defeats `AnalysisSession`'s observe-to-compute gating, so a return after a failed or debounced refresh shows a frozen interval**
   - **Category:** Architecture / state lifecycle
   - **Location:** `feature/dashboard/src/main/kotlin/com/akane/inspiration/dashboard/CockpitViewModel.kt:49-51, 79-104, 200-211`; `feature/sleeplab/.../SleepLabViewModel.kt:61-80`; `core/diagnostics/.../analysis/AnalysisSession.kt:85-92`; for contrast, `feature/xray/.../XRayViewModel.kt:96-108`; `CockpitRoute.kt:34-37`; `app/.../shell/AppShell.kt:80-81`.
   - **Confidence:** Confirmed by call trace (W8, V3).
@@ -380,7 +380,7 @@ Every finding was produced by a fresh subsystem worker and then re-traced by a s
   - **Failure / Exploit Scenario:** The user leaves the app, Shizuku stops (after a reboot or an OEM kill), and they return hours later. The refresh returns `Failed` and nothing recomputes. Cockpit, Sleep Lab and X-Ray (which shares the session) show an analysis whose "now" is hours old as if it were current, although LIGHT broadcast snapshots have been stored since. The background cost (one analysis per late tick) is minor.
   - **Concrete Fix:** collect `deps.analysis` only between Visible and Hidden, as X-Ray's `visibleJob` does. In Sleep Lab: `visible.flatMapLatest { if (it) combine(deps.analysis, deps.selection.selected, ::Pair) else emptyFlow() }`. At minimum, call `deps.recomputeAnalysis()` on enter whenever the result is not `Refreshed`. Update `CockpitViewModelTest.kt:384-411`.
 
-- **[N-10] [MEDIUM] The Cockpit gauge says "Charging" for a plugged-in battery that is draining or held at a charge limit, and hides time-left**
+- **[N-10] [MEDIUM] [FIXED in e22e24a, e6d8665, 45705aa] The Cockpit gauge says "Charging" for a plugged-in battery that is draining or held at a charge limit, and hides time-left**
   - **Category:** Logic Bug (the displayed state contradicts the data)
   - **Location:** `feature/dashboard/src/main/kotlin/com/akane/inspiration/dashboard/CockpitMappers.kt:155, 178`; `CockpitCards.kt:124`; `core/designsystem/.../LiveGauge.kt:65-79`; `core/telemetry-engine/.../live/LiveTelemetry.kt:53-54, 64-70`.
   - **Confidence:** Confirmed by call trace (W8, V3). V3 raised the severity from LOW. `CockpitMappersTest.kt:239-260` has no plugged-with-negative-current case.
@@ -392,7 +392,7 @@ Every finding was produced by a fresh subsystem worker and then re-traced by a s
 
 ### LOW
 
-- **[N-11] [LOW] An unexpected service death has neither the bind fence nor the rebind that the unbind path has, so a narrowly timed bind can attach to the dying stub**
+- **[N-11] [LOW] [FIXED in 8a38187, b410d57] An unexpected service death has neither the bind fence nor the rebind that the unbind path has, so a narrowly timed bind can attach to the dying stub**
   - **Category:** Concurrency
   - **Location:**
     - `core/shizuku-ipc/src/main/kotlin/com/akane/inspiration/ipc/ShizukuManagerImpl.kt:106-122` (unbind path, fenced), `:124-135` (unexpected path), `:457-479` (`bindIfRequiredLocked`, guard at `:464`), `:208-222` (waiters).
@@ -422,7 +422,7 @@ Every finding was produced by a fresh subsystem worker and then re-traced by a s
     ```
     Add a regression test with the existing fake: `holdBinding()` → connected → `deliverServiceDied { holdBinding().close() }` → `runCurrent()` → connected → assert that the service is non-null.
 
-- **[N-12] [LOW] A marker selected right after "Mark now" resolves to a zero-length self-pair (Ready with all-zero deltas) instead of Empty**
+- **[N-12] [LOW] [FIXED in b8ff212] A marker selected right after "Mark now" resolves to a zero-length self-pair (Ready with all-zero deltas) instead of Empty**
   - **Category:** Logic Bug
   - **Location:** `core/telemetry-engine/src/main/kotlin/com/akane/inspiration/telemetry/diff/ReferenceResolver.kt:64-65` (the marker path skips `precedes`), with the invariant KDoc at `:131-139`. Related: `core/diagnostics/.../analysis/IntervalAnalyzer.kt:44` (`<` lets equal endpoints through), `app/.../AppContainer.kt:207-211`, `feature/dashboard/.../CockpitViewModel.kt:269-287`, and the test `RoomSnapshotStoreTest.kt:606-621`.
   - **Confidence:** Confirmed (W4, V2).
@@ -433,7 +433,7 @@ Every finding was produced by a fresh subsystem worker and then re-traced by a s
   - **Failure / Exploit Scenario:** The user marks now and taps the marker. Cockpit shows a "Ready" analysis with every delta 0 and dashes until the next capture.
   - **Concrete Fix:** after the `ref` line, add `if (!ref.precedes(end) && ref.id == end.id) return null`. Keep cross-boot markers, which the differ flags. Update the store test.
 
-- **[N-13] [LOW] `historySessions()` groups history rows by exact `statsStartMs`, so a backward clock step splits one stats session, and the capacity estimator then walks the newer group first and loses that charge segment**
+- **[N-13] [LOW] [FIXED in d5e3a90, 532484d] `historySessions()` groups history rows by exact `statsStartMs`, so a backward clock step splits one stats session, and the capacity estimator then walks the newer group first and loses that charge segment**
   - **Category:** Logic Bug
   - **Location:** `core/database/src/main/kotlin/com/akane/inspiration/database/store/RoomSnapshotStore.kt:159-164`. Related: `core/telemetry-engine/.../diff/BatteryStatsSession.kt:6-17`, `core/shizuku-ipc/.../client/BatteryHistory.kt:67-68`, `core/database/.../Entities.kt:255`, `core/telemetry-engine/.../capacity/CapacityEstimator.kt:56-61`, `app/.../capture/ChargingCaptureRunner.kt:115`.
   - **Confidence:** Confirmed against AOSP (`noteCurrentTimeChangedLocked` → `adjustStartClockTime`, which runs on every `ACTION_TIME_CHANGED` of ≥1 s) (W4, V2). Not run on a device.
@@ -445,7 +445,7 @@ Every finding was produced by a fresh subsystem worker and then re-traced by a s
   - **Failure / Exploit Scenario:** A network-time correction steps the clock back mid-charge. A charge whose PLUGGED is under the old label and whose UNPLUGGED is under the new one is never closed, so its capacity sample is silently lost. No wrong segment is produced.
   - **Concrete Fix:** walk one stream ordered by `(wallMs, historyTimeMs)`, with the label as metadata only. Alternatively, coalesce keys that satisfy `BatteryStatsSession.sameStart` before grouping. Do not canonicalise the stored cursor.
 
-- **[N-14] [LOW] An app update (`MY_PACKAGE_REPLACED`) is recorded as a BOOT snapshot, which wipes the known screen state in the "since unplug" status summary**
+- **[N-14] [LOW] [FIXED in a62a570, 219a343] An app update (`MY_PACKAGE_REPLACED`) is recorded as a BOOT snapshot, which wipes the known screen state in the "since unplug" status summary**
   - **Category:** Logic Bug
   - **Location:** `app/src/main/kotlin/com/akane/inspiration/capture/BootCaptureReceiver.kt:17-33`; `app/src/main/AndroidManifest.xml:44`; `core/telemetry-engine/.../status/UnplugSummary.kt:82-94`; `core/database/.../Daos.kt:148-172`; `app/.../status/StatusNotificationService.kt:105-106`.
   - **Confidence:** Confirmed (W6, V2). rg finds no other BOOT consumer; analysis and diff are trigger-agnostic.
@@ -456,7 +456,7 @@ Every finding was produced by a fresh subsystem worker and then re-traced by a s
   - **Failure / Exploit Scenario:** An update lands at 01:00 while the phone is unplugged with the screen off, and the screen stays off until 07:00. The notification classes six hours of drain as unknown, and its rates come out null or skewed.
   - **Concrete Fix:** capture a package replace with its own `CaptureTrigger.PACKAGE_REPLACED`. Triggers are stored by name, so no migration is needed, but every exhaustive `when` must be checked. Alternatively, skip the snapshot on a replace and reset the screen state in `tally` only when `bootCount` changes.
 
-- **[N-15] [LOW] A force-stop that did happen is reported FAILED when the read-back lookup fails**
+- **[N-15] [LOW] [FIXED in 048253f, 4fd6ce8] A force-stop that did happen is reported FAILED when the read-back lookup fails**
   - **Category:** Logic Bug (breaks the result contract)
   - **Location:** `core/shizuku-ipc/src/main/kotlin/com/akane/inspiration/ipc/toolkit/ToolkitExecutor.kt:152-158`; client `core/telemetry-engine/.../toolkit/ToolkitActions.kt:762-787`; `ToolkitResult.kt:83-88` (the `UNVERIFIED` contract).
   - **Confidence:** Confirmed by call trace (W1, V1).
@@ -464,7 +464,7 @@ Every finding was produced by a fresh subsystem worker and then re-traced by a s
   - **Failure / Exploit Scenario:** The package is uninstalled or updated, or a PackageManager call throws, in the milliseconds after a successful `am force-stop`. The app was stopped, but the log and notice say the action failed. This is rare and only misleading.
   - **Concrete Fix:** `else -> return unverified(before)`, plus a test next to "a force-stop that timed out … is unverified".
 
-- **[N-16] [LOW] Tapping an app row while a doze or Restore plan is pending silently drops that request**
+- **[N-16] [LOW] [FIXED in b23499d] Tapping an app row while a doze or Restore plan is pending silently drops that request**
   - **Category:** Concurrency (UI state machine)
   - **Location:** `feature/toolkit/src/main/kotlin/com/akane/inspiration/toolkit/ToolkitViewModel.kt:87-94, 335-341, 385-390`; `ToolkitApps.kt:87, 122-128`; `ToolkitSections.kt:99, 254, 259`; `core/telemetry-engine/.../toolkit/ToolkitActions.kt:274-283`.
   - **Confidence:** Confirmed by call trace (W9, V1).
@@ -472,7 +472,7 @@ Every finding was produced by a fresh subsystem worker and then re-traced by a s
   - **Failure / Exploit Scenario:** The user taps a doze profile, or Restore, and then taps an app row while the busy line is showing. The spinner disappears and nothing is written, and the card still shows the old state. The user may believe the change went through.
   - **Concrete Fix:** In `openApp`, add `if (_state.value.busy) return`, and pass `enabled = !state.busy` to `AppRow`. Alternatively, invalidate only plans that are scoped to the app detail, and post `ToolkitNotice.Rejected(Problem.Refused(ToolkitRefusal.STALE))` for a dropped one.
 
-- **[N-17] [LOW] Health shows a "Live" badge, and the charge duration keeps growing, while no live reading is arriving**
+- **[N-17] [LOW] [FIXED in dcdbff1] Health shows a "Live" badge, and the charge duration keeps growing, while no live reading is arriving**
   - **Category:** Logic Bug (presentation)
   - **Location:** `feature/health/src/main/kotlin/com/akane/inspiration/health/HealthViewModel.kt:128-144, 214`; `HealthMappers.kt:296-301, 362, 366-373`; `HealthCards.kt:111, 248`; `HealthRoute.kt:52-63`; `core/telemetry-engine/.../live/LiveTelemetry.kt:33`.
   - **Confidence:** Confirmed (W8, V3).
@@ -483,7 +483,7 @@ Every finding was produced by a fresh subsystem worker and then re-traced by a s
   - **Failure / Exploit Scenario:** The Shizuku server dies part-way through a charge after samples were persisted. Health then shows a frozen curve labelled "Live", with a charge time that keeps counting up.
   - **Concrete Fix:** compute `liveActive` from reading freshness instead: `live.lastOrNull()?.wallMs?.let { nowMs - it <= LIVE_STALE_MS } == true`, the same rule Cockpit uses.
 
-- **[N-18] [LOW] Health reshapes the whole 24 h sample set on the main thread on every 3 s live tick**
+- **[N-18] [LOW] [FIXED in 7e4aff8, 7574ad2, 650986b] Health reshapes the whole 24 h sample set on the main thread on every 3 s live tick**
   - **Category:** Performance
   - **Location:** `feature/health/src/main/kotlin/com/akane/inspiration/health/HealthViewModel.kt:152-157, 207-252`; `core/database/.../Daos.kt:263-267` (`samplesBetween`, unbounded); `core/telemetry-engine/.../live/LiveTelemetry.kt:34-40`.
   - **Confidence:** Confirmed by trace (W8, V3). Not profiled.
@@ -495,7 +495,7 @@ Every finding was produced by a fresh subsystem worker and then re-traced by a s
     - Cap `live`.
     - Run the shaping on `Dispatchers.Default`, like Cockpit's `shapingDispatcher`.
 
-- **[N-19] [LOW] Calling `ZoneId.systemDefault()` as a default parameter creates a new zone on every recomposition. That defeats skipping in the chart composables and rebuilds the hypnogram's draw cache**
+- **[N-19] [LOW] [FIXED in 4ddf217] Calling `ZoneId.systemDefault()` as a default parameter creates a new zone on every recomposition. That defeats skipping in the chart composables and rebuilds the hypnogram's draw cache**
   - **Category:** Performance
   - **Location:**
     - Default parameters: `feature/dashboard/.../CockpitScreen.kt:30`, `feature/sleeplab/.../SleepLabScreen.kt:55`, `feature/health/.../HealthScreen.kt:36`, `core/designsystem/.../chart/scrub/SynchronizedScrubbingChart.kt:75,101`, `chart/hypnogram/SleepHypnogram.kt:118, 202-231`, `component/TimeSliceBanner.kt:62,82`.
@@ -507,7 +507,7 @@ Every finding was produced by a fresh subsystem worker and then re-traced by a s
   - **Failure / Exploit Scenario:** Small, continuous wasted CPU work while Cockpit is visible, and a full hypnogram rebuild on every Sleep Lab state change, in a battery-measuring app. Nothing is visibly wrong.
   - **Concrete Fix:** add `compose-stability.conf` with `java.time.ZoneId` and `java.util.Locale`, wired through `composeCompiler { stabilityConfigurationFiles.add(...) }` in build-logic. Alternatively, hoist `val zone = remember { ZoneId.systemDefault() }` in the routes and refresh it on `ACTION_TIMEZONE_CHANGED`.
 
-- **[N-20] [LOW] The Toolkit app picker re-sorts with `String.CASE_INSENSITIVE_ORDER`, which undoes the locale Collator, so Turkish and accented labels sort after Z**
+- **[N-20] [LOW] [FIXED in 6622033] The Toolkit app picker re-sorts with `String.CASE_INSENSITIVE_ORDER`, which undoes the locale Collator, so Turkish and accented labels sort after Z**
   - **Category:** Logic Bug (locale)
   - **Location:** `feature/toolkit/src/main/kotlin/com/akane/inspiration/toolkit/ToolkitViewModel.kt:281-298` (sort at `:290-296`); `app/src/main/kotlin/com/akane/inspiration/di/AppEntries.kt:22, 33`.
   - **Confidence:** Confirmed (W9, V3).
@@ -515,7 +515,7 @@ Every finding was produced by a fresh subsystem worker and then re-traced by a s
   - **Failure / Exploit Scenario:** On a Turkish device (the app ships `values-tr`), Çiçeksepeti, Ödeal, Şok and Üçüncü are listed after Zara.
   - **Concrete Fix:** `.thenBy(Collator.getInstance(Locale.getDefault())) { it.label }`, created once per rebuild. Add a non-ASCII ordering test.
 
-- **[N-21] [LOW] A Cockpit selection that has drifted outside the 24 h window is drawn with edge handles that cannot be grabbed**
+- **[N-21] [LOW] [FIXED in fababc9] A Cockpit selection that has drifted outside the 24 h window is drawn with edge handles that cannot be grabbed**
   - **Category:** Logic Bug (interaction)
   - **Location:** `core/designsystem/src/main/kotlin/com/akane/inspiration/designsystem/chart/scrub/ScrubChartRenderer.kt:379-387` (clamped x); `chart/math/ScrubGestureReducer.kt:158-171` (unclamped hit test); `chart/scrub/SliceControls.kt:40-43`; `chart/math/SeriesMath.kt:69-76`; `feature/dashboard/.../CockpitViewModel.kt:44, 219-224`; `app/.../AppContainer.kt:149`. For contrast, `SleepHypnogram.kt:454-461` skips clamped edges.
   - **Confidence:** Confirmed (W10, V3).
@@ -526,7 +526,7 @@ Every finding was produced by a fresh subsystem worker and then re-traced by a s
   - **Failure / Exploit Scenario:** A day-old slice in a still-alive process (the foreground service keeps it alive) dims the whole chart and shows two stacked, dead handles at the left edge. TalkBack announces the real slice, while the buttons edit an invented one.
   - **Concrete Fix:** draw an edge only when its time lies inside the window, and skip the scrim and handles when the selection does not overlap it. For a non-overlapping selection, offer only "Select interval" and "Clear".
 
-- **[N-22] [LOW] Hypnogram accessibility text drops dates for windows of 24–48 h**
+- **[N-22] [LOW] [FIXED in 1650503] Hypnogram accessibility text drops dates for windows of 24–48 h**
   - **Category:** Logic Bug (accessibility)
   - **Location:** `core/designsystem/src/main/kotlin/com/akane/inspiration/designsystem/chart/hypnogram/SleepHypnogram.kt:102, 471-475, 177-187, 499-519`; `ScrubChartMath.kt:104` (the scrub chart switches at 24 h); `SleepHypnogramClockTest.kt:51`.
   - **Confidence:** Confirmed (W10, V3).
@@ -534,7 +534,7 @@ Every finding was produced by a fresh subsystem worker and then re-traced by a s
   - **Failure / Exploit Scenario:** TalkBack users hear what sounds like a 2-hour chart when it covers 26 h, and the two charts follow different date rules.
   - **Concrete Fix:** include the date whenever start and end fall on different local dates in `zone`, or reuse `TelemetryFormat.range`. Update the threshold test.
 
-- **[N-23] [LOW] Chart value-axis labels bypass localisation and `TelemetryFormat`**
+- **[N-23] [LOW] [FIXED in 81823b6] Chart value-axis labels bypass localisation and `TelemetryFormat`**
   - **Category:** Logic Bug (localisation)
   - **Location:** `core/designsystem/src/main/kotlin/com/akane/inspiration/designsystem/chart/scrub/ScrubChartRenderer.kt:84` (`listOf("0%", "50%", "100%")`), `:88` (`"${it.toInt()}$NBSP$temperatureUnit"`); `values-tr/strings_chart.xml:29`; `TelemetryFormat.kt:19, 88`.
   - **Confidence:** Confirmed (W10, V3).
@@ -546,7 +546,7 @@ Every finding was produced by a fresh subsystem worker and then re-traced by a s
     - Sub-zero temperatures render with an ASCII hyphen, unlike the U+2212 minus sign used everywhere else.
   - **Concrete Fix:** use a `chart_axis_percent` resource (`%1$d%%`, tr `%%%1$d`) or `NumberFormat.getPercentInstance(locale)`, and `TelemetryFormat.celsius(...)` for temperatures. Add `locale` to the label `remember` keys.
 
-- **[N-24] [LOW] The accessible slice controls step by 1 minute on a 24 h chart**
+- **[N-24] [LOW] [FIXED in 49f2259] The accessible slice controls step by 1 minute on a 24 h chart**
   - **Category:** Logic Bug (accessibility)
   - **Location:** `core/designsystem/src/main/kotlin/com/akane/inspiration/designsystem/chart/scrub/SliceControls.kt:22, 34-63`; `SynchronizedScrubbingChart.kt:74, 100`; `feature/dashboard/.../CockpitViewModel.kt:44`; `CockpitChartCard.kt:51`.
   - **Confidence:** Confirmed (W10, V3).
@@ -554,7 +554,7 @@ Every finding was produced by a fresh subsystem worker and then re-traced by a s
   - **Failure / Exploit Scenario:** For TalkBack, keyboard and switch users these buttons are the only alternative to dragging. A 3 h slice takes about 175 activations, and each one commits a selection that restarts the analysis.
   - **Concrete Fix:** scale the step to the window (for example `max(60_000, window / 48)`, which is 30 min on 24 h). Alternatively, offer preset durations or a coarse/fine toggle.
 
-- **[N-25] [LOW] Setting only some of the release-signing properties breaks configuration of every build, debug and tests included**
+- **[N-25] [LOW] [FIXED in ee610d8] Setting only some of the release-signing properties breaks configuration of every build, debug and tests included**
   - **Category:** Logic Bug (build configuration)
   - **Location:** `app/build.gradle.kts:21-31, 35`
   - **Confidence:** Confirmed from Gradle DSL semantics (W11, V1). Not executed; no keystore or properties file was read.
@@ -568,7 +568,7 @@ Every finding was produced by a fresh subsystem worker and then re-traced by a s
     else if (signing.values.any { it != null }) logger.warn("Incomplete INSPIRATION_RELEASE_* signing properties; release stays unsigned")
     ```
 
-- **[N-26] [LOW] The hidden-API exemption covers the whole app process, although one tolerant reflective call needs it**
+- **[N-26] [LOW] [FIXED in 2a8b5ed] The hidden-API exemption covers the whole app process, although one tolerant reflective call needs it**
   - **Category:** Security (hardening)
   - **Location:** `app/src/main/kotlin/com/akane/inspiration/InspirationApplication.kt:22-26` (`HiddenApiBypass.addHiddenApiExemptions("L")`); the only main-process consumer is `core/diagnostics/.../sensor/AndroidSensorCatalog.kt:30-43`.
   - **Confidence:** Confirmed (W11, V1). The other hidden-API users (`BatteryStatsClient`, `PowerStatsClient`, `DeviceIdleReader`) are built only inside `TelemetryUserService`. The manifest has no `android:process`.
@@ -576,7 +576,7 @@ Every finding was produced by a fresh subsystem worker and then re-traced by a s
   - **Failure / Exploit Scenario:** There is no exploit, because hidden-API restrictions are not a security boundary. The cost is that blocked APIs used anywhere in the main process work silently until a platform update breaks them, and a native bypass library runs on every app start.
   - **Concrete Fix:** narrow the exemption to `addHiddenApiExemptions("Landroid/hardware/Sensor;->getHandle")`, or drop it if `getHandle` is reachable without it on minSdk 31–37.
 
-- **[N-27] [LOW] The release APK ships about 85 unused locales and unshrunk resources, plus `.proto` sources and `DebugProbesKt.bin`**
+- **[N-27] [LOW] [FIXED in 59fa6ea] The release APK ships about 85 unused locales and unshrunk resources, plus `.proto` sources and `DebugProbesKt.bin`**
   - **Category:** Performance (size)
   - **Location:** `app/build.gradle.kts:33-39` (`isMinifyEnabled = true`, but no `isShrinkResources`, locale filter or `packaging` excludes). Lint `NotShrinkingResources` flags `:36`.
   - **Confidence:** Confirmed by inspecting the existing release APK (0.2.3, built today, newer than all sources) with `aapt2 dump configurations` (build-tools 37.0.0) (W11, V3).
@@ -597,7 +597,7 @@ Every finding was produced by a fresh subsystem worker and then re-traced by a s
     ```
     Verify with an R8 build, `aapt2 dump configurations`, and a release smoke test on redroid.
 
-- **[N-28] [LOW] Missing tests: Android component glue, the pointer-gesture layer, and the manifest wiring of the backup rules**
+- **[N-28] [LOW] [FIXED in 6e67c0b, 1a66217 — partial: JVM-reachable extractions only; no Compose-rule gesture or instrumented FGS tests] Missing tests: Android component glue, the pointer-gesture layer, and the manifest wiring of the backup rules**
   - **Category:** Test coverage
   - **Location:**
     - **Component glue:** `app/src/main/kotlin/com/akane/inspiration/status/StatusNotificationService.kt:52-87, 113-137`, `StatusNotificationController.kt:16-31`, `capture/ChargingCaptureJobService.kt:19-73`, `capture/BootCaptureReceiver.kt:17-33` and `MainActivity.kt:44`. The only test is `StatusNotificationControllerTest.kt:7-28`, a truth table of `shouldRun`.
@@ -988,3 +988,131 @@ The previous remediation's final gate and this audit's baseline match:
 
 ### Post-freeze observation (not investigated)
 During the F-09 check, the redroid Cockpit showed "Nothing to analyse yet" for **Since unplugged**. The pre-freeze `PROBE_INSIGHTS since_unplugged` had resolved a 6 s window. Redroid's emulated battery (level 0, `plug=none` with `+plugged` in history) makes unplug semantics unreliable there. This was not investigated and is not added to the findings.
+
+## Remediation (2026-10-19, branch `audit-remediate-n-20261019`, release 0.2.4)
+
+All 28 findings are FIXED; N-28 only in part. How each fix was made:
+- It was written in an isolated worktree, with a regression test that fails on the old code.
+- It was verified with its modules' narrow tests and lint through the shared Gradle slot, then fast-forwarded or cherry-picked onto the branch.
+- Every HIGH and MEDIUM package had an independent read-only diff review, and so did the dead-code decisions. Each follow-up commit below closes a gap that a review or a device check found.
+
+| ID | Commit(s) | Status |
+|---|---|---|
+| N-01 | `1145c30`, follow-ups `1bd46be` (Health same-instant UNPLUGGED fallback), `d29693a` (store tie order) | FIXED (device-verified) |
+| N-02 | `4886c58`, follow-up `3d2ac0c` (stale-history horizon, pairs spanning periods, no-anchor sliver) | FIXED (device-verified) |
+| N-03 | `746341e`, follow-ups `7e4c93c` (cancel confirmed only by our client's exit), `b930802` (status settles a user cancel; timed-out cancel unverified; no destroy cancel before our client starts) | FIXED |
+| N-04 | `609ff54`, follow-ups `8ab216b` (every history-ingesting capture ticks, charge job included), `c213f8d` (tick survives a failing prune; tick sites tested) | FIXED (device-verified) |
+| N-05 | `8a10605`, follow-ups `ae56340` (unplugged mA prior, persisted calibration, sign rules), `67cfb99` (unsupported unit hidden and stored null; disputed locks re-learn; earlier build's units as guesses) | FIXED |
+| N-06 | `24b9945`, follow-up `0cbd168` (protected apps take only the undo of our own change; pending writes stay listed) | FIXED |
+| N-07 | `0c0b5f1`, follow-up `1974128` (gateway fake models the manager's dead-binder null) | FIXED |
+| N-08 | `b769f8d`, follow-up `7a505de` (binder seen → NotRunning) | FIXED |
+| N-09 | `4549dcf` | FIXED |
+| N-10 | `e22e24a`, follow-ups `e6d8665` (symmetric deadband), `45705aa` (10 mA hysteresis) | FIXED |
+| N-11 | `8a38187`, follow-up `b410d57` (daemon death is a transport loss) | FIXED |
+| N-12 | `b8ff212` | FIXED |
+| N-13 | `d5e3a90`, follow-up `532484d` (ingest skips rows past retention) | FIXED |
+| N-14 | `a62a570`, follow-up `219a343` (`elapsedRealtime` running backwards is a new boot) | FIXED |
+| N-15 | `048253f`, follow-up `4fd6ce8` (a force-stop that ran is DONE when the lookup fails) | FIXED |
+| N-16 | `b23499d` | FIXED |
+| N-17 | `dcdbff1` | FIXED |
+| N-18 | `7e4aff8`, follow-ups `7574ad2` (live points bounded), `650986b` (a failed read keeps the previous curve) | FIXED |
+| N-19 | `4ddf217` | FIXED |
+| N-20 | `6622033` | FIXED |
+| N-21 | `fababc9` | FIXED |
+| N-22 | `1650503` | FIXED |
+| N-23 | `81823b6` | FIXED |
+| N-24 | `49f2259` | FIXED |
+| N-25 | `ee610d8` | FIXED |
+| N-26 | `2a8b5ed` | FIXED |
+| N-27 | `59fa6ea` | FIXED (release smoke-tested on redroid) |
+| N-28 | `6e67c0b` (app), `1a66217` (gestures) | FIXED, partial: pure deciders extracted and JVM-tested. No Compose-rule gesture tests (the catalog has no `ui-test-junit4`) and no instrumented foreground-service test. |
+
+**Deviations from the proposed fixes:**
+- **N-02** uses a 10 s slack plus a horizon/evidence rule instead of `max(history, capture)`. On Android 14+ a cached app's broadcasts are deferred, so a capture can trail its history boundary.
+- **N-13** groups history runs by insertion order (one ingest lock, one process) instead of wall-clock order or ±2 s coalescing.
+- **N-06** keeps the service stateless and lift-only. The client allows a lift on a protected app only as the undo of Inspiration's own change.
+
+**Dead code (§3)**, 13 commits `c5b8a4b`…`aea31b5`:
+- **Removed:**
+  - `SnapshotDao.deleteById` and the single-row `insertAvailability`
+  - both `DumpReader.readAll` overloads, `uaToMa`, `fromHistory`, `SnapshotDiff.levelDropPct`, and the hidden-api-stub `BatteryConsumer` constants
+  - AIDL txns 4/5 with `DumpTarget` 2/4 and `powermanagerservice.proto`. These ids are now reserved, and the debug probe reads power monitors and deviceidle in-process.
+  - both toolkit `release()` methods, `ToolkitDependencies.holdBinding()`, `arm(reArmFromJob)`, `AppEntry.restricted`/`launchable`, `SliceInfo.gapMs`, `HealthInputs.loadedAtMs`
+  - the `endsNow = true` defaults
+  - `LocalReducedMotion`, `chart_a11y_cursor`, the String `TimeSliceBanner`, `niceTimeTicks`, and 17 orphan screenshot PNGs
+  - the catalog entries `protobuf-kotlin-lite`, `kotlin-android` and `room-ktx`; parcelize is now applied by alias
+  - `AndroidCalibrationInputReader`
+- **Kept and documented:**
+  - `telemetry_hourly`, now pruned at 365 days with no schema change
+  - the culprit computation and `Explanation.category`/`action`, which the unbuilt culprit card specifies
+  - `dynamicAccent`/`withAccentFrom`, with a new JVM test
+  - `cellCount`, `SnapshotStore.byId`/`latest`/`latestByTrigger`, the `GeneratedMessageLite` keep rule, `ShizukuManager.stop()`, `api(shizuku.provider)` (SQ-109) and the Stub/Proxy keeps
+- **Unchanged:** `DozeRaw.AOSP_KEYS`, which is already documented as a test reference.
+
+**Final gate** (alone, at `ec4a0d4`): `bash .claude/kit/gradle-check.sh testDebugUnitTest lintDebug validateDebugScreenshotTest :app:assembleDebug :app:minifyReleaseWithR8 :app:assembleRelease --max-workers=8 --rerun-tasks` exited 0.
+- **Unit tests:** 1,732, with 0 failures or errors (baseline 1,509). By module: app 162, database 67, designsystem 170, diagnostics 169, shizuku-ipc 286, telemetry-engine 462, dashboard 64, health 102, sleeplab 77, toolkit 83, xray 90.
+- **Lint:** 0 errors and 7 warnings, all version notices (was 9).
+- **Screenshots:** 185 tests validated against 185 references.
+- **Release APK:** signed 0.2.4 (6), certificate SHA-256 `1d344dd2…f1f3de60`. It is 4.6 MB (was 5.3 MB), with locales default + `tr`.
+
+**Device (redroid, Android 15, Shizuku 13.6.0):**
+- **N-01:** a `batterystats --reset` with the screen on stores RESET plus a same-instant baseline SCREEN_ON. `last_24h` gives 182.3 s on, 39.4 s off and 0 unknown. The audit had found the screen-on stretch counted as unknown.
+- **N-02:** `since_screen_off` is 39.4 s off and 50 ms on. The audit had found a 10 ms window.
+- **N-04:** after a warm return from 10 minutes in the background, the timeline title and the screen-on lane are current without a tab switch, and identical to the view after a tab switch. This ran on a debug build with `609ff54`; the later follow-ups are covered by unit tests.
+- **WP-L:** the debug probe's in-process power and deviceidle reads are available.
+- **0.2.4 release smoke test:**
+  - The release was clean-installed over the debug build, which removed that build's test data.
+  - The notification permission and Shizuku grant flows work, and a FULL capture follows the grant.
+  - The binder is active and the status notification shows its icon with resources shrunk.
+  - All five tabs render in Turkish.
+  - There was no crash, ANR, hidden-API denial or missing resource.
+- **Environment note:** redroid's framework restarted at about 16:12 while `shizuku_server` survived it. The app then correctly reported NotRunning until the server was restarted.
+
+**Not verified on a device:**
+- N-03 on API 31–33 (redroid is API 35).
+- N-05 on a real fuel gauge.
+- The N-06/N-07/N-15 toolkit flows: every redroid app is protected, and no faults were injected.
+- N-08 under Sui, and the N-11 race.
+- Dictionary insight text, because redroid produces no insights.
+
+**Interface notes for the decision log:**
+- **Toolkit:** `ToolkitApi.VERSION` is 4. `ToolkitCode.UNSUPPORTED_API` = 15 and `BgDexoptReason.UNSUPPORTED_API` = 5. `ToolkitResult.warning`/`protectedRead` were added.
+- **Refresh tick:** `CockpitDependencies`/`HealthDependencies.lastRefreshWallMs` were added to the pinned surface. Each is a strictly increasing tick of the last capture in the process that ingested history (`StoreTicks`). `RefreshCoordinator` gained `afterStored`/`onStored`.
+- **Pinned members removed:** `ToolkitDependencies.holdBinding()` (Phase 5) and `niceTimeTicks` (Phase 4).
+- **Boots:** new `CaptureTrigger.PACKAGE_REPLACED`. Boot boundaries now come only from `bootCount` and `elapsedRealtime`.
+- **Calibration:** power calibration is persisted in SharedPreferences `power_calibration`, keyed to `Build.FINGERPRINT`.
+- **Hidden API:** the app's exemption is narrowed to `Sensor.getHandle()`.
+- No Room schema change; it stays at v5.
+
+**Follow-ups (not fixed; file as tickets):**
+1. **"Since screen off":** it is Empty when no capture brackets the period. Add a history-only fallback through `IntervalMetricsCalculator` and an Empty-reason text.
+2. **Late captures:** `UnplugSummary`, `ChargingCaptureRunner` and `CapturePolicy` are exposed to Android 14+ broadcast deferral while the status notification is off.
+3. **Debug probe:** `PROBE_INSIGHTS` has no history horizon or zero-length guard (`ProbeReceiver.kt:345`), and it calibrates from one reading.
+4. **Status notification:** it says "Charging" from `plugged` (`UnplugSummary.kt:43`), the same root as N-10. `light.currentMa` is uncalibrated (`SnapshotCapturer.kt:225`, `StatusNotificationService.kt:177`).
+5. **Current unit while plugged:** a µA kernel held plugged near zero on a fresh install shows "—" until unplugged. An optional charge-counter cross-check could settle the unit while plugged.
+6. **Charge history (N-01/N-13):**
+   - existing installs need a one-time history-cursor rewind;
+   - the `lastChargeSpan` reset restart while plugged and its >24 h fallback;
+   - the band where the clock goes backwards needs a stored prune watermark, which is a schema change.
+7. **Shizuku/Sui:** the Sui UI wording, and whether a daemon restart can kill a surviving process through the shared stub (unverified).
+8. **bg-dexopt:**
+   - the API 33 cancel blocks against the 3 s destroy timeout;
+   - "Dexopt cancelled." shows even when the status then reads Unknown;
+   - idea: a cancellable start on 31/32 through jobscheduler.
+9. **Release and docs:** the release still ships the descriptor-set `.proto.bin` and `version-control-info.textproto`. TEMPLATE and phase-3 F8 still describe the app-wide hidden-API exemption.
+10. **Charts:**
+    - a 2 dp sliver for an out-of-window lane segment (unconfirmed);
+    - Up after the last Move;
+    - `ToolkitSections` calling `toZoneId` on every recomposition;
+    - Cockpit's stale selection across window slides;
+    - the 24 h date rule differs between the scrub chart and the hypnogram.
+11. **Toolkit:** N-16's rows are not dimmed while busy. An own lift made before an app became protected can't be undone if the undo re-restricts.
+12. **Refresh and samples:** a Missed app-open or marker capture doesn't tick, although pages may already be stored. `samplesBetween` is unbounded.
+13. **Test fakes:** `firstAtOrAfter` matches `statsStartMs` exactly (`ReferenceResolverTest.kt:185`, `SnapshotDifferTest.kt:1066`).
+14. **Unbuilt features:** the culprit card, and the H14 time-slice gap banner (`gapMs` was removed, so it needs re-adding when built).
+15. **New, seen on the device after the audit:** the kernel battery-node fallback takes the first `type=Battery` supply without excluding `scope=Device` peripherals (`TelemetryUserService.kt:314-320`). On redroid it read the host's `hidpp_battery_0`. On a phone whose main node isn't named `battery`, a paired Bluetooth HID device could be read instead. LOW.
+16. **New, seen on the device after the audit:** Android 15 sends BOOT_COMPLETED when a force-stopped app leaves the stopped state, so LIGHT `BOOT` rows appear without a reboot. This is harmless since N-14; only the label misleads.
+
+**Process notes:**
+- Some workers wrote files with heredocs, `sed -i` or an inline Python writer, against the Write/Edit rule. The content was reviewed.
+- A global kernel OOM at 19:19, with about ten worktrees building, made the coordinator drop to one Gradle slot.
