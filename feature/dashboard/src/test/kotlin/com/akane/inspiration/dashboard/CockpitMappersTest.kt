@@ -19,24 +19,25 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class CockpitMappersTest {
-
     // --- Timeline -> ScrubChartData ---
 
-    private val timeline = Timeline(
-        segments = listOf(
-            TimelineSegment(SegmentKind.SCREEN_ON, 10, 20),
-            TimelineSegment(SegmentKind.DEEP_IDLE, 30, 90),
-            TimelineSegment(SegmentKind.LIGHT_IDLE, 20, 30),
-            TimelineSegment(SegmentKind.MAINTENANCE, 90, 95),
-            TimelineSegment(SegmentKind.AWAKE, 95, 99),
-            TimelineSegment(SegmentKind.CHARGING, 0, 5),
-        ),
-        levelPoints = listOf(TimelinePoint(50, 70f), TimelinePoint(0, 80f), TimelinePoint(100, Float.NaN)),
-        temperaturePoints = listOf(TimelinePoint(0, 31.5f), TimelinePoint(60, 33f)),
-        wakePulsesMs = listOf(10L),
-        from = 0,
-        to = 100,
-    )
+    private val timeline =
+        Timeline(
+            segments =
+                listOf(
+                    TimelineSegment(SegmentKind.SCREEN_ON, 10, 20),
+                    TimelineSegment(SegmentKind.DEEP_IDLE, 30, 90),
+                    TimelineSegment(SegmentKind.LIGHT_IDLE, 20, 30),
+                    TimelineSegment(SegmentKind.MAINTENANCE, 90, 95),
+                    TimelineSegment(SegmentKind.AWAKE, 95, 99),
+                    TimelineSegment(SegmentKind.CHARGING, 0, 5),
+                ),
+            levelPoints = listOf(TimelinePoint(50, 70f), TimelinePoint(0, 80f), TimelinePoint(100, Float.NaN)),
+            temperaturePoints = listOf(TimelinePoint(0, 31.5f), TimelinePoint(60, 33f)),
+            wakePulsesMs = listOf(10L),
+            from = 0,
+            to = 100,
+        )
 
     @Test
     fun `timeline window and both series map across, sorted and without non finite values`() {
@@ -55,7 +56,11 @@ class CockpitMappersTest {
     fun `deep idle is the deep doze lane and light idle and maintenance stay off the lanes`() {
         val data = scrubChartData(timeline)
 
-        fun spans(kind: LaneKind) = data.lanes.single { it.kind == kind }.segments.map { it.startMs to it.endMs }
+        fun spans(kind: LaneKind) =
+            data.lanes
+                .single { it.kind == kind }
+                .segments
+                .map { it.startMs to it.endMs }
         assertEquals(listOf(30L to 90L), spans(LaneKind.DEEP_SLEEP))
         assertEquals(listOf(10L to 20L), spans(LaneKind.SCREEN_ON))
         assertEquals(listOf(95L to 99L), spans(LaneKind.AWAKE))
@@ -92,10 +97,11 @@ class CockpitMappersTest {
 
     @Test
     fun `missing sources stay null instead of becoming zero`() {
-        val analysis = intervalAnalysis(
-            diff = snapshotDiff(dischargeMah = null, dischargeScreenOffMah = null, sleep = null),
-            metrics = intervalMetrics(screenOnPctPerHour = null, screenOffPctPerHour = null),
-        )
+        val analysis =
+            intervalAnalysis(
+                diff = snapshotDiff(dischargeMah = null, dischargeScreenOffMah = null, sleep = null),
+                metrics = intervalMetrics(screenOnPctPerHour = null, screenOffPctPerHour = null),
+            )
 
         val metrics = metricsUi(analysis)
 
@@ -131,10 +137,15 @@ class CockpitMappersTest {
 
     @Test
     fun `deep sleep without a valid ratio shows neither ratio nor duration`() {
-        val sleep = SleepStats(
-            deepSleepMs = 0, screenOffDeepSleepMs = null, screenOffAwakeMs = null, screenOffMs = null,
-            screenOnMs = null, deepSleepRatio = null,
-        )
+        val sleep =
+            SleepStats(
+                deepSleepMs = 0,
+                screenOffDeepSleepMs = null,
+                screenOffAwakeMs = null,
+                screenOffMs = null,
+                screenOnMs = null,
+                deepSleepRatio = null,
+            )
 
         val metrics = metricsUi(intervalAnalysis(diff = snapshotDiff(sleep = sleep)))
 
@@ -144,12 +155,50 @@ class CockpitMappersTest {
     }
 
     @Test
+    fun `screen time is not taken from history metrics that cover only part of the interval`() {
+        val noStats =
+            SleepStats(
+                deepSleepMs = 0,
+                screenOffDeepSleepMs = null,
+                screenOffAwakeMs = null,
+                screenOffMs = null,
+                screenOnMs = null,
+                deepSleepRatio = null,
+            )
+
+        val unknown =
+            metricsUi(
+                intervalAnalysis(diff = snapshotDiff(sleep = noStats), metrics = intervalMetrics(unknownMs = 30 * MIN_MS)),
+            )
+        val reset =
+            metricsUi(
+                intervalAnalysis(
+                    diff = snapshotDiff(sleep = noStats),
+                    metrics = intervalMetrics(discontinuities = listOf(NOW_MS - 5 * HOUR_MS)),
+                ),
+            )
+        val withStats =
+            metricsUi(
+                intervalAnalysis(metrics = intervalMetrics(unknownMs = 30 * MIN_MS, discontinuities = listOf(NOW_MS - 5 * HOUR_MS))),
+            )
+
+        assertNull("unknown history time would undercount screen-on time", unknown.screenOnMs)
+        assertNull("a history reset leaves part of the interval unattributed", reset.screenOnMs)
+        assertEquals("the stats' own screen-on time does not depend on history", 2 * HOUR_MS, withStats.screenOnMs)
+    }
+
+    @Test
     fun `a deep sleep share needs fifteen minutes of screen off`() {
         // Screen-off spent awake: a measured 0% that only means something over a long enough window.
-        fun awakeScreenOff(screenOffMs: Long) = SleepStats(
-            deepSleepMs = 0, screenOffDeepSleepMs = 0, screenOffAwakeMs = screenOffMs, screenOffMs = screenOffMs,
-            screenOnMs = 2 * HOUR_MS, deepSleepRatio = 0.0,
-        )
+        fun awakeScreenOff(screenOffMs: Long) =
+            SleepStats(
+                deepSleepMs = 0,
+                screenOffDeepSleepMs = 0,
+                screenOffAwakeMs = screenOffMs,
+                screenOffMs = screenOffMs,
+                screenOnMs = 2 * HOUR_MS,
+                deepSleepRatio = 0.0,
+            )
 
         val short = metricsUi(intervalAnalysis(diff = snapshotDiff(sleep = awakeScreenOff(15 * MIN_MS - 1))))
         val enough = metricsUi(intervalAnalysis(diff = snapshotDiff(sleep = awakeScreenOff(15 * MIN_MS))))
@@ -204,7 +253,10 @@ class CockpitMappersTest {
         assertNull(live.remainingMs)
         assertFalse("unknown plug state and no current is not charging", live.charging)
         assertNull(liveUi(liveReading(temperatureDeciC = null), null).temperatureC)
-        assertTrue("positive current without a plug flag reads as charging", liveUi(liveReading(currentMa = 500, plugged = null), null).charging)
+        assertTrue(
+            "positive current without a plug flag reads as charging",
+            liveUi(liveReading(currentMa = 500, plugged = null), null).charging,
+        )
     }
 
     // --- Shizuku status ---

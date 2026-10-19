@@ -36,40 +36,61 @@ internal const val SYSTEM_ESTIMATE_MAX_AGE_MS = 10 * 60_000L
 
 private const val DECI = 10.0
 
-internal fun referenceUi(kind: ReferenceKind): ReferenceUi = when (kind) {
-    ReferenceKind.SinceUnplugged -> ReferenceUi.SinceUnplugged
-    // The screen-on session is not offered by the pill; it reads as the closest reference.
-    ReferenceKind.SinceScreenOff, ReferenceKind.ScreenOnSession -> ReferenceUi.SinceScreenOff
-    ReferenceKind.Last24h -> ReferenceUi.Last24h
-    is ReferenceKind.CustomMarker -> ReferenceUi.CustomMarker
-    is ReferenceKind.TimeSlice -> ReferenceUi.TimeSlice
-}
+internal fun referenceUi(kind: ReferenceKind): ReferenceUi =
+    when (kind) {
+        ReferenceKind.SinceUnplugged -> ReferenceUi.SinceUnplugged
 
-internal fun referenceKind(choice: ReferenceChoice): ReferenceKind = when (choice) {
-    ReferenceChoice.SinceUnplugged -> ReferenceKind.SinceUnplugged
-    ReferenceChoice.SinceScreenOff -> ReferenceKind.SinceScreenOff
-    ReferenceChoice.Last24h -> ReferenceKind.Last24h
-}
+        // The screen-on session is not offered by the pill; it reads as the closest reference.
+        ReferenceKind.SinceScreenOff, ReferenceKind.ScreenOnSession -> ReferenceUi.SinceScreenOff
 
-internal fun shizukuUi(state: ShizukuState): ShizukuUi = when (state) {
-    is ShizukuState.Ready -> ShizukuUi(PulseStatus.ACTIVE, ShizukuReason.Ready, state.uid, canGrant = false)
-    ShizukuState.PermissionRequired ->
-        ShizukuUi(PulseStatus.CONNECTING, ShizukuReason.PermissionRequired, uid = null, canGrant = true)
-    ShizukuState.PermissionDenied ->
-        ShizukuUi(PulseStatus.BLOCKED, ShizukuReason.PermissionDenied, uid = null, canGrant = true)
-    ShizukuState.NotRunning -> ShizukuUi(PulseStatus.BLOCKED, ShizukuReason.NotRunning, uid = null, canGrant = false)
-    is ShizukuState.UnsupportedServer ->
-        ShizukuUi(PulseStatus.BLOCKED, ShizukuReason.UnsupportedServer, uid = null, canGrant = false)
-    ShizukuState.NotInstalled ->
-        ShizukuUi(PulseStatus.BLOCKED, ShizukuReason.NotInstalled, uid = null, canGrant = false)
-}
+        ReferenceKind.Last24h -> ReferenceUi.Last24h
 
-internal fun analysisUi(state: AnalysisState): AnalysisUi = when (state) {
-    AnalysisState.Loading -> AnalysisUi.Loading
-    AnalysisState.Empty -> AnalysisUi.Empty
-    is AnalysisState.Failed -> AnalysisUi.Error
-    is AnalysisState.Ready -> AnalysisUi.Ready(state.analysis.story, metricsUi(state.analysis))
-}
+        is ReferenceKind.CustomMarker -> ReferenceUi.CustomMarker
+
+        is ReferenceKind.TimeSlice -> ReferenceUi.TimeSlice
+    }
+
+internal fun referenceKind(choice: ReferenceChoice): ReferenceKind =
+    when (choice) {
+        ReferenceChoice.SinceUnplugged -> ReferenceKind.SinceUnplugged
+        ReferenceChoice.SinceScreenOff -> ReferenceKind.SinceScreenOff
+        ReferenceChoice.Last24h -> ReferenceKind.Last24h
+    }
+
+internal fun shizukuUi(state: ShizukuState): ShizukuUi =
+    when (state) {
+        is ShizukuState.Ready -> {
+            ShizukuUi(PulseStatus.ACTIVE, ShizukuReason.Ready, state.uid, canGrant = false)
+        }
+
+        ShizukuState.PermissionRequired -> {
+            ShizukuUi(PulseStatus.CONNECTING, ShizukuReason.PermissionRequired, uid = null, canGrant = true)
+        }
+
+        ShizukuState.PermissionDenied -> {
+            ShizukuUi(PulseStatus.BLOCKED, ShizukuReason.PermissionDenied, uid = null, canGrant = true)
+        }
+
+        ShizukuState.NotRunning -> {
+            ShizukuUi(PulseStatus.BLOCKED, ShizukuReason.NotRunning, uid = null, canGrant = false)
+        }
+
+        is ShizukuState.UnsupportedServer -> {
+            ShizukuUi(PulseStatus.BLOCKED, ShizukuReason.UnsupportedServer, uid = null, canGrant = false)
+        }
+
+        ShizukuState.NotInstalled -> {
+            ShizukuUi(PulseStatus.BLOCKED, ShizukuReason.NotInstalled, uid = null, canGrant = false)
+        }
+    }
+
+internal fun analysisUi(state: AnalysisState): AnalysisUi =
+    when (state) {
+        AnalysisState.Loading -> AnalysisUi.Loading
+        AnalysisState.Empty -> AnalysisUi.Empty
+        is AnalysisState.Failed -> AnalysisUi.Error
+        is AnalysisState.Ready -> AnalysisUi.Ready(state.analysis.story, metricsUi(state.analysis))
+    }
 
 /**
  * The grid figures of one interval. Anything the interval cannot support stays null: a rate needs at least
@@ -93,19 +114,28 @@ internal fun metricsUi(analysis: IntervalAnalysis): MetricsUi {
         idleMahPerHour = mahPerHour(screenOff, metrics.screenOffMs),
         deepSleepRatio = ratio,
         deepSleepMs = sleep?.deepSleepMs?.takeIf { ratio != null },
-        screenOnMs = sleep?.screenOnMs ?: metrics.screenOnMs,
+        // History metrics count only attributed time: with unknown time or a reset in the interval their
+        // screen-on total is a partial sum, so the tile shows a dash rather than an undercount.
+        screenOnMs =
+            sleep?.screenOnMs
+                ?: metrics.screenOnMs.takeIf { metrics.unknownMs == 0L && metrics.discontinuities.isEmpty() },
         screenOffAwakeMs = sleep?.screenOffAwakeMs,
     )
 }
 
-private fun mahPerHour(mah: Double?, windowMs: Long): Double? =
-    if (mah == null || windowMs < MIN_RATE_WINDOW_MS) null else mah / (windowMs / MS_PER_HOUR)
+private fun mahPerHour(
+    mah: Double?,
+    windowMs: Long,
+): Double? = if (mah == null || windowMs < MIN_RATE_WINDOW_MS) null else mah / (windowMs / MS_PER_HOUR)
 
 /**
  * The banner data for a committed brush, or null outside time-slice mode. The covered range comes from the
  * analysis only when it answers this exact slice; while a new slice is still loading it stays unknown.
  */
-internal fun sliceUi(kind: ReferenceKind, analysis: AnalysisState): SliceUi? {
+internal fun sliceUi(
+    kind: ReferenceKind,
+    analysis: AnalysisState,
+): SliceUi? {
     if (kind !is ReferenceKind.TimeSlice) return null
     val resolved = (analysis.forSelection(kind) as? AnalysisState.Ready)?.analysis?.resolved
     return SliceUi(
@@ -118,19 +148,26 @@ internal fun sliceUi(kind: ReferenceKind, analysis: AnalysisState): SliceUi? {
  * Time to empty: `chargeCounterUah / |currentMa|` while discharging, else the system's own estimate. Both are
  * unavailable while charging. [systemEstimateMs] must already be checked for age by the caller.
  */
-internal fun remainingMs(reading: LiveReading, systemEstimateMs: Long?): Long? {
+internal fun remainingMs(
+    reading: LiveReading,
+    systemEstimateMs: Long?,
+): Long? {
     if (reading.plugged == true) return null
     val currentMa = reading.currentMa
     val counterUah = reading.chargeCounterUah
-    val extrapolated = if (currentMa != null && currentMa < 0 && counterUah != null && counterUah > 0) {
-        counterUah * UAH_PER_MA_TO_MS / -currentMa
-    } else {
-        null
-    }
+    val extrapolated =
+        if (currentMa != null && currentMa < 0 && counterUah != null && counterUah > 0) {
+            counterUah * UAH_PER_MA_TO_MS / -currentMa
+        } else {
+            null
+        }
     return extrapolated?.takeIf { it <= MAX_EXTRAPOLATED_REMAINING_MS } ?: systemEstimateMs?.takeIf { it > 0 }
 }
 
-internal fun liveUi(reading: LiveReading, systemEstimateMs: Long?): LiveUi {
+internal fun liveUi(
+    reading: LiveReading,
+    systemEstimateMs: Long?,
+): LiveUi {
     val currentMa = reading.currentMa
     return LiveUi(
         currentMa = currentMa,
@@ -147,26 +184,31 @@ internal fun liveUi(reading: LiveReading, systemEstimateMs: Long?): LiveUi {
  * "deep sleep" lane is [SegmentKind.DEEP_IDLE], which is Doze; the designsystem labels it "Deep doze". Light idle
  * and maintenance have no lane, so they stay unmarked rather than being drawn as awake.
  */
-internal fun scrubChartData(timeline: Timeline): ScrubChartData = ScrubChartData(
-    window = TimeRange.of(timeline.from, timeline.to),
-    series = listOf(
-        LineSeries.of(SeriesKind.BATTERY_PERCENT, timeline.levelPoints.map(TimelinePoint::toChartPoint)),
-        LineSeries.of(SeriesKind.TEMPERATURE_C, timeline.temperaturePoints.map(TimelinePoint::toChartPoint)),
-    ).toImmutableList(),
-    lanes = LaneKind.entries.map { lane ->
-        val kind = lane.segmentKind()
-        Lane.of(
-            lane,
-            timeline.segments.filter { it.kind == kind }.map { LaneSegment(it.startMs, it.endMs) },
-        )
-    }.toImmutableList(),
-)
+internal fun scrubChartData(timeline: Timeline): ScrubChartData =
+    ScrubChartData(
+        window = TimeRange.of(timeline.from, timeline.to),
+        series =
+            listOf(
+                LineSeries.of(SeriesKind.BATTERY_PERCENT, timeline.levelPoints.map(TimelinePoint::toChartPoint)),
+                LineSeries.of(SeriesKind.TEMPERATURE_C, timeline.temperaturePoints.map(TimelinePoint::toChartPoint)),
+            ).toImmutableList(),
+        lanes =
+            LaneKind.entries
+                .map { lane ->
+                    val kind = lane.segmentKind()
+                    Lane.of(
+                        lane,
+                        timeline.segments.filter { it.kind == kind }.map { LaneSegment(it.startMs, it.endMs) },
+                    )
+                }.toImmutableList(),
+    )
 
 private fun TimelinePoint.toChartPoint() = TimePoint(tMs, value)
 
-private fun LaneKind.segmentKind(): SegmentKind = when (this) {
-    LaneKind.SCREEN_ON -> SegmentKind.SCREEN_ON
-    LaneKind.DEEP_SLEEP -> SegmentKind.DEEP_IDLE
-    LaneKind.AWAKE -> SegmentKind.AWAKE
-    LaneKind.CHARGING -> SegmentKind.CHARGING
-}
+private fun LaneKind.segmentKind(): SegmentKind =
+    when (this) {
+        LaneKind.SCREEN_ON -> SegmentKind.SCREEN_ON
+        LaneKind.DEEP_SLEEP -> SegmentKind.DEEP_IDLE
+        LaneKind.AWAKE -> SegmentKind.AWAKE
+        LaneKind.CHARGING -> SegmentKind.CHARGING
+    }

@@ -222,12 +222,14 @@ internal fun intervalMetrics(
     screenOffMs: Long = 8 * HOUR_MS,
     screenOnPctPerHour: Double? = 8.2,
     screenOffPctPerHour: Double? = 0.5,
+    unknownMs: Long = 0,
+    discontinuities: List<Long> = emptyList(),
 ) = IntervalMetrics(
     fromWallMs = NOW_MS - 10 * HOUR_MS,
     toWallMs = NOW_MS,
     screenOnMs = screenOnMs,
     screenOffMs = screenOffMs,
-    unknownMs = 0,
+    unknownMs = unknownMs,
     chargingMs = 0,
     startLevel = 90,
     endLevel = 60,
@@ -236,7 +238,7 @@ internal fun intervalMetrics(
     levelDropScreenOff = 4,
     screenOnPctPerHour = screenOnPctPerHour,
     screenOffPctPerHour = screenOffPctPerHour,
-    discontinuities = emptyList(),
+    discontinuities = discontinuities,
 )
 
 internal fun snapshotDiff(
