@@ -11,6 +11,7 @@ import com.akane.inspiration.diagnostics.analysis.forSelection
 import com.akane.inspiration.telemetry.app.RefreshResult
 import com.akane.inspiration.telemetry.app.attempt
 import com.akane.inspiration.telemetry.app.packageForUid
+import com.akane.inspiration.telemetry.diff.ReferenceKind
 import com.akane.inspiration.telemetry.diff.ResolvedReference
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
@@ -45,7 +46,10 @@ class SleepLabViewModel(
     private val effectChannel = Channel<SleepLabEffect>(Channel.BUFFERED)
     val effects: Flow<SleepLabEffect> = effectChannel.receiveAsFlow()
 
-    private val visible = MutableStateFlow(false)
+    private var visible = false
+
+    /** Follows the analysis and the selection while visible, shaping each one. */
+    private var visibleJob: Job? = null
     private var refreshJob: Job? = null
 
     /** Covered measurement endpoints of the retained chart, independent of the selected reference kind. */
@@ -58,36 +62,30 @@ class SleepLabViewModel(
     /** This visible visit explicitly joined the running refresh (main thread only, like every intent). */
     private var userWaiting = false
 
-    init {
-        viewModelScope.launch {
-            combine(deps.analysis, deps.selection.selected, visible) { analysis, kind, isVisible ->
-                Triple(analysis, kind, isVisible)
-            }.collectLatest { (analysis, kind, isVisible) ->
-                // collectLatest cancels the previous shaping (label lookups, the timeline read) on a new value.
-                if (isVisible) {
-                    // Until the session has recomputed after a selection change, its result belongs to the old one.
-                    val current = analysis.forSelection(kind)
-                    val slice = sliceUi(kind, current)
-                    when (current) {
-                        AnalysisState.Loading -> showNotReady(AnalysisUi.Loading, slice)
-                        AnalysisState.Empty -> showNotReady(AnalysisUi.Empty, slice)
-                        is AnalysisState.Failed -> showNotReady(AnalysisUi.Error, slice)
-                        is AnalysisState.Ready -> showReady(current.analysis, slice)
-                    }
-                }
-            }
-        }
-    }
-
     fun onIntent(intent: SleepLabIntent) {
         when (intent) {
             SleepLabIntent.Visible -> {
-                visible.value = true
+                if (!visible) {
+                    visible = true
+                    // The shared session computes only while observed, so this visit's subscription is what recomputes
+                    // an interval whose "now" went stale while nothing showed it, even when the on-enter refresh fails
+                    // or is debounced. Hidden ends it, so nothing keeps the session computing in the background.
+                    visibleJob =
+                        viewModelScope.launch {
+                            combine(deps.analysis, deps.selection.selected, ::Pair).collectLatest { (analysis, kind) ->
+                                // collectLatest cancels the previous shaping (label lookups, the timeline read) on a new value.
+                                show(analysis, kind)
+                            }
+                        }
+                }
                 startRefresh(userInitiated = false)
             }
 
             SleepLabIntent.Hidden -> {
-                visible.value = false
+                visible = false
+                // Cancels any shaping in flight too: nothing is looked up or read for a screen that is not there.
+                visibleJob?.cancel()
+                visibleJob = null
                 // End this visit's UI ownership without cancelling the shared capture.
                 userWaiting = false
                 while (effectChannel.tryReceive().isSuccess) Unit
@@ -105,6 +103,21 @@ class SleepLabViewModel(
             SleepLabIntent.ClearSlice -> {
                 deps.selection.clearSlice()
             }
+        }
+    }
+
+    private suspend fun show(
+        analysis: AnalysisState,
+        kind: ReferenceKind,
+    ) {
+        // Until the session has recomputed after a selection change, its result belongs to the old one.
+        val current = analysis.forSelection(kind)
+        val slice = sliceUi(kind, current)
+        when (current) {
+            AnalysisState.Loading -> showNotReady(AnalysisUi.Loading, slice)
+            AnalysisState.Empty -> showNotReady(AnalysisUi.Empty, slice)
+            is AnalysisState.Failed -> showNotReady(AnalysisUi.Error, slice)
+            is AnalysisState.Ready -> showReady(current.analysis, slice)
         }
     }
 
@@ -187,7 +200,7 @@ class SleepLabViewModel(
     private fun startRefresh(userInitiated: Boolean) {
         // A user refresh during a running one (e.g. the on-enter refresh) joins it: it shows progress and
         // reports that refresh's failure.
-        if (userInitiated && visible.value) {
+        if (userInitiated && visible) {
             userWaiting = true
             _state.update { it.copy(refreshing = true) }
             // Both read only stored data, so retrying a failed one need not wait for (or get) a capture.
@@ -205,11 +218,11 @@ class SleepLabViewModel(
 
                         // No new capture means no refresh tick: what the user asked for is recomputed from what is stored.
                         is RefreshResult.Debounced -> {
-                            if (userWaiting && visible.value) deps.recomputeAnalysis()
+                            if (userWaiting && visible) deps.recomputeAnalysis()
                         }
 
                         is RefreshResult.Failed, null -> {
-                            if (userWaiting && visible.value) {
+                            if (userWaiting && visible) {
                                 deps.recomputeAnalysis()
                                 effectChannel.trySend(SleepLabEffect.RefreshFailed)
                             }

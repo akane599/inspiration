@@ -54,6 +54,23 @@ class CockpitViewModelTest {
 
     private fun TestScope.viewModel(): CockpitViewModel = CockpitViewModel(deps, shapingDispatcher = dispatcher).also { runCurrent() }
 
+    /**
+     * Runs [block] during a visit: the analysis, selection and Shizuku state reach the screen only while it is visible.
+     * Hidden stops the live loop even when an assertion fails, so the test cannot spin forever.
+     */
+    private inline fun TestScope.visit(
+        vm: CockpitViewModel,
+        block: () -> Unit,
+    ) {
+        vm.onIntent(CockpitIntent.Visible)
+        try {
+            runCurrent()
+            block()
+        } finally {
+            vm.onIntent(CockpitIntent.Hidden)
+        }
+    }
+
     @Test
     fun `visible starts the live gauge at 1500 ms and holds one binding`() =
         runTest(dispatcher) {
@@ -464,18 +481,48 @@ class CockpitViewModelTest {
             deps.refreshResult = RefreshResult.Debounced(NOW_MS)
             val gate = CompletableDeferred<Unit>().also { deps.refreshGate = it }
             val vm = viewModel()
-            assertEquals(AnalysisUi.Error, vm.state.value.analysis)
 
-            deps.recomputeResult = ready()
-            vm.onIntent(CockpitIntent.Refresh)
-            runCurrent()
-            assertTrue("a failed analysis is recomputed at once, not after the capture", deps.recomputeCalls >= 1)
-            assertTrue(vm.state.value.analysis is AnalysisUi.Ready)
+            visit(vm) {
+                assertEquals(AnalysisUi.Error, vm.state.value.analysis)
+                deps.recomputeResult = ready()
+                vm.onIntent(CockpitIntent.Refresh)
+                runCurrent()
+                assertTrue("a failed analysis is recomputed at once, not after the capture", deps.recomputeCalls >= 1)
+                assertTrue(vm.state.value.analysis is AnalysisUi.Ready)
 
-            gate.complete(Unit)
+                gate.complete(Unit)
+                runCurrent()
+                assertEquals("the pull joined the on-enter refresh", 1, deps.refreshCalls)
+                assertFalse(vm.state.value.refreshing)
+            }
+        }
+
+    @Test
+    fun `the shared analysis is observed only while the screen is visible`() =
+        runTest(dispatcher) {
+            deps.analysis.value = ready()
+            val vm = viewModel()
+            assertEquals("constructing the screen must not start the session", 0, deps.analysis.subscriptionCount.value)
+
+            vm.onIntent(CockpitIntent.Visible)
             runCurrent()
-            assertEquals(1, deps.refreshCalls)
-            assertFalse(vm.state.value.refreshing)
+            assertEquals(1, deps.analysis.subscriptionCount.value)
+
+            vm.onIntent(CockpitIntent.Hidden)
+            runCurrent()
+            assertEquals(
+                "a hidden screen must not keep the session computing, or a returning one cannot restart it",
+                0,
+                deps.analysis.subscriptionCount.value,
+            )
+
+            // What the session computes while nothing shows it is shown on the next visit.
+            deps.analysis.value = ready(intervalAnalysis(metrics = intervalMetrics(screenOnPctPerHour = 5.0)))
+            runCurrent()
+            visit(vm) {
+                assertEquals(1, deps.analysis.subscriptionCount.value)
+                assertEquals(5.0, (vm.state.value.analysis as AnalysisUi.Ready).metrics.activePctPerHour)
+            }
         }
 
     @Test
@@ -487,7 +534,9 @@ class CockpitViewModelTest {
             vm.onIntent(CockpitIntent.Visible)
             try {
                 runCurrent()
-                assertEquals("the on-enter refresh does not recompute", 0, deps.recomputeCalls)
+                // The visit's own subscription restarts the session, which recomputes on it: no explicit request.
+                assertEquals(1, deps.analysis.subscriptionCount.value)
+                assertEquals("the on-enter refresh asks for no recompute", 0, deps.recomputeCalls)
 
                 vm.onIntent(CockpitIntent.Refresh)
                 runCurrent()
@@ -570,30 +619,35 @@ class CockpitViewModelTest {
             val from = NOW_MS - 5 * HOUR_MS
             val to = NOW_MS - 3 * HOUR_MS
 
-            vm.onIntent(CockpitIntent.CommitBrush(fromMs = to, toMs = from))
-            runCurrent()
+            visit(vm) {
+                vm.onIntent(CockpitIntent.CommitBrush(fromMs = to, toMs = from))
+                runCurrent()
 
-            assertEquals(ReferenceKind.TimeSlice(from, to), deps.selection.selected.value)
-            assertEquals(ReferenceUi.TimeSlice, vm.state.value.reference)
-            val slice = vm.state.value.slice
-            assertNotNull(slice)
-            assertEquals(from, slice?.requested?.startMs)
-            assertEquals(to, slice?.requested?.endMs)
-            assertNull("covered range is unknown until the analysis answers this slice", slice?.covered)
+                assertEquals(ReferenceKind.TimeSlice(from, to), deps.selection.selected.value)
+                assertEquals(ReferenceUi.TimeSlice, vm.state.value.reference)
+                val slice = vm.state.value.slice
+                assertNotNull(slice)
+                assertEquals(from, slice?.requested?.startMs)
+                assertEquals(to, slice?.requested?.endMs)
+                assertNull("covered range is unknown until the analysis answers this slice", slice?.covered)
+            }
         }
 
     @Test
     fun `clearing the slice returns to since unplugged`() =
         runTest(dispatcher) {
             val vm = viewModel()
-            vm.onIntent(CockpitIntent.CommitBrush(NOW_MS - 5 * HOUR_MS, NOW_MS - 3 * HOUR_MS))
-            runCurrent()
+            visit(vm) {
+                vm.onIntent(CockpitIntent.CommitBrush(NOW_MS - 5 * HOUR_MS, NOW_MS - 3 * HOUR_MS))
+                runCurrent()
+                assertNotNull(vm.state.value.slice)
 
-            vm.onIntent(CockpitIntent.ClearSlice)
-            runCurrent()
+                vm.onIntent(CockpitIntent.ClearSlice)
+                runCurrent()
 
-            assertEquals(ReferenceKind.SinceUnplugged, deps.selection.selected.value)
-            assertNull(vm.state.value.slice)
+                assertEquals(ReferenceKind.SinceUnplugged, deps.selection.selected.value)
+                assertNull(vm.state.value.slice)
+            }
         }
 
     @Test
@@ -601,14 +655,16 @@ class CockpitViewModelTest {
         runTest(dispatcher) {
             val vm = viewModel()
 
-            vm.onIntent(CockpitIntent.SelectReference(ReferenceChoice.Last24h))
-            runCurrent()
-            assertEquals(ReferenceKind.Last24h, deps.selection.selected.value)
-            assertEquals(ReferenceUi.Last24h, vm.state.value.reference)
+            visit(vm) {
+                vm.onIntent(CockpitIntent.SelectReference(ReferenceChoice.Last24h))
+                runCurrent()
+                assertEquals(ReferenceKind.Last24h, deps.selection.selected.value)
+                assertEquals(ReferenceUi.Last24h, vm.state.value.reference)
 
-            vm.onIntent(CockpitIntent.SelectReference(ReferenceChoice.SinceScreenOff))
-            runCurrent()
-            assertEquals(ReferenceKind.SinceScreenOff, deps.selection.selected.value)
+                vm.onIntent(CockpitIntent.SelectReference(ReferenceChoice.SinceScreenOff))
+                runCurrent()
+                assertEquals(ReferenceKind.SinceScreenOff, deps.selection.selected.value)
+            }
         }
 
     @Test
@@ -617,17 +673,19 @@ class CockpitViewModelTest {
             val vm = viewModel()
             val from = NOW_MS - 5 * HOUR_MS
             val to = NOW_MS - 3 * HOUR_MS
-            vm.onIntent(CockpitIntent.CommitBrush(from, to))
-            deps.analysis.value =
-                ready(
-                    intervalAnalysis(resolved(boundaryFrom = from, boundaryTo = to, coveredFrom = from + 12 * MIN_MS, coveredTo = to)),
-                    kind = ReferenceKind.TimeSlice(from, to),
-                )
-            runCurrent()
+            visit(vm) {
+                vm.onIntent(CockpitIntent.CommitBrush(from, to))
+                deps.analysis.value =
+                    ready(
+                        intervalAnalysis(resolved(boundaryFrom = from, boundaryTo = to, coveredFrom = from + 12 * MIN_MS, coveredTo = to)),
+                        kind = ReferenceKind.TimeSlice(from, to),
+                    )
+                runCurrent()
 
-            val slice = vm.state.value.slice
-            assertEquals(from + 12 * MIN_MS, slice?.covered?.startMs)
-            assertEquals(to, slice?.covered?.endMs)
+                val slice = vm.state.value.slice
+                assertEquals(from + 12 * MIN_MS, slice?.covered?.startMs)
+                assertEquals(to, slice?.covered?.endMs)
+            }
         }
 
     @Test
@@ -636,18 +694,20 @@ class CockpitViewModelTest {
             val vm = viewModel()
             val from = NOW_MS - 5 * HOUR_MS
             val to = NOW_MS - 3 * HOUR_MS
-            vm.onIntent(CockpitIntent.CommitBrush(from, to))
-            runCurrent()
+            visit(vm) {
+                vm.onIntent(CockpitIntent.CommitBrush(from, to))
+                runCurrent()
 
-            val previous = ReferenceKind.TimeSlice(from - HOUR_MS, to)
-            deps.analysis.value = ready(intervalAnalysis(resolved(boundaryFrom = from - HOUR_MS, boundaryTo = to)), kind = previous)
-            runCurrent()
-            assertNull(
-                "analysis of a previous selection",
-                vm.state.value.slice
-                    ?.covered,
-            )
-            assertEquals(AnalysisUi.Loading, vm.state.value.analysis)
+                val previous = ReferenceKind.TimeSlice(from - HOUR_MS, to)
+                deps.analysis.value = ready(intervalAnalysis(resolved(boundaryFrom = from - HOUR_MS, boundaryTo = to)), kind = previous)
+                runCurrent()
+                assertNull(
+                    "analysis of a previous selection",
+                    vm.state.value.slice
+                        ?.covered,
+                )
+                assertEquals(AnalysisUi.Loading, vm.state.value.analysis)
+            }
         }
 
     @Test
@@ -656,26 +716,28 @@ class CockpitViewModelTest {
             val vm = viewModel()
             val sliceA = ReferenceKind.TimeSlice(NOW_MS - 8 * HOUR_MS, NOW_MS - 6 * HOUR_MS)
             val storyA = BatteryStory(listOf(StorySentence.Summary(hours = 2.0, levelUsedPct = 9)))
-            vm.onIntent(CockpitIntent.CommitBrush(sliceA.fromWallMs, sliceA.toWallMs))
-            deps.analysis.value =
-                ready(
-                    intervalAnalysis(resolved(boundaryFrom = sliceA.fromWallMs, boundaryTo = sliceA.toWallMs)).copy(story = storyA),
-                    kind = sliceA,
-                )
-            runCurrent()
-            assertEquals(storyA, (vm.state.value.analysis as? AnalysisUi.Ready)?.story)
+            visit(vm) {
+                vm.onIntent(CockpitIntent.CommitBrush(sliceA.fromWallMs, sliceA.toWallMs))
+                deps.analysis.value =
+                    ready(
+                        intervalAnalysis(resolved(boundaryFrom = sliceA.fromWallMs, boundaryTo = sliceA.toWallMs)).copy(story = storyA),
+                        kind = sliceA,
+                    )
+                runCurrent()
+                assertEquals(storyA, (vm.state.value.analysis as? AnalysisUi.Ready)?.story)
 
-            // The user brushes slice B. The session has not emitted Loading yet: its state still answers slice A.
-            val sliceB = ReferenceKind.TimeSlice(NOW_MS - 3 * HOUR_MS, NOW_MS - HOUR_MS)
-            vm.onIntent(CockpitIntent.CommitBrush(sliceB.fromWallMs, sliceB.toWallMs))
-            runCurrent()
-            assertEquals(sliceB, deps.selection.selected.value)
-            assertEquals(AnalysisUi.Loading, vm.state.value.analysis)
+                // The user brushes slice B. The session has not emitted Loading yet: its state still answers slice A.
+                val sliceB = ReferenceKind.TimeSlice(NOW_MS - 3 * HOUR_MS, NOW_MS - HOUR_MS)
+                vm.onIntent(CockpitIntent.CommitBrush(sliceB.fromWallMs, sliceB.toWallMs))
+                runCurrent()
+                assertEquals(sliceB, deps.selection.selected.value)
+                assertEquals(AnalysisUi.Loading, vm.state.value.analysis)
 
-            deps.analysis.value =
-                ready(intervalAnalysis(resolved(boundaryFrom = sliceB.fromWallMs, boundaryTo = sliceB.toWallMs)), kind = sliceB)
-            runCurrent()
-            assertEquals(TestStory, (vm.state.value.analysis as? AnalysisUi.Ready)?.story)
+                deps.analysis.value =
+                    ready(intervalAnalysis(resolved(boundaryFrom = sliceB.fromWallMs, boundaryTo = sliceB.toWallMs)), kind = sliceB)
+                runCurrent()
+                assertEquals(TestStory, (vm.state.value.analysis as? AnalysisUi.Ready)?.story)
+            }
         }
 
     @Test
@@ -683,16 +745,18 @@ class CockpitViewModelTest {
         runTest(dispatcher) {
             deps.analysis.value = ready()
             val vm = viewModel()
-            assertTrue(vm.state.value.analysis is AnalysisUi.Ready)
 
-            vm.onIntent(CockpitIntent.SelectReference(ReferenceChoice.Last24h))
-            runCurrent()
-            assertEquals(ReferenceUi.Last24h, vm.state.value.reference)
-            assertEquals(AnalysisUi.Loading, vm.state.value.analysis)
+            visit(vm) {
+                assertTrue(vm.state.value.analysis is AnalysisUi.Ready)
+                vm.onIntent(CockpitIntent.SelectReference(ReferenceChoice.Last24h))
+                runCurrent()
+                assertEquals(ReferenceUi.Last24h, vm.state.value.reference)
+                assertEquals(AnalysisUi.Loading, vm.state.value.analysis)
 
-            deps.analysis.value = ready(kind = ReferenceKind.Last24h)
-            runCurrent()
-            assertTrue(vm.state.value.analysis is AnalysisUi.Ready)
+                deps.analysis.value = ready(kind = ReferenceKind.Last24h)
+                runCurrent()
+                assertTrue(vm.state.value.analysis is AnalysisUi.Ready)
+            }
         }
 
     @Test
@@ -756,15 +820,17 @@ class CockpitViewModelTest {
         runTest(dispatcher) {
             deps.markerList = listOf(Marker(7, 7, "m", NOW_MS))
             val vm = viewModel()
-            vm.onIntent(CockpitIntent.OpenMarkers)
-            runCurrent()
+            visit(vm) {
+                vm.onIntent(CockpitIntent.OpenMarkers)
+                runCurrent()
 
-            vm.onIntent(CockpitIntent.SelectMarker(7))
-            runCurrent()
+                vm.onIntent(CockpitIntent.SelectMarker(7))
+                runCurrent()
 
-            assertEquals(ReferenceKind.CustomMarker(7), deps.selection.selected.value)
-            assertEquals(ReferenceUi.CustomMarker, vm.state.value.reference)
-            assertNull(vm.state.value.markerSheet)
+                assertEquals(ReferenceKind.CustomMarker(7), deps.selection.selected.value)
+                assertEquals(ReferenceUi.CustomMarker, vm.state.value.reference)
+                assertNull(vm.state.value.markerSheet)
+            }
         }
 
     @Test
@@ -783,22 +849,24 @@ class CockpitViewModelTest {
     fun `shizuku state drives the pulse and grant asks the app for permission`() =
         runTest(dispatcher) {
             val vm = viewModel()
-            assertEquals(PulseStatus.ACTIVE, vm.state.value.shizuku.status)
-            assertEquals(2000, vm.state.value.shizuku.uid)
-            assertFalse(vm.state.value.shizuku.canGrant)
 
-            deps.shizukuState.value = ShizukuState.PermissionRequired
-            runCurrent()
-            assertEquals(PulseStatus.CONNECTING, vm.state.value.shizuku.status)
-            assertTrue(vm.state.value.shizuku.canGrant)
+            visit(vm) {
+                assertEquals(PulseStatus.ACTIVE, vm.state.value.shizuku.status)
+                assertEquals(2000, vm.state.value.shizuku.uid)
+                assertFalse(vm.state.value.shizuku.canGrant)
+                deps.shizukuState.value = ShizukuState.PermissionRequired
+                runCurrent()
+                assertEquals(PulseStatus.CONNECTING, vm.state.value.shizuku.status)
+                assertTrue(vm.state.value.shizuku.canGrant)
 
-            vm.onIntent(CockpitIntent.GrantShizuku)
-            assertEquals(1, deps.permissionRequests)
+                vm.onIntent(CockpitIntent.GrantShizuku)
+                assertEquals(1, deps.permissionRequests)
 
-            deps.shizukuState.value = ShizukuState.NotRunning
-            runCurrent()
-            assertEquals(PulseStatus.BLOCKED, vm.state.value.shizuku.status)
-            assertFalse(vm.state.value.shizuku.canGrant)
+                deps.shizukuState.value = ShizukuState.NotRunning
+                runCurrent()
+                assertEquals(PulseStatus.BLOCKED, vm.state.value.shizuku.status)
+                assertFalse(vm.state.value.shizuku.canGrant)
+            }
         }
 
     @Test
@@ -807,19 +875,21 @@ class CockpitViewModelTest {
             val vm = viewModel()
             assertEquals(AnalysisUi.Loading, vm.state.value.analysis)
 
-            deps.analysis.value = AnalysisState.Empty
-            runCurrent()
-            assertEquals(AnalysisUi.Empty, vm.state.value.analysis)
+            visit(vm) {
+                deps.analysis.value = AnalysisState.Empty
+                runCurrent()
+                assertEquals(AnalysisUi.Empty, vm.state.value.analysis)
 
-            deps.analysis.value = AnalysisState.Failed("boom")
-            runCurrent()
-            assertEquals(AnalysisUi.Error, vm.state.value.analysis)
+                deps.analysis.value = AnalysisState.Failed("boom")
+                runCurrent()
+                assertEquals(AnalysisUi.Error, vm.state.value.analysis)
 
-            deps.analysis.value = ready()
-            runCurrent()
-            val ready = vm.state.value.analysis as AnalysisUi.Ready
-            assertEquals(TestStory, ready.story)
-            assertEquals(8.2, ready.metrics.activePctPerHour)
+                deps.analysis.value = ready()
+                runCurrent()
+                val ready = vm.state.value.analysis as AnalysisUi.Ready
+                assertEquals(TestStory, ready.story)
+                assertEquals(8.2, ready.metrics.activePctPerHour)
+            }
         }
 
     @Test

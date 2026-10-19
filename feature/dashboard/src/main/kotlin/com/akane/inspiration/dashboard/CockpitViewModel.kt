@@ -46,8 +46,10 @@ internal const val CHART_WINDOW_MS = 24L * 3_600_000
 /**
  * Cockpit state holder (H5). It is Activity-scoped, so it outlives the tab; everything that reads from the device
  * is therefore tied to [CockpitIntent.Visible] / [CockpitIntent.Hidden] and never to the ViewModel's lifetime (H13):
- * the live readings job and the Shizuku binding exist only between the two. The in-process flows (analysis,
- * selection, Shizuku state) are passive and are collected for the ViewModel's whole life. The chart's timeline is
+ * the live readings job and the Shizuku binding exist only between the two. So does the collection of the in-process
+ * flows (analysis, selection, Shizuku state): the shared analysis session computes only while it is observed, so a
+ * subscription held for the ViewModel's whole life would keep it computing in the background and keep a returning
+ * visit from recomputing an interval that went stale meanwhile. The chart's timeline is
  * read on enter, on a pull and on every refresh tick while visible, and read and shaped on [shapingDispatcher],
  * never on the main thread.
  */
@@ -64,6 +66,9 @@ class CockpitViewModel(
     private var visible = false
     private var liveJob: Job? = null
     private var refreshJob: Job? = null
+
+    /** Follows the analysis, selection and Shizuku state while visible. */
+    private var analysisJob: Job? = null
 
     /** Follows the refresh tick while visible, re-reading the chart on each one. */
     private var ticksJob: Job? = null
@@ -83,30 +88,28 @@ class CockpitViewModel(
         val remainingMs: Long,
     )
 
-    init {
-        viewModelScope.launch {
-            combine(deps.analysis, deps.selection.selected, deps.shizukuState) { analysis, kind, shizuku ->
-                Triple(analysis, kind, shizuku)
-            }.collect { (state, kind, shizuku) ->
-                // Until the session has recomputed after a selection change, its result belongs to the old selection.
-                val analysis = state.forSelection(kind)
-                systemEstimate =
-                    (analysis as? AnalysisState.Ready)?.analysis?.resolved?.now?.let { snapshot ->
-                        snapshot.system?.dischargeTimeRemainingMs?.let { SystemEstimate(snapshot.clock.wallMs, it) }
-                    }
-                val markerId = (kind as? ReferenceKind.CustomMarker)?.markerId
-                _state.update {
-                    it.copy(
-                        reference = referenceUi(kind),
-                        shizuku = shizukuUi(shizuku),
-                        // Without Shizuku there are no live reads, so the last one must not stay on the gauge.
-                        live = if (shizuku is ShizukuState.Ready) it.live else null,
-                        analysis = analysisUi(analysis),
-                        slice = sliceUi(kind, analysis),
-                        markerSheet = it.markerSheet?.copy(selectedId = markerId),
-                    )
-                }
+    private fun show(
+        state: AnalysisState,
+        kind: ReferenceKind,
+        shizuku: ShizukuState,
+    ) {
+        // Until the session has recomputed after a selection change, its result belongs to the old selection.
+        val analysis = state.forSelection(kind)
+        systemEstimate =
+            (analysis as? AnalysisState.Ready)?.analysis?.resolved?.now?.let { snapshot ->
+                snapshot.system?.dischargeTimeRemainingMs?.let { SystemEstimate(snapshot.clock.wallMs, it) }
             }
+        val markerId = (kind as? ReferenceKind.CustomMarker)?.markerId
+        _state.update {
+            it.copy(
+                reference = referenceUi(kind),
+                shizuku = shizukuUi(shizuku),
+                // Without Shizuku there are no live reads, so the last one must not stay on the gauge.
+                live = if (shizuku is ShizukuState.Ready) it.live else null,
+                analysis = analysisUi(analysis),
+                slice = sliceUi(kind, analysis),
+                markerSheet = it.markerSheet?.copy(selectedId = markerId),
+            )
         }
     }
 
@@ -130,6 +133,15 @@ class CockpitViewModel(
         if (visible) return
         visible = true
         binding = deps.holdBinding()
+        // Shown at once (the gauge's first reading uses the system estimate), then followed while visible. The shared
+        // session computes only while observed, so this visit's subscription is what recomputes an interval whose
+        // "now" went stale while nothing showed it, even when the on-enter refresh fails or is debounced.
+        show(deps.analysis.value, deps.selection.selected.value, deps.shizukuState.value)
+        analysisJob =
+            viewModelScope.launch {
+                combine(deps.analysis, deps.selection.selected, deps.shizukuState, ::Triple)
+                    .collect { (analysis, kind, shizuku) -> show(analysis, kind, shizuku) }
+            }
         liveJob =
             viewModelScope.launch {
                 deps
@@ -157,6 +169,8 @@ class CockpitViewModel(
         visible = false
         liveJob?.cancel()
         liveJob = null
+        analysisJob?.cancel()
+        analysisJob = null
         ticksJob?.cancel()
         ticksJob = null
         closeBinding()

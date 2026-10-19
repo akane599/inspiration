@@ -97,6 +97,29 @@ class SleepLabViewModelTest {
         }
 
     @Test
+    fun `the shared analysis is observed only while the screen is visible`() =
+        runTest(dispatcher) {
+            deps.analysis.value = ready(intervalAnalysis())
+            val vm = viewModel()
+            assertEquals("constructing the screen must not start the session", 0, deps.analysis.subscriptionCount.value)
+
+            visible(vm)
+            assertEquals(1, deps.analysis.subscriptionCount.value)
+
+            vm.onIntent(SleepLabIntent.Hidden)
+            runCurrent()
+            assertEquals(
+                "a hidden screen must not keep the session computing, or a returning one cannot restart it",
+                0,
+                deps.analysis.subscriptionCount.value,
+            )
+
+            visible(vm)
+            assertEquals("the returning visit subscribes again, which recomputes", 1, deps.analysis.subscriptionCount.value)
+            vm.onIntent(SleepLabIntent.Hidden)
+        }
+
+    @Test
     fun `rows without a reported package resolve the owner from the uid's packages`() =
         runTest(dispatcher) {
             deps.appLabels.uidPackages[10_003] = listOf("com.news")
