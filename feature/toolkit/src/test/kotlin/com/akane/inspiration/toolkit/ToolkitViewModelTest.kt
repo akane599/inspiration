@@ -497,6 +497,46 @@ class ToolkitViewModelTest {
     }
 
     @Test
+    fun `an app sheet left loading by Hidden offers a retry when the next visit fails to load`() {
+        start()
+        val gate = CompletableDeferred<Unit>()
+        device.gate = gate
+        open(CHATTY)
+        assertEquals(ControlsState.Loading, detail.controls)
+
+        // Hidden cancels the read; the next visit cannot reach the service, so load() stops at the doze read (F-20).
+        vm.onIntent(ToolkitIntent.Hidden)
+        device.gate = null
+        gate.complete(Unit)
+        device.serviceUp = false
+        vm.onIntent(ToolkitIntent.Visible)
+
+        assertEquals(ToolkitPhase.FAILED, state.status)
+        assertTrue(detail.controls is ControlsState.Unavailable)
+
+        device.serviceUp = true
+        vm.onIntent(ToolkitIntent.ReloadApp)
+
+        assertTrue(detail.controls is ControlsState.Loaded)
+    }
+
+    @Test
+    fun `an app sheet left loading by Hidden is read again when the next visit loads`() {
+        start()
+        val gate = CompletableDeferred<Unit>()
+        device.gate = gate
+        open(CHATTY)
+        vm.onIntent(ToolkitIntent.Hidden)
+        device.gate = null
+        gate.complete(Unit)
+
+        vm.onIntent(ToolkitIntent.Visible)
+
+        assertEquals(ToolkitPhase.READY, state.status)
+        assertTrue(detail.controls is ControlsState.Loaded)
+    }
+
+    @Test
     fun `an entry without a label gets one from the label source`() {
         start { apps = listOf(AppEntry("com.example.nolabel", "", launchable = true, restricted = false)) }
 

@@ -209,7 +209,24 @@ class ToolkitViewModel(
         val doze = attempt { deps.toolkit.dozeState() }
         if (doze == null || doze is ToolkitOutcome.Unavailable) {
             val problem = doze?.let(ToolkitMapper::problem) ?: Problem.Failed(code = null)
-            _state.update { it.copy(status = ToolkitPhase.FAILED, doze = DozeSection(DozeLoad.Unavailable(problem))) }
+            // An open sheet whose read was cancelled (Hidden) would wait on its spinner for a loadDetail() that never
+            // comes: give it the same problem and its own retry instead (F-20).
+            _state.update {
+                it.copy(
+                    status = ToolkitPhase.FAILED,
+                    doze = DozeSection(DozeLoad.Unavailable(problem)),
+                    detail =
+                        it.detail?.let { detail ->
+                            if (detail.controls ==
+                                ControlsState.Loading
+                            ) {
+                                detail.copy(controls = ControlsState.Unavailable(problem))
+                            } else {
+                                detail
+                            }
+                        },
+                )
+            }
             return
         }
         showDoze(doze)
