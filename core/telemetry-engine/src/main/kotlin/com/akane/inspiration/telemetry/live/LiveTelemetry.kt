@@ -1,5 +1,6 @@
 package com.akane.inspiration.telemetry.live
 
+import com.akane.inspiration.telemetry.app.attempt
 import com.akane.inspiration.telemetry.calibration.PowerCalibrator
 import com.akane.inspiration.telemetry.common.Clocks
 import com.akane.inspiration.telemetry.snapshot.LiveReading
@@ -25,27 +26,32 @@ class LiveTelemetry(
     private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
 ) {
     /** Cold; each tick reads sysfs and the Shizuku service, so the whole loop runs on [ioDispatcher], never main. */
-    fun readings(periodMs: Long = DEFAULT_PERIOD_MS): Flow<LiveReading> = flow {
-        require(periodMs > 0) { "periodMs must be positive" }
-        while (currentCoroutineContext().isActive) {
-            source.kernelReading()?.toReading()?.also { reading ->
-                emit(reading)
-                if (reading.plugged == true) store?.insertSamples(listOf(reading))
+    fun readings(periodMs: Long = DEFAULT_PERIOD_MS): Flow<LiveReading> =
+        flow {
+            require(periodMs > 0) { "periodMs must be positive" }
+            while (currentCoroutineContext().isActive) {
+                source.kernelReading()?.toReading()?.also { reading ->
+                    emit(reading)
+                    if (reading.plugged == true) {
+                        attempt { store?.insertSamples(listOf(reading)) }
+                    }
+                }
+                delay(periodMs)
             }
-            delay(periodMs)
-        }
-    }.flowOn(ioDispatcher)
+        }.flowOn(ioDispatcher)
 
     private fun KernelRead.toReading(): LiveReading {
-        val power = calibrationInput?.let { input ->
-            calibrator.toReading(input, calibrator.calibrate(listOf(input)))
-        }
+        val power =
+            calibrationInput?.let { input ->
+                calibrator.toReading(input, calibrator.calibrate(listOf(input)))
+            }
         return LiveReading(
             wallMs = light.clock.wallMs,
             elapsedRealtimeMs = light.clock.elapsedRealtimeMs,
             bootCount = light.clock.bootCount,
-            currentMa = power?.currentMa?.roundToInt()
-                ?: KernelUnits.normalizeCurrentMa(light.currentMa, light.chargingOrNull()),
+            currentMa =
+                power?.currentMa?.roundToInt()
+                    ?: KernelUnits.normalizeCurrentMa(light.currentMa, light.chargingOrNull()),
             voltageMv = power?.voltageV?.times(1_000)?.roundToInt() ?: light.voltageMv,
             watts = power?.watts,
             temperatureDeciC = kernel?.temperatureDeciC ?: light.temperatureDeciC,
@@ -57,11 +63,12 @@ class LiveTelemetry(
     }
 
     // The battery's own direction decides the current sign; plugged alone cannot (a plugged battery can drain).
-    private fun LightRead.chargingOrNull(): Boolean? = when (status) {
-        "charging", "full" -> true
-        "discharging" -> false
-        else -> null
-    }
+    private fun LightRead.chargingOrNull(): Boolean? =
+        when (status) {
+            "charging", "full" -> true
+            "discharging" -> false
+            else -> null
+        }
 
     private companion object {
         const val DEFAULT_PERIOD_MS = 1_500L
