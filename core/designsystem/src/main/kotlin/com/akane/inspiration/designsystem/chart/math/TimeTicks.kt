@@ -54,13 +54,6 @@ fun niceTimeTickSet(
     return NiceTimeTicks(last.filterIndexed { index, _ -> index % stride == 0 }, dayAligned = true)
 }
 
-/** The tick instants of [niceTimeTickSet]. */
-fun niceTimeTicks(
-    window: TimeRange,
-    maxTicks: Int,
-    zone: ZoneId,
-): List<Long> = niceTimeTickSet(window, maxTicks, zone).ticksMs
-
 /** True when [epochMs] is the start of a local day in [zone] (midnight, or the first instant after a DST gap). */
 fun isStartOfDay(
     epochMs: Long,

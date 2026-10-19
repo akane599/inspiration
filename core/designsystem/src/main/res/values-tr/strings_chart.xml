@@ -43,5 +43,4 @@
     <string name="chart_a11y_window">%1$s – %2$s arası grafik</string>
     <string name="chart_a11y_selection">%1$s – %2$s arası seçili, süre %3$s</string>
     <string name="chart_a11y_no_selection">Seçim yok</string>
-    <string name="chart_a11y_cursor">İmleç %1$s konumunda</string>
 </resources>

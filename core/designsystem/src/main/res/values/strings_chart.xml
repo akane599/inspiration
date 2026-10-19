@@ -43,5 +43,4 @@
     <string name="chart_a11y_window">Chart from %1$s to %2$s</string>
     <string name="chart_a11y_selection">Selected %1$s to %2$s, %3$s long</string>
     <string name="chart_a11y_no_selection">No selection</string>
-    <string name="chart_a11y_cursor">Cursor at %1$s</string>
 </resources>

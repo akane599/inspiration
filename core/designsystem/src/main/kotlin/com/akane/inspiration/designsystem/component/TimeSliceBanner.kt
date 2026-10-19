@@ -100,28 +100,6 @@ fun TimeSliceBanner(
     )
 }
 
-/**
- * Same banner for ranges the caller has already formatted: the [requested] range, the range [covered] by data, and
- * a [gapText] when the two differ (null when the data covers the whole request). Prefer the [TimeRange] overload,
- * which formats the ranges and words the gap consistently.
- */
-@Composable
-fun TimeSliceBanner(
-    requested: String,
-    covered: String,
-    gapText: String?,
-    onClear: () -> Unit,
-    modifier: Modifier = Modifier,
-) {
-    TimeSliceBannerContent(
-        requested = requested,
-        covered = covered,
-        gapTexts = listOfNotNull(gapText).toImmutableList(),
-        onClear = onClear,
-        modifier = modifier,
-    )
-}
-
 @Composable
 private fun TimeSliceBannerContent(
     requested: String,

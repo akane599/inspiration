@@ -1,7 +1,5 @@
 package com.akane.inspiration.designsystem.chart.scrub
 
-import android.content.Context
-import android.provider.Settings
 import androidx.compose.animation.core.animate
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.layout.Box
@@ -25,7 +23,6 @@ import androidx.compose.ui.draw.drawWithCache
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.layer.CompositingStrategy
 import androidx.compose.ui.graphics.layer.drawLayer
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.platform.LocalLocale
@@ -47,6 +44,7 @@ import com.akane.inspiration.designsystem.component.LegendItem
 import com.akane.inspiration.designsystem.component.LegendRow
 import com.akane.inspiration.designsystem.component.format.rememberSystemZoneId
 import com.akane.inspiration.designsystem.component.format.rememberTelemetryFormat
+import com.akane.inspiration.designsystem.component.rememberReducedMotion
 import com.akane.inspiration.designsystem.theme.spacing
 import com.akane.inspiration.designsystem.theme.telemetryColors
 import com.akane.inspiration.designsystem.theme.withTabularFigures
@@ -354,8 +352,7 @@ private fun DimFadeEffect(
     interaction: ScrubInteractionState,
     hasSelection: Boolean,
 ) {
-    val context = LocalContext.current
-    val animationsEnabled = remember(context) { animatorDurationScale(context) != 0f }
+    val animationsEnabled = !rememberReducedMotion()
     LaunchedEffect(hasSelection, animationsEnabled) {
         val dim = interaction.dimProgress
         when {
@@ -393,14 +390,6 @@ private fun PreviewClearEffect(interaction: ScrubInteractionState) {
         }
     }
 }
-
-/** Read once per composition; the safe default is 1 (animations on) when the setting is unreadable. */
-private fun animatorDurationScale(context: Context): Float =
-    try {
-        Settings.Global.getFloat(context.contentResolver, Settings.Global.ANIMATOR_DURATION_SCALE, 1f)
-    } catch (_: RuntimeException) {
-        1f
-    }
 
 private fun scrubChartHeight(
     laneGap: Dp,
