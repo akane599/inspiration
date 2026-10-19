@@ -32,7 +32,7 @@ Severity is the coordinator's final call after validation. "Validator" notes the
 
 ### HIGH
 
-#### [F-01] HIGH — Toolkit "Allow", Restore and Reset all write appop mode `default`, which leaves RUN_ANY_IN_BACKGROUND restricted
+#### [F-01] HIGH [FIXED in 81c4c9e, c924c24] — Toolkit "Allow", Restore and Reset all write appop mode `default`, which leaves RUN_ANY_IN_BACKGROUND restricted
 - **Category:** Logic Bug (privileged write path)
 - **Location:** `…/ipc/toolkit/Toolkit.kt:23-26`; `feature/toolkit/src/main/kotlin/com/akane/inspiration/toolkit/ToolkitViewModel.kt:346-347`; `…/telemetry/toolkit/ToolkitActions.kt:925-929` (restoreAction), `:999-1009` (sameState), `:1695-1701` (modeOf); `…/ipc/toolkit/ToolkitParsers.kt:10-12`; `…/ipc/toolkit/ToolkitExecutor.kt:70-74`; `feature/toolkit/.../ToolkitMapper.kt:26`.
 - **Confidence:** Confirmed (source trace + redroid reproduction). Validator: CONFIRMED.
@@ -76,7 +76,7 @@ Severity is the coordinator's final call after validation. "Validator" notes the
   ```
   Stop treating `allow`/`default` as the same state in `sameState`; show a live `default` reading as *restricted* in `ToolkitMapper` so already-affected apps can be repaired; add `ALLOW` to the service-side allowlist and bump `ToolkitApi.VERSION` (mode codes cross AIDL). Add an executor test asserting the permissive argv is `allow`, and a parser test for "No operations." → `allow`.
 
-#### [F-02] HIGH — Per-app attribution is discarded whenever interval endpoints come from different app processes or straddle any package change
+#### [F-02] HIGH [FIXED in d60ec89, 05f48ef] — Per-app attribution is discarded whenever interval endpoints come from different app processes or straddle any package change
 - **Category:** Logic Bug / Architecture
 - **Location:** `…/telemetry/diff/SnapshotDiffer.kt:223-231`; `…/telemetry/source/UidIdentityReader.kt:94` (also epoch regeneration ~`:169`, `:185`); `…/telemetry/snapshot/UidIdentity.kt:8-17`; consumers `feature/xray/.../XRayMapper.kt:56`, `core/diagnostics/.../DiagnosticRuleEngine.kt:29`, `feature/sleeplab/.../SleepLabMappers.kt:149,195`; single full-capture source `app/src/main/kotlin/com/akane/inspiration/AppContainer.kt:95`.
 - **Confidence:** Confirmed via call trace. Validator: CONFIRMED (HIGH).
@@ -102,7 +102,7 @@ Severity is the coordinator's final call after validation. "Validator" notes the
 
 ### MEDIUM
 
-#### [F-03] MEDIUM — "Since unplugged" / "Last 24h" can resolve a snapshot against itself and silently show an empty analysis
+#### [F-03] MEDIUM [FIXED in bf55974] — "Since unplugged" / "Last 24h" can resolve a snapshot against itself and silently show an empty analysis
 - **Category:** Logic Bug
 - **Location:** `…/telemetry/diff/ReferenceResolver.kt:49-55,106-120`; `core/database/src/main/kotlin/com/akane/inspiration/database/Daos.kt:95-111`; `core/diagnostics/.../analysis/IntervalAnalyzer.kt:43`; `feature/xray/.../XRayMapper.kt:56,62-72`.
 - **Confidence:** Confirmed via call trace. Validator: CONFIRMED (wider than described).
@@ -127,7 +127,7 @@ Severity is the coordinator's final call after validation. "Validator" notes the
   ```
   Surface a null resolution as an explicit "not enough data yet" state. Add `ReferenceResolverTest` "only the end FULL after the boundary → not self-paired".
 
-#### [F-04] MEDIUM — Interval metrics and Battery Story treat time after the last ingested history event as known state
+#### [F-04] MEDIUM [FIXED in fcaa4e2, 6b3c38d] — Interval metrics and Battery Story treat time after the last ingested history event as known state
 - **Category:** Logic Bug
 - **Location:** `core/diagnostics/.../analysis/IntervalAnalyzer.kt:40-49`; `…/telemetry/interval/IntervalMetrics.kt:41-47`; `core/diagnostics/.../analysis/TimelineBuilder.kt:176`; `core/diagnostics/.../BatteryStoryBuilder.kt:23-29`; `app/.../capture/CapturePolicy.kt:27-35,84`.
 - **Confidence:** Confirmed via call trace (narrower trigger). Validator: CONFIRMED-NARROWER.
@@ -149,7 +149,7 @@ Severity is the coordinator's final call after validation. "Validator" notes the
   ```
   and close `TimelineBuilder` lanes at the same horizon. Test: history ending at T, LIGHT end at T+6h → no Summary, no extrapolated rate.
 
-#### [F-05] MEDIUM — Toolkit commands are hard-wired to user 0 while package inspection uses the app's own user
+#### [F-05] MEDIUM [FIXED in 274353f] — Toolkit commands are hard-wired to user 0 while package inspection uses the app's own user
 - **Category:** Logic Bug (privileged write path)
 - **Location:** `…/ipc/toolkit/ToolkitExecutor.kt:14` (`private const val USER = "0"`, used at ~`:70,:106,:134,:326-351`); `…/ipc/toolkit/Inspection.kt:58-75,97`; `…/ipc/toolkit/CommandRunner.kt:25-26`; `…/ipc/service/TelemetryUserService.kt:117-128`; `app/.../AppContainer.kt:242-248`.
 - **Confidence:** Confirmed via call trace + Shizuku APK disassembly (UserService context created with `createPackageContextAsUser(…, UserHandle.of(uid/100000))`). Device run in a work profile not performed. Validator: CONFIRMED-NARROWER.
@@ -163,7 +163,7 @@ Severity is the coordinator's final call after validation. "Validator" notes the
   ```
   (Full support: replace every literal `"0"` with `userId.toString()`, including role/secure-settings reads and `ACCESSIBILITY_SERVICES_ARGV`.) Unit test: executor with `userId = 10` never emits `"--user","0"` / refuses.
 
-#### [F-06] MEDIUM — A custom doze value replaced via Balanced → Standard cannot be restored
+#### [F-06] MEDIUM [FIXED in 170ad81] — A custom doze value replaced via Balanced → Standard cannot be restored
 - **Category:** Logic Bug
 - **Location:** `…/telemetry/toolkit/ToolkitActions.kt:1087-1093` (mayBeActive), `:1122-1129` (isActive), `:551-556` (overCustom); `feature/toolkit/.../ToolkitViewModel.kt:338`; `feature/toolkit/src/main/res/values/strings.xml:5`.
 - **Confidence:** Confirmed via call trace. Validator: CONFIRMED.
@@ -181,7 +181,7 @@ Severity is the coordinator's final call after validation. "Validator" notes the
   ```
   (`activeOverride` already returns null when current equals the chain original, so unset-original chains still produce no override.) Test: `customOriginalThroughBalancedThenStandardIsAnOverrideRestoringTheCustomValue`.
 
-#### [F-07] MEDIUM — Cockpit live gauge freezes on its last reading when Shizuku reads stop
+#### [F-07] MEDIUM [FIXED in 6fb77bf] — Cockpit live gauge freezes on its last reading when Shizuku reads stop
 - **Category:** Logic Bug
 - **Location:** `feature/dashboard/src/main/kotlin/com/akane/inspiration/dashboard/CockpitViewModel.kt:112-116,136-141`; `…/telemetry/live/LiveTelemetry.kt:33-38`; `…/telemetry/source/AndroidTelemetrySource.kt:157-160`.
 - **Confidence:** Confirmed via call trace. Validator: CONFIRMED.
@@ -205,7 +205,7 @@ Severity is the coordinator's final call after validation. "Validator" notes the
   ```
   plus clearing `live` when `shizukuState` leaves Ready. Test: a source that stops emitting returns the gauge to dashes.
 
-#### [F-08] MEDIUM — Touching near a scrub-chart selection edge immediately captures and moves the edge; taps can't clear, vertical scrolls are swallowed
+#### [F-08] MEDIUM [FIXED in e197969] — Touching near a scrub-chart selection edge immediately captures and moves the edge; taps can't clear, vertical scrolls are swallowed
 - **Category:** Logic Bug (input handling)
 - **Location:** `core/designsystem/src/main/kotlin/com/akane/inspiration/designsystem/chart/math/ScrubGestureReducer.kt:82-99,117-118,151-164`; `…/chart/scrub/ScrubGestures.kt:43,58-59,88-90`; `…/chart/scrub/ScrubChartState.kt` (`HandleHit = 48.dp`); caller `feature/dashboard/.../CockpitChartCard.kt:51-57`.
 - **Confidence:** Confirmed via call trace. Validator: CONFIRMED.
@@ -218,7 +218,7 @@ Severity is the coordinator's final call after validation. "Validator" notes the
 - **Failure scenario:** On a ~250-300 dp plot of a 24 h window, 48 dp ≈ 4 h: a tap inside a slice narrower than ~96 dp moves an edge by hours and re-runs the analysis instead of clearing; touching a handle without moving shifts it; a vertical page scroll starting near an edge is eaten and moves the edge.
 - **Concrete fix:** hit radius `HandleHit / 2`; add `PressedOnHandle(edge, otherEdgeMs, edgeMs, downX, downY)` that waits for touch slop, releases on vertical-dominant movement, and treats Up-before-slop as a tap; make dragging relative: `currentMs = (edgeMs + scale.toTime(x) - scale.toTime(downX)).coerceIn(window)`. Test `tapNearHandleDoesNotMoveSelection`: `run(selection, Down(240f, 50f), Up(240f))` must not return `Set(…)`.
 
-#### [F-09] MEDIUM — The Shizuku "ACTIVE" halo animates forever, requesting a frame every vsync on the Cockpit
+#### [F-09] MEDIUM [FIXED in 9dce621] — The Shizuku "ACTIVE" halo animates forever, requesting a frame every vsync on the Cockpit
 - **Category:** Performance (battery / observer effect)
 - **Location:** `core/designsystem/src/main/kotlin/com/akane/inspiration/designsystem/component/ShizukuPulse.kt:58,77-86`; caller `feature/dashboard/.../CockpitHeader.kt:105` inside `verticalScroll` (`CockpitScreen.kt:42`); `CockpitMappers.kt:55` (Ready → ACTIVE).
 - **Confidence:** Confirmed via call trace; frame-rate impact not measured on device. Validator: CONFIRMED.
@@ -238,7 +238,7 @@ Severity is the coordinator's final call after validation. "Validator" notes the
 
 ### LOW
 
-#### [F-10] LOW — The shared AnalysisSession cannot be recomputed by Retry or on becoming visible
+#### [F-10] LOW [FIXED in 4e398fc] — The shared AnalysisSession cannot be recomputed by Retry or on becoming visible
 - **Category:** Logic Bug / Lifecycle
 - **Location:** `core/diagnostics/.../analysis/AnalysisSession.kt:63-84`; `app/.../AppContainer.kt:155-162`; `app/.../di/RefreshCoordinator.kt:65-66,83`; `feature/dashboard/.../CockpitViewModel.kt:69-90,151-159`, `CockpitCards.kt:54,61`; `feature/xray/.../XRayScreen.kt:218-223`, `XRayViewModel.kt:139-152`; `feature/sleeplab/.../SleepLabScreen.kt:113-116,160-164`, `SleepLabViewModel.kt:58-75,170-197`.
 - **Confidence:** Confirmed. Validator: CONFIRMED-NARROWER (two reviewers found it independently).
@@ -246,87 +246,87 @@ Severity is the coordinator's final call after validation. "Validator" notes the
 - **Failure scenario:** a transient Room/analyzer exception leaves the Error card with a Retry that does nothing for 60 s (indefinitely while Shizuku is down, although the analysis only reads Room). The hypnogram's Failed state recovers on tab re-entry, but its Retry is dead.
 - **Fix:** `AnalysisSession.recompute()` backed by a `MutableSharedFlow<Unit>(extraBufferCapacity = 1, DROP_OLDEST)` merged into the tick flow; expose via the Cockpit/X-Ray/Sleep Lab dependency interfaces; call from Retry when the state is Failed and on `Debounced`/`Failed`/`null` refresh results.
 
-#### [F-11] LOW — Cockpit and Health "Refresh failed" effects outlive the visit
+#### [F-11] LOW [FIXED in be42593] — Cockpit and Health "Refresh failed" effects outlive the visit
 - **Category:** Lifecycle
 - **Location:** `feature/health/.../HealthViewModel.kt:86-97,153-175`, `HealthRoute.kt:61-67`; `feature/dashboard/.../CockpitViewModel.kt:120-128,157-161`, `CockpitRoute.kt:43-49`.
 - **Confidence:** Confirmed. Validator: CONFIRMED (found independently by two reviewers).
 - **Trace:** `onHidden` keeps `userWaiting` and doesn't drain the `BUFFERED` effect channel; `AppShell` composes only the selected tab, so the collector is gone; a pulled refresh (≤10 s) failing after the user left buffers `RefreshFailed`, which the next visit's collector shows — possibly right after a successful refresh. Collectors lack `repeatOnLifecycle(STARTED)`. Sleep Lab and X-Ray already gate/drain correctly.
 - **Fix:** in `onHidden`: `userWaiting = false; while (effectChannel.tryReceive().isSuccess) Unit`; send only `if (userWaiting && visible)`; wrap route collectors in `lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED)`.
 
-#### [F-12] LOW — Cockpit timeline reload cancels a scrub/brush in progress
+#### [F-12] LOW [FIXED in 460c22f] — Cockpit timeline reload cancels a scrub/brush in progress
 - **Category:** Logic Bug (input)
 - **Location:** `core/designsystem/.../chart/scrub/ScrubGestures.kt:42` (`pointerInput(window)`); `feature/dashboard/.../CockpitViewModel.kt:150-177` (`to = clocks.wallMs()`), `CockpitMappers.kt:150-151`.
 - **Confidence:** Confirmed. Validator: CONFIRMED-NARROWER (only the post-`Refreshed` reload a few seconds after entering).
 - **Failure scenario:** a gesture started right after opening the tab is cleared without commit when the refresh lands; the still-pressed finger is ignored by the restarted `awaitFirstDown`.
 - **Fix:** key `pointerInput(Unit)`, read the window through `rememberUpdatedState` in `ScrubGestureInputs`, build the `TimeScale` at Down.
 
-#### [F-13] LOW — Multi-day hypnogram labels sub-day ticks with dates only
+#### [F-13] LOW [FIXED in 75edef5] — Multi-day hypnogram labels sub-day ticks with dates only
 - **Category:** Logic Bug (presentation)
 - **Location:** `core/designsystem/.../chart/hypnogram/SleepHypnogram.kt:290-294,454-455`; `…/chart/math/TimeTicks.kt:15-31`; producer `feature/sleeplab/.../SleepLabMappers.kt:48`.
 - **Confidence:** Confirmed; reachable for SinceUnplugged/CustomMarker windows of 2–2.5 days. Validator: CONFIRMED-NARROWER.
 - **Failure scenario:** 12 h ticks labelled "18 Oct, 18 Oct, 19 Oct, 19 Oct"; the selection a11y description loses time of day.
 - **Fix:** have `niceTimeTicks` return the chosen step and pick the formatter from the step (`d MMM HH:mm` for sub-day steps), or add `dayAligned = window ≥ 2 days`.
 
-#### [F-14] LOW — A chart series with a single point draws nothing
+#### [F-14] LOW [FIXED in e883122] — A chart series with a single point draws nothing
 - **Category:** Logic Bug (presentation)
 - **Location:** `core/designsystem/.../chart/scrub/ScrubChartRenderer.kt:228-229`; `core/diagnostics/.../TimelineBuilder.kt:74-76`; `…/ipc/client/BatteryHistory.kt:142`.
 - **Confidence:** Confirmed. Validator: CONFIRMED.
 - **Failure scenario:** 24 h window with one level change (e.g. charged to 100 % early) shows axes and lanes with no line and no empty-state text.
 - **Fix:** seed a LEVEL point at `from` from the last LEVEL before the window (add LEVEL to `TimelineEvents.withSeeds`) and extend to `to`; minimally draw a dot when `points.size == 1`.
 
-#### [F-15] LOW — A timed-out force-stop is reported FAILED instead of UNVERIFIED
+#### [F-15] LOW [FIXED in d848ec6] — A timed-out force-stop is reported FAILED instead of UNVERIFIED
 - **Location:** `…/ipc/toolkit/ToolkitExecutor.kt:134-135` vs `writeFailed` (~`:374-378`).
 - **Confidence:** Confirmed; impact cosmetic (reconcile still ends FAILED/UNVERIFIED). Validator: CONFIRMED-NARROWER.
 - **Fix:** `if (!write.ok) return writeFailed(write, "stopped=${target.facts.stopped}")`.
 
-#### [F-16] LOW — `awaitServiceUse` can give up when the state flips to Ready between a failed acquire and the state read
+#### [F-16] LOW [FIXED in c920fe7] — `awaitServiceUse` can give up when the state flips to Ready between a failed acquire and the state read
 - **Location:** `…/ipc/ShizukuManagerImpl.kt:234-240` (state read outside `bindingLock`; set at ~`:355-358` on Main).
 - **Confidence:** Confirmed (narrow window; traced only). Validator: CONFIRMED-NARROWER.
 - **Failure scenario:** one cold-start capture returns unavailable although Shizuku became Ready microseconds later.
 - **Fix:** decide inside the lock with three outcomes (acquired / wait while NotRunning / fail), or retry once when the observed state is Ready.
 
-#### [F-17] LOW — After a slow service shutdown, the timeout rebind can leave a dead telemetry binder in use while a screen holds the binding
+#### [F-17] LOW [FIXED in dc11437] — After a slow service shutdown, the timeout rebind can leave a dead telemetry binder in use while a screen holds the binding
 - **Location:** `…/ipc/ShizukuManagerImpl.kt:73-79` (KDoc admits the handover is not fully fenced), `:84-128`, `:214-223`, `:314-320`, `:488` (`UNBIND_SETTLE_TIMEOUT_MS = 2_000L`); `…/ipc/toolkit/BgDexoptController.kt` (`SHUTDOWN_CANCEL_TIMEOUT_MS = 3_000L`).
 - **Confidence:** Confirmed against disassembled Shizuku api 13.1.5 (`ShizukuServiceConnection.died()` fires once, clears connections). Validator: CONFIRMED-NARROWER (requires >2 s old-process death + holder in window + later death of the new process).
 - **Failure scenario:** every live reading/toolkit call fails (RemoteException → null) until the user leaves Cockpit/Health.
 - **Fix:** on `RemoteException` with `!service.asBinder().isBinderAlive`, invalidate the binding under `bindingLock` (same generation) and rebind; `linkToDeath` on the binder accepted in `onServiceConnected`; raise the settle timeout above the service's bounded shutdown (e.g. 5 s).
 
-#### [F-18] LOW — Doze compare-and-swap uses an execute-time read, so the "changed while you were deciding" re-ask never fires
+#### [F-18] LOW [FIXED in b645262, 729876f] — Doze compare-and-swap uses an execute-time read, so the "changed while you were deciding" re-ask never fires
 - **Location:** `…/telemetry/toolkit/ToolkitActions.kt:551-555,629-633,682-683`; `feature/toolkit/.../ToolkitViewModel.kt:409-437`.
 - **Confidence:** Confirmed. Validator: CONFIRMED-NARROWER (overwritten value is still recorded as `before`).
 - **Fix:** carry the plan-time raw value in `ApplyDoze(profile, expectedBeforeRaw)` and refuse with STALE when it differs.
 
-#### [F-19] LOW — Each toolkit load recomputes active overrides twice under the global mutex
+#### [F-19] LOW [FIXED in da2dbfd] — Each toolkit load recomputes active overrides twice under the global mutex
 - **Location:** `app/.../AppContainer.kt:250-255`; `feature/toolkit/.../ToolkitViewModel.kt:144-146,207-209`; `ToolkitActions.kt:264-270`.
 - **Confidence:** Confirmed. Validator: CONFIRMED.
 - **Fix:** drop `activeOverrides().first()` from `installedApps()`; let the VM merge restricted flags from its own collector (`showOverrides` already does).
 
-#### [F-20] LOW — Toolkit detail sheet can stay on its spinner after Hidden → Visible when the reload fails
+#### [F-20] LOW [FIXED in 0a7dd92] — Toolkit detail sheet can stay on its spinner after Hidden → Visible when the reload fails
 - **Location:** `feature/toolkit/.../ToolkitViewModel.kt:126-134,185-194`; `ToolkitApps.kt:249`.
 - **Confidence:** Confirmed. Validator: CONFIRMED-NARROWER (sheet can be dismissed).
 - **Fix:** on the FAILED path set Loading controls to `Unavailable` (with retry) or re-run `loadDetail()`.
 
-#### [F-21] LOW — `lastOfEachKindBefore` returns history rows with unknown wall time (`wallMs = -1`)
+#### [F-21] LOW [FIXED in 245f142] — `lastOfEachKindBefore` returns history rows with unknown wall time (`wallMs = -1`)
 - **Location:** `core/database/.../Daos.kt:228-233`; `…/ipc/client/BatteryHistory.kt:189`; `app/.../AppContainer.kt:177`; contrast `…/telemetry/store/SnapshotStore.kt:67-72`.
 - **Confidence:** Confirmed; impact small (pruned soon after insert). Validator: CONFIRMED-NARROWER.
 - **Fix:** `… WHERE wallMs >= 0 AND wallMs < :beforeWallMs GROUP BY kind`; optionally skip `wallMs < 0` events at insert.
 
-#### [F-22] LOW — Battery-stats session matching is exact in `dischargeDelta`/resolver SQL but ±2 s elsewhere
+#### [F-22] LOW [FIXED in 222ff2c] — Battery-stats session matching is exact in `dischargeDelta`/resolver SQL but ±2 s elsewhere
 - **Location:** `…/telemetry/diff/SnapshotDiffer.kt:143-153` vs `:175-184`; `…/telemetry/capture/SnapshotCapturer.kt:129`; `ReferenceResolver.kt:110-114`; `Daos.kt:100`.
 - **Confidence:** Confirmed inconsistency; `BatteryStatsImpl.noteCurrentTimeChangedLocked` does shift `statsStartMs` on wall-clock steps (Android 15 services.jar), sub-2 s shifts uncommon. Validator: CONFIRMED-NARROWER.
 - **Fix:** one shared `sameBatteryStatsSession` predicate used by `dischargeDelta`; range comparison in the resolver SQL.
 
-#### [F-23] LOW — Overlapping full captures fail each other's UID identity proof
+#### [F-23] LOW [FIXED in 9c2e9f7, 5d9e0af] — Overlapping full captures fail each other's UID identity proof
 - **Location:** `…/telemetry/source/UidIdentityReader.kt:97-106,118,139-147,165-167`; `…/telemetry/capture/SnapshotCapturer.kt:47-51`; `app/.../capture/CapturePolicy.kt:84`.
 - **Confidence:** Confirmed (narrow overlap of short phases). Validator: CONFIRMED-NARROWER. Becomes more relevant once F-02 is fixed.
 - **Fix:** replace fail-fast `physicalCall` with a short timed wait (mutex with timeout, released in the executor `finally`), keeping a separate abandoned-call flag.
 
-#### [F-24] LOW — Cockpit screen-time tile falls back to history metrics even when part of the interval is unknown
+#### [F-24] LOW [FIXED in 56984db] — Cockpit screen-time tile falls back to history metrics even when part of the interval is unknown
 - **Location:** `feature/dashboard/.../CockpitMappers.kt:96`.
 - **Confidence:** Confirmed. Validator: CONFIRMED-NARROWER.
 - **Fix:** `screenOnMs = sleep?.screenOnMs ?: metrics.screenOnMs.takeIf { metrics.unknownMs == 0L && metrics.discontinuities.isEmpty() }`.
 
-#### [F-25] LOW — "Most prominent" anomaly is chosen by comparing magnitudes in different units
+#### [F-25] LOW [FIXED in 6c517ac] — "Most prominent" anomaly is chosen by comparing magnitudes in different units
 - **Location:** `core/diagnostics/.../model/InsightOrder.kt:13-18`; `BatteryStoryBuilder.kt:34`; pinned by `InsightOrderTest.kt:38-39`.
 - **Confidence:** Confirmed. Validator: CONFIRMED (GPS leak is the only RED leak).
 - **Failure scenario:** a 5-minute RED GPS leak (300 000 ms) always outranks a RED Night Vampire (mAh) or a 90 % Awake Violation (ratio ≤ 1.0) in the story's "most notable" sentence.
@@ -453,3 +453,59 @@ Three of the surviving issues are fixes applied at **one call site instead of th
 
 ### Baseline comparison
 Previous final gate: 1,399 unit tests / 177 screenshot validations, 9 lint warnings. This audit: 1,399 unit tests re-executed (0 failures/errors/skips), screenshot validation passed (up-to-date), same 9 lint warnings. No post-freeze discovery was added to the independent findings; frozen bytes are unchanged.
+
+## Remediation (2026-10-19, branch `audit-remediate-e-20261019`, release 0.2.3)
+
+All 25 confirmed findings are FIXED. Each fix is one commit with a regression test, written in an isolated worktree, verified with its module's narrow tests and lint, then cherry-picked or fast-forwarded. F-01, F-05, F-06, F-18 (toolkit) and F-02, F-23 (UID identity) also had an independent diff review; each follow-up commit below closes a gap that review or the user report raised.
+
+| ID | Commit(s) | Status |
+|---|---|---|
+| F-01 | `81c4c9e`, follow-up `c924c24` (apps a 0.2.2 restore left at `default` are listed restricted, and Reset all writes `allow`) | FIXED |
+| F-02 | `d60ec89`, follow-up `05f48ef` (one bulk `getInstalledPackages` read proves every app UID within the owner budget; per-UID fallback in energy order) | FIXED |
+| F-03 | `bf55974` | FIXED |
+| F-04 | `fcaa4e2`, follow-up `6b3c38d` (2-minute grace window; single-query horizon) | FIXED |
+| F-05 | `274353f` | FIXED (containment only; no multi-user support) |
+| F-06 | `170ad81` | FIXED |
+| F-07 | `6fb77bf` | FIXED |
+| F-08 | `e197969` | FIXED |
+| F-09 | `9dce621` | FIXED (no frame-count measurement on a device) |
+| F-10 | `4e398fc` | FIXED |
+| F-11 | `be42593` | FIXED |
+| F-12 | `460c22f` | FIXED (no Compose UI test harness; covered by review only) |
+| F-13 | `75edef5` | FIXED (2 screenshot references intentionally updated) |
+| F-14 | `e883122` | FIXED (new single-point screenshot reference) |
+| F-15 | `d848ec6` | FIXED |
+| F-16 | `c920fe7` | FIXED (race not deterministically testable; existing wait tests pass) |
+| F-17 | `dc11437` | FIXED |
+| F-18 | `b645262`, follow-up `729876f` (refuse a doze apply unless the card is loaded) | FIXED |
+| F-19 | `da2dbfd` | FIXED |
+| F-20 | `0a7dd92` | FIXED |
+| F-21 | `245f142` | FIXED |
+| F-22 | `222ff2c` | FIXED |
+| F-23 | `9c2e9f7`, follow-up `5d9e0af` (gate released on any throwable; token-clear test) | FIXED |
+| F-24 | `56984db` | FIXED |
+| F-25 | `6c517ac` | FIXED (fixed rule priority, not a normalised score) |
+
+**User report tied to F-02:** on a real phone, X-Ray "Apps" showed no apps or icons, only system UIDs. Root cause at `bf9b625`: app UIDs required equal reader epoch and package-change sequence across snapshots, so every app was `uid_identity_unknown` and `XRayMapper.apps` dropped it. Two other contributing risks were closed: the per-UID 400 ms owner budget, which cut off high (user-installed) UIDs, and the F-23 gate.
+
+**Final gate** (alone, `--max-workers=8 --rerun-tasks`): `testDebugUnitTest lintDebug validateDebugScreenshotTest :app:assembleDebug :app:minifyReleaseWithR8 :app:assembleRelease`, exit 0.
+- 1,509 unit tests, 0 failures/errors/skips (baseline 1,399).
+- The same 9 lint warnings, 0 errors.
+- Screenshots validated.
+- Signed 0.2.3 release APK certificate SHA-256 `1d344dd2…f1f3de60`.
+
+**Device (redroid, Android 15):**
+- 0.2.3 was installed in place over 0.2.2 and runs with no crash.
+- A capture from the new service process (new reader epoch, package-change sequence 39 → 40, bulk owner read) produced owner fingerprints identical to the 0.2.2 capture for all 27 provable app UIDs. The other two UIDs have no installed package. Under F-02 these compare valid; at `bf9b625` all 27 were withheld.
+
+**Not verified on a device:**
+- The X-Ray app list itself: redroid has no power model, so every UID reads 0 mAh.
+- F-01 through the Toolkit UI: every redroid app the picker lists is protected.
+- F-05 on a work profile.
+
+**Interface notes for the decision log:**
+- `ToolkitApi.VERSION` is now 3 (mode `allow`=3; a write of mode 2 is refused; refusal `UNSUPPORTED_USER`=14).
+- `recomputeAnalysis()` was added to the Cockpit, X-Ray and Sleep Lab dependency interfaces.
+- `ToolkitDependencies.installedApps()` now returns launchable apps only.
+- `SnapshotStore.historyHorizonWallMs()` and `UidIdentityBackend.installedOwners()` were added.
+- No Room schema change.
