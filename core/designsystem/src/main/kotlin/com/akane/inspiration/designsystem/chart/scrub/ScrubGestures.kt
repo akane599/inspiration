@@ -68,12 +68,9 @@ internal fun Modifier.scrubGestures(
                 var lastX = down.position.x - originX
                 var lastUptime = down.uptimeMillis
                 while (true) {
-                    val pressed =
-                        driver.gestureState is ScrubGestureState.Pressed ||
-                            driver.gestureState is ScrubGestureState.PressedOnHandle
                     val event =
-                        if (pressed) {
-                            val remaining = (longPressMs - (lastUptime - down.uptimeMillis)).coerceAtLeast(0L)
+                        if (driver.awaitsLongPress) {
+                            val remaining = longPressRemainingMs(longPressMs, down.uptimeMillis, lastUptime)
                             withTimeoutOrNull(remaining) { awaitPointerEvent() }
                         } else {
                             awaitPointerEvent()
@@ -85,18 +82,9 @@ internal fun Modifier.scrubGestures(
                     val change = event.changes.firstOrNull { it.id == down.id } ?: break
                     lastX = change.position.x - originX
                     lastUptime = change.uptimeMillis
-                    if (change.isConsumed) {
-                        driver.dispatch(ScrubGestureEvent.Cancel)
-                        break
-                    }
-                    val reducerEvent =
-                        if (change.pressed) {
-                            ScrubGestureEvent.Move(lastX, change.position.y)
-                        } else {
-                            ScrubGestureEvent.Up(lastX)
-                        }
+                    val reducerEvent = pointerChangeEvent(change.isConsumed, change.pressed, lastX, change.position.y)
                     val result = driver.dispatch(reducerEvent)
-                    if (result.release) break
+                    if (reducerEvent == ScrubGestureEvent.Cancel || result.release) break
                     if (result.consume) {
                         event.changes.forEach { if (it.positionChanged() || !it.pressed) it.consume() }
                     }
@@ -108,8 +96,35 @@ internal fun Modifier.scrubGestures(
         }
     }
 
+/**
+ * How long a pointer that went down at [downUptimeMs] and last reported at [lastUptimeMs] still has to stay before
+ * it is a long press. Measured from the Down, so movement under the slop never restarts the timeout; never negative.
+ */
+internal fun longPressRemainingMs(
+    longPressTimeoutMs: Long,
+    downUptimeMs: Long,
+    lastUptimeMs: Long,
+): Long = (longPressTimeoutMs - (lastUptimeMs - downUptimeMs)).coerceAtLeast(0L)
+
+/**
+ * The reducer event for one change of the tracked pointer at plot position ([x], [y]). A change another handler
+ * already consumed (a parent scroll took over) cancels the gesture, whatever the pointer did; otherwise a pressed
+ * pointer moved and a lifted one is up.
+ */
+internal fun pointerChangeEvent(
+    consumed: Boolean,
+    pressed: Boolean,
+    x: Float,
+    y: Float,
+): ScrubGestureEvent =
+    when {
+        consumed -> ScrubGestureEvent.Cancel
+        pressed -> ScrubGestureEvent.Move(x, y)
+        else -> ScrubGestureEvent.Up(x)
+    }
+
 /** Runs the reducer for one gesture and mirrors its result into the draw-phase state and callbacks. */
-private class ScrubGestureDriver(
+internal class ScrubGestureDriver(
     private val reducer: ScrubGestureReducer,
     private val scale: TimeScale,
     private val state: ScrubInteractionState,
@@ -117,6 +132,10 @@ private class ScrubGestureDriver(
 ) {
     var gestureState: ScrubGestureState = ScrubGestureState.Idle
         private set
+
+    /** The pointer is down and still under the slop, so a long press is still possible (the loop waits with a timeout). */
+    val awaitsLongPress: Boolean
+        get() = gestureState is ScrubGestureState.Pressed || gestureState is ScrubGestureState.PressedOnHandle
 
     private var reportedScrub = false
     private var committed = false

@@ -9,7 +9,10 @@ import androidx.compose.ui.text.drawText
 import com.akane.inspiration.designsystem.chart.math.TimeScale
 
 /** A tick position with its label, measured once in the cache block (never per frame). */
-class TimeTick(val tMs: Long, val label: TextLayoutResult)
+class TimeTick(
+    val tMs: Long,
+    val label: TextLayoutResult,
+)
 
 /**
  * @property tickColor color of the tick marks.
@@ -29,48 +32,89 @@ data class AxisStyle(
 
 /**
  * Draws tick marks and centered labels with the axis origin at y = 0 of the current draw scope
- * (translate before calling to place it). Labels are kept inside `0..scale.widthPx`; ticks outside
- * the window are skipped. A label pushed inward at the window edge is dropped (its tick mark stays)
- * when it would come within half its own width of its neighbour, so edge labels never crowd or clip.
+ * (translate before calling to place it). Where each label goes is [placeTimeAxisLabels].
  * Allocates nothing: [ticks] and their layouts are prepared by the caller.
  */
-fun DrawScope.drawTimeAxis(ticks: List<TimeTick>, scale: TimeScale, style: AxisStyle) {
+fun DrawScope.drawTimeAxis(
+    ticks: List<TimeTick>,
+    scale: TimeScale,
+    style: AxisStyle,
+) {
     val labelTop = style.tickLengthPx + style.labelGapPx
-    var prevLabelEnd = Float.NEGATIVE_INFINITY
-    for (i in ticks.indices) {
-        val tick = ticks[i]
-        val x = scale.toX(tick.tMs)
-        if (x < 0f || x > scale.widthPx) continue
+    placeTimeAxisLabels(
+        count = ticks.size,
+        widthPx = scale.widthPx,
+        tickX = { scale.toX(ticks[it].tMs) },
+        labelWidth = {
+            ticks[it]
+                .label.size.width
+                .toFloat()
+        },
+    ) { index, x, labelLeft ->
         drawLine(
             color = style.tickColor,
             start = Offset(x, 0f),
             end = Offset(x, style.tickLengthPx),
             strokeWidth = style.strokePx,
         )
-        val labelWidth = tick.label.size.width.toFloat()
-        val labelX = clampedLabelLeft(x, labelWidth, scale.widthPx)
-        val pushedInward = labelX != x - labelWidth / 2f
+        if (!labelLeft.isNaN()) {
+            drawText(ticks[index].label, color = style.labelColor, topLeft = Offset(labelLeft, labelTop))
+        }
+    }
+}
+
+/**
+ * The time-axis label layout, as one pure pass over [count] ticks in time order. [tickX] is tick i's x in the plot
+ * and [labelWidth] its label's width. [place] is called, in order, for every tick inside `0..widthPx` (outside ticks
+ * are skipped) with the label's left edge, or `Float.NaN` when the label is dropped; its tick mark stays either way.
+ *
+ * - A label is centred on its tick and kept inside `0..widthPx`.
+ * - A label pushed inward at the window edge is dropped when it would come within half its own width of its
+ *   neighbour: the previous drawn label, or (for the left edge) the next tick's label, which is not placed yet.
+ *   So edge labels never crowd or clip.
+ * - Interior labels are dropped only when they would overlap the previous drawn label.
+ *
+ * Inline so the draw pass allocates nothing.
+ */
+internal inline fun placeTimeAxisLabels(
+    count: Int,
+    widthPx: Float,
+    tickX: (Int) -> Float,
+    labelWidth: (Int) -> Float,
+    place: (index: Int, x: Float, labelLeft: Float) -> Unit,
+) {
+    var prevLabelEnd = Float.NEGATIVE_INFINITY
+    for (i in 0 until count) {
+        val x = tickX(i)
+        if (x < 0f || x > widthPx) continue
+        val width = labelWidth(i)
+        val left = clampedLabelLeft(x, width, widthPx)
+        val pushedInward = left != x - width / 2f
         // An inward-shifted edge label keeps half its own width of clear space; interior labels only must not overlap.
-        val minGap = if (pushedInward) labelWidth / 2f else 0f
-        // A clamped label yields to an interior neighbour: the previous drawn label, or (for the
-        // left edge) the next tick's label, which has not been drawn yet.
-        val crowdsPrevious = labelX < prevLabelEnd + minGap
-        val crowdsNext = pushedInward && labelX + labelWidth + minGap > nextLabelLeft(ticks, i, scale)
-        if (crowdsPrevious || crowdsNext) continue
-        drawText(tick.label, color = style.labelColor, topLeft = Offset(labelX, labelTop))
-        prevLabelEnd = labelX + labelWidth
+        val minGap = if (pushedInward) width / 2f else 0f
+        val crowdsPrevious = left < prevLabelEnd + minGap
+        var crowdsNext = false
+        if (pushedInward) {
+            // Left edge of the next in-window tick's label; none means nothing to crowd.
+            for (j in i + 1 until count) {
+                val nextX = tickX(j)
+                if (nextX < 0f || nextX > widthPx) continue
+                crowdsNext = left + width + minGap > clampedLabelLeft(nextX, labelWidth(j), widthPx)
+                break
+            }
+        }
+        if (crowdsPrevious || crowdsNext) {
+            place(i, x, Float.NaN)
+        } else {
+            place(i, x, left)
+            prevLabelEnd = left + width
+        }
     }
 }
 
-private fun clampedLabelLeft(x: Float, labelWidth: Float, widthPx: Float): Float =
-    (x - labelWidth / 2f).coerceIn(0f, maxOf(0f, widthPx - labelWidth))
-
-/** Left edge of the next in-window tick's label, or +infinity when there is none. */
-private fun nextLabelLeft(ticks: List<TimeTick>, index: Int, scale: TimeScale): Float {
-    for (j in index + 1 until ticks.size) {
-        val x = scale.toX(ticks[j].tMs)
-        if (x < 0f || x > scale.widthPx) continue
-        return clampedLabelLeft(x, ticks[j].label.size.width.toFloat(), scale.widthPx)
-    }
-    return Float.POSITIVE_INFINITY
-}
+/** A label of [labelWidth] centred on [x], moved inward to stay inside `0..widthPx`. */
+internal fun clampedLabelLeft(
+    x: Float,
+    labelWidth: Float,
+    widthPx: Float,
+): Float = (x - labelWidth / 2f).coerceIn(0f, maxOf(0f, widthPx - labelWidth))
