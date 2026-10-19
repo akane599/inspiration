@@ -103,6 +103,19 @@ class AndroidStoryWriterTest {
     }
 
     @Test
+    fun anIntervalThatEndedInThePastIsNotTheLastHoursInEitherLocale() {
+        fun past(hours: Double, locale: Locale) =
+            writer.render(BatteryStory(listOf(StorySentence.Summary(hours, 20, endsNow = false))), locale)
+        assertEquals("Over these 4 hours you used 20% of your battery.", past(4.0, Locale.ENGLISH))
+        assertEquals("Bu 4 saatte pilin %20 kadarını kullandın.", past(4.0, tr))
+        assertEquals("Over this 1 hour you used 20% of your battery.", past(1.0, Locale.ENGLISH))
+        assertEquals("Bu 2,5 saatte pilin %20 kadarını kullandın.", past(2.5, tr))
+        assertEquals("Over these 45 minutes you used 20% of your battery.", past(0.75, Locale.ENGLISH))
+        assertEquals("Bu 45 dakikada pilin %20 kadarını kullandın.", past(0.75, tr))
+        assertEquals("Over this 1 minute you used 20% of your battery.", past(30.0 / 3600.0, Locale.ENGLISH))
+    }
+
+    @Test
     fun highRatingsAndEmptyStory() {
         val story = BatteryStory(
             listOf(

@@ -124,10 +124,13 @@ internal object CockpitPreviewData {
         refreshing = false,
     )
 
-    /** The story and figures of the 13:30 to 17:30 slice: four hours, not the 14 h of the unplugged period. */
+    /**
+     * The story and figures of the 13:30 to 17:30 slice: four hours, not the 14 h of the unplugged period, and in
+     * the past, so "over these hours" rather than "in the last hours".
+     */
     private val sliceStory = BatteryStory(
         listOf(
-            StorySentence.Summary(hours = 4.0, levelUsedPct = 32),
+            StorySentence.Summary(hours = 4.0, levelUsedPct = 32, endsNow = false),
             StorySentence.ScreenOnRate(pctPerHour = 8.4, rating = UsageRating.NORMAL),
             StorySentence.ScreenOffRate(pctPerHour = 0.9, rating = UsageRating.EXCELLENT),
             StorySentence.DeepSleep(ratio = 0.03),

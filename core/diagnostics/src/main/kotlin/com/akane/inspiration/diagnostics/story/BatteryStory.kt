@@ -6,7 +6,11 @@ import com.akane.inspiration.diagnostics.model.RuleId
 enum class UsageRating { EXCELLENT, NORMAL, HIGH, VERY_HIGH }
 
 sealed interface StorySentence {
-    data class Summary(val hours: Double, val levelUsedPct: Int) : StorySentence
+    /**
+     * [endsNow] is false for an interval that ended before the analysis (a time slice, a completed screen-off),
+     * which reads "over these hours" rather than "in the last hours".
+     */
+    data class Summary(val hours: Double, val levelUsedPct: Int, val endsNow: Boolean = true) : StorySentence
     data class ScreenOnRate(val pctPerHour: Double, val rating: UsageRating) : StorySentence
     data class ScreenOffRate(val pctPerHour: Double, val rating: UsageRating) : StorySentence
 

@@ -5,6 +5,7 @@ import com.akane.inspiration.diagnostics.rules.DiagnosticInput
 import com.akane.inspiration.diagnostics.rules.DiagnosticRuleEngine
 import com.akane.inspiration.diagnostics.story.BatteryStory
 import com.akane.inspiration.diagnostics.story.BatteryStoryBuilder
+import com.akane.inspiration.diagnostics.story.endsNow
 import com.akane.inspiration.telemetry.diff.ReferenceKind
 import com.akane.inspiration.telemetry.diff.ReferenceResolver
 import com.akane.inspiration.telemetry.diff.ResolvedReference
@@ -42,7 +43,7 @@ class IntervalAnalyzer(
         val diff = SnapshotDiffer.diff(resolved.ref, resolved.now)
         val metrics = IntervalMetricsCalculator.compute(events, resolved.coveredFromWallMs, resolved.coveredToWallMs)
         val report = ruleEngine.evaluate(DiagnosticInput(diff, metrics, resolved.perUidAvailable))
-        val story = storyBuilder.build(metrics, diff.sleep, report)
+        val story = storyBuilder.build(metrics, diff.sleep, report, endsNow = kind.endsNow)
         return IntervalAnalysis(resolved, diff, metrics, report, story)
     }
 }

@@ -10,6 +10,15 @@
         <item quantity="one">In the last %1$d minute you used %2$d%% of your battery.</item>
         <item quantity="other">In the last %1$d minutes you used %2$d%% of your battery.</item>
     </plurals>
+    <!-- Battery Story for an interval that ended before now (a time slice, a completed screen-off): as above -->
+    <plurals name="story_summary_past">
+        <item quantity="one">Over this %1$s hour you used %2$d%% of your battery.</item>
+        <item quantity="other">Over these %1$s hours you used %2$d%% of your battery.</item>
+    </plurals>
+    <plurals name="story_summary_past_minutes">
+        <item quantity="one">Over this %1$d minute you used %2$d%% of your battery.</item>
+        <item quantity="other">Over these %1$d minutes you used %2$d%% of your battery.</item>
+    </plurals>
     <string name="story_screen_on_rate">With the screen on you used %1$s%% per hour (%2$s).</string>
     <string name="story_screen_off_rate">With the screen off you used %1$s%% per hour (%2$s).</string>
     <string name="story_deep_sleep">Deep sleep ratio was %1$s%%.</string>

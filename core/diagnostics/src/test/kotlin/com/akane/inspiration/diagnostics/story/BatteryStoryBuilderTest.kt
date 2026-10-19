@@ -2,10 +2,12 @@ package com.akane.inspiration.diagnostics.story
 
 import com.akane.inspiration.diagnostics.model.RuleId
 import com.akane.inspiration.diagnostics.model.DiagnosticReport
+import com.akane.inspiration.telemetry.diff.ReferenceKind
 import com.akane.inspiration.telemetry.diff.SnapshotDiffer
 import com.akane.inspiration.telemetry.interval.IntervalMetricsCalculator
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class BatteryStoryBuilderTest {
@@ -127,6 +129,24 @@ class BatteryStoryBuilderTest {
     fun summaryHoursAreWallSpanOverMillisPerHour() {
         val summary = builder.build(metrics(hours = 1.5, levelUsedPct = 7), null, null).sentences.first()
         assertEquals(StorySentence.Summary(hours = 1.5, levelUsedPct = 7), summary)
+    }
+
+    @Test
+    fun summaryCarriesWhetherTheIntervalEndsNow() {
+        val past = builder.build(metrics(), null, null, endsNow = false).sentences.first()
+        assertEquals(StorySentence.Summary(hours = 14.0, levelUsedPct = 48, endsNow = false), past)
+        val current = builder.build(metrics(), null, null, endsNow = true).sentences.first()
+        assertEquals(StorySentence.Summary(hours = 14.0, levelUsedPct = 48, endsNow = true), current)
+    }
+
+    @Test
+    fun onlyReferencesThatRunUpToTheAnalysisEndNow() {
+        assertTrue(ReferenceKind.SinceUnplugged.endsNow)
+        assertTrue(ReferenceKind.ScreenOnSession.endsNow)
+        assertTrue(ReferenceKind.Last24h.endsNow)
+        assertTrue(ReferenceKind.CustomMarker(markerId = 1).endsNow)
+        assertFalse("a completed screen-off ends at its screen-on", ReferenceKind.SinceScreenOff.endsNow)
+        assertFalse("a slice ends where it was brushed", ReferenceKind.TimeSlice(fromWallMs = 0, toWallMs = HOUR_MS).endsNow)
     }
 
     @Test
