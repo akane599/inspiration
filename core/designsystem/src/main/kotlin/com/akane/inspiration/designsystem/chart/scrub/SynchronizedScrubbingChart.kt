@@ -170,7 +170,7 @@ private fun ScrubPlot(
     val locale = LocalLocale.current.platformLocale
     val textMeasurer = rememberTextMeasurer()
     val labelStyle = MaterialTheme.typography.labelSmall.withTabularFigures()
-    val celsiusUnit = rememberTelemetryFormat().units.celsius
+    val format = rememberTelemetryFormat()
 
     val palette =
         remember(telemetry, scheme.onSurface, scheme.primary, scheme.surfaceContainer) {
@@ -198,10 +198,15 @@ private fun ScrubPlot(
                     .orEmpty()
             if (points.isEmpty()) null else temperatureAxis(points.minOf { it.value }, points.maxOf { it.value })
         }
-    // Value-axis labels depend on data and style only, so they are measured once here: their width sets the gutters.
+    // The axis texts are worded like the readouts: the locale's percent placement ("50%" / "%50") from resources and
+    // TelemetryFormat's digits and minus sign. They change only with the data or the locale.
+    val batteryAxisTexts =
+        BATTERY_AXIS_PERCENTS.map { stringResource(R.string.chart_axis_percent, format.number(it.toDouble())) }
+    val temperatureAxisTexts = remember(temperatureAxis, format) { temperatureAxisLabels(temperatureAxis, format) }
+    // Value-axis labels depend on data, locale and style only, so they are measured once here: their width sets the gutters.
     val labels =
-        remember(temperatureAxis, labelStyle, textMeasurer, celsiusUnit) {
-            measureValueAxisLabels(textMeasurer, labelStyle, temperatureAxis, celsiusUnit)
+        remember(batteryAxisTexts, temperatureAxisTexts, labelStyle, textMeasurer) {
+            measureValueAxisLabels(textMeasurer, labelStyle, batteryAxisTexts, temperatureAxisTexts)
         }
     val gutters =
         remember(labels, density, spacing) {

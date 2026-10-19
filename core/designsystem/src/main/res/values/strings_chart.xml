@@ -27,10 +27,14 @@
 
     <!-- Readout row: values at the cursor, selection summary, window summary -->
     <string name="chart_readout_battery">Battery %1$d%%</string>
-    <string name="chart_readout_temperature">Temperature %1$.1f °C</string>
+    <!-- %1$s is a formatted temperature with its unit ("35.5 °C") -->
+    <string name="chart_readout_temperature">Temperature %1$s</string>
     <string name="chart_readout_time_range">%1$s – %2$s</string>
     <string name="chart_readout_selection_drop">Battery %1$d%% drop</string>
     <string name="chart_readout_selection_gain">Battery %1$d%% gain</string>
+
+    <!-- Battery value-axis label: %1$s is a formatted whole number ("50%") -->
+    <string name="chart_axis_percent">%1$s%%</string>
 
     <!-- Hypnogram per-stage total: %1$s stage name, %2$s formatted duration -->
     <string name="chart_stage_total">%1$s %2$s</string>

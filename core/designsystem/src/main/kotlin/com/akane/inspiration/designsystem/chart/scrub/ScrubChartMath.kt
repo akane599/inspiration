@@ -79,6 +79,16 @@ internal fun temperatureAxis(
 }
 
 /**
+ * The temperature value-axis labels (min, mid, max; empty without an [axis]), formatted like every other temperature
+ * in the app: [TelemetryFormat.celsius] gives the locale's digits and the U+2212 minus sign, and keeps the number
+ * with its unit.
+ */
+internal fun temperatureAxisLabels(
+    axis: ValueAxis?,
+    format: TelemetryFormat,
+): List<String> = axis?.let { listOf(it.min, it.mid, it.max).map { value -> format.celsius(value.toDouble()).text } }.orEmpty()
+
+/**
  * Linear interpolation over parallel primitive arrays, so it can run every frame without boxing.
  * NaN when empty or [t] is outside the span.
  */

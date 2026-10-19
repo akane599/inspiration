@@ -27,10 +27,14 @@
 
     <!-- Readout row: values at the cursor, selection summary, window summary -->
     <string name="chart_readout_battery">Pil %%%1$d</string>
-    <string name="chart_readout_temperature">Sıcaklık %1$.1f °C</string>
+    <!-- %1$s is a formatted temperature with its unit ("35,5 °C") -->
+    <string name="chart_readout_temperature">Sıcaklık %1$s</string>
     <string name="chart_readout_time_range">%1$s – %2$s</string>
     <string name="chart_readout_selection_drop">Pil %%%1$d düştü</string>
     <string name="chart_readout_selection_gain">Pil %%%1$d arttı</string>
+
+    <!-- Battery value-axis label: %1$s is a formatted whole number ("%50") -->
+    <string name="chart_axis_percent">%%%1$s</string>
 
     <!-- Hypnogram per-stage total: %1$s stage name, %2$s formatted duration -->
     <string name="chart_stage_total">%1$s %2$s</string>

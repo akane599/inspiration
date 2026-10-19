@@ -35,7 +35,6 @@ import com.akane.inspiration.designsystem.chart.model.ScrubChartData
 import com.akane.inspiration.designsystem.chart.model.SeriesKind
 import com.akane.inspiration.designsystem.chart.model.TimePoint
 import com.akane.inspiration.designsystem.chart.model.TimeRange
-import com.akane.inspiration.designsystem.component.format.NBSP
 import java.time.ZoneId
 import java.util.Locale
 
@@ -75,25 +74,28 @@ internal class ValueAxisLabels(
 
 internal const val BATTERY_LABEL_COUNT = 3
 
+/** The battery value axis, bottom to top: one label per gridline. */
+internal val BATTERY_AXIS_PERCENTS: List<Int> = listOf(0, 50, 100)
+
+/**
+ * Measures the already formatted value-axis texts: [battery] for [BATTERY_AXIS_PERCENTS] and [temperature] for the
+ * temperature axis (empty without one), both bottom to top. The caller formats them like the readouts.
+ */
 internal fun measureValueAxisLabels(
     measurer: TextMeasurer,
     style: TextStyle,
-    temperature: ValueAxis?,
-    temperatureUnit: String = "°C",
+    battery: List<String>,
+    temperature: List<String>,
 ): ValueAxisLabels {
     fun measure(text: String) = measurer.measure(text, style, maxLines = 1, softWrap = false)
-    val battery = listOf("0%", "50%", "100%").map(::measure)
-    val temp =
-        temperature
-            ?.let { axis ->
-                listOf(axis.min, axis.mid, axis.max).map { measure("${it.toInt()}$NBSP$temperatureUnit") }
-            }.orEmpty()
+    val batteryLayouts = battery.map(::measure)
+    val temp = temperature.map(::measure)
     return ValueAxisLabels(
-        battery = battery,
+        battery = batteryLayouts,
         temperature = temp,
-        maxLeftWidthPx = battery.maxOf { it.size.width },
+        maxLeftWidthPx = batteryLayouts.maxOf { it.size.width },
         maxRightWidthPx = temp.maxOfOrNull { it.size.width } ?: 0,
-        labelHeightPx = battery.maxOf { it.size.height },
+        labelHeightPx = batteryLayouts.maxOf { it.size.height },
     )
 }
 
