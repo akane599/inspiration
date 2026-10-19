@@ -582,6 +582,13 @@ private fun Overrides(
                             style = MaterialTheme.typography.bodyMedium,
                             color = MaterialTheme.colorScheme.onSurface,
                         )
+                        row.unverified?.let { reason ->
+                            Text(
+                                text = stringResource(R.string.xray_override_unverified, stringResource(refusalRes(reason))),
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
                         if (!row.restorable) {
                             Text(
                                 text = stringResource(R.string.xray_override_not_restorable),

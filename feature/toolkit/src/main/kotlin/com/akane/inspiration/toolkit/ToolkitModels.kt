@@ -24,20 +24,33 @@ val BlockedReason.canGrant: Boolean get() = this == BlockedReason.PERMISSION_REQ
 
 /** What a toolkit call came back with when it was not a success. */
 sealed interface Problem {
-    data class Refused(val reason: ToolkitRefusal) : Problem
+    data class Refused(
+        val reason: ToolkitRefusal,
+    ) : Problem
 
-    data class Unavailable(val reason: ToolkitUnavailable) : Problem
+    data class Unavailable(
+        val reason: ToolkitUnavailable,
+    ) : Problem
 
-    data class Failed(val code: Int?) : Problem
+    data class Failed(
+        val code: Int?,
+    ) : Problem
 }
 
 /** The change a successful action made, for the result line. */
 sealed interface Change {
-    data class DozeApplied(val profile: DozeProfile) : Change
+    data class DozeApplied(
+        val profile: DozeProfile,
+    ) : Change
 
-    data class AppOpSet(val op: AppOp, val ignored: Boolean) : Change
+    data class AppOpSet(
+        val op: AppOp,
+        val ignored: Boolean,
+    ) : Change
 
-    data class BucketSet(val bucket: StandbyBucket) : Change
+    data class BucketSet(
+        val bucket: StandbyBucket,
+    ) : Change
 
     data object ForceStopped : Change
 
@@ -49,16 +62,23 @@ sealed interface Change {
 }
 
 sealed interface ToolkitNotice {
-    data class Applied(val change: Change) : ToolkitNotice
+    data class Applied(
+        val change: Change,
+    ) : ToolkitNotice
 
-    data class Rejected(val problem: Problem) : ToolkitNotice
+    data class Rejected(
+        val problem: Problem,
+    ) : ToolkitNotice
 }
 
 // ---- doze ------------------------------------------------------------------------------------
 
 /** One effective `device_idle_constants` value. [key] is the AOSP key; the UI words the ones it knows. */
 @Immutable
-data class DozeValue(val key: String, val ms: Long)
+data class DozeValue(
+    val key: String,
+    val ms: Long,
+)
 
 /** [profile] is null when the setting is CUSTOM (not one of ours). [raw] is the stored value, null when unset. */
 @Immutable
@@ -71,9 +91,13 @@ data class DozeInfo(
 sealed interface DozeLoad {
     data object Loading : DozeLoad
 
-    data class Loaded(val info: DozeInfo) : DozeLoad
+    data class Loaded(
+        val info: DozeInfo,
+    ) : DozeLoad
 
-    data class Unavailable(val problem: Problem) : DozeLoad
+    data class Unavailable(
+        val problem: Problem,
+    ) : DozeLoad
 }
 
 @Immutable
@@ -86,7 +110,11 @@ data class DozeSection(
 
 /** One row of the app picker. [packageName] only ever comes from `installedApps()`, never from an Intent (H12). */
 @Immutable
-data class AppItem(val packageName: String, val label: String, val restricted: Boolean)
+data class AppItem(
+    val packageName: String,
+    val label: String,
+    val restricted: Boolean,
+)
 
 enum class AppsPhase { LOADING, READY, FAILED }
 
@@ -101,7 +129,11 @@ data class AppsSection(
 
 /** One app op switch. [ignored] is read back from the system. A null-mode (unknown) op is not [editable]. */
 @Immutable
-data class OpControl(val op: AppOp, val ignored: Boolean, val editable: Boolean)
+data class OpControl(
+    val op: AppOp,
+    val ignored: Boolean,
+    val editable: Boolean,
+)
 
 /** Read-back of the app's current settings: this is what the controls show, never an optimistic guess. */
 @Immutable
@@ -115,9 +147,13 @@ data class AppControls(
 sealed interface ControlsState {
     data object Loading : ControlsState
 
-    data class Loaded(val controls: AppControls) : ControlsState
+    data class Loaded(
+        val controls: AppControls,
+    ) : ControlsState
 
-    data class Unavailable(val problem: Problem) : ControlsState
+    data class Unavailable(
+        val problem: Problem,
+    ) : ControlsState
 }
 
 @Immutable
@@ -131,15 +167,25 @@ data class AppDetail(
 
 /** What an override changed, without the package: the UI words it. */
 sealed interface OverrideWhat {
-    data class AppOpIgnored(val op: AppOp?, val ignored: Boolean? = true) : OverrideWhat
+    data class AppOpIgnored(
+        val op: AppOp?,
+        val ignored: Boolean? = true,
+    ) : OverrideWhat
 
-    data class Bucket(val bucket: StandbyBucket?) : OverrideWhat
+    data class Bucket(
+        val bucket: StandbyBucket?,
+    ) : OverrideWhat
 
     /** [profile] is null for a custom value. */
-    data class Doze(val profile: DozeProfile?) : OverrideWhat
+    data class Doze(
+        val profile: DozeProfile?,
+    ) : OverrideWhat
 }
 
-/** A change of ours that read-back shows is still in effect. [label] is the app's name, null for doze. */
+/**
+ * A change of ours that read-back shows is still in effect. [label] is the app's name, null for doze. [unverified]
+ * is why it could not be read back now: it may still be in effect, so it stays listed with the value it left.
+ */
 @Immutable
 data class OverrideItem(
     val actionId: Long,
@@ -148,15 +194,23 @@ data class OverrideItem(
     val what: OverrideWhat,
     val sinceMs: Long,
     val restorable: Boolean,
+    val unverified: ToolkitRefusal? = null,
 )
 
 /** What an audit row did, decoded from its stored strings; an unknown value is [Other]. */
 sealed interface HistoryWhat {
-    data class AppOpSet(val op: AppOp?, val ignored: Boolean?) : HistoryWhat
+    data class AppOpSet(
+        val op: AppOp?,
+        val ignored: Boolean?,
+    ) : HistoryWhat
 
-    data class BucketSet(val bucket: StandbyBucket?) : HistoryWhat
+    data class BucketSet(
+        val bucket: StandbyBucket?,
+    ) : HistoryWhat
 
-    data class DozeApplied(val profile: DozeProfile?) : HistoryWhat
+    data class DozeApplied(
+        val profile: DozeProfile?,
+    ) : HistoryWhat
 
     data object DozeRestored : HistoryWhat
 
@@ -180,15 +234,22 @@ data class HistoryItem(
 sealed interface ResetResult {
     data object Restored : ResetResult
 
-    data class NotRestored(val problem: Problem) : ResetResult
+    data class NotRestored(
+        val problem: Problem,
+    ) : ResetResult
 }
 
 @Immutable
-data class ResetLine(val item: OverrideItem, val result: ResetResult)
+data class ResetLine(
+    val item: OverrideItem,
+    val result: ResetResult,
+)
 
 /** What "Reset all" did, item by item. Nothing is summarized away: a failed item stays listed with its reason. */
 @Immutable
-data class ResetReport(val lines: ImmutableList<ResetLine>) {
+data class ResetReport(
+    val lines: ImmutableList<ResetLine>,
+) {
     val restored: Int get() = lines.count { it.result == ResetResult.Restored }
     val failed: Int get() = lines.size - restored
 }
@@ -210,15 +271,24 @@ data class DexoptSection(
  * sheet (which came from the in-app list, H12), restores take an id from the shown overrides.
  */
 sealed interface ToolkitRequest {
-    data class ApplyDoze(val profile: DozeProfile) : ToolkitRequest
+    data class ApplyDoze(
+        val profile: DozeProfile,
+    ) : ToolkitRequest
 
-    data class SetAppOp(val op: AppOp, val ignored: Boolean) : ToolkitRequest
+    data class SetAppOp(
+        val op: AppOp,
+        val ignored: Boolean,
+    ) : ToolkitRequest
 
-    data class SetBucket(val bucket: StandbyBucket) : ToolkitRequest
+    data class SetBucket(
+        val bucket: StandbyBucket,
+    ) : ToolkitRequest
 
     data object ForceStop : ToolkitRequest
 
-    data class Restore(val actionId: Long) : ToolkitRequest
+    data class Restore(
+        val actionId: Long,
+    ) : ToolkitRequest
 
     data object ResetAll : ToolkitRequest
 }
@@ -276,15 +346,21 @@ sealed interface ToolkitIntent {
     /** Asks Shizuku for permission; only the blocked state offers it. */
     data object Grant : ToolkitIntent
 
-    data class SetQuery(val query: String) : ToolkitIntent
+    data class SetQuery(
+        val query: String,
+    ) : ToolkitIntent
 
-    data class OpenApp(val packageName: String) : ToolkitIntent
+    data class OpenApp(
+        val packageName: String,
+    ) : ToolkitIntent
 
     data object CloseApp : ToolkitIntent
 
     data object ReloadApp : ToolkitIntent
 
-    data class Act(val request: ToolkitRequest) : ToolkitIntent
+    data class Act(
+        val request: ToolkitRequest,
+    ) : ToolkitIntent
 
     data object ConfirmPending : ToolkitIntent
 
@@ -297,7 +373,9 @@ sealed interface ToolkitIntent {
     data object CancelDexopt : ToolkitIntent
 
     /** The status-notification switch. */
-    data class SetStatusNotification(val enabled: Boolean) : ToolkitIntent
+    data class SetStatusNotification(
+        val enabled: Boolean,
+    ) : ToolkitIntent
 
     /** "Allow in settings": asks the Route to open the app's notification settings. */
     data object OpenNotificationSettings : ToolkitIntent
@@ -305,17 +383,21 @@ sealed interface ToolkitIntent {
 
 sealed interface ToolkitEffect {
     /** "Reset all" finished: how many changes were restored out of how many were active. */
-    data class ResetFinished(val restored: Int, val total: Int) : ToolkitEffect
+    data class ResetFinished(
+        val restored: Int,
+        val total: Int,
+    ) : ToolkitEffect
 
     /** The Route should open the system notification settings of this app. */
     data object OpenNotificationSettings : ToolkitEffect
 }
 
-internal fun ShizukuState.blockedReason(): BlockedReason? = when (this) {
-    is ShizukuState.Ready -> null
-    ShizukuState.NotInstalled -> BlockedReason.NOT_INSTALLED
-    ShizukuState.NotRunning -> BlockedReason.NOT_RUNNING
-    ShizukuState.PermissionRequired -> BlockedReason.PERMISSION_REQUIRED
-    ShizukuState.PermissionDenied -> BlockedReason.PERMISSION_DENIED
-    is ShizukuState.UnsupportedServer -> BlockedReason.UNSUPPORTED_SERVER
-}
+internal fun ShizukuState.blockedReason(): BlockedReason? =
+    when (this) {
+        is ShizukuState.Ready -> null
+        ShizukuState.NotInstalled -> BlockedReason.NOT_INSTALLED
+        ShizukuState.NotRunning -> BlockedReason.NOT_RUNNING
+        ShizukuState.PermissionRequired -> BlockedReason.PERMISSION_REQUIRED
+        ShizukuState.PermissionDenied -> BlockedReason.PERMISSION_DENIED
+        is ShizukuState.UnsupportedServer -> BlockedReason.UNSUPPORTED_SERVER
+    }

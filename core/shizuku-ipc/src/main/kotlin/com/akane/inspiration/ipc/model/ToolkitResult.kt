@@ -78,6 +78,12 @@ object ToolkitCode {
     const val DENY_SYSTEM = 22
     const val DENY_PROTECTED = 23
     const val DENY_OWN = 24
+
+    /**
+     * [DENY_PROTECTED] (rule d) and this one (the protected set could not be read) refuse every change except one that
+     * only lifts a restriction (`RestrictionLift`). A package read refused with either code carries the value it read
+     * in `afterRaw` (null when that read failed too), so a change already made stays visible and restorable.
+     */
     const val PROTECTION_UNKNOWN = 25
 
     const val STALE = 30

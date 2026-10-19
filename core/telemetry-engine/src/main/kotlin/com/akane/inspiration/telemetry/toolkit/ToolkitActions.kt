@@ -10,6 +10,7 @@ import com.akane.inspiration.ipc.toolkit.AppOpMode
 import com.akane.inspiration.ipc.toolkit.DozeProfile
 import com.akane.inspiration.ipc.toolkit.DozeRaw
 import com.akane.inspiration.ipc.toolkit.PackageNames
+import com.akane.inspiration.ipc.toolkit.RestrictionLift
 import com.akane.inspiration.ipc.toolkit.StandbyBucket
 import com.akane.inspiration.telemetry.store.SnapshotStore
 import com.akane.inspiration.telemetry.store.ToolkitActionRecord
@@ -234,12 +235,18 @@ class ToolkitActions internal constructor(
 
     // ---- reads -----------------------------------------------------------------------------
 
+    /**
+     * The app's controls. A protected app answers with why it is protected: its controls stay unavailable, and a
+     * change of ours on it is undone from the overrides list (a restore only lifts a restriction).
+     */
     suspend fun appState(pkg: String): ToolkitOutcome<AppToolkitState> {
         if (!PackageNames.isValid(pkg)) return ToolkitOutcome.Refused(ToolkitRefusal.INVALID_ARGUMENT, ToolkitCode.ARG_PACKAGE)
         val ops = readAppOps(pkg)
         if (ops !is ToolkitOutcome.Done) return failure(ops)
+        ops.value.protection?.let { return it }
         val bucket = readBucket(pkg)
         if (bucket !is ToolkitOutcome.Done) return failure(bucket)
+        bucket.value.protection?.let { return it }
         val bucketRaw = bucket.value.raw
         return ToolkitOutcome.Done(
             AppToolkitState(
@@ -258,8 +265,8 @@ class ToolkitActions internal constructor(
 
     /**
      * Changes of ours that read-back shows are still in effect. Emits on collect and again whenever this
-     * object changes something. When the service cannot be reached it emits an empty list (the UI shows
-     * its blocked state for that).
+     * object changes something. A change whose target cannot be read back now (the service is unreachable,
+     * the read failed, or the app is now off limits) is listed with [Override.unverified] rather than dropped.
      */
     fun activeOverrides(): Flow<List<Override>> =
         changes.map {
@@ -320,8 +327,9 @@ class ToolkitActions internal constructor(
      * goes back to the value before the FIRST change of its chain (the user's original state), not to the
      * intermediate value the newest row recorded: a target switched on and then back by hand must not end
      * up restricted again. A target already at its original value is not an active override, so it is not
-     * listed and nothing is written for it. The user asked for this explicitly, so the per-item restore is
-     * confirmed; a failure does not stop the remaining items. One lock covers the whole reset, so the
+     * listed and nothing is written for it. An [unverified][Override.unverified] one is tried too: its restore reads
+     * the target first, and is reported as not restored, with why, while that read still fails. The user asked for
+     * this explicitly, so the per-item restore is confirmed; a failure does not stop the remaining items. One lock covers the whole reset, so the
      * chains read here cannot change under it.
      */
     suspend fun resetAll(): List<ResetItem> =
@@ -527,9 +535,11 @@ class ToolkitActions internal constructor(
     ): Prep {
         val static = staticWarnings(action)
         return when (action) {
+            // A protected app takes only a change that lifts a restriction (the service enforces the same rule).
             is ToolkitAction.SetAppOp -> {
                 val read = readAppOps(action.pkg)
                 if (read !is ToolkitOutcome.Done) return stop(read)
+                read.value.protection?.let { if (!RestrictionLift.appOp(action.mode)) return Prep.Stop(it) }
                 val current = read.value.modes[action.op]
                 Prep.Ok(static, systemWarning(read.value.updatedSystem), current, restoring != null, restoring?.afterRaw)
             }
@@ -537,6 +547,10 @@ class ToolkitActions internal constructor(
             is ToolkitAction.SetBucket -> {
                 val read = readBucket(action.pkg)
                 if (read !is ToolkitOutcome.Done) return stop(read)
+                read.value.protection?.let { protection ->
+                    val lifts = read.value.raw?.let { RestrictionLift.bucket(action.bucket, it) } ?: false
+                    if (!lifts) return Prep.Stop(protection)
+                }
                 val current = read.value.raw?.toString()
                 Prep.Ok(static, systemWarning(read.value.updatedSystem), current, restoring != null, restoring?.afterRaw)
             }
@@ -545,6 +559,7 @@ class ToolkitActions internal constructor(
                 // Validation, hard-deny and the updated-system flag come from a read of the same package.
                 val read = readAppOps(action.pkg)
                 if (read !is ToolkitOutcome.Done) return stop(read)
+                read.value.protection?.let { return Prep.Stop(it) }
                 Prep.Ok(static, systemWarning(read.value.updatedSystem), null, false, null)
             }
 
@@ -1132,14 +1147,51 @@ class ToolkitActions internal constructor(
                         KIND_APPOP -> (ops as? ToolkitOutcome.Done)?.value?.modes?.get(AppOp.entries.firstOrNull { it.argv == row.op })
                         else -> (bucket as? ToolkitOutcome.Done)?.value?.raw?.toString()
                     }
-                if (current != null) activeOverride(row, current, rows)?.let { result += it }
+                val override =
+                    if (current != null) {
+                        activeOverride(row, current, rows)
+                    } else {
+                        unverifiedOverride(row, if (row.kind == KIND_APPOP) ops else bucket, rows)
+                    }
+                override?.let { result += it }
             }
         }
         candidates.firstOrNull { it.kind == KIND_DOZE }?.let { row ->
             val doze = readDoze()
-            if (doze is ToolkitOutcome.Done) activeOverride(row, doze.value.raw, rows)?.let { result += it }
+            val override =
+                if (doze is ToolkitOutcome.Done) {
+                    activeOverride(
+                        row,
+                        doze.value.raw,
+                        rows,
+                    )
+                } else {
+                    unverifiedOverride(row, doze, rows)
+                }
+            override?.let { result += it }
         }
         return result.sortedByDescending { it.sinceMs }
+    }
+
+    /**
+     * [row] could not be read back now ([read] is why). Its change may well still be in effect (a role or an
+     * accessibility service does not undo an app-op, and a failed read changes nothing), so it stays listed, and in
+     * Reset all's scope, as unverified with the value it left; dropping it would show "no active changes" over a
+     * restriction that is still on the device. Only a package the service says is gone ([GONE_REFUSALS]) is dropped.
+     */
+    private fun unverifiedOverride(
+        row: ToolkitActionRecord,
+        read: ToolkitOutcome<*>?,
+        rows: List<ToolkitActionRecord>,
+    ): Override? {
+        if (read is ToolkitOutcome.Refused && read.code in GONE_REFUSALS) return null
+        val reason =
+            when (read) {
+                is ToolkitOutcome.Refused -> read.reason
+                is ToolkitOutcome.Unavailable -> ToolkitRefusal.SERVICE_UNAVAILABLE
+                else -> ToolkitRefusal.READ_FAILED
+            }
+        return overrideOf(row, row.afterRaw, chainOriginal(row, rows)).copy(unverified = reason)
     }
 
     /**
@@ -1399,8 +1451,9 @@ class ToolkitActions internal constructor(
 
     /**
      * Only a refusal that says the target can never be read back again settles a row as a mismatch. A read the
-     * service could not parse, an undecidable protection check, a caller or stale refusal are inconclusive: the
-     * write may have committed, so the row stays PENDING rather than leaving its chain as FAILED.
+     * service could not parse, a protected app whose read failed, an undecidable protection check, a caller or
+     * stale refusal are inconclusive: the write may have committed, so the row stays PENDING rather than leaving
+     * its chain as FAILED.
      */
     private fun refusedVerdict(read: ToolkitOutcome.Refused): Verdict =
         if (read.code in CONCLUSIVE_REFUSALS) Verdict.Mismatch(null) else Verdict.Unreachable
@@ -1585,31 +1638,61 @@ class ToolkitActions internal constructor(
 
     // ---- read-back plumbing ----------------------------------------------------------------
 
+    /**
+     * [protection] is set for a protected app, or one whose protection the service could not decide: the modes are
+     * still a real reading, but only a change that lifts a restriction ([RestrictionLift]) may be written.
+     */
     private class AppOpsRead(
         val modes: Map<AppOp, String>,
         val updatedSystem: Boolean,
+        val protection: ToolkitOutcome.Refused? = null,
     )
 
+    /** [protection]: as in [AppOpsRead]. */
     private class BucketRead(
         val raw: Int?,
         val updatedSystem: Boolean,
+        val protection: ToolkitOutcome.Refused? = null,
     )
 
+    private class PackageRead(
+        val result: ToolkitResult,
+        val protection: ToolkitOutcome.Refused?,
+    )
+
+    /**
+     * A package read. The service refuses a protected (or undecidable) package with [PROTECTION_CODES] but still
+     * reports the value it read, so a change of ours stays visible and restorable; that reading is Done here with
+     * its [PackageRead.protection]. A refusal without a value (the read failed too, or an older service) is not.
+     */
+    private fun packageRead(reply: GatewayReply<ToolkitResult>): ToolkitOutcome<PackageRead> {
+        val value = (reply as? GatewayReply.Reply)?.value
+        if (value != null && value.status == ToolkitStatus.REFUSED && value.code in PROTECTION_CODES && value.afterRaw != null) {
+            return ToolkitOutcome.Done(PackageRead(value, ToolkitOutcome.Refused(refusalFor(value.code), value.code)))
+        }
+        return when (val outcome = readOutcome(reply)) {
+            is ToolkitOutcome.Done -> ToolkitOutcome.Done(PackageRead(outcome.value, null))
+            else -> failure(outcome)
+        }
+    }
+
     private suspend fun readAppOps(pkg: String): ToolkitOutcome<AppOpsRead> {
-        val result = readOutcome(backend.getAppOps(pkg))
-        if (result !is ToolkitOutcome.Done) return failure(result)
-        val modes = parseAppOps(result.value.afterRaw) ?: return ToolkitOutcome.Failed(ToolkitCode.PARSE)
-        return ToolkitOutcome.Done(AppOpsRead(modes, result.value.requiresWarning))
+        val read = packageRead(backend.getAppOps(pkg))
+        if (read !is ToolkitOutcome.Done) return failure(read)
+        val result = read.value.result
+        val modes = parseAppOps(result.afterRaw) ?: return ToolkitOutcome.Failed(ToolkitCode.PARSE)
+        return ToolkitOutcome.Done(AppOpsRead(modes, result.requiresWarning, read.value.protection))
     }
 
     private suspend fun readBucket(pkg: String): ToolkitOutcome<BucketRead> {
-        val result = readOutcome(backend.getStandbyBucket(pkg))
-        if (result !is ToolkitOutcome.Done) return failure(result)
+        val read = packageRead(backend.getStandbyBucket(pkg))
+        if (read !is ToolkitOutcome.Done) return failure(read)
+        val result = read.value.result
         val raw =
-            result.value.afterRaw
+            result.afterRaw
                 ?.trim()
                 ?.toIntOrNull() ?: return ToolkitOutcome.Failed(ToolkitCode.PARSE)
-        return ToolkitOutcome.Done(BucketRead(raw, result.value.requiresWarning))
+        return ToolkitOutcome.Done(BucketRead(raw, result.requiresWarning, read.value.protection))
     }
 
     private suspend fun readDoze(): ToolkitOutcome<DozeState> {
@@ -1677,8 +1760,9 @@ class ToolkitActions internal constructor(
             ToolkitCode.DENY_SYSTEM,
             ToolkitCode.DENY_PROTECTED,
             ToolkitCode.DENY_OWN,
-            ToolkitCode.PROTECTION_UNKNOWN,
             -> ToolkitRefusal.PROTECTED_APP
+
+            ToolkitCode.PROTECTION_UNKNOWN -> ToolkitRefusal.PROTECTION_UNKNOWN
 
             ToolkitCode.STALE -> ToolkitRefusal.STALE
 
@@ -1741,7 +1825,10 @@ class ToolkitActions internal constructor(
 
         val OVERRIDE_KINDS = setOf(KIND_APPOP, KIND_BUCKET, KIND_DOZE)
 
-        /** Read refusals that prove the target is gone or off limits for good (see [refusedVerdict]). */
+        /**
+         * Read refusals that prove the target is gone or off limits for good (see [refusedVerdict]). A protected app
+         * is not: the service still reads it ([PROTECTION_CODES]), and a role or service can be taken away again.
+         */
         val CONCLUSIVE_REFUSALS =
             setOf(
                 ToolkitCode.NOT_INSTALLED,
@@ -1749,9 +1836,14 @@ class ToolkitActions internal constructor(
                 ToolkitCode.DENY_APP_ID,
                 ToolkitCode.DENY_PERSISTENT,
                 ToolkitCode.DENY_SYSTEM,
-                ToolkitCode.DENY_PROTECTED,
                 ToolkitCode.DENY_OWN,
             )
+
+        /** A package no longer there to read: its override went with it, so it is not listed (see [unverifiedOverride]). */
+        val GONE_REFUSALS = setOf(ToolkitCode.NOT_INSTALLED, ToolkitCode.ARG_PACKAGE)
+
+        /** Refusals of a protected (rule d) or undecidable package, whose reads still carry the value (see [packageRead]). */
+        val PROTECTION_CODES = setOf(ToolkitCode.DENY_PROTECTED, ToolkitCode.PROTECTION_UNKNOWN)
 
         /** Unset and empty are the same `device_idle_constants` state. */
         fun norm(raw: String?): String? = raw?.takeIf { it.isNotEmpty() }

@@ -87,8 +87,17 @@ enum class ToolkitRefusal {
     /** The action cannot be made safe on this Android version (bg-dexopt below API 33); nothing was run. */
     UNSUPPORTED_API,
 
-    /** Hard-deny rules: system, persistent, role holders and so on (or the service could not decide). */
+    /**
+     * Hard-deny rules: system, persistent, role holders and so on. A protected app (role holder, IME,
+     * accessibility, device admin, always-on VPN) still accepts a change that only lifts a restriction.
+     */
     PROTECTED_APP,
+
+    /**
+     * The service could not decide whether the app is protected (the protected-package inspection was
+     * incomplete), so it changed nothing. Worth retrying; a change that only lifts a restriction still goes through.
+     */
+    PROTECTION_UNKNOWN,
     CALLER,
     STALE,
     BUSY,
@@ -184,6 +193,10 @@ enum class OverrideKind { APP_OP, BUCKET, DOZE }
  * `ToolkitActions.restore`. [pkg] and [appOp] are null for doze. [restorable] is false when the
  * recorded previous value cannot be replayed (the service did not report it, or it is not a value this
  * surface can set): the change is in effect but `restore` refuses it as NOT_RESTORABLE.
+ *
+ * [unverified] is set when the target could not be read back now (why, as a refusal): the change may still be
+ * in effect, so it stays listed and in Reset all's scope instead of disappearing. [currentRaw] is then the value
+ * our change left, not a fresh reading.
  */
 data class Override(
     val actionId: Long,
@@ -194,6 +207,7 @@ data class Override(
     val previousRaw: String?,
     val sinceMs: Long,
     val restorable: Boolean = true,
+    val unverified: ToolkitRefusal? = null,
 )
 
 /** How toolkit writes are persisted in `toolkit_action`; the store's retention SQL uses the same values. */

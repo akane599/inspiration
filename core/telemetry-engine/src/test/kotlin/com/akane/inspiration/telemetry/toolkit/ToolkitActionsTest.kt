@@ -591,11 +591,13 @@ class ToolkitActionsTest {
         }
 
     @Test
-    fun activeOverridesIsEmptyWhenTheServiceCannotBeRead() =
+    fun activeOverridesKeepsAChangeAsUnverifiedWhenTheServiceCannotBeRead() =
         runTest {
             actions.execute(ToolkitAction.SetBucket(PKG, StandbyBucket.RARE))
             backend.unavailable = GatewayUnavailable.NO_SERVICE
-            assertTrue(actions.activeOverrides().first().isEmpty())
+            val override = actions.activeOverrides().first().single()
+            assertEquals(ToolkitRefusal.SERVICE_UNAVAILABLE, override.unverified)
+            assertEquals(StandbyBucket.RARE.rawValue.toString(), override.currentRaw)
         }
 
     @Test

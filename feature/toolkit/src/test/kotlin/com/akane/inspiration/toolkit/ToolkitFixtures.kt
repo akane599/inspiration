@@ -13,6 +13,7 @@ import com.akane.inspiration.ipc.model.ToolkitResult
 import com.akane.inspiration.ipc.toolkit.AppOp
 import com.akane.inspiration.ipc.toolkit.AppOpMode
 import com.akane.inspiration.ipc.toolkit.DozeProfile
+import com.akane.inspiration.ipc.toolkit.RestrictionLift
 import com.akane.inspiration.ipc.toolkit.StandbyBucket
 import com.akane.inspiration.telemetry.app.AppEntry
 import com.akane.inspiration.telemetry.app.AppLabels
@@ -95,10 +96,17 @@ internal class FakeDevice {
     /** An API 31/32 service: bg-dexopt start and cancel are refused (UNSUPPORTED_API) and nothing changes. */
     var dexoptUnsupported = false
 
-    /** Every call about these packages answers a hard-deny refusal. */
+    /**
+     * Protected apps (rule d: a role holder, the keyboard, an accessibility service...), as the service treats them:
+     * reads are refused with DENY_PROTECTED but carry the value, only a write that lifts a restriction goes through,
+     * and force-stop is refused.
+     */
     val protectedPackages = mutableSetOf<String>()
 
-    /** Reads still answer for these packages, but every write is refused. */
+    /** Every call about these packages answers an absolute hard-deny refusal (a pure system app) with no value. */
+    val systemPackages = mutableSetOf<String>()
+
+    /** Reads still answer for these packages, but every write is refused (it became protected after the read). */
     val refuseWritesFor = mutableSetOf<String>()
 
     val calls = mutableListOf<String>()
@@ -112,10 +120,24 @@ internal class FakeDevice {
         return clock
     }
 
-    private fun denied(pkg: String) = if (pkg in protectedPackages) ToolkitResult.refused(ToolkitCode.DENY_PROTECTED) else null
+    private fun denied(pkg: String) = if (pkg in systemPackages) ToolkitResult.refused(ToolkitCode.DENY_SYSTEM) else null
 
-    private fun writeDenied(pkg: String) =
-        denied(pkg) ?: if (pkg in refuseWritesFor) ToolkitResult.refused(ToolkitCode.DENY_PROTECTED) else null
+    private fun read(
+        pkg: String,
+        value: String,
+    ): ToolkitResult =
+        when {
+            pkg in systemPackages -> ToolkitResult.refused(ToolkitCode.DENY_SYSTEM)
+            pkg in protectedPackages -> ToolkitResult.refused(ToolkitCode.DENY_PROTECTED, after = value)
+            else -> ToolkitResult.done(after = value)
+        }
+
+    /** [lifts]: the write only lifts a restriction, which a protected app still takes. */
+    private fun writeDenied(
+        pkg: String,
+        lifts: Boolean,
+    ) = denied(pkg)
+        ?: if (pkg in refuseWritesFor || (pkg in protectedPackages && !lifts)) ToolkitResult.refused(ToolkitCode.DENY_PROTECTED) else null
 
     private fun dozeCode(): Int =
         when (dozeRaw) {
@@ -135,20 +157,20 @@ internal class FakeDevice {
             when (method.name) {
                 "getAppOps" -> {
                     val pkg = args[0] as String
-                    denied(pkg) ?: ToolkitResult.done(after = app(pkg).ops.entries.joinToString(",") { (op, mode) -> "${op.argv}=$mode" })
+                    read(pkg, app(pkg).ops.entries.joinToString(",") { (op, mode) -> "${op.argv}=$mode" })
                 }
 
                 "getStandbyBucket" -> {
                     val pkg = args[0] as String
-                    denied(pkg) ?: ToolkitResult.done(after = app(pkg).bucket.toString())
+                    read(pkg, app(pkg).bucket.toString())
                 }
 
                 "setAppOp" -> {
                     writes += "setAppOp"
                     val pkg = args[0] as String
-                    writeDenied(pkg) ?: run {
-                        val op = AppOp.fromCode(args[1] as Int)!!
-                        val mode = AppOpMode.fromCode(args[2] as Int)!!
+                    val op = AppOp.fromCode(args[1] as Int)!!
+                    val mode = AppOpMode.fromCode(args[2] as Int)!!
+                    writeDenied(pkg, RestrictionLift.appOp(mode)) ?: run {
                         val before = app(pkg).ops.getValue(op)
                         app(pkg).ops[op] = mode.argv
                         ToolkitResult.done(before = before, after = mode.argv)
@@ -158,16 +180,17 @@ internal class FakeDevice {
                 "setStandbyBucket" -> {
                     writes += "setStandbyBucket"
                     val pkg = args[0] as String
-                    writeDenied(pkg) ?: run {
+                    val bucket = StandbyBucket.fromCode(args[1] as Int)!!
+                    writeDenied(pkg, RestrictionLift.bucket(bucket, app(pkg).bucket)) ?: run {
                         val before = app(pkg).bucket
-                        app(pkg).bucket = StandbyBucket.fromCode(args[1] as Int)!!.rawValue
+                        app(pkg).bucket = bucket.rawValue
                         ToolkitResult.done(before = before.toString(), after = app(pkg).bucket.toString())
                     }
                 }
 
                 "forceStop" -> {
                     writes += "forceStop"
-                    writeDenied(args[0] as String) ?: ToolkitResult.done(before = "stopped=false", after = "stopped=true")
+                    writeDenied(args[0] as String, lifts = false) ?: ToolkitResult.done(before = "stopped=false", after = "stopped=true")
                 }
 
                 "getDozeState" -> {

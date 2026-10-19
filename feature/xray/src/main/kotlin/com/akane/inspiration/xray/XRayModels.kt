@@ -145,7 +145,10 @@ sealed interface ActionsState {
     ) : ActionsState
 }
 
-/** A change of ours to this app that read-back shows is still in effect. */
+/**
+ * A change of ours to this app that read-back shows is still in effect. [unverified] is why it could not be read
+ * back now: it may still be in effect, so it stays listed (and restorable) with the value it left.
+ */
 @Immutable
 data class OverrideRow(
     val actionId: Long,
@@ -154,6 +157,7 @@ data class OverrideRow(
     val bucket: StandbyBucket?,
     val sinceMs: Long,
     val restorable: Boolean,
+    val unverified: ToolkitRefusal? = null,
 )
 
 /** The change an action made, for the result line. */

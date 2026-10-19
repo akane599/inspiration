@@ -63,6 +63,15 @@ private fun DexoptBody(state: ToolkitState) {
 }
 
 @Composable
+private fun OverridesBody(state: ToolkitState) {
+    Surface(color = MaterialTheme.colorScheme.background) {
+        Box(modifier = Modifier.padding(MaterialTheme.spacing.md)) {
+            OverridesCard(state = state, onIntent = {}, timeZone = Utc)
+        }
+    }
+}
+
+@Composable
 private fun NotificationBody(state: StatusNotificationState) {
     Surface(color = MaterialTheme.colorScheme.background) {
         Box(modifier = Modifier.padding(MaterialTheme.spacing.md)) {
@@ -179,6 +188,11 @@ fun ToolkitDozeCustom() = InspirationTheme(darkTheme = true) { Screen(ToolkitPre
 @Preview(name = "reset-report", showBackground = true, widthDp = 412, heightDp = 1500)
 @Composable
 fun ToolkitResetReport() = InspirationTheme(darkTheme = false) { Screen(ToolkitPreviewData.resetReport) }
+
+@PreviewTest
+@Preview(name = "overrides-unverified-360", showBackground = true, widthDp = 360, heightDp = 640)
+@Composable
+fun ToolkitOverridesUnverified() = InspirationTheme(darkTheme = false) { OverridesBody(ToolkitPreviewData.unverifiedOverrides) }
 
 // ---- loading, empty, error, blocked -------------------------------------------------------------
 

@@ -129,6 +129,7 @@ internal fun refusalRes(reason: ToolkitRefusal): Int =
         ToolkitRefusal.UNSUPPORTED_USER -> R.string.toolkit_refused_unsupported_user
         ToolkitRefusal.UNSUPPORTED_API -> R.string.toolkit_refused_unsupported_api
         ToolkitRefusal.PROTECTED_APP -> R.string.toolkit_refused_protected_app
+        ToolkitRefusal.PROTECTION_UNKNOWN -> R.string.toolkit_refused_protection_unknown
         ToolkitRefusal.CALLER -> R.string.toolkit_refused_caller
         ToolkitRefusal.STALE -> R.string.toolkit_refused_stale
         ToolkitRefusal.BUSY -> R.string.toolkit_refused_busy

@@ -7,6 +7,7 @@ import com.akane.inspiration.ipc.model.ToolkitResult
 import com.akane.inspiration.ipc.toolkit.AppOp
 import com.akane.inspiration.ipc.toolkit.AppOpMode
 import com.akane.inspiration.ipc.toolkit.DozeProfile
+import com.akane.inspiration.ipc.toolkit.RestrictionLift
 import com.akane.inspiration.ipc.toolkit.StandbyBucket
 import com.akane.inspiration.telemetry.store.ToolkitActionRecord
 import com.akane.inspiration.telemetry.store.ToolkitActionStatus
@@ -80,6 +81,13 @@ class FakeBackend : ToolkitBackend {
 
     /** pkg to the refusal code the service answers for any call about it. */
     val denied = mutableMapOf<String, Int>()
+
+    /**
+     * pkg to a rule-d code (DENY_PROTECTED, or PROTECTION_UNKNOWN when the protected set could not be read), applied
+     * as the service does: reads are refused with it but carry the value, a write goes through only when it lifts a
+     * restriction ([RestrictionLift]), and force-stop is refused. Refused writes are still listed in [writes].
+     */
+    val protected = mutableMapOf<String, Int>()
     var unavailable: GatewayUnavailable? = null
 
     /** The next this many reads answer NO_SERVICE, then reads answer normally again (a bind wait that expired once). */
@@ -147,6 +155,18 @@ class FakeBackend : ToolkitBackend {
 
     private fun refusal(pkg: String): ToolkitResult? = denied[pkg]?.let { ToolkitResult.refused(it) }
 
+    /** A rule-d refusal of a write that does not [lift] a restriction. */
+    private fun protectedWrite(
+        pkg: String,
+        lifts: Boolean,
+    ): ToolkitResult? = protected[pkg]?.takeUnless { lifts }?.let { ToolkitResult.refused(it) }
+
+    /** A read of a protected package: refused with its rule-d code, carrying the value it read. */
+    private fun protectedRead(
+        pkg: String,
+        read: ToolkitResult,
+    ): ToolkitResult = protected[pkg]?.let { ToolkitResult.refused(it, after = read.afterRaw) } ?: read
+
     private suspend fun write(
         name: String,
         block: () -> ToolkitResult,
@@ -168,7 +188,7 @@ class FakeBackend : ToolkitBackend {
         op: AppOp,
         mode: AppOpMode,
     ) = write("setAppOp($pkg,${op.argv},${mode.argv})") {
-        refusal(pkg) ?: run {
+        refusal(pkg) ?: protectedWrite(pkg, RestrictionLift.appOp(mode)) ?: run {
             val before = device(pkg)[op]
             device(pkg)[op] = mode.argv
             ToolkitResult.done(warnCode(pkg), before.takeUnless { nullBeforeOnAppOpWrite }, mode.argv)
@@ -180,9 +200,9 @@ class FakeBackend : ToolkitBackend {
             reads += "getAppOps($pkg)"
             onRead("getAppOps($pkg)")
             GatewayReply.Reply(
-                scriptedRead ?: refusal(pkg) ?: ToolkitResult.done(
-                    warnCode(pkg),
-                    after = AppOp.entries.joinToString(",") { "${it.argv}=${device(pkg)[it]}" },
+                scriptedRead ?: refusal(pkg) ?: protectedRead(
+                    pkg,
+                    ToolkitResult.done(warnCode(pkg), after = AppOp.entries.joinToString(",") { "${it.argv}=${device(pkg)[it]}" }),
                 ),
             )
         }
@@ -191,7 +211,8 @@ class FakeBackend : ToolkitBackend {
         pkg: String,
         bucket: StandbyBucket,
     ) = write("setBucket($pkg,${bucket.argv})") {
-        refusal(pkg) ?: run {
+        val current = buckets[pkg] ?: StandbyBucket.ACTIVE.rawValue
+        refusal(pkg) ?: protectedWrite(pkg, RestrictionLift.bucket(bucket, current)) ?: run {
             val before = buckets[pkg] ?: StandbyBucket.ACTIVE.rawValue
             buckets[pkg] = bucket.rawValue
             ToolkitResult.done(warnCode(pkg), before.toString().takeUnless { nullBeforeOnBucketWrite }, bucket.rawValue.toString())
@@ -204,7 +225,10 @@ class FakeBackend : ToolkitBackend {
             onRead("getBucket($pkg)")
             GatewayReply.Reply(
                 scriptedRead ?: refusal(pkg)
-                    ?: ToolkitResult.done(warnCode(pkg), after = (buckets[pkg] ?: StandbyBucket.ACTIVE.rawValue).toString()),
+                    ?: protectedRead(
+                        pkg,
+                        ToolkitResult.done(warnCode(pkg), after = (buckets[pkg] ?: StandbyBucket.ACTIVE.rawValue).toString()),
+                    ),
             )
         }
 
@@ -250,7 +274,7 @@ class FakeBackend : ToolkitBackend {
 
     override suspend fun forceStop(pkg: String) =
         write("forceStop($pkg)") {
-            refusal(pkg) ?: ToolkitResult.done(warnCode(pkg), "stopped=false", "stopped=true")
+            refusal(pkg) ?: protectedWrite(pkg, lifts = false) ?: ToolkitResult.done(warnCode(pkg), "stopped=false", "stopped=true")
         }
 
     override suspend fun startBgDexopt() = write("startBgDexopt") { startResult }

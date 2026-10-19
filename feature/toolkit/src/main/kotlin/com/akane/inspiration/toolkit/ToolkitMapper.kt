@@ -66,6 +66,7 @@ internal object ToolkitMapper {
                 },
             sinceMs = override.sinceMs,
             restorable = override.restorable,
+            unverified = override.unverified,
         )
 
     private fun bucketOfRaw(raw: String?): StandbyBucket? {

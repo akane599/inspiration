@@ -166,6 +166,11 @@ fun XRayDetailAllowedOverride() =
     }
 
 @PreviewTest
+@Preview(name = "detail-unverified-override", showBackground = true, widthDp = 360, heightDp = 1640)
+@Composable
+fun XRayDetailUnverifiedOverride() = InspirationTheme(darkTheme = false) { SheetBody(XRayPreviewData.detailUnverifiedOverride) }
+
+@PreviewTest
 @Preview(name = "detail-blocked", showBackground = true, widthDp = 360, heightDp = 1160)
 @Composable
 fun XRayDetailBlocked() = InspirationTheme(darkTheme = false) { SheetBody(XRayPreviewData.detailBlocked) }

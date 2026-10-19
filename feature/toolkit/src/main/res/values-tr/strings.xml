@@ -82,6 +82,7 @@
     <string name="toolkit_override_since">%1$s tarihinden beri</string>
     <string name="toolkit_override_restore">Geri al</string>
     <string name="toolkit_override_not_restorable">Otomatik olarak geri alınamaz.</string>
+    <string name="toolkit_override_unverified">Hâlâ geçerli olup olmadığı denetlenemedi. %1$s</string>
     <string name="toolkit_override_op_other">%1$s için izin değiştirildi</string>
     <string name="toolkit_override_bucket">%1$s: bekleme grubu %2$s olarak ayarlandı</string>
     <string name="toolkit_override_bucket_other">%1$s: bekleme grubu değiştirildi</string>
@@ -202,6 +203,7 @@
     <string name="toolkit_refused_unsupported_user">Uygulama denetimleri yalnızca Inspiration ana Android kullanıcısında çalışırken kullanılabilir; iş profilinde veya ikincil kullanıcıda kullanılamaz.</string>
     <string name="toolkit_refused_unsupported_api">Bu işlem bu Android sürümünde kullanılamaz.</string>
     <string name="toolkit_refused_protected_app">Bu korumalı bir uygulama. Inspiration sistem, kalıcı veya rol sahibi uygulamaları değiştirmez.</string>
+    <string name="toolkit_refused_protection_unknown">Inspiration bu uygulamanın korumalı olup olmadığını denetleyemedi, bu yüzden uygulamayı değiştirmedi. Birazdan yeniden deneyin.</string>
     <string name="toolkit_refused_caller">Shizuku bu isteği reddetti.</string>
     <string name="toolkit_refused_stale">Ayar bu arada değişti. Kontrol edip yeniden deneyin.</string>
     <string name="toolkit_refused_busy">Başka bir değişiklik sürüyor. Birazdan yeniden deneyin.</string>

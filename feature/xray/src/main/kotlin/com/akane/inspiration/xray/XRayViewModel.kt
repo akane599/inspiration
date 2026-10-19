@@ -319,6 +319,7 @@ class XRayViewModel(
                     ?.let { raw -> StandbyBucket.entries.firstOrNull { it.rawValue == raw } },
             sinceMs = override.sinceMs,
             restorable = override.restorable,
+            unverified = override.unverified,
         )
 
     /** Changes the open sheet only while it is the one for [uid] and [pkg]: a late result never lands on another app's sheet. */

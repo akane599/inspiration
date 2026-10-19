@@ -144,6 +144,14 @@ internal object XRayPreviewData {
             notice = ActionNotice.Applied(Change.Restricted),
         )
 
+    /** A change of ours that can no longer be read back (N-06): still listed, with why. */
+    val detailUnverifiedOverride =
+        AppDetail(
+            app = chatty,
+            actions = ActionsState.Unavailable(Problem.Refused(ToolkitRefusal.PROTECTION_UNKNOWN)),
+            overrides = persistentListOf(override.copy(unverified = ToolkitRefusal.PROTECTION_UNKNOWN)),
+        )
+
     val detailBlocked = AppDetail(app = chatty, actions = ActionsState.Blocked(BlockedReason.PERMISSION_REQUIRED))
 
     val detailRefused =

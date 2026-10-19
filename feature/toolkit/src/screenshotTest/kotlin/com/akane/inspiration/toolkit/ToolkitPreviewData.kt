@@ -189,6 +189,17 @@ internal object ToolkitPreviewData {
                 ),
         )
 
+    /** Changes that could not be read back now (N-06): still listed, with why, and still restorable. */
+    val unverifiedOverrides =
+        ready.copy(
+            overrides =
+                persistentListOf(
+                    overrides[0].copy(unverified = ToolkitRefusal.PROTECTION_UNKNOWN),
+                    overrides[1].copy(unverified = ToolkitRefusal.SERVICE_UNAVAILABLE),
+                    overrides[2],
+                ),
+        )
+
     val detail =
         AppDetail(
             app = chatty,

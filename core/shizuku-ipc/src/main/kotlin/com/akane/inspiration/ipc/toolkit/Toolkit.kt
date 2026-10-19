@@ -119,6 +119,25 @@ enum class DozeProfile(
     }
 }
 
+/**
+ * Writes the hard deny of protected packages (rule d: role holders, the default IME, accessibility services, device
+ * admins, the always-on VPN, or a package whose protection could not be decided) still lets through. Each one only
+ * lifts a background restriction, so it cannot take a protected app out of the background, which is what the rule
+ * guards against; it keeps a restriction Inspiration added restorable after the app became protected. Every other
+ * hard-deny rule still refuses everything. The service enforces this; the client applies the same rule to refuse
+ * before it asks.
+ */
+object RestrictionLift {
+    /** Only `allow` lifts an app-op restriction (`ignore` sets one; `default` is never written). */
+    fun appOp(mode: AppOpMode): Boolean = mode == AppOpMode.ALLOW
+
+    /** A bucket strictly more active than [currentRaw], the value `get-standby-bucket` prints now. */
+    fun bucket(
+        target: StandbyBucket,
+        currentRaw: Int,
+    ): Boolean = target.rawValue < currentRaw
+}
+
 object PackageNames {
     private const val MAX_LENGTH = 255
     private val PATTERN = Regex("[A-Za-z][A-Za-z0-9_]*(\\.[A-Za-z][A-Za-z0-9_]*)+")

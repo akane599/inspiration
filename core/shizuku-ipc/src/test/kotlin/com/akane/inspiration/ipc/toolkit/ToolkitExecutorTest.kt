@@ -356,15 +356,24 @@ class ToolkitExecutorTest {
                 "device admin" to ProtectedPackages(deviceAdmins = setOf("com.example.guarded")),
                 "always-on vpn" to ProtectedPackages(alwaysOnVpn = setOf("com.example.guarded")),
             )
+        // Rule d refuses every restricting write and the force-stop without writing; its reads are refused too
+        // but carry the value they read, so a change made before the app became protected stays visible.
         for ((name, set) in protectedCases) {
             inspector.packages["com.example.guarded"] = userApp()
             inspector.protectedSet = set
             runner.calls.clear()
             val executor = executor()
             for (result in everyPackageAction(executor, "com.example.guarded")) {
+                assertEquals(name, ToolkitStatus.REFUSED, result.status)
                 assertEquals(name, ToolkitCode.DENY_PROTECTED, result.code)
             }
-            assertTrue(name, runner.calls.isEmpty())
+            assertEquals(
+                name,
+                "RUN_ANY_IN_BACKGROUND=allow,RUN_IN_BACKGROUND=allow,WAKE_LOCK=allow",
+                executor.getAppOps("com.example.guarded").afterRaw,
+            )
+            assertEquals(name, "10", executor.getStandbyBucket("com.example.guarded").afterRaw)
+            assertTrue("$name wrote ${runner.calls}", runner.calls.none { it.isWrite() })
         }
     }
 
@@ -378,7 +387,68 @@ class ToolkitExecutorTest {
             assertEquals(ToolkitStatus.REFUSED, result.status)
             assertEquals(ToolkitCode.PROTECTION_UNKNOWN, result.code)
         }
-        assertTrue(runner.calls.isEmpty())
+        assertEquals("10", executor.getStandbyBucket(APP).afterRaw)
+        assertTrue(runner.calls.none { it.isWrite() })
+    }
+
+    // --- N-06: a protected app keeps its overrides visible and restorable -------------------------
+
+    @Test
+    fun `a protected app takes a write that lifts a restriction and nothing else`() {
+        inspector.protectedSet = ProtectedPackages(roleHolders = setOf(APP))
+        appModes["RUN_ANY_IN_BACKGROUND"] = "ignore"
+        bucket = StandbyBucket.RESTRICTED.rawValue
+        val executor = executor()
+
+        assertEquals(
+            ToolkitResult.refused(ToolkitCode.DENY_PROTECTED),
+            executor.setAppOp(APP, AppOp.WAKE_LOCK.code, AppOpMode.IGNORE.code),
+        )
+        assertEquals(
+            ToolkitResult.done(before = "ignore", after = "allow"),
+            executor.setAppOp(APP, AppOp.RUN_ANY_IN_BACKGROUND.code, AppOpMode.ALLOW.code),
+        )
+        assertEquals(
+            ToolkitResult.done(before = "45", after = "10"),
+            executor.setStandbyBucket(APP, StandbyBucket.ACTIVE.code),
+        )
+        // Not more active than what is there now (the same bucket, then a lower one): refused unwritten.
+        assertEquals(ToolkitResult.refused(ToolkitCode.DENY_PROTECTED), executor.setStandbyBucket(APP, StandbyBucket.ACTIVE.code))
+        assertEquals(ToolkitResult.refused(ToolkitCode.DENY_PROTECTED), executor.setStandbyBucket(APP, StandbyBucket.RARE.code))
+        assertEquals(ToolkitResult.refused(ToolkitCode.DENY_PROTECTED), executor.forceStop(APP))
+        assertEquals(
+            listOf(
+                listOf(CMD, "appops", "set", "--user", "0", APP, "RUN_ANY_IN_BACKGROUND", "allow"),
+                listOf(CMD, "activity", "set-standby-bucket", "--user", "0", APP, "active"),
+            ),
+            runner.calls.filter { it.isWrite() },
+        )
+    }
+
+    @Test
+    fun `an undecidable protection still lets a restriction be lifted`() {
+        inspector.protectedSet = null
+        appModes["WAKE_LOCK"] = "ignore"
+        val executor = executor()
+
+        assertEquals(
+            ToolkitResult.refused(
+                ToolkitCode.PROTECTION_UNKNOWN,
+                after = "RUN_ANY_IN_BACKGROUND=allow,RUN_IN_BACKGROUND=allow,WAKE_LOCK=ignore",
+            ),
+            executor.getAppOps(APP),
+        )
+        assertEquals(ToolkitStatus.DONE, executor.setAppOp(APP, AppOp.WAKE_LOCK.code, AppOpMode.ALLOW.code).status)
+        assertEquals("allow", appModes["WAKE_LOCK"])
+    }
+
+    @Test
+    fun `a protected app whose read fails is refused with no value`() {
+        inspector.protectedSet = ProtectedPackages(defaultIme = setOf(APP))
+        val executor = executor()
+        runner.handler = { argv -> if ("get-standby-bucket" in argv) failure() else device(argv) }
+
+        assertEquals(ToolkitResult.refused(ToolkitCode.DENY_PROTECTED), executor.getStandbyBucket(APP))
     }
 
     // --- protected-package cache (F-07) -----------------------------------------------------
@@ -422,8 +492,15 @@ class ToolkitExecutorTest {
         assertEquals(ToolkitResult.refused(ToolkitCode.DENY_PROTECTED), write)
         assertEquals(2, inspector.protectedQueries)
         assertTrue(runner.calls.none { "set-standby-bucket" in it })
-        // Reads keep the hard-deny rules (a force-stop is planned from one) and reuse the write's fresh set.
-        assertEquals(ToolkitResult.refused(ToolkitCode.DENY_PROTECTED), executor.getAppOps(APP))
+        // Reads stay refused for a protected app (a force-stop is planned from one), carry the value they read,
+        // and reuse the write's fresh set.
+        assertEquals(
+            ToolkitResult.refused(
+                ToolkitCode.DENY_PROTECTED,
+                after = "RUN_ANY_IN_BACKGROUND=allow,RUN_IN_BACKGROUND=allow,WAKE_LOCK=allow",
+            ),
+            executor.getAppOps(APP),
+        )
         assertEquals(2, inspector.protectedQueries)
     }
 
@@ -1022,4 +1099,7 @@ class ToolkitExecutorTest {
             executor.getStandbyBucket(pkg),
             executor.forceStop(pkg),
         )
+
+    private fun List<String>.isWrite(): Boolean =
+        take(3) == listOf(CMD, "appops", "set") || "set-standby-bucket" in this || "force-stop" in this
 }

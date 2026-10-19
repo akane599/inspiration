@@ -559,6 +559,22 @@ class XRayViewModelTest {
     }
 
     @Test
+    fun `a change that can no longer be read back stays listed for this app as unverified`() {
+        openChatty()
+        vm.onIntent(XRayIntent.Act(ActionRequest.SetRestricted(true)))
+        vm.onIntent(XRayIntent.ConfirmPending)
+        // The app can no longer be read at all (its updates were uninstalled: a pure system app).
+        deps.device.refuseWith = ToolkitCode.DENY_SYSTEM
+
+        vm.onIntent(XRayIntent.ReloadActions)
+
+        assertEquals(ActionsState.Unavailable(Problem.Refused(ToolkitRefusal.PROTECTED_APP)), detail.actions)
+        val override = detail.overrides.single()
+        assertEquals(ToolkitRefusal.PROTECTED_APP, override.unverified)
+        assertEquals("ignore", deps.device.runAnyInBackground)
+    }
+
+    @Test
     fun `restoring an id that is not one of this app's changes is ignored`() {
         openChatty()
 

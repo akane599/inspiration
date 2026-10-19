@@ -655,6 +655,38 @@ class ToolkitViewModelTest {
     }
 
     @Test
+    fun `a restriction on an app that became protected stays listed and reset all lifts it`() =
+        runTest(scheduler) {
+            start()
+            restrict(MAPS)
+            // Maps becomes the default keyboard; the screen is left and opened again.
+            device.protectedPackages += MAPS
+            vm.onIntent(ToolkitIntent.Hidden)
+            vm.onIntent(ToolkitIntent.Visible)
+
+            assertEquals(listOf("Maps"), state.overrides.map { it.label })
+            assertNull(state.overrides.single().unverified)
+            assertTrue(
+                state.apps.items
+                    .first { it.packageName == MAPS }
+                    .restricted,
+            )
+
+            act(ToolkitRequest.ResetAll)
+            confirm()
+
+            assertEquals(
+                ResetResult.Restored,
+                state.resetReport!!
+                    .lines
+                    .single()
+                    .result,
+            )
+            assertEquals("allow", device.app(MAPS).ops[AppOp.RUN_ANY_IN_BACKGROUND])
+            assertTrue(state.overrides.isEmpty())
+        }
+
+    @Test
     fun `ignoring wakelocks needs a warned confirmation and nothing is written before it`() {
         start()
         open(CHATTY)
@@ -913,7 +945,8 @@ class ToolkitViewModelTest {
             act(ToolkitRequest.SetBucket(StandbyBucket.RARE))
             vm.onIntent(ToolkitIntent.CloseApp)
             assertEquals(2, state.overrides.size)
-            device.refuseWritesFor += MAPS
+            // Maps can no longer be read or written at all (its updates were uninstalled: a pure system app).
+            device.systemPackages += MAPS
             val writes = device.writes.size
 
             act(ToolkitRequest.ResetAll)
@@ -934,7 +967,10 @@ class ToolkitViewModelTest {
                 report.lines.first { it.item.label == "Maps" }.result,
             )
             assertEquals(ToolkitEffect.ResetFinished(restored = 1, total = 2), vm.effects.first())
+            // It may still be in effect, so it stays listed, marked as unverified rather than dropped (N-06).
             assertEquals(listOf("Maps"), state.overrides.map { it.label })
+            assertEquals(ToolkitRefusal.PROTECTED_APP, state.overrides.single().unverified)
+            assertEquals(StandbyBucket.RARE.rawValue, device.app(MAPS).bucket)
             assertFalse(state.busy)
 
             vm.onIntent(ToolkitIntent.DismissResetReport)

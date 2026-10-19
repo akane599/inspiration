@@ -132,6 +132,7 @@
     <string name="xray_override_bucket_other">Standby bucket changed</string>
     <string name="xray_override_restore">Restore</string>
     <string name="xray_override_not_restorable">Can\'t be restored automatically.</string>
+    <string name="xray_override_unverified">Couldn\'t check whether this is still in effect. %1$s</string>
 
     <!-- Results -->
     <string name="xray_notice_restricted">Background activity restricted.</string>
@@ -144,6 +145,7 @@
     <string name="xray_refused_unsupported_user">Quick actions work only when Inspiration runs in the main Android user, not in a work profile or secondary user.</string>
     <string name="xray_refused_unsupported_api">This action isn\'t available on this Android version.</string>
     <string name="xray_refused_protected_app">This is a protected app. Inspiration doesn\'t change system, persistent or role-holder apps.</string>
+    <string name="xray_refused_protection_unknown">Inspiration couldn\'t check whether this app is protected, so it left it unchanged. Try again in a moment.</string>
     <string name="xray_refused_caller">Shizuku refused this request.</string>
     <string name="xray_refused_stale">The setting changed in the meantime. Check it and try again.</string>
     <string name="xray_refused_busy">Another change is in progress. Try again in a moment.</string>

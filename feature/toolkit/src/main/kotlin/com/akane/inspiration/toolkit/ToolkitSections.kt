@@ -310,6 +310,9 @@ private fun OverrideRow(
                 color = MaterialTheme.colorScheme.onSurface,
             )
             InfoText(stringResource(R.string.toolkit_override_since, since), small = true)
+            item.unverified?.let { reason ->
+                InfoText(stringResource(R.string.toolkit_override_unverified, stringResource(refusalRes(reason))), small = true)
+            }
             if (!item.restorable) InfoText(stringResource(R.string.toolkit_override_not_restorable), small = true)
         }
         if (item.restorable) {
