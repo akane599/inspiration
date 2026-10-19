@@ -912,10 +912,10 @@ This run's Mobile MCP/redroid check was deliberately nondestructive and covered 
 
 ## 6. Atomic remediation log — 2026-10-19
 
-This section records **subsequent requested remediation**, not changes to the frozen independent assessment or historical delta above. Status means the scoped checks below passed and the fix was committed on `audit-remediate-d-20261019`; it is not a zero-regression or physical-device guarantee. The final combined build/test/lint/screenshot/debug/R8 gate is **PENDING**. No release, push, APK delivery or privileged device mutation has been performed during remediation. User-dirty `.claude/settings.json` is preserved.
+This section records **subsequent requested remediation**, not changes to the frozen independent assessment or historical delta above. Status means the scoped checks below passed and the fix was committed on `audit-remediate-d-20261019`; it is not a zero-regression or physical-device guarantee. The final combined build/test/lint/screenshot/debug/R8/signed-release gate **PASSED**. A backed-up, same-certificate redroid upgrade and current-build smoke also passed within the limits below. No uninstall, data clear, permission/settings changes or privileged toolkit writes were performed. User-dirty `.claude/settings.json` is preserved; protected audit/kit/map infrastructure remains unchanged.
 
 <!-- remediation-batch-status -->
-**24/24 findings integrated and scoped gates passed. Final combined verification remains PENDING.**
+**24/24 findings FIXED within recorded scope; all scoped gates and final combined verification PASSED.**
 
 | ID | Verified integration commit | Files changed (within their existing modules) | Verification job(s), all final exits 0 |
 |---|---|---|---|
@@ -944,7 +944,7 @@ This section records **subsequent requested remediation**, not changes to the fr
 | A-23 | [FIXED in ffe8073; preview follow-up 30c5a0c] | IntervalAnalyzer.kt; BatteryStoryBuilder.kt; analyzer/story tests; Cockpit preview + seven PNGs | bl7hlo1r0: analyzer/session/builder/writer tests + diagnostics lint + app screenshots; bz3t05i2u: dashboard render/validation; actual EN/TR PNGs inspected |
 | A-08 | [FIXED in d2c06be; UI follow-up f370bb0] | UID identity model/reader/backend; capture/source/differ; Room entities/store/migration/schema5; regressions; EN/TR XRay strings, two previews and two PNGs | bk3fl6pk9: complete telemetry/database/diagnostics/XRay units (633 total) + telemetry/database lint; bglwc35bm: XRay units/lint/render; bh447vdf3: separate screenshot validation; main/independent source and migration review; both PNGs inspected |
 
-A-08 uses trusted capture-time identity at both endpoints, not current cosmetic membership. Its nullable Room 4→5 migration leaves legacy identity unknown; unsupported, changed or unproven application identities are conservatively withheld without fabricating zero baselines or hiding independent aggregate evidence. Both atomic commits were rebased and integrated without conflicts. The combined gate is still required after integration.
+A-08 uses trusted capture-time identity at both endpoints, not current cosmetic membership. Its nullable Room 4→5 migration leaves legacy identity unknown; unsupported, changed or unproven application identities are conservatively withheld without fabricating zero baselines or hiding independent aggregate evidence. Both atomic commits were rebased and integrated without conflicts. The final combined gate subsequently passed on the integrated source.
 <!-- /remediation-batch-status -->
 
 ### Scoped verification commands
@@ -1002,3 +1002,43 @@ Every job used its isolated worktree's absolute `gradlew -p <same-worktree>`, fo
 - The initial A-24 gate `bicc40ucj` exposed one 3.44% CounterReset screenshot difference caused by A-22's valid dump-derived sleep despite unavailable kernel/CPU data. Expected/actual PNGs and the fixture were traced; no fixture weakening or production rollback was made. Separate A-22 reference acceptance `7ac20eb` changes one PNG only. Real differ-derived A-22 unit tests, not this synthetic preview, supply cross-boot comparability evidence.
 - A-23's initial gate `bvs40tn5b` failed one of 49 tests (expected 5.0%/h, actual 0.0). The fixture placed a level drop exactly on SCREEN_ON; the real metrics calculator applies screen transitions before equal-timestamp level events. First bounded repair records the drop before the transition and supplies record-faithful levels on state events. All rate, energy, CPU-counter, bounds, cache and EN/TR assertions remain unchanged; `bl7hlo1r0` passed. App shell screenshots did not exercise the story. Additional dashboard validation passed, then actual PNG inspection exposed the primary synthetic ready fixture's live/default summary. A preview-only explicit-false alignment and seven intended reference updates passed `bz3t05i2u`; actual English/Turkish neutral wording was inspected with no clipping. Runtime analysis uses neutral wording for stored coverage even when an endpoint matches now; explicit live builder/writer branches are retained. Previews are synthetic visual evidence, not persisted-session provenance proof.
 - Installed PostToolUse formatting hooks mechanically reflowed existing code inside owned Kotlin files. Hooks/configuration were not disabled or changed; this accounts for substantial textual diff beyond semantic fixes. Audit skills, kit files and frozen `independent.md` were not changed.
+
+### Final combined gate and signed build
+
+Job **`bgp6n7cp4` exited0**, running alone with eight workers and forcing all tasks to rerun:
+
+```text
+./gradlew testDebugUnitTest lintDebug validateDebugScreenshotTest :app:assembleDebug :app:minifyReleaseWithR8 :app:assembleRelease --console=plain -q --max-workers=8 --rerun-tasks --continue
+```
+
+Application/build source was `b609e3a3924825f6c2c9fe4ed7af55ff1f51d1ee`; subsequent report commits change no build inputs. XML results: **1,399 unit tests and 177 screenshot validations, zero failures/errors/skips**. Lint has zero errors/fatals and the same nine warnings as baseline. Debug assembly, release R8 and signed release assembly all passed. No references were updated by this final gate.
+
+| Module | Unit tests | Screenshot validations |
+|---|---:|---:|
+| app |137|8|
+| core/database |57|0|
+| core/designsystem |118|59|
+| core/diagnostics |152|0|
+| core/hidden-api-stub |0|0|
+| core/shizuku-ipc |236|0|
+| core/telemetry-engine |349|0|
+| feature/dashboard |41|13|
+| feature/health |84|12|
+| feature/sleeplab |73|20|
+| feature/toolkit |68|36|
+| feature/xray |84|29|
+| **Total** |**1,399**|**177**|
+
+Version-only integration `b609e3a` changes versionCode3→4/versionName0.2.1→0.2.2; its earlier `:app:processReleaseMainManifest` gate `b7r930iwh` also exited0. APK metadata confirms applicationId `com.akane.inspiration`, version0.2.2/code4 and minSdk31. `apksigner verify --print-certs` passed. Certificate SHA-256 **`1d344dd2e7269d2c6b4274881799c2d87f41d40da8ebaace7407467ec1f3de60`** matches both the prior installed release and saved release expectation. APK SHA-256 **`93f685b6ab25d5c81ac4ef611d99ac9ef2e240fb502f7ebca57d90d3db31c580`**. Local delivery files: `app/build/outputs/apk/release/inspiration-0.2.2.apk` and `.apk.sha256`. Private delivery target: [v0.2.2](https://github.com/akane599/inspiration/releases/tag/v0.2.2); GitHub records publication state.
+
+### Current-build Mobile MCP/redroid verification
+
+Android15 `localhost:5555` was re-discovered with Mobile MCP. Before installation, the old signed0.2.1/code3 database was backed up with SQLite's online backup; local integrity checked `ok`. Mobile MCP terminated the app, installed the same-key0.2.2 APK **in place** and launched it. Installed APK SHA-256 matches the freshly verified build exactly; this smoke does not inherit the original audit's unverified source-equivalence limitation.
+
+The actual device migrated schema4→5, passed integrity and foreign-key checks, and retained every old column value across all snapshot-family tables:8 snapshots,7 system rows,42 availability rows,252 UID rows,572 wakelocks and28 alarms; the other three child tables were empty and remain preserved. Before/after SQLite backups were compared locally, not merely row-count matched. All eight legacy snapshots retain NULL identity proof. New full captures10/11 record current user0/serial0/package-sequence39 and54 canonical owner fingerprints across their UID rows. This is real capture/persistence evidence, not proof of real UID reuse or zero identity-read overhead. Toolkit action rows remain0.
+
+Mobile MCP reached all five screens, changed Last24h and restored Since unplugged, and completed a harmless explicit refresh. Shizuku reported Binder active/UID2000. X-Ray's actual empty-app title/body were verified through hierarchy and screenshot; English text is complete, readable and no longer claims zero usage. No crash reports were listed. Runtime logs contain ART/container graphics allocation/renderer and predictive-back diagnostics; these are disclosed, not presented as a perfectly clean log or a new application finding. No uninstall/data clear, permissions/settings, foreground-service toggles, profile changes or privileged toolkit writes. The app was left on Cockpit/Since unplugged. Battery-less redroid still cannot certify physical charge/wear/energy/suspend accuracy, real multi-profile writes, assistive-technology operation or OEM/API-matrix behavior.
+
+### Preservation and documentation boundary
+
+Before report commits, the original audit and historical delta were compared byte-identical to `17b4792`; frozen independent SHA-256 still matches `2ab1455debbee9ddf0b68c9199687b00df2f2edafb6022ee822c1db4c86ef0b6`. No committed changes to protected `.claude`/`.codex`/`.agents`/project instructions occurred. The user's dirty settings and untracked worker directories remain preserved. The maintained codebase map still describes schema4 and lacks the new identity path; its update is deliberately deferred because protected `.claude` metadata is outside this remediation scope, not silently claimed current. No kit maintenance or Sidequest dispatch was performed.
