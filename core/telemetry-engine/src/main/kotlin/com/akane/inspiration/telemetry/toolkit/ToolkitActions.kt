@@ -1482,8 +1482,15 @@ class ToolkitActions internal constructor(
                 return
             }
             // A terminal status makes the refresh release the hold, which cancels this very job; the row
-            // updates that follow in the same refresh must still complete.
-            withContext(NonCancellable) { mutex.withLock { refreshDexoptLocked() } }
+            // updates that follow in the same refresh must still complete. A failed audit query must not
+            // end supervision: retry at the next tick, keeping the monotonic hold cap independent of reads.
+            try {
+                withContext(NonCancellable) { mutex.withLock { refreshDexoptLocked() } }
+            } catch (error: CancellationException) {
+                throw error
+            } catch (error: Exception) {
+                android.util.Log.w("ToolkitActions", "hold status read failed; will retry within cap", error)
+            }
             if (!holdTaken()) return
         }
     }
