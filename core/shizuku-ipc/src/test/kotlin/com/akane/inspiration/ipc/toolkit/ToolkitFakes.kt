@@ -142,30 +142,49 @@ internal const val TEST_SDK_INT = 35
 /**
  * What `cmd package` does with a bg-dexopt argv on [sdkInt], after AOSP `PackageManagerShellCommand`
  * (`android12-release`, `android12L-release`, `android13-release`) and ART's `ArtShellCommand` (`android14-release`
- * to `android16-release`). [running] is the system-side job: killing the `cmd` client never stops it.
+ * to `android16-release`). [running] is our pass in system_server: killing the `cmd` client never stops it.
  */
 internal class FakeDexoptShell(
     private val sdkInt: Int,
 ) {
     enum class Effect {
-        /** Runs a dexopt pass in system_server (any extra arguments are package names). */
+        /** `bg-dexopt-job` alone: our full dexopt pass. From API 33 it first waits for a [jobAhead] to end. */
         PASS,
 
-        /** Cancels the running job, whoever started it. */
+        /** Stops the job that runs now: a [jobAhead] first (a start queued behind it then begins), else ours. */
         CANCEL,
 
-        /** API 33 `bg-dexopt-job ARGS`: waits for the running job to finish, then runs a pass over ARGS. */
-        WAIT_THEN_PASS,
+        /**
+         * `bg-dexopt-job ARGS` on API 31/32: dexopts only the packages ARGS names. `--cancel` names no package, so
+         * this does next to nothing, but it cancels nothing either and still prints Success.
+         */
+        NAMED_PASS,
+
+        /** API 33 `bg-dexopt-job ARGS`: the same, but only once the running job has finished. */
+        WAIT_THEN_NAMED_PASS,
 
         UNKNOWN_COMMAND,
     }
 
+    /** Our pass is running in system_server. */
     var running = false
 
-    /** Dexopt passes system_server was asked to run. */
+    /**
+     * A job someone else started is running: the system's idle or post-boot job, or one an earlier service
+     * instance left. From API 33 our start waits for it to end, and a cancel stops it rather than ours.
+     */
+    var jobAhead = false
+
+    /** Our start waits behind [jobAhead]: its `cmd` client is alive, but no pass of ours has begun. */
+    var queued = false
+
+    /** Full passes of ours that system_server began. */
     var passes = 0
 
     var cancels = 0
+
+    /** Our start's `cmd` client has not returned yet: it is queued or its pass is running. */
+    val clientAlive: Boolean get() = queued || running
 
     fun effect(argv: List<String>): Effect {
         val args = argv.drop(2).takeIf { argv.take(2) == listOf(CMD, "package") } ?: return Effect.UNKNOWN_COMMAND
@@ -173,10 +192,10 @@ internal class FakeDexoptShell(
             args == listOf("bg-dexopt-job") -> Effect.PASS
 
             // S/S-v2 runDexoptJob: every argument after the command is collected with getNextArg() as a package name.
-            args.firstOrNull() == "bg-dexopt-job" && sdkInt <= 32 -> Effect.PASS
+            args.firstOrNull() == "bg-dexopt-job" && sdkInt <= 32 -> Effect.NAMED_PASS
 
             // T runDexoptJob does the same, but runBackgroundDexoptJob first waits for the running job.
-            args.firstOrNull() == "bg-dexopt-job" && sdkInt == 33 -> Effect.WAIT_THEN_PASS
+            args.firstOrNull() == "bg-dexopt-job" && sdkInt == 33 -> Effect.WAIT_THEN_NAMED_PASS
 
             args == listOf("bg-dexopt-job", "--cancel") -> Effect.CANCEL
 
@@ -187,28 +206,50 @@ internal class FakeDexoptShell(
         }
     }
 
-    /** Applies [argv] and answers like the `cmd` client would after the given wait (a [FakeRunner] handler). */
+    /** Our start: the pass begins now, or (from API 33) queues behind a [jobAhead]. */
+    fun start() {
+        if (jobAhead && sdkInt >= 33) queued = true else begin()
+    }
+
+    /** One cancel: it stops a [jobAhead] first, and a start of ours queued behind it then begins its pass. */
+    fun cancel() {
+        cancels += 1
+        if (jobAhead) {
+            jobAhead = false
+            if (queued) {
+                queued = false
+                begin()
+            }
+        } else {
+            running = false
+        }
+    }
+
+    private fun begin() {
+        passes += 1
+        running = true
+    }
+
+    /** Applies [argv] and answers like the `cmd` client would within the wait (a [FakeRunner] handler). */
     fun handle(argv: List<String>): CommandOutput =
         when (effect(argv)) {
             Effect.PASS -> {
-                passes += 1
-                running = true
-                ok("Success")
+                start()
+                if (queued) CommandOutput(exitCode = -1, text = "", timedOut = true) else ok("Success")
             }
 
             Effect.CANCEL -> {
-                cancels += 1
-                running = false
+                cancel()
                 ok("Success")
             }
 
-            Effect.WAIT_THEN_PASS -> {
-                if (running) {
-                    CommandOutput(exitCode = -1, text = "", timedOut = true)
-                } else {
-                    passes += 1
-                    ok("Success")
-                }
+            // Neither named variant begins or stops a pass of ours, so neither touches [running] or [passes].
+            Effect.NAMED_PASS -> {
+                ok("Success")
+            }
+
+            Effect.WAIT_THEN_NAMED_PASS -> {
+                if (running || jobAhead) CommandOutput(exitCode = -1, text = "", timedOut = true) else ok("Success")
             }
 
             Effect.UNKNOWN_COMMAND -> {

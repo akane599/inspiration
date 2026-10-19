@@ -253,7 +253,8 @@ sealed interface BgDexoptStatus {
 
     /**
      * This Android version (below API 33) has no command that cancels a job started from the shell, so the service
-     * neither starts nor cancels one and nothing is offered. A PENDING row an older service version left stays PENDING.
+     * neither starts nor cancels one and nothing is offered. A PENDING row an older service version left stays PENDING
+     * until the job's cap and wind-down have passed; it is then settled as CANCELLED ("unsupported").
      */
     data object Unsupported : BgDexoptStatus
 }

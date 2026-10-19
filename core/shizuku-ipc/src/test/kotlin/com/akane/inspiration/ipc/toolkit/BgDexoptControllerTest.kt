@@ -21,18 +21,23 @@ class BgDexoptControllerTest {
     private var monotonicMs = 1_000L
     private var jobExitsAtMs: Long? = null
     private var jobExit = 0
+
+    /** False: our client lingers even once the shell has stopped our pass. */
     private var cancelEndsJob = true
-    private var cancelled = false
     private var cancelOutput = ok()
+
+    /** The wait each cancel command was given. */
+    private val cancelWaits = mutableListOf<Long>()
     private var userCancelNote: (() -> Unit)? = null
     private lateinit var job: FakeJob
 
+    /** Our `bg-dexopt-job` client: it returns once the shell has no queued or running pass of ours. */
     private inner class FakeJob : CommandProcess {
         var destroyed = false
 
         override fun awaitExit(timeoutMs: Long): Boolean {
             val deadline = clock.nowMs + timeoutMs
-            if (cancelled && cancelEndsJob) return true
+            if (cancelEndsJob && !shell.clientAlive) return true
             val exitsAt = jobExitsAtMs
             if (exitsAt != null && exitsAt <= deadline) {
                 clock.nowMs = maxOf(clock.nowMs, exitsAt)
@@ -61,23 +66,33 @@ class BgDexoptControllerTest {
             override fun destroy() = Unit
         }
 
+    private fun exited(out: CommandOutput) =
+        object : CommandProcess {
+            override fun awaitExit(timeoutMs: Long) = true
+
+            override fun output(timedOut: Boolean) = out
+
+            override fun destroy() = Unit
+        }
+
     /** Answers each argv the way `cmd package` does on [sdkInt] ([FakeDexoptShell]). */
     private val runner =
         CommandRunner { argv ->
             calls += argv
             when (shell.effect(argv)) {
                 FakeDexoptShell.Effect.PASS -> {
-                    shell.passes += 1
-                    shell.running = true
+                    shell.start()
                     FakeJob().also { job = it }
                 }
 
                 FakeDexoptShell.Effect.CANCEL -> {
-                    shell.cancels += 1
-                    cancelled = true
-                    if (cancelOutput.ok) shell.running = false
+                    // A failed cancel reached the shell but stopped nothing.
+                    if (cancelOutput.ok) shell.cancel() else shell.cancels += 1
                     object : CommandProcess {
-                        override fun awaitExit(timeoutMs: Long) = !cancelOutput.timedOut
+                        override fun awaitExit(timeoutMs: Long): Boolean {
+                            cancelWaits += timeoutMs
+                            return !cancelOutput.timedOut
+                        }
 
                         override fun output(timedOut: Boolean) = cancelOutput
 
@@ -85,18 +100,16 @@ class BgDexoptControllerTest {
                     }
                 }
 
-                FakeDexoptShell.Effect.WAIT_THEN_PASS -> {
+                FakeDexoptShell.Effect.WAIT_THEN_NAMED_PASS -> {
                     blocked
                 }
 
+                FakeDexoptShell.Effect.NAMED_PASS -> {
+                    exited(ok("Success"))
+                }
+
                 FakeDexoptShell.Effect.UNKNOWN_COMMAND -> {
-                    object : CommandProcess {
-                        override fun awaitExit(timeoutMs: Long) = true
-
-                        override fun output(timedOut: Boolean) = failure("Unknown command")
-
-                        override fun destroy() = Unit
-                    }
+                    exited(failure("Unknown command"))
                 }
             }
         }
@@ -119,10 +132,24 @@ class BgDexoptControllerTest {
         shell = FakeDexoptShell(sdk)
         threads.clear()
         calls.clear()
+        cancelWaits.clear()
         probes = 0
-        cancelled = false
+        userCancelNote = null
         clock.nowMs = 1_000L
         monotonicMs = 1_000L
+    }
+
+    /** [onApi], with another dexopt job running when our start arrives (the system's idle or post-boot job). */
+    private fun behindAnotherJob(sdk: Int) {
+        onApi(sdk)
+        shell.jobAhead = true
+        jobExitsAtMs = null
+    }
+
+    /** What `ToolkitExecutor.cancelBgDexopt` does: fence the controller, run the platform's cancel, report it. */
+    private fun userCancel(controller: BgDexoptController) {
+        controller.beginUserCancel()
+        controller.endUserCancel(runner.run(checkNotNull(controller.cancelArgv)).ok)
     }
 
     // ---- per API level -----------------------------------------------------------------------
@@ -202,6 +229,110 @@ class BgDexoptControllerTest {
         }
     }
 
+    // ---- our start queued behind another job (API 33+) -----------------------------------------
+
+    @Test
+    fun `from API 33 an unplug cancel that stopped a job ahead of ours is sent again until our pass stops`() {
+        for (sdk in 33..36) {
+            behindAnotherJob(sdk)
+            plugged = { clock.nowMs < 1_000L + 70_000 }
+            val controller = controller()
+
+            controller.tryStart()
+            threads.single().run()
+
+            assertFalse("API $sdk: the job ahead was stopped", shell.jobAhead)
+            assertFalse("API $sdk: our pass does not run on unguarded", shell.running)
+            assertEquals("API $sdk: one cancel for the job ahead, one for ours", 2, shell.cancels)
+            assertEquals("API $sdk", BgDexoptState.CANCELLED, controller.status().state)
+            assertEquals(BgDexoptReason.UNPLUGGED, controller.status().reason)
+        }
+    }
+
+    @Test
+    fun `from API 33 a cap cancel that stopped a job ahead of ours is sent again until our pass stops`() {
+        for (sdk in 33..36) {
+            behindAnotherJob(sdk)
+            val controller = controller()
+
+            controller.tryStart()
+            threads.single().run()
+
+            assertFalse("API $sdk: our pass does not run on past the cap", shell.running)
+            assertEquals("API $sdk", 2, shell.cancels)
+            assertEquals("API $sdk", BgDexoptState.CANCELLED, controller.status().state)
+            assertEquals(BgDexoptReason.TIMEOUT, controller.status().reason)
+        }
+    }
+
+    @Test
+    fun `from API 33 a user cancel that stopped a job ahead of ours is sent again and confirmed only by our exit`() {
+        for (sdk in 33..36) {
+            behindAnotherJob(sdk)
+            val controller = controller()
+            var asked = false
+            userCancelNote = {
+                if (!asked) {
+                    asked = true
+                    userCancel(controller)
+                }
+            }
+
+            controller.tryStart()
+            threads.single().run()
+
+            assertFalse("API $sdk: our pass does not run on unguarded", shell.running)
+            assertEquals("API $sdk: the user's cancel stopped the job ahead, the next one ours", 2, shell.cancels)
+            assertEquals("API $sdk", BgDexoptState.CANCELLED, controller.status().state)
+            assertEquals(BgDexoptReason.USER, controller.status().reason)
+        }
+    }
+
+    @Test
+    fun `from API 33 the destroy hook sends the cancel again within its budget while our client outlives it`() {
+        for (sdk in 33..36) {
+            behindAnotherJob(sdk)
+            val controller = controller()
+            var destroyed = false
+            var hookMs = -1L
+            userCancelNote = {
+                if (!destroyed) {
+                    destroyed = true
+                    val before = clock.nowMs
+                    controller.cancelIfRunning() // the service is destroyed while the worker supervises
+                    hookMs = clock.nowMs - before
+                }
+            }
+
+            controller.tryStart()
+            threads.single().run()
+
+            assertFalse("API $sdk: our pass does not outlive the service", shell.running)
+            assertEquals("API $sdk: one cancel for the job ahead, one for ours", 2, shell.cancels)
+            val budgetMs = BgDexoptController.SHUTDOWN_CANCEL_TIMEOUT_MS
+            assertTrue("API $sdk: the hook took $hookMs ms", hookMs in 0L..budgetMs)
+            assertTrue("API $sdk: cancel waits $cancelWaits", cancelWaits.all { it <= budgetMs })
+            assertEquals("API $sdk", BgDexoptState.CANCELLED, controller.status().state)
+        }
+    }
+
+    @Test
+    fun `a client that outlives every cancel is reported unknown after a bounded number of cancels`() {
+        for (sdk in 33..36) {
+            onApi(sdk)
+            jobExitsAtMs = null
+            cancelEndsJob = false
+            val controller = controller()
+
+            controller.tryStart()
+            threads.single().run()
+
+            assertEquals("API $sdk", BgDexoptState.UNKNOWN, controller.status().state)
+            assertEquals(BgDexoptReason.TIMEOUT, controller.status().reason)
+            assertEquals("API $sdk", BgDexoptController.CANCEL_ATTEMPTS, shell.cancels)
+        }
+    }
+
     // ---- supervision -------------------------------------------------------------------------
 
     @Test
@@ -271,7 +402,7 @@ class BgDexoptControllerTest {
     }
 
     @Test
-    fun `successful user cancellation confirms cancellation even before client exit`() {
+    fun `a successful user cancel is not confirmed while our client keeps running`() {
         cancelEndsJob = false
         val controller = controller()
         userCancelNote = {
@@ -280,7 +411,10 @@ class BgDexoptControllerTest {
         }
         controller.tryStart()
         threads.single().run()
-        assertEquals(BgDexoptState.CANCELLED, controller.status().state)
+        // The user's cancel may have stopped some other job: only our client's exit confirms ours stopped.
+        assertEquals(BgDexoptState.UNKNOWN, controller.status().state)
+        assertEquals(BgDexoptReason.USER, controller.status().reason)
+        assertEquals("sent again, a bounded number of times", BgDexoptController.CANCEL_ATTEMPTS - 1, shell.cancels)
     }
 
     @Test

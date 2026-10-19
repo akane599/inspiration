@@ -355,8 +355,8 @@ class ToolkitActions internal constructor(
      * (those of an override target are also settled before that target is used again). The state is read back: DONE when it matches the
      * intended `after`, otherwise FAILED (a job whose status is gone is CANCELLED instead; a FAILED override row
      * whose read-back left its `before` stays in its chain, see [changedTarget]). A row whose
-     * state cannot be read (service unreachable, or a dexopt status that is UNKNOWN, unsupported or still RUNNING)
-     * stays PENDING and is retried on the next call.
+     * state cannot be read (service unreachable, or a dexopt status that is UNKNOWN or still RUNNING, or unsupported
+     * while the job could still be within its cap) stays PENDING and is retried on the next call.
      */
     suspend fun reconcile() {
         mutex.withLock {
@@ -1493,7 +1493,8 @@ class ToolkitActions internal constructor(
         // card is idle; UNKNOWN stays for a job we did start and cannot confirm.
         // A terminal status can still describe the previous job while a start waits in the plugged probe.
         // Keep its durable PENDING row and cancellation action until that admission has actually returned.
-        // Unsupported is permanent for this platform: a start in flight will be refused, and an old row cannot be settled.
+        // Unsupported is permanent for this platform: a start in flight will be refused, and an old row is settled
+        // only once it is past the cap.
         val observed = statusOf(service)
         val status =
             when {
@@ -1529,8 +1530,21 @@ class ToolkitActions internal constructor(
                         finalizeDexoptRows(ToolkitActionStatus.CANCELLED, BgDexoptReason.NONE, afterRaw = "idle")
                     }
 
-                    is BgDexoptStatus.Running, BgDexoptStatus.Unknown, BgDexoptStatus.Unsupported -> {
+                    is BgDexoptStatus.Running, BgDexoptStatus.Unknown -> {
                         0
+                    }
+
+                    // An older service version started it, and nothing here can stop or read it. Settle it once
+                    // even its cap and wind-down have passed, so it no longer offers a Cancel that is always refused.
+                    BgDexoptStatus.Unsupported -> {
+                        val stale = nowMs() - DEXOPT_CAP_MS - DEXOPT_CAP_MARGIN_MS
+                        val rows = pending.filter { it.startedAt <= stale && it.id !in dexoptStartsInFlight }
+                        rows.forEach {
+                            audit.update(
+                                it.copy(status = ToolkitActionStatus.CANCELLED, endedAt = nowMs(), afterRaw = "unsupported"),
+                            )
+                        }
+                        rows.size
                     }
                 }
             // Only a settled row is a change: a bump re-runs the privileged override recompute, and this runs on

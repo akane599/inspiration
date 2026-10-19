@@ -15,11 +15,17 @@ internal val BG_DEXOPT_ARGV = listOf(CMD, "package", "bg-dexopt-job")
  * The command that cancels a running background dexopt job on [sdkInt], or null where no command can.
  * From AOSP `PackageManagerShellCommand` (and ART's `ArtShellCommand` from API 34):
  * - API 31/32: `bg-dexopt-job` optimises in a fresh `BackgroundDexOptService` per shell call, which nothing can
- *   cancel, and reads every further argument as a package name: `bg-dexopt-job --cancel` runs another pass.
+ *   cancel, and reads every further argument as a package name: `bg-dexopt-job --cancel` dexopts a package named
+ *   `--cancel` (next to nothing), cancels nothing and still prints Success.
  * - API 33: `cancel-bg-dexopt-job` cancels a shell-started or scheduled run. `bg-dexopt-job --cancel` still reads
  *   `--cancel` as a package name, after waiting for the running job to finish.
  * - API 34+: `bg-dexopt-job --cancel` (legacy dexopt and ART Service alike); `cancel-bg-dexopt-job` is only a
  *   deprecated alias there.
+ *
+ * From API 33 a `bg-dexopt-job` start first waits for a job that is already running (the system's idle or
+ * post-boot job, or one an earlier service instance left), and a cancel stops whichever job runs now. A cancel
+ * that succeeds while our start waits stops that other job, and ours then runs a full pass. So only the exit of
+ * our own `cmd` client proves our pass stopped.
  */
 internal fun bgDexoptCancelArgv(sdkInt: Int): List<String>? =
     when {
@@ -36,6 +42,10 @@ internal fun bgDexoptCancelArgv(sdkInt: Int): List<String>? =
  * Every cancel uses [cancelArgv] for [sdkInt]. Where there is none (below API 33) the guard could not stop
  * the job, so the controller never starts one: a start or cancel is refused as UNSUPPORTED_API, and the
  * status stays UNKNOWN with reason UNSUPPORTED_API.
+ *
+ * A cancel is confirmed only by our client's exit. While the client outlives a cancel and its wind-down, the
+ * cancel is sent again, up to [CANCEL_ATTEMPTS] in all ([cancelIfRunning]: as many as fit its budget); a client
+ * still alive after that is reported UNKNOWN.
  *
  * The unplug/cap guard lives only in this process, so two things keep it honest across service
  * restarts. [cancelIfRunning] is the destroy hook: a job still RUNNING is cancelled (bounded) before
@@ -69,10 +79,12 @@ internal class BgDexoptController(
     private var exitCode = 0
     private var reason = if (cancelArgv == null) BgDexoptReason.UNSUPPORTED_API else BgDexoptReason.NONE
     private var userCancelRequested = false
-    private var cancelCompleted = false
     private var cancelGeneration = 0L
     private var cancellationsInFlight = 0
     private var shuttingDown = false
+
+    /** Our running `bg-dexopt-job` client, from its start until the worker is done with it. */
+    private var client: CommandProcess? = null
 
     fun status(): BgDexoptStatus =
         synchronized(lock) {
@@ -109,7 +121,6 @@ internal class BgDexoptController(
                 exitCode = 0
                 reason = BgDexoptReason.NONE
                 userCancelRequested = false
-                cancelCompleted = false
                 previous
             }
         try {
@@ -130,27 +141,44 @@ internal class BgDexoptController(
         }
     }
 
+    /**
+     * A successful cancel while no job of this instance runs proves nothing is running (UNKNOWN becomes IDLE).
+     * While ours runs it proves nothing: it may have stopped a job ours waits behind, so the worker settles
+     * the state from our client's exit.
+     */
     fun endUserCancel(success: Boolean) {
         synchronized(lock) {
             cancellationsInFlight -= 1
-            if (success) {
-                cancelCompleted = true
-                if (state == BgDexoptState.UNKNOWN) state = BgDexoptState.IDLE
-            }
+            if (success && state == BgDexoptState.UNKNOWN) state = BgDexoptState.IDLE
         }
     }
 
-    /** Close admission even if the worker is queued or the plugged probe has not returned yet. */
+    /**
+     * The destroy hook. Closes admission even if the worker is queued or the plugged probe has not returned yet,
+     * then cancels a running job within [SHUTDOWN_CANCEL_TIMEOUT_MS] in all, sending the cancel again while
+     * our client outlives it.
+     */
     fun cancelIfRunning() {
-        val needsCancel =
+        val running =
             synchronized(lock) {
                 shuttingDown = true
                 cancelGeneration += 1
                 userCancelRequested = true
-                state == BgDexoptState.RUNNING
+                if (state != BgDexoptState.RUNNING) return
+                client
             }
-        // Without a cancel command nothing was ever started here, so needsCancel is false.
-        if (needsCancel) cancelArgv?.let { runner.run(it, SHUTDOWN_CANCEL_TIMEOUT_MS) }
+        // Without a cancel command nothing was ever started here, so the state is never RUNNING.
+        val argv = cancelArgv ?: return
+        val deadline = elapsedMs() + SHUTDOWN_CANCEL_TIMEOUT_MS
+        repeat(CANCEL_ATTEMPTS) {
+            val left = deadline - elapsedMs()
+            if (left <= 0) return
+            runner.run(argv, left)
+            // No client yet: shuttingDown keeps the queued worker from ever starting one; nothing to wait for.
+            if (running == null) return
+            val wait = minOf(deadline - elapsedMs(), WAIT_SLICE_MS)
+            if (wait <= 0 || running.awaitExit(wait)) return
+        }
     }
 
     private fun runJob() {
@@ -161,7 +189,7 @@ internal class BgDexoptController(
                         finish(BgDexoptState.CANCELLED, exit = 0, why = BgDexoptReason.USER)
                         return
                     }
-                    runner.start(BG_DEXOPT_ARGV)
+                    runner.start(BG_DEXOPT_ARGV).also { client = it }
                 }
             } catch (_: IOException) {
                 finish(BgDexoptState.FINISHED, exit = -1, why = BgDexoptReason.NONE)
@@ -172,6 +200,7 @@ internal class BgDexoptController(
         } catch (_: RuntimeException) {
             finish(BgDexoptState.FINISHED, exit = -1, why = BgDexoptReason.NONE)
         } finally {
+            synchronized(lock) { client = null }
             process.destroy()
         }
     }
@@ -189,13 +218,13 @@ internal class BgDexoptController(
             val now = elapsedMs()
             when {
                 synchronized(lock) { userCancelRequested } -> {
-                    // The cancel was already issued; give the job a bounded time to wind down.
-                    val exited = process.awaitExit(DEFAULT_COMMAND_TIMEOUT_MS)
-                    val confirmed = exited || synchronized(lock) { cancelCompleted }
-                    val exit = if (exited) process.output(timedOut = false).exitCode else -1
+                    // The cancel was already issued; give the job a bounded time to wind down, and send it again
+                    // if our client outlives that (the cancel stopped a job ours was waiting behind).
+                    val exited =
+                        process.awaitExit(DEFAULT_COMMAND_TIMEOUT_MS) || cancelUntilExit(process, CANCEL_ATTEMPTS - 1)
                     finish(
-                        if (confirmed) BgDexoptState.CANCELLED else BgDexoptState.UNKNOWN,
-                        exit = exit,
+                        if (exited) BgDexoptState.CANCELLED else BgDexoptState.UNKNOWN,
+                        exit = if (exited) process.output(timedOut = false).exitCode else -1,
                         why = BgDexoptReason.USER,
                     )
                     return
@@ -211,16 +240,32 @@ internal class BgDexoptController(
                 }
             }
         }
-        // tryStart admits a job only when cancelArgv exists; without one nothing is confirmed.
-        val cancel = cancelArgv?.let { runner.run(it) }
-        val exited = process.awaitExit(DEFAULT_COMMAND_TIMEOUT_MS)
-        // Killing the cmd client does not prove system-server stopped dexopt. UNKNOWN preserves
-        // the client's pending audit row and Cancel action when neither operation confirms it.
+        val exited = cancelUntilExit(process, CANCEL_ATTEMPTS)
+        // Neither a successful cancel nor killing the cmd client proves system_server stopped our pass. UNKNOWN
+        // preserves the app's pending audit row and Cancel action when our client never exited.
         finish(
-            if (cancel?.ok == true || exited) BgDexoptState.CANCELLED else BgDexoptState.UNKNOWN,
+            if (exited) BgDexoptState.CANCELLED else BgDexoptState.UNKNOWN,
             exit = if (exited) process.output(timedOut = false).exitCode else -1,
             why = cancelReason,
         )
+    }
+
+    /**
+     * Sends the cancel up to [attempts] times, each followed by a bounded wind-down, and returns true once our
+     * client has exited. A cancel stops whichever job runs now: while ours waits behind another job, the first
+     * one stops that job and ours begins a full pass, so the cancel must go out again.
+     */
+    private fun cancelUntilExit(
+        process: CommandProcess,
+        attempts: Int,
+    ): Boolean {
+        // tryStart admits a job only when cancelArgv exists; without one nothing is confirmed.
+        val argv = cancelArgv ?: return false
+        repeat(attempts) {
+            runner.run(argv)
+            if (process.awaitExit(DEFAULT_COMMAND_TIMEOUT_MS)) return true
+        }
+        return false
     }
 
     private fun finishFromExit(process: CommandProcess) {
@@ -239,7 +284,7 @@ internal class BgDexoptController(
         why: Int,
     ) {
         synchronized(lock) {
-            state = if (newState == BgDexoptState.UNKNOWN && cancelCompleted) BgDexoptState.CANCELLED else newState
+            state = newState
             exitCode = exit
             reason = why
             endedAtMs = clockMs()
@@ -248,6 +293,9 @@ internal class BgDexoptController(
 
     companion object {
         const val SHUTDOWN_CANCEL_TIMEOUT_MS = 3_000L
+
+        /** Cancels sent for one job (a user's own included) before an outliving client is reported UNKNOWN. */
+        const val CANCEL_ATTEMPTS = 3
         const val WAIT_SLICE_MS = 1_000L
         const val RECHECK_MS = 30_000L
         const val CAP_MS = 60L * 60_000L

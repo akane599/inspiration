@@ -737,7 +737,8 @@ class ToolkitActionsTest {
     @Test
     fun anUnsupportedApiLevelKeepsAnOlderServicesPendingRowWithoutClaimingAnOutcome() =
         runTest {
-            val id = audit.insert(pendingRow("dexopt", "bg_dexopt", null, pkg = null, before = "0"))
+            // Started just now: the job could still be running within its cap.
+            val id = audit.insert(pendingRow("dexopt", "bg_dexopt", null, pkg = null, before = "0").copy(startedAt = clock))
             backend.dexoptStatuses.clear()
             backend.dexoptStatuses.add(serviceStatus(BgDexoptState.UNKNOWN, reason = BgDexoptReason.UNSUPPORTED_API))
             backend.cancelResult = ToolkitResult.refused(ToolkitCode.UNSUPPORTED_API)
@@ -745,6 +746,21 @@ class ToolkitActionsTest {
             assertEquals(BgDexoptStatus.Unsupported, actions.bgDexoptStatus().first())
             assertTrue(actions.cancelBgDexopt() is ToolkitOutcome.Refused)
             assertEquals(ToolkitActionStatus.PENDING, audit.byId(id).status)
+        }
+
+    @Test
+    fun anUnsupportedApiLevelSettlesAnOlderServicesPendingRowOnceItIsPastTheCap() =
+        runTest {
+            val id = audit.insert(pendingRow("dexopt", "bg_dexopt", null, pkg = null, before = "0"))
+            backend.dexoptStatuses.clear()
+            backend.dexoptStatuses.add(serviceStatus(BgDexoptState.UNKNOWN, reason = BgDexoptReason.UNSUPPORTED_API))
+            // The row started at 1 ms; the service's 60 minute cap plus the 2 minute wind-down margin have passed.
+            clock = 1L + 62 * 60_000L
+
+            assertEquals(BgDexoptStatus.Unsupported, actions.bgDexoptStatus().first())
+            val row = audit.byId(id)
+            assertEquals(ToolkitActionStatus.CANCELLED, row.status)
+            assertEquals("unsupported", row.afterRaw)
         }
 
     @Test
