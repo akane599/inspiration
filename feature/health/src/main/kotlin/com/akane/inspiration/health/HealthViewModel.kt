@@ -94,6 +94,11 @@ class HealthViewModel(
         plugStateKnown = false
         observedPlugMs = null
         observedUnplugMs = null
+        // End this visit's refresh ownership without cancelling the shared capture: a failure that lands (or was
+        // queued) after the user left must not be shown on the next visit.
+        userWaiting = false
+        while (effectChannel.tryReceive().isSuccess) Unit
+        _state.update { it.copy(refreshing = false) }
         render()
     }
 
@@ -154,7 +159,7 @@ class HealthViewModel(
     private fun startRefresh(userInitiated: Boolean) {
         // A user refresh during a running one (e.g. the on-enter refresh) joins it: it shows progress and
         // reports that refresh's failure.
-        if (userInitiated) {
+        if (userInitiated && visible) {
             userWaiting = true
             _state.update { it.copy(refreshing = true) }
         }
@@ -164,9 +169,17 @@ class HealthViewModel(
                 try {
                     load()
                     when (attempt { deps.refresh() }) {
-                        is RefreshResult.Refreshed -> load()
-                        is RefreshResult.Debounced -> Unit
-                        is RefreshResult.Failed, null -> if (userWaiting) effectChannel.trySend(HealthEffect.RefreshFailed)
+                        is RefreshResult.Refreshed -> {
+                            load()
+                        }
+
+                        is RefreshResult.Debounced -> {
+                            Unit
+                        }
+
+                        is RefreshResult.Failed, null -> {
+                            if (userWaiting && visible) effectChannel.trySend(HealthEffect.RefreshFailed)
+                        }
                     }
                 } finally {
                     userWaiting = false

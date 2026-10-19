@@ -147,8 +147,12 @@ class CockpitViewModel(
         liveJob?.cancel()
         liveJob = null
         closeBinding()
+        // End this visit's refresh ownership without cancelling the shared capture: a failure that lands (or was
+        // queued) after the user left must not be shown on the next visit.
+        userWaiting = false
+        while (effectChannel.tryReceive().isSuccess) Unit
         // A reading from before the screen was hidden must not be shown as live when it comes back.
-        _state.update { it.copy(live = null) }
+        _state.update { it.copy(live = null, refreshing = false) }
     }
 
     private fun closeBinding() {
@@ -175,8 +179,11 @@ class CockpitViewModel(
         // A user refresh during a running one (e.g. the on-enter refresh) joins it: it shows progress and
         // reports that refresh's failure.
         if (userInitiated) {
-            userWaiting = true
-            _state.update { it.copy(refreshing = true) }
+            // Only a visible visit owns the refresh's progress and failure notice.
+            if (visible) {
+                userWaiting = true
+                _state.update { it.copy(refreshing = true) }
+            }
             // The analysis reads only stored data, so Retry on a failed one need not wait for (or get) a capture.
             if (deps.analysis.value is AnalysisState.Failed) deps.recomputeAnalysis()
         }
@@ -192,11 +199,11 @@ class CockpitViewModel(
 
                         // No new capture means no refresh tick: what the user asked for is recomputed from what is stored.
                         is RefreshResult.Debounced -> {
-                            if (userWaiting) deps.recomputeAnalysis()
+                            if (userWaiting && visible) deps.recomputeAnalysis()
                         }
 
                         is RefreshResult.Failed, null -> {
-                            if (userWaiting) {
+                            if (userWaiting && visible) {
                                 deps.recomputeAnalysis()
                                 effectChannel.trySend(CockpitEffect.RefreshFailed)
                             }

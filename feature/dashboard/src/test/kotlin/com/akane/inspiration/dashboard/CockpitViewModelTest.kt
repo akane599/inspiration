@@ -262,12 +262,102 @@ class CockpitViewModelTest {
             val vm = viewModel()
             val effects = mutableListOf<CockpitEffect>()
             backgroundScope.launch { vm.effects.collect { effects += it } }
+            vm.onIntent(CockpitIntent.Visible)
+            try {
+                runCurrent()
+                assertTrue("an automatic refresh is silent", effects.isEmpty())
 
-            vm.onIntent(CockpitIntent.Refresh)
-            runCurrent()
+                vm.onIntent(CockpitIntent.Refresh)
+                runCurrent()
 
-            assertEquals(listOf<CockpitEffect>(CockpitEffect.RefreshFailed), effects)
-            assertFalse(vm.state.value.refreshing)
+                assertEquals(listOf<CockpitEffect>(CockpitEffect.RefreshFailed), effects)
+                assertFalse(vm.state.value.refreshing)
+            } finally {
+                vm.onIntent(CockpitIntent.Hidden)
+            }
+        }
+
+    @Test
+    fun `a pulled refresh failing after the user left is not shown on the next visit`() =
+        runTest(dispatcher) {
+            deps.refreshResult = RefreshResult.Failed("deadline")
+            val gate = CompletableDeferred<Unit>().also { deps.refreshGate = it }
+            val vm = viewModel()
+            vm.onIntent(CockpitIntent.Visible)
+            try {
+                runCurrent()
+                vm.onIntent(CockpitIntent.Refresh)
+                runCurrent()
+                assertTrue(vm.state.value.refreshing)
+
+                vm.onIntent(CockpitIntent.Hidden)
+                assertFalse("leaving the visit ends its progress immediately", vm.state.value.refreshing)
+                gate.complete(Unit)
+                runCurrent()
+
+                deps.refreshGate = null
+                deps.refreshResult = RefreshResult.Refreshed(NOW_MS)
+                vm.onIntent(CockpitIntent.Visible)
+                val effects = mutableListOf<CockpitEffect>()
+                backgroundScope.launch { vm.effects.collect { effects += it } }
+                runCurrent()
+
+                assertEquals("the shared capture was not replaced", 2, deps.refreshCalls)
+                assertTrue("the previous visit's failure must not be replayed", effects.isEmpty())
+            } finally {
+                vm.onIntent(CockpitIntent.Hidden)
+            }
+        }
+
+    @Test
+    fun `hidden drains a failure buffered while no collector was there`() =
+        runTest(dispatcher) {
+            deps.refreshResult = RefreshResult.Failed("deadline")
+            val vm = viewModel()
+            vm.onIntent(CockpitIntent.Visible)
+            try {
+                runCurrent()
+                vm.onIntent(CockpitIntent.Refresh)
+                runCurrent()
+
+                vm.onIntent(CockpitIntent.Hidden)
+                deps.refreshResult = RefreshResult.Refreshed(NOW_MS)
+                vm.onIntent(CockpitIntent.Visible)
+                val effects = mutableListOf<CockpitEffect>()
+                backgroundScope.launch { vm.effects.collect { effects += it } }
+                runCurrent()
+
+                assertTrue("a new collector cannot receive the old buffered notification", effects.isEmpty())
+            } finally {
+                vm.onIntent(CockpitIntent.Hidden)
+            }
+        }
+
+    @Test
+    fun `a refresh intent while hidden cannot opt a later visit into failure reporting`() =
+        runTest(dispatcher) {
+            deps.refreshResult = RefreshResult.Failed("deadline")
+            val gate = CompletableDeferred<Unit>().also { deps.refreshGate = it }
+            val vm = viewModel()
+            vm.onIntent(CockpitIntent.Visible)
+            try {
+                runCurrent()
+                vm.onIntent(CockpitIntent.Hidden)
+                vm.onIntent(CockpitIntent.Refresh)
+                runCurrent()
+                assertFalse(vm.state.value.refreshing)
+
+                vm.onIntent(CockpitIntent.Visible)
+                val effects = mutableListOf<CockpitEffect>()
+                backgroundScope.launch { vm.effects.collect { effects += it } }
+                gate.complete(Unit)
+                runCurrent()
+
+                assertEquals(1, deps.refreshCalls)
+                assertTrue(effects.isEmpty())
+            } finally {
+                vm.onIntent(CockpitIntent.Hidden)
+            }
         }
 
     @Test

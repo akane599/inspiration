@@ -11,8 +11,11 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
+import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LifecycleStartEffect
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.repeatOnLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 
 /**
@@ -28,10 +31,11 @@ fun CockpitRoute(
     deps: CockpitDependencies,
     modifier: Modifier = Modifier,
 ) {
-    val viewModel = viewModel<CockpitViewModel>(
-        key = "cockpit",
-        factory = remember(deps) { CockpitViewModel.factory(deps) },
-    )
+    val viewModel =
+        viewModel<CockpitViewModel>(
+            key = "cockpit",
+            factory = remember(deps) { CockpitViewModel.factory(deps) },
+        )
     val state by viewModel.state.collectAsStateWithLifecycle()
     val snackbarHost = remember { SnackbarHostState() }
     val refreshFailed = stringResource(R.string.cockpit_refresh_failed)
@@ -40,10 +44,14 @@ fun CockpitRoute(
         viewModel.onIntent(CockpitIntent.Visible)
         onStopOrDispose { viewModel.onIntent(CockpitIntent.Hidden) }
     }
-    LaunchedEffect(viewModel, refreshFailed) {
-        viewModel.effects.collect { effect ->
-            when (effect) {
-                CockpitEffect.RefreshFailed -> snackbarHost.showSnackbar(refreshFailed)
+    // Effects belong to the visible visit: they are collected only while STARTED (the ViewModel drains them on Hidden).
+    val lifecycle = LocalLifecycleOwner.current.lifecycle
+    LaunchedEffect(viewModel, lifecycle, refreshFailed) {
+        lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) {
+            viewModel.effects.collect { effect ->
+                when (effect) {
+                    CockpitEffect.RefreshFailed -> snackbarHost.showSnackbar(refreshFailed)
+                }
             }
         }
     }
