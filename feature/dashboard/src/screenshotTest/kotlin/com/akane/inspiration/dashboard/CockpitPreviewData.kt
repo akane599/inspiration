@@ -6,6 +6,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import com.akane.inspiration.designsystem.chart.model.TimeRange
+import com.akane.inspiration.designsystem.component.GaugeChargeState
 import com.akane.inspiration.designsystem.component.PulseStatus
 import com.akane.inspiration.designsystem.theme.InspirationTheme
 import com.akane.inspiration.diagnostics.analysis.SegmentKind
@@ -144,7 +145,7 @@ internal object CockpitPreviewData {
             voltageMv = 4_012,
             temperatureC = 31.5,
             remainingMs = 5 * HOUR_MS + 12 * 60_000L,
-            charging = false,
+            chargeState = GaugeChargeState.Discharging,
         )
 
     private val shizukuReady = ShizukuUi(PulseStatus.ACTIVE, ShizukuReason.Ready, uid = 2000, canGrant = false)

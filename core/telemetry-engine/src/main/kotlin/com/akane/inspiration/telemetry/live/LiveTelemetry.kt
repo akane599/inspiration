@@ -71,6 +71,7 @@ class LiveTelemetry(
             plugged = light.plugged,
             chargeCounterUah = light.chargeCounterUah,
             thermalStatus = light.thermalStatus,
+            status = light.status,
         )
     }
 

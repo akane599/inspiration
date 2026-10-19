@@ -31,7 +31,11 @@ import java.time.ZoneId
 private const val WIDE_SHEET_DP = 600
 
 @Composable
-private fun SheetFrame(title: String, left: @Composable () -> Unit, right: @Composable () -> Unit) {
+private fun SheetFrame(
+    title: String,
+    left: @Composable () -> Unit,
+    right: @Composable () -> Unit,
+) {
     val wide = LocalConfiguration.current.screenWidthDp >= WIDE_SHEET_DP
     val gap = MaterialTheme.spacing.md
     Surface(color = MaterialTheme.colorScheme.background, modifier = Modifier.fillMaxSize()) {
@@ -53,8 +57,10 @@ private fun SheetFrame(title: String, left: @Composable () -> Unit, right: @Comp
 // A fixed zone, so the banner previews render the same on every machine.
 private val PreviewZone: ZoneId = ZoneId.of("UTC")
 
-private fun previewRange(startIso: String, endIso: String) =
-    TimeRange.of(Instant.parse(startIso).toEpochMilli(), Instant.parse(endIso).toEpochMilli())
+private fun previewRange(
+    startIso: String,
+    endIso: String,
+) = TimeRange.of(Instant.parse(startIso).toEpochMilli(), Instant.parse(endIso).toEpochMilli())
 
 /** ReferencePill, SegmentedToggle, ShizukuPulse, StackedBar, TimeSliceBanner and EmptyState. */
 @OptIn(ExperimentalLayoutApi::class)
@@ -94,22 +100,24 @@ fun ControlsSheet() {
             InspirationCard(modifier = Modifier.fillMaxWidth()) {
                 CardTitle("Screen time")
                 StackedBar(
-                    segments = persistentListOf(
-                        BarSegment(0.30f, BarRole.SCREEN_ON, "Screen on", format.duration(135 * 60_000L)),
-                        BarSegment(0.20f, BarRole.AWAKE, "Awake", format.duration(90 * 60_000L)),
-                        BarSegment(0.35f, BarRole.DEEP_SLEEP, "Deep doze", format.duration(157 * 60_000L)),
-                        BarSegment(0.10f, BarRole.RADIOS, "Radios", format.duration(45 * 60_000L)),
-                    ),
+                    segments =
+                        persistentListOf(
+                            BarSegment(0.30f, BarRole.SCREEN_ON, "Screen on", format.duration(135 * 60_000L)),
+                            BarSegment(0.20f, BarRole.AWAKE, "Awake", format.duration(90 * 60_000L)),
+                            BarSegment(0.35f, BarRole.DEEP_SLEEP, "Deep doze", format.duration(157 * 60_000L)),
+                            BarSegment(0.10f, BarRole.RADIOS, "Radios", format.duration(45 * 60_000L)),
+                        ),
                     total = 1f,
                     modifier = Modifier.padding(vertical = spacing.sm),
                 )
                 LegendRow(
-                    items = persistentListOf(
-                        LegendItem(telemetry.screenOn, "Screen on"),
-                        LegendItem(telemetry.awake, "Awake"),
-                        LegendItem(telemetry.deepSleep, "Deep doze"),
-                        LegendItem(BarRole.RADIOS.color(), "Radios"),
-                    ),
+                    items =
+                        persistentListOf(
+                            LegendItem(telemetry.screenOn, "Screen on"),
+                            LegendItem(telemetry.awake, "Awake"),
+                            LegendItem(telemetry.deepSleep, "Deep doze"),
+                            LegendItem(BarRole.RADIOS.color(), "Radios"),
+                        ),
                 )
             }
         },
@@ -161,8 +169,20 @@ fun DurationTilesSheet() {
                 modifier = Modifier.fillMaxWidth().height(IntrinsicSize.Min),
                 horizontalArrangement = Arrangement.spacedBy(spacing.sm),
             ) {
-                MetricTile("Screen time", "2${nbsp}h${nbsp}05${nbsp}min", "Awake off-screen 14${nbsp}min", null, Modifier.weight(1f).fillMaxHeight())
-                MetricTile("Ekran süresi", "2${nbsp}sa${nbsp}05${nbsp}dk", "Ekran kapalıyken 14${nbsp}dk", null, Modifier.weight(1f).fillMaxHeight())
+                MetricTile(
+                    "Screen time",
+                    "2${nbsp}h${nbsp}05${nbsp}min",
+                    "Awake off-screen 14${nbsp}min",
+                    null,
+                    Modifier.weight(1f).fillMaxHeight(),
+                )
+                MetricTile(
+                    "Ekran süresi",
+                    "2${nbsp}sa${nbsp}05${nbsp}dk",
+                    "Ekran kapalıyken 14${nbsp}dk",
+                    null,
+                    Modifier.weight(1f).fillMaxHeight(),
+                )
             }
             Row(
                 modifier = Modifier.fillMaxWidth().height(IntrinsicSize.Min),
@@ -173,6 +193,39 @@ fun DurationTilesSheet() {
             }
         },
         right = {},
+    )
+}
+
+/**
+ * LiveGauge with a charger connected but the battery not charging: held at a charge limit (no time left), and losing
+ * to the load (time left still shown). The status names the plug, never "Charging".
+ */
+@Composable
+fun PluggedGaugeSheet() {
+    SheetFrame(
+        title = "Plugged, not charging",
+        left = {
+            LiveGauge(
+                currentMa = 3,
+                watts = 0.01,
+                voltageMv = 4105,
+                temperatureC = 30.2,
+                remaining = "Time left: —",
+                chargeState = GaugeChargeState.PluggedNotCharging,
+                modifier = Modifier.fillMaxWidth(),
+            )
+        },
+        right = {
+            LiveGauge(
+                currentMa = -280,
+                watts = -1.09,
+                voltageMv = 3890,
+                temperatureC = 39.6,
+                remaining = "About 9 h 40 min left",
+                chargeState = GaugeChargeState.PluggedNotCharging,
+                modifier = Modifier.fillMaxWidth(),
+            )
+        },
     )
 }
 
@@ -189,14 +242,36 @@ fun TelemetrySheet() {
                 horizontalArrangement = Arrangement.spacedBy(spacing.sm),
             ) {
                 MetricTile("Battery", "87", "Since 06:10", 0.87f, Modifier.weight(1f).fillMaxHeight(), primaryUnit = "%")
-                MetricTile("Drain", format.percentPerHour(-3.2).value, "Screen off", null, Modifier.weight(1f).fillMaxHeight(), primaryUnit = format.units.percentPerHour)
+                MetricTile(
+                    "Drain",
+                    format.percentPerHour(-3.2).value,
+                    "Screen off",
+                    null,
+                    Modifier.weight(1f).fillMaxHeight(),
+                    primaryUnit = format.units.percentPerHour,
+                )
             }
             Row(
                 modifier = Modifier.fillMaxWidth().height(IntrinsicSize.Min),
                 horizontalArrangement = Arrangement.spacedBy(spacing.sm),
             ) {
-                MetricTile("Deep doze", "62", "of screen-off time", 0.62f, Modifier.weight(1f).fillMaxHeight(), primaryUnit = "%", onClick = {})
-                MetricTile("Temperature", format.celsius(36.4, decimals = 1).value, "Peak 41 °C", null, Modifier.weight(1f).fillMaxHeight(), primaryUnit = format.units.celsius)
+                MetricTile(
+                    "Deep doze",
+                    "62",
+                    "of screen-off time",
+                    0.62f,
+                    Modifier.weight(1f).fillMaxHeight(),
+                    primaryUnit = "%",
+                    onClick = {},
+                )
+                MetricTile(
+                    "Temperature",
+                    format.celsius(36.4, decimals = 1).value,
+                    "Peak 41 °C",
+                    null,
+                    Modifier.weight(1f).fillMaxHeight(),
+                    primaryUnit = format.units.celsius,
+                )
             }
         },
         right = {
@@ -206,7 +281,7 @@ fun TelemetrySheet() {
                 voltageMv = 3920,
                 temperatureC = 31.5,
                 remaining = "About 14 h 20 min left",
-                isCharging = false,
+                chargeState = GaugeChargeState.Discharging,
                 modifier = Modifier.fillMaxWidth(),
             )
             LiveGauge(
@@ -215,7 +290,7 @@ fun TelemetrySheet() {
                 voltageMv = 4105,
                 temperatureC = 38.2,
                 remaining = null,
-                isCharging = true,
+                chargeState = GaugeChargeState.Charging,
                 modifier = Modifier.fillMaxWidth(),
             )
             // Nothing readable: dashes at body size, no units, and a status that never says "Discharging".
@@ -225,7 +300,7 @@ fun TelemetrySheet() {
                 voltageMv = null,
                 temperatureC = null,
                 remaining = null,
-                isCharging = null,
+                chargeState = null,
                 modifier = Modifier.fillMaxWidth(),
             )
             LiveGauge(
@@ -234,7 +309,7 @@ fun TelemetrySheet() {
                 voltageMv = 3920,
                 temperatureC = null,
                 remaining = null,
-                isCharging = false,
+                chargeState = GaugeChargeState.Discharging,
                 modifier = Modifier.fillMaxWidth(),
             )
         },
@@ -281,11 +356,12 @@ fun ChromeSheet() {
             InspirationCard(modifier = Modifier.fillMaxWidth()) {
                 CardTitle("Status colours")
                 LegendRow(
-                    items = persistentListOf(
-                        LegendItem(status.ok, "Active"),
-                        LegendItem(status.warning, "Warning"),
-                        LegendItem(status.neutral, "Idle"),
-                    ),
+                    items =
+                        persistentListOf(
+                            LegendItem(status.ok, "Active"),
+                            LegendItem(status.warning, "Warning"),
+                            LegendItem(status.neutral, "Idle"),
+                        ),
                     modifier = Modifier.padding(top = spacing.sm),
                 )
             }

@@ -37,6 +37,15 @@ private const val POWER_TEMPLATE = "8.88"
 private const val VOLTAGE_TEMPLATE = "8888"
 private const val TEMPERATURE_TEMPLATE = "88.8"
 
+/** What the battery is doing, as the live gauge's status line words it. */
+enum class GaugeChargeState {
+    Charging,
+    Discharging,
+
+    /** A charger is connected but the battery is not charging: full, held at a charge limit, or losing to the load. */
+    PluggedNotCharging,
+}
+
 /**
  * The live battery reading: current as the headline, then power, voltage and temperature, then an optional
  * [remaining] line ("3 h 20 min left", already worded by the caller; omitted, with no space left for it, when
@@ -44,7 +53,7 @@ private const val TEMPERATURE_TEMPLATE = "88.8"
  * a value sits in a slot at least as wide as its typical reading, so the gauge does not jump as digits change.
  * Pass [currentMa] negative while discharging.
  *
- * A null reading shows a plain dash at body size, with no slot and no unit. [isCharging] is null when the
+ * A null reading shows a plain dash at body size, with no slot and no unit. [chargeState] is null when the
  * charging state is unknown (no battery data at all): the status then reads "No reading", never "Discharging".
  */
 @OptIn(ExperimentalLayoutApi::class)
@@ -55,7 +64,7 @@ fun LiveGauge(
     voltageMv: Int?,
     temperatureC: Double?,
     remaining: String?,
-    isCharging: Boolean?,
+    chargeState: GaugeChargeState?,
     modifier: Modifier = Modifier,
 ) {
     val format = rememberTelemetryFormat()
@@ -63,20 +72,28 @@ fun LiveGauge(
     InspirationCard(modifier = modifier) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             SemanticDot(
-                color = when (isCharging) {
-                    true -> MaterialTheme.telemetryColors.charging
-                    false -> MaterialTheme.colorScheme.onSurfaceVariant
-                    null -> MaterialTheme.statusColors.neutral
-                },
+                color =
+                    when (chargeState) {
+                        GaugeChargeState.Charging -> MaterialTheme.telemetryColors.charging
+
+                        // Plugged in but not charging: the battery gains nothing, like a discharging one.
+                        GaugeChargeState.Discharging,
+                        GaugeChargeState.PluggedNotCharging,
+                        -> MaterialTheme.colorScheme.onSurfaceVariant
+
+                        null -> MaterialTheme.statusColors.neutral
+                    },
             )
             Text(
-                text = stringResource(
-                    when (isCharging) {
-                        true -> R.string.gauge_charging
-                        false -> R.string.gauge_discharging
-                        null -> R.string.gauge_no_reading
-                    },
-                ),
+                text =
+                    stringResource(
+                        when (chargeState) {
+                            GaugeChargeState.Charging -> R.string.gauge_charging
+                            GaugeChargeState.Discharging -> R.string.gauge_discharging
+                            GaugeChargeState.PluggedNotCharging -> R.string.gauge_plugged_not_charging
+                            null -> R.string.gauge_no_reading
+                        },
+                    ),
                 style = MaterialTheme.typography.labelLarge,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.padding(start = spacing.sm),
@@ -113,7 +130,11 @@ fun LiveGauge(
 }
 
 @Composable
-private fun LabeledSlot(labelRes: Int, reading: FormattedValue, template: String) {
+private fun LabeledSlot(
+    labelRes: Int,
+    reading: FormattedValue,
+    template: String,
+) {
     Column {
         Text(
             text = stringResource(labelRes),
@@ -152,9 +173,15 @@ private fun SlotValue(
     }
     val measurer = rememberTextMeasurer()
     val density = LocalDensity.current
-    val slotWidth = remember(template, style, density, measurer) {
-        with(density) { measurer.measure(template, style, maxLines = 1, softWrap = false).size.width.toDp() }
-    }
+    val slotWidth =
+        remember(template, style, density, measurer) {
+            with(density) {
+                measurer
+                    .measure(template, style, maxLines = 1, softWrap = false)
+                    .size.width
+                    .toDp()
+            }
+        }
     Row(modifier = modifier.semantics(mergeDescendants = true) {}) {
         Text(
             text = reading.value,

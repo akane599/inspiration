@@ -3,6 +3,7 @@ package com.akane.inspiration.dashboard
 import androidx.compose.runtime.Immutable
 import com.akane.inspiration.designsystem.chart.model.ScrubChartData
 import com.akane.inspiration.designsystem.chart.model.TimeRange
+import com.akane.inspiration.designsystem.component.GaugeChargeState
 import com.akane.inspiration.designsystem.component.PulseStatus
 import com.akane.inspiration.diagnostics.story.BatteryStory
 import kotlinx.collections.immutable.ImmutableList
@@ -11,9 +12,13 @@ import kotlinx.collections.immutable.persistentListOf
 /** Which reference the pill shows. [TimeSlice] is set by the chart brush, never picked from the pill menu. */
 sealed interface ReferenceUi {
     data object SinceUnplugged : ReferenceUi
+
     data object SinceScreenOff : ReferenceUi
+
     data object Last24h : ReferenceUi
+
     data object CustomMarker : ReferenceUi
+
     data object TimeSlice : ReferenceUi
 }
 
@@ -39,9 +44,9 @@ data class LiveUi(
     val watts: Double?,
     val voltageMv: Int?,
     val temperatureC: Double?,
-    /** Estimated time to empty, null when it cannot be estimated (charging, no data). */
+    /** Estimated time to empty, null when it cannot be estimated (charging, held on a charger, no data). */
     val remainingMs: Long?,
-    val charging: Boolean,
+    val chargeState: GaugeChargeState,
 )
 
 /** Raw numbers for the 2x2 grid; the UI formats them. Null is rendered as a dash. */
@@ -66,13 +71,20 @@ sealed interface AnalysisUi {
 
     data object Error : AnalysisUi
 
-    data class Ready(val story: BatteryStory, val metrics: MetricsUi) : AnalysisUi
+    data class Ready(
+        val story: BatteryStory,
+        val metrics: MetricsUi,
+    ) : AnalysisUi
 }
 
 sealed interface ChartUi {
     data object Loading : ChartUi
+
     data object Failed : ChartUi
-    data class Ready(val data: ScrubChartData) : ChartUi
+
+    data class Ready(
+        val data: ScrubChartData,
+    ) : ChartUi
 }
 
 /** The time-slice banner: what the brush asked for and what the data covers; the banner words any gap itself. */
@@ -83,7 +95,11 @@ data class SliceUi(
 )
 
 @Immutable
-data class MarkerUi(val id: Long, val label: String, val wallMs: Long)
+data class MarkerUi(
+    val id: Long,
+    val label: String,
+    val wallMs: Long,
+)
 
 @Immutable
 data class MarkerSheetUi(
@@ -95,13 +111,14 @@ data class MarkerSheetUi(
     val selectedId: Long?,
 ) {
     companion object {
-        fun loading(selectedId: Long?) = MarkerSheetUi(
-            loading = true,
-            markers = persistentListOf(),
-            creating = false,
-            failed = false,
-            selectedId = selectedId,
-        )
+        fun loading(selectedId: Long?) =
+            MarkerSheetUi(
+                loading = true,
+                markers = persistentListOf(),
+                creating = false,
+                failed = false,
+                selectedId = selectedId,
+            )
     }
 }
 
@@ -119,16 +136,17 @@ data class CockpitState(
     val refreshing: Boolean,
 ) {
     companion object {
-        val Initial = CockpitState(
-            reference = ReferenceUi.SinceUnplugged,
-            shizuku = ShizukuUi(PulseStatus.BLOCKED, ShizukuReason.NotRunning, uid = null, canGrant = false),
-            analysis = AnalysisUi.Loading,
-            live = null,
-            chart = ChartUi.Loading,
-            slice = null,
-            markerSheet = null,
-            refreshing = false,
-        )
+        val Initial =
+            CockpitState(
+                reference = ReferenceUi.SinceUnplugged,
+                shizuku = ShizukuUi(PulseStatus.BLOCKED, ShizukuReason.NotRunning, uid = null, canGrant = false),
+                analysis = AnalysisUi.Loading,
+                live = null,
+                chart = ChartUi.Loading,
+                slice = null,
+                markerSheet = null,
+                refreshing = false,
+            )
     }
 }
 
@@ -141,15 +159,31 @@ sealed interface CockpitIntent {
 
     /** Pull to refresh or a retry button. */
     data object Refresh : CockpitIntent
-    data class SelectReference(val choice: ReferenceChoice) : CockpitIntent
+
+    data class SelectReference(
+        val choice: ReferenceChoice,
+    ) : CockpitIntent
+
     data object OpenMarkers : CockpitIntent
+
     data object DismissMarkers : CockpitIntent
-    data class SelectMarker(val markerId: Long) : CockpitIntent
-    data class MarkNow(val label: String) : CockpitIntent
+
+    data class SelectMarker(
+        val markerId: Long,
+    ) : CockpitIntent
+
+    data class MarkNow(
+        val label: String,
+    ) : CockpitIntent
 
     /** The chart brush was released over [fromMs]..[toMs]. */
-    data class CommitBrush(val fromMs: Long, val toMs: Long) : CockpitIntent
+    data class CommitBrush(
+        val fromMs: Long,
+        val toMs: Long,
+    ) : CockpitIntent
+
     data object ClearSlice : CockpitIntent
+
     data object GrantShizuku : CockpitIntent
 }
 

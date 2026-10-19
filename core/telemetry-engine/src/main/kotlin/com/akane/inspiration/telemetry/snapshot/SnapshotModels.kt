@@ -188,4 +188,8 @@ data class LiveReading(
     val chargeCounterUah: Long? = null,
     // PowerManager.THERMAL_STATUS_* (0 none .. 6 shutdown); null when the platform call is unavailable.
     val thermalStatus: Int? = null,
+    // The battery's own status, as in LightRead: "charging", "discharging", "full", "not_charging" or "unknown".
+    // A plugged battery can be full, held at a charge limit or losing to the load, so [plugged] is not "charging".
+    // Live only: not persisted with the sample.
+    val status: String? = null,
 )

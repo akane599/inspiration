@@ -3,6 +3,7 @@
     <!-- LiveGauge -->
     <string name="gauge_charging">Şarj oluyor</string>
     <string name="gauge_discharging">Deşarj oluyor</string>
+    <string name="gauge_plugged_not_charging">Şarja takılı, şarj olmuyor</string>
     <string name="gauge_no_reading">Okuma yok</string>
     <string name="gauge_label_power">Güç</string>
     <string name="gauge_label_voltage">Gerilim</string>

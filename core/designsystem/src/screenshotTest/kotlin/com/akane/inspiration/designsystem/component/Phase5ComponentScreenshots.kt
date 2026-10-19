@@ -72,3 +72,11 @@ import com.android.tools.screenshot.PreviewTest
 // The case SQ-107 fixes: a NBSP-joined duration in a MetricTile at the narrowest width and the largest font scale.
 @PreviewTest @Preview(name = "narrow-360-large-font", showBackground = true, widthDp = 360, heightDp = 560, fontScale = 1.5f)
 @Composable fun DurationTilesNarrowLargeFont() = InspirationTheme(darkTheme = true) { DurationTilesSheet() }
+
+// The case N-10 fixes: a charger connected while the battery is held or losing to the load reads as plugged in, not
+// charging; Turkish at the narrowest width and the largest font scale checks the longer status line.
+@PreviewTest @Preview(name = "dark", showBackground = true, widthDp = 412, heightDp = 640)
+@Composable fun PluggedGaugeDark() = InspirationTheme(darkTheme = true) { PluggedGaugeSheet() }
+
+@PreviewTest @Preview(name = "turkish-360-large-font", showBackground = true, widthDp = 360, heightDp = 900, fontScale = 1.5f, locale = "tr")
+@Composable fun PluggedGaugeTurkishNarrowLargeFont() = InspirationTheme(darkTheme = true) { PluggedGaugeSheet() }

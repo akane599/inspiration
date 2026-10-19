@@ -87,6 +87,7 @@ class LiveTelemetryTest {
             assertEquals(900, reading.currentMa)
             assertEquals(3_000_000L, reading.chargeCounterUah)
             assertEquals(2, reading.thermalStatus)
+            assertEquals("the battery's own status, not just the plug", "charging", reading.status)
         }
 
     @Test

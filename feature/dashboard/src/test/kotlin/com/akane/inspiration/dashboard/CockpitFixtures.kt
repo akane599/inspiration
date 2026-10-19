@@ -145,6 +145,7 @@ internal fun liveReading(
     plugged: Boolean? = false,
     chargeCounterUah: Long? = null,
     temperatureDeciC: Int? = 315,
+    status: String? = null,
 ) = LiveReading(
     wallMs = wallMs,
     elapsedRealtimeMs = wallMs,
@@ -156,6 +157,7 @@ internal fun liveReading(
     levelPct = 80,
     plugged = plugged,
     chargeCounterUah = chargeCounterUah,
+    status = status,
 )
 
 internal fun snapshotClock(wallMs: Long) = SnapshotClock(wallMs, wallMs, wallMs, 1, statsStartMs = 0, statsDurationMs = wallMs)

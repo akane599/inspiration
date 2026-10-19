@@ -8,6 +8,7 @@ import com.akane.inspiration.designsystem.chart.model.ScrubChartData
 import com.akane.inspiration.designsystem.chart.model.SeriesKind
 import com.akane.inspiration.designsystem.chart.model.TimePoint
 import com.akane.inspiration.designsystem.chart.model.TimeRange
+import com.akane.inspiration.designsystem.component.GaugeChargeState
 import com.akane.inspiration.designsystem.component.PulseStatus
 import com.akane.inspiration.diagnostics.analysis.AnalysisState
 import com.akane.inspiration.diagnostics.analysis.IntervalAnalysis
@@ -35,6 +36,18 @@ private const val MAX_EXTRAPOLATED_REMAINING_MS = 7L * 24 * 3_600_000
 internal const val SYSTEM_ESTIMATE_MAX_AGE_MS = 10 * 60_000L
 
 private const val DECI = 10.0
+
+/**
+ * A "charging" battery drawing less than this is within noise of zero (a taper ending, a charger regulating), so the
+ * gauge keeps the battery's own status rather than flicker between labels.
+ */
+private const val CHARGING_DRAIN_DEADBAND_MA = 50
+
+// LiveReading.status values (the battery's own BATTERY_STATUS_*).
+private const val STATUS_CHARGING = "charging"
+private const val STATUS_DISCHARGING = "discharging"
+private const val STATUS_FULL = "full"
+private const val STATUS_NOT_CHARGING = "not_charging"
 
 internal fun referenceUi(kind: ReferenceKind): ReferenceUi =
     when (kind) {
@@ -145,14 +158,65 @@ internal fun sliceUi(
 }
 
 /**
- * Time to empty: `chargeCounterUah / |currentMa|` while discharging, else the system's own estimate. Both are
- * unavailable while charging. [systemEstimateMs] must already be checked for age by the caller.
+ * What the battery is doing, from its own status and the measured current, never from the plug alone: a plugged
+ * battery can be full, held at a charge limit, or losing to the load. The plug decides only when both are unknown.
+ */
+internal fun chargeState(reading: LiveReading): GaugeChargeState {
+    val currentMa = reading.currentMa
+    val plugged = reading.plugged
+    return when {
+        // Unplugged, the battery can only discharge.
+        plugged == false -> {
+            GaugeChargeState.Discharging
+        }
+
+        // "Charging" means the charger is enabled; a weak one can still lose to the load.
+        reading.status == STATUS_CHARGING -> {
+            if (currentMa != null && currentMa <= -CHARGING_DRAIN_DEADBAND_MA) {
+                GaugeChargeState.PluggedNotCharging
+            } else {
+                GaugeChargeState.Charging
+            }
+        }
+
+        reading.status == STATUS_DISCHARGING -> {
+            if (plugged == true) GaugeChargeState.PluggedNotCharging else GaugeChargeState.Discharging
+        }
+
+        reading.status == STATUS_FULL || reading.status == STATUS_NOT_CHARGING -> {
+            GaugeChargeState.PluggedNotCharging
+        }
+
+        // No usable status: the measured direction decides.
+        currentMa != null && currentMa > 0 -> {
+            GaugeChargeState.Charging
+        }
+
+        currentMa != null -> {
+            if (plugged == true) GaugeChargeState.PluggedNotCharging else GaugeChargeState.Discharging
+        }
+
+        plugged == true -> {
+            GaugeChargeState.Charging
+        }
+
+        else -> {
+            GaugeChargeState.Discharging
+        }
+    }
+}
+
+/**
+ * Time to empty whenever the battery is not charging: `chargeCounterUah / |currentMa|` while it drains, else the
+ * system's own estimate. On a charger only a measured drain counts: a held battery has no time to empty, and the
+ * system's discharge estimate was made off the charger. [systemEstimateMs] must already be checked for age by the
+ * caller.
  */
 internal fun remainingMs(
     reading: LiveReading,
     systemEstimateMs: Long?,
 ): Long? {
-    if (reading.plugged == true) return null
+    if (chargeState(reading) == GaugeChargeState.Charging) return null
     val currentMa = reading.currentMa
     val counterUah = reading.chargeCounterUah
     val extrapolated =
@@ -161,23 +225,22 @@ internal fun remainingMs(
         } else {
             null
         }
-    return extrapolated?.takeIf { it <= MAX_EXTRAPOLATED_REMAINING_MS } ?: systemEstimateMs?.takeIf { it > 0 }
+    return extrapolated?.takeIf { it <= MAX_EXTRAPOLATED_REMAINING_MS }
+        ?: systemEstimateMs?.takeIf { it > 0 && reading.plugged != true }
 }
 
 internal fun liveUi(
     reading: LiveReading,
     systemEstimateMs: Long?,
-): LiveUi {
-    val currentMa = reading.currentMa
-    return LiveUi(
-        currentMa = currentMa,
+): LiveUi =
+    LiveUi(
+        currentMa = reading.currentMa,
         watts = reading.watts,
         voltageMv = reading.voltageMv,
         temperatureC = reading.temperatureDeciC?.let { it / DECI },
         remainingMs = remainingMs(reading, systemEstimateMs),
-        charging = reading.plugged ?: (currentMa != null && currentMa > 0),
+        chargeState = chargeState(reading),
     )
-}
 
 /**
  * Maps a [Timeline] to the scrub chart: battery % and temperature lines, and the four lanes. The chart's

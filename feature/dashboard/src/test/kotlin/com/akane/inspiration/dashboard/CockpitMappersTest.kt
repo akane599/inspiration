@@ -2,6 +2,7 @@ package com.akane.inspiration.dashboard
 
 import com.akane.inspiration.designsystem.chart.model.LaneKind
 import com.akane.inspiration.designsystem.chart.model.SeriesKind
+import com.akane.inspiration.designsystem.component.GaugeChargeState
 import com.akane.inspiration.designsystem.component.PulseStatus
 import com.akane.inspiration.diagnostics.analysis.AnalysisState
 import com.akane.inspiration.diagnostics.analysis.SegmentKind
@@ -241,7 +242,55 @@ class CockpitMappersTest {
         val reading = liveReading(currentMa = 900, plugged = true, chargeCounterUah = 3_000_000)
 
         assertNull(remainingMs(reading, 5L))
-        assertTrue(liveUi(reading, 5L).charging)
+        assertEquals(GaugeChargeState.Charging, liveUi(reading, 5L).chargeState)
+        assertEquals(
+            GaugeChargeState.Charging,
+            liveUi(liveReading(currentMa = 900, plugged = true, status = "charging"), 5L).chargeState,
+        )
+    }
+
+    @Test
+    fun `a plugged battery losing to the load is not charging and keeps its time left`() {
+        // A weak charger: the battery still drains 300 mA, whatever status it reports. 3,000,000 uAh / 300 mA = 10 h.
+        for (status in listOf("discharging", "charging", "not_charging", null)) {
+            val reading = liveReading(currentMa = -300, plugged = true, chargeCounterUah = 3_000_000, status = status)
+
+            val live = liveUi(reading, systemEstimateMs = 99L)
+
+            assertEquals("status $status", GaugeChargeState.PluggedNotCharging, live.chargeState)
+            assertEquals("status $status", 10 * HOUR_MS, live.remainingMs)
+        }
+    }
+
+    @Test
+    fun `a battery held at a charge limit or full is plugged in, not charging, with no time to empty`() {
+        for (status in listOf("not_charging", "full")) {
+            for (currentMa in listOf(0, 3, -2)) {
+                val reading = liveReading(currentMa = currentMa, plugged = true, chargeCounterUah = 3_000_000, status = status)
+
+                val live = liveUi(reading, systemEstimateMs = 42L)
+
+                assertEquals("$status at $currentMa mA", GaugeChargeState.PluggedNotCharging, live.chargeState)
+                assertNull("the system's discharge estimate is not shown on a charger", live.remainingMs)
+            }
+        }
+    }
+
+    @Test
+    fun `a charging battery near zero keeps its charging status`() {
+        // The end of a taper: the charger regulates around zero, so the label must not flicker.
+        val reading = liveReading(currentMa = -20, plugged = true, chargeCounterUah = 3_000_000, status = "charging")
+
+        assertEquals(GaugeChargeState.Charging, liveUi(reading, 42L).chargeState)
+        assertNull(remainingMs(reading, 42L))
+    }
+
+    @Test
+    fun `an unplugged battery is discharging whatever its status says`() {
+        val reading = liveReading(currentMa = -300, plugged = false, chargeCounterUah = 3_000_000, status = "charging")
+
+        assertEquals(GaugeChargeState.Discharging, liveUi(reading, null).chargeState)
+        assertEquals(10 * HOUR_MS, remainingMs(reading, null))
     }
 
     @Test
@@ -251,11 +300,17 @@ class CockpitMappersTest {
         assertEquals(31.5, live.temperatureC!!, 1e-9)
         assertNull(live.currentMa)
         assertNull(live.remainingMs)
-        assertFalse("unknown plug state and no current is not charging", live.charging)
+        assertEquals("unknown plug state and no current is not charging", GaugeChargeState.Discharging, live.chargeState)
         assertNull(liveUi(liveReading(temperatureDeciC = null), null).temperatureC)
-        assertTrue(
+        assertEquals(
             "positive current without a plug flag reads as charging",
-            liveUi(liveReading(currentMa = 500, plugged = null), null).charging,
+            GaugeChargeState.Charging,
+            liveUi(liveReading(currentMa = 500, plugged = null), null).chargeState,
+        )
+        assertEquals(
+            "a plug with neither status nor current falls back to charging",
+            GaugeChargeState.Charging,
+            liveUi(liveReading(currentMa = null, plugged = true), null).chargeState,
         )
     }
 
