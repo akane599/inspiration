@@ -185,7 +185,7 @@ class RefreshCoordinatorTest {
             if (serviceUp) RefreshResult.Refreshed(now) else RefreshResult.Failed("service_unavailable")
         }
         val state = MutableStateFlow<ShizukuState>(ShizukuState.PermissionDenied)
-        // The same wiring as AppContainer.start().
+        // The backoff half of AppContainer.start()'s wiring; the re-run half is covered below.
         val wiring = launch { reconcileOnEachReady(state) { coordinator.clearFailureBackoff() } }
 
         assertEquals(RefreshResult.Failed("service_unavailable"), coordinator.refresh())
@@ -232,5 +232,79 @@ class RefreshCoordinatorTest {
         now += 1_000L
         assertEquals(RefreshResult.Refreshed(now), coordinator.refresh())
         assertEquals("the stale failure did not start a backoff", 2, captures)
+    }
+
+    @Test
+    fun `a transition into Ready re-runs the refresh that failed before it`() = runTest(UnconfinedTestDispatcher()) {
+        var serviceUp = false
+        val coordinator = coordinator {
+            if (serviceUp) RefreshResult.Refreshed(now) else RefreshResult.Failed("service_unavailable")
+        }
+        // Cold process: Shizuku has not pushed its binder yet when the app-open refresh runs.
+        val state = MutableStateFlow<ShizukuState>(ShizukuState.NotRunning)
+        val wiring = launch { reconcileOnEachReady(state, reconcile = readyWiring(coordinator)) }
+        assertEquals(RefreshResult.Failed("service_unavailable"), coordinator.refresh())
+
+        serviceUp = true
+        now += 1_000L
+        state.value = ShizukuState.Ready(2000, 13)
+        runCurrent()
+
+        assertEquals("Ready re-ran the failed refresh without anyone calling refresh()", 2, captures)
+        assertEquals(now, coordinator.lastRefreshWallMs.value)
+        wiring.cancel()
+    }
+
+    @Test
+    fun `a transition into Ready adds no capture when no refresh failed`() = runTest(UnconfinedTestDispatcher()) {
+        val coordinator = coordinator()
+        val state = MutableStateFlow<ShizukuState>(ShizukuState.NotRunning)
+        val wiring = launch { reconcileOnEachReady(state, reconcile = readyWiring(coordinator)) }
+
+        state.value = ShizukuState.Ready(2000, 13)
+        runCurrent()
+        assertEquals("no refresh had run, so Ready starts none", 0, captures)
+
+        coordinator.refresh()
+        now += 61_000L
+        state.value = ShizukuState.NotRunning
+        state.value = ShizukuState.Ready(2000, 13)
+        runCurrent()
+        assertEquals("the last refresh succeeded, so Ready does not repeat it", 1, captures)
+        wiring.cancel()
+    }
+
+    @Test
+    fun `a capture that fails across the transition into Ready is re-run once it ends`() = runTest(UnconfinedTestDispatcher()) {
+        val gate = CompletableDeferred<Unit>()
+        var serviceUp = false
+        val coordinator = coordinator {
+            val up = serviceUp // the capture's outcome is fixed when it starts, as a service lookup is
+            gate.await()
+            if (up) RefreshResult.Refreshed(now) else RefreshResult.Failed("service_unavailable")
+        }
+        val state = MutableStateFlow<ShizukuState>(ShizukuState.NotRunning)
+        val wiring = launch { reconcileOnEachReady(state, reconcile = readyWiring(coordinator)) }
+
+        val inFlight = async { coordinator.refresh() }
+        runCurrent()
+        serviceUp = true
+        state.value = ShizukuState.Ready(2000, 13)
+        runCurrent()
+        assertEquals("the re-run waits for the capture in flight", 1, captures)
+
+        gate.complete(Unit)
+        assertEquals(RefreshResult.Failed("service_unavailable"), inFlight.await())
+        runCurrent()
+
+        assertEquals(2, captures)
+        assertEquals(now, coordinator.lastRefreshWallMs.value)
+        wiring.cancel()
+    }
+
+    /** AppContainer.start()'s per-Ready wiring, without the toolkit reconcile that follows it. */
+    private fun readyWiring(coordinator: RefreshCoordinator): suspend () -> Unit = {
+        coordinator.clearFailureBackoff()
+        coordinator.refreshIfLastFailed()
     }
 }

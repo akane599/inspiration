@@ -180,18 +180,21 @@ class ShizukuManagerImpl private constructor(
     /**
      * [block] runs on [ioDispatcher]: every service call is a blocking Binder round trip into the shell-UID
      * process (a `cmd` run can take seconds), and callers include `viewModelScope` on the main thread.
+     *
+     * [timeoutMs] covers reaching Ready and binding. In a cold process Shizuku pushes its binder some time after
+     * start(), so NotRunning is waited out; any other state that is not Ready returns null at once.
      */
     override suspend fun <T> withTelemetryService(
         timeoutMs: Long,
         block: suspend (ITelemetryUserService) -> T,
     ): T? {
-        if (!acquireServiceUse()) {
-            return null
-        }
+        var acquired = false
         try {
             // The service and its generation are read under one lock, so a rebind in between cannot pass.
             val (service, serviceGeneration) =
                 withTimeoutOrNull(timeoutMs) {
+                    acquired = awaitServiceUse()
+                    if (!acquired) return@withTimeoutOrNull null
                     telemetryService
                         .mapNotNull { currentServiceAndGeneration() }
                         .first()
@@ -207,7 +210,20 @@ class ShizukuManagerImpl private constructor(
                 null
             }
         } finally {
-            releaseServiceUse()
+            if (acquired) releaseServiceUse()
+        }
+    }
+
+    /**
+     * Acquires a service use, first waiting while Shizuku is NotRunning: in a cold process that is the state
+     * before the binder push, which a call made right away must outlast. Any other state that is not Ready
+     * (no permission, not installed, a state added later) cannot turn into Ready by itself, so it fails at once.
+     */
+    private suspend fun awaitServiceUse(): Boolean {
+        while (true) {
+            if (acquireServiceUse()) return true
+            if (!started || mutableState.value !is ShizukuState.NotRunning) return false
+            mutableState.first { it !is ShizukuState.NotRunning }
         }
     }
 

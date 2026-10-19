@@ -273,12 +273,15 @@ class AppContainer(context: Context) :
      * PENDING by a crash are reconciled on every transition to Shizuku Ready (a read-back needs the
      * service, so a run against an unreachable service is retried at the next Ready); with Shizuku never
      * ready nothing runs and the rows simply stay PENDING. Every transition to Ready also clears the refresh
-     * failure backoff first, so a refresh right after a Shizuku grant captures instead of replaying the old Failed.
+     * failure backoff first, so a refresh right after a Shizuku grant captures instead of replaying the old Failed,
+     * and then re-runs a refresh whose last capture failed (e.g. the cold-start one, made before the binder came).
+     * The re-run goes before the reconcile, which may throw; a refresh turns its own errors into Failed.
      */
     fun start() {
         applicationScope.launch {
             reconcileOnEachReady(shizukuManager.state) {
                 refreshCoordinator.clearFailureBackoff()
+                refreshCoordinator.refreshIfLastFailed()
                 toolkit.reconcile()
             }
         }

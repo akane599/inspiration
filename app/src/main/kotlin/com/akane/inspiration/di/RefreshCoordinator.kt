@@ -43,6 +43,10 @@ class RefreshCoordinator(
     @Volatile
     private var backoffEpoch = 0
 
+    /** Whether the last capture that ran failed; unlike [lastFailure] it survives [clearFailureBackoff]. */
+    @Volatile
+    private var lastCaptureFailed = false
+
     /** Wall time of the last successful refresh in this process; null until one has happened. */
     val lastRefreshWallMs: StateFlow<Long?> = mutableLastRefreshWallMs.asStateFlow()
 
@@ -75,8 +79,20 @@ class RefreshCoordinator(
             RefreshResult.Failed("capture_failed")
         }
         lastFailure = (result as? RefreshResult.Failed)?.takeIf { epoch == backoffEpoch }?.let { nowWallMs() to it }
+        lastCaptureFailed = result is RefreshResult.Failed
         if (result is RefreshResult.Refreshed) mutableLastRefreshWallMs.value = result.wallMs
         result
+    }
+
+    /**
+     * Runs [refresh] again if the last capture failed, else returns null without capturing. Call it after
+     * [clearFailureBackoff] once what made the capture fail has changed (Shizuku became Ready): a cold-process
+     * refresh that ran before the Shizuku binder arrived is otherwise not repeated until the next app open. A
+     * capture still in flight is waited for first, since it may be the one that fails.
+     */
+    suspend fun refreshIfLastFailed(): RefreshResult? {
+        if (!mutex.withLock { lastCaptureFailed }) return null
+        return refresh()
     }
 
     private companion object {
