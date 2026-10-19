@@ -132,7 +132,16 @@ internal fun lastChargeSpan(events: List<HistoryEvent>): ChargeSpan? {
     var baselineKnown = false
     for (event in sorted) {
         when (event.kind) {
-            HistoryKind.RESET, HistoryKind.START -> {
+            HistoryKind.RESET -> {
+                // An unplug after a deep charge resets battery stats: that RESET carries plugType 0 and is the end of
+                // the charge (the UNPLUGGED that follows it finds nothing open).
+                val start = open
+                if (start != null && event.plugType == 0 && event.wallMs > start) last = ChargeSpan(start, event.wallMs)
+                open = event.wallMs.takeIf { event.plugType != 0 }
+                baselineKnown = true
+            }
+
+            HistoryKind.START -> {
                 open = event.wallMs.takeIf { event.plugType != 0 }
                 baselineKnown = true
             }

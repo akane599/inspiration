@@ -7,8 +7,8 @@ import com.akane.inspiration.telemetry.store.knownStateEndWallMs
 
 /**
  * Screen/charging time split and attributed level drops over `(fromWallMs, toWallMs]`
- * (docs/plans/phase-3.md F3). [unknownMs] is non-charging time before any SCREEN event was seen, plus all
- * time after the stored history's horizon (the last successful ingest), plugged or not.
+ * (docs/plans/phase-3.md F3). [unknownMs] is non-charging time with no SCREEN event since the start or since the
+ * last START/RESET, plus all time after the stored history's horizon (the last successful ingest), plugged or not.
  * [levelUsedPct] is the sum of attributed drops, so it can exceed `startLevel - endLevel` when the
  * interval contains charging. Rates are `%/h`, null for a state with under 15 min of time.
  */
@@ -116,7 +116,9 @@ object IntervalMetricsCalculator {
                 }
 
                 HistoryKind.RESET, HistoryKind.START -> {
-                    if (event.kind == HistoryKind.START) screenOn = null
+                    // The state before the boundary is stale (batterystats drops pre-reset records that were never
+                    // ingested). A RESET's own screen state follows it at the same instant; a bare one leaves it unknown.
+                    screenOn = null
                     plugged = event.plugType != 0
                     prevLevel = event.levelPct
                     if (inside) discontinuities += event.wallMs

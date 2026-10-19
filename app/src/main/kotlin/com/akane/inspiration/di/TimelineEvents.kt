@@ -14,28 +14,33 @@ import com.akane.inspiration.ipc.model.HistoryKind
 object TimelineEvents {
     private val screen = setOf(HistoryKind.SCREEN_ON, HistoryKind.SCREEN_OFF)
     private val plug = setOf(HistoryKind.PLUGGED, HistoryKind.UNPLUGGED)
-    private val idle = setOf(
-        HistoryKind.DEEP_IDLE_ON,
-        HistoryKind.DEEP_IDLE_OFF,
-        HistoryKind.LIGHT_IDLE_ON,
-        HistoryKind.LIGHT_IDLE_OFF,
-    )
+    private val idle =
+        setOf(
+            HistoryKind.DEEP_IDLE_ON,
+            HistoryKind.DEEP_IDLE_OFF,
+            HistoryKind.LIGHT_IDLE_ON,
+            HistoryKind.LIGHT_IDLE_OFF,
+        )
 
     /**
-     * [before] are events older than the window (any order); [inWindow] are the window's own events.
+     * [before] are events older than the window (any order, but events at one wall time in history order, as the store
+     * returns them); [inWindow] are the window's own events.
      * The last two idle events are kept: an `*_IDLE_OFF` only opens a maintenance gap when the matching
      * `*_IDLE_ON` came first.
      * Screen and plug tracks keep the last event of each kind: their preceding closed span may
      * overlap that idle-exit gap, making it awake rather than maintenance even before the window.
      */
-    fun withSeeds(before: List<HistoryEvent>, inWindow: List<HistoryEvent>): List<HistoryEvent> {
+    fun withSeeds(
+        before: List<HistoryEvent>,
+        inWindow: List<HistoryEvent>,
+    ): List<HistoryEvent> {
         val ordered = before.sortedBy { it.wallMs }
-        val seeds = (screen + plug).mapNotNull { kind -> ordered.lastOrNull { it.kind == kind } } + listOfNotNull(
-            ordered.lastOrNull { it.kind == HistoryKind.SHUTDOWN },
-            ordered.lastOrNull { it.kind == HistoryKind.RESET },
-            ordered.lastOrNull { it.kind == HistoryKind.START },
-        ) + ordered.filter { it.kind in idle }.takeLast(IDLE_SEEDS)
-        return seeds.sortedBy { it.wallMs } + inWindow
+        val tracks = screen + plug + setOf(HistoryKind.SHUTDOWN, HistoryKind.RESET, HistoryKind.START)
+        val seeds =
+            tracks.mapNotNull { kind -> ordered.indexOfLast { it.kind == kind }.takeIf { it >= 0 } } +
+                ordered.indices.filter { ordered[it].kind in idle }.takeLast(IDLE_SEEDS)
+        // Seeds keep the input order at equal wall times: a RESET's screen and doze state follow it at its instant.
+        return seeds.sorted().map(ordered::get) + inWindow
     }
 
     private const val IDLE_SEEDS = 2

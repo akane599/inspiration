@@ -122,6 +122,29 @@ class HealthMappersTest {
     }
 
     @Test
+    fun `an unplug reset ends the overnight charge instead of dropping it`() {
+        // Plugged at 23:10, unplugged at 07:05 past the reset threshold: AOSP writes RESET with plugType 0, and the
+        // plugged flag it still carries clears into an UNPLUGGED right after it.
+        val events =
+            listOf(
+                event(0, HistoryKind.PLUGGED),
+                event(HOUR_MS, level = 60),
+                event(8 * HOUR_MS, HistoryKind.RESET).copy(plugType = 0),
+                event(8 * HOUR_MS, HistoryKind.SCREEN_ON).copy(plugType = 0),
+                event(8 * HOUR_MS, HistoryKind.UNPLUGGED).copy(plugType = 0),
+                event(9 * HOUR_MS, level = 99).copy(plugType = 0),
+            )
+
+        val span = lastChargeSpan(events)
+
+        assertEquals(ChargeSpan(0, 8 * HOUR_MS), span)
+        assertEquals(span, effectiveChargeSpan(span, emptyList(), hasLive = false))
+        // A reset while still plugged keeps charging from the reset, and a reset on battery opens nothing.
+        assertEquals(ChargeSpan(8 * HOUR_MS, null), lastChargeSpan(events.take(2) + event(8 * HOUR_MS, HistoryKind.RESET)))
+        assertNull(lastChargeSpan(listOf(event(8 * HOUR_MS, HistoryKind.RESET).copy(plugType = 0), event(9 * HOUR_MS))))
+    }
+
+    @Test
     fun `retained live buffer does not reopen a completed charge`() {
         val span = ChargeSpan(0, 60 * MIN_MS)
         val buffered = listOf(point(55 * MIN_MS), point(59 * MIN_MS))

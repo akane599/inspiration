@@ -99,32 +99,37 @@ class IntervalMetricsCalculatorTest {
     }
 
     @Test
-    fun `RESET reseeds the level without a false drop and is a discontinuity`() {
+    fun `RESET with the screen on reseeds the level without a false drop and is a discontinuity`() {
         val metrics =
             IntervalMetricsCalculator.compute(
                 listOf(
                     event(0, HistoryKind.SCREEN_ON, 80),
                     event(10, HistoryKind.LEVEL, 79),
                     event(20, HistoryKind.RESET, 100),
+                    event(20, HistoryKind.SCREEN_ON, 100),
                     event(30, HistoryKind.LEVEL, 99),
                 ),
                 fromWallMs = 0,
                 toWallMs = minutes(60),
             )
 
+        assertEquals(2, metrics.levelDropScreenOn)
         assertEquals(2, metrics.levelUsedPct)
+        assertEquals(minutes(60), metrics.screenOnMs)
+        assertEquals(0L, metrics.unknownMs)
         assertEquals(listOf(minutes(20)), metrics.discontinuities)
         assertEquals(80, metrics.startLevel)
         assertEquals(99, metrics.endLevel)
     }
 
     @Test
-    fun `a RESET reseeds even when the level then falls below the old baseline`() {
+    fun `a RESET with the screen off reseeds even when the level then falls below the old baseline`() {
         val metrics =
             IntervalMetricsCalculator.compute(
                 listOf(
                     event(0, HistoryKind.SCREEN_OFF, 50),
                     event(10, HistoryKind.RESET, 30),
+                    event(10, HistoryKind.SCREEN_OFF, 30),
                     event(20, HistoryKind.LEVEL, 29),
                 ),
                 fromWallMs = 0,
@@ -133,6 +138,56 @@ class IntervalMetricsCalculatorTest {
 
         assertEquals(1, metrics.levelDropScreenOff)
         assertEquals(1, metrics.levelUsedPct)
+    }
+
+    @Test
+    fun `an unplug RESET does not carry the stale pre-reset screen state`() {
+        // A row stored before the walker restated the reset's screen state: the screen-off seen before the overnight
+        // charge says nothing about the morning after the unplug reset, so that stretch is unknown, not screen off.
+        val metrics =
+            IntervalMetricsCalculator.compute(
+                listOf(
+                    event(0, HistoryKind.SCREEN_OFF, 40),
+                    event(10, HistoryKind.PLUGGED, 40),
+                    event(400, HistoryKind.RESET, 100),
+                    event(420, HistoryKind.LEVEL, 99),
+                    event(450, HistoryKind.SCREEN_OFF, 99),
+                    event(480, HistoryKind.LEVEL, 98),
+                ),
+                fromWallMs = minutes(400),
+                toWallMs = minutes(500),
+            )
+
+        assertEquals(minutes(50), metrics.unknownMs)
+        assertEquals(minutes(50), metrics.screenOffMs)
+        assertEquals(0L, metrics.chargingMs)
+        assertEquals(1, metrics.levelDropScreenOff)
+        assertEquals(1, metrics.levelUsedPct)
+    }
+
+    @Test
+    fun `the screen-on stretch after a RESET with the screen on is screen on (device evidence)`() {
+        // run-ax4ji1gb redroid-w7-1: PROBE_INSIGHTS last_24h reported screenOnMs 6048, unknownMs 34878.
+        val reset = 1_792_364_576_106L
+        val from = 1_792_410_985_150L
+        val to = 1_792_411_065_526L
+        val events =
+            listOf(
+                wallEvent(reset, HistoryKind.RESET),
+                wallEvent(reset, HistoryKind.SCREEN_ON),
+                wallEvent(1_792_411_020_028L, HistoryKind.SCREEN_OFF),
+                wallEvent(1_792_411_059_478L, HistoryKind.SCREEN_ON),
+            )
+
+        val metrics = IntervalMetricsCalculator.compute(events, from, to)
+
+        assertEquals(34_878L + 6_048L, metrics.screenOnMs)
+        assertEquals(39_450L, metrics.screenOffMs)
+        assertEquals(0L, metrics.unknownMs)
+        // Rows stored without the restated state stay unknown rather than being booked to a stale state.
+        val bare = IntervalMetricsCalculator.compute(events - events[1], from, to)
+        assertEquals(34_878L, bare.unknownMs)
+        assertEquals(6_048L, bare.screenOnMs)
     }
 
     @Test
@@ -343,6 +398,11 @@ class IntervalMetricsCalculatorTest {
     }
 
     private fun minutes(value: Long): Long = value * 60_000L
+
+    private fun wallEvent(
+        wallMs: Long,
+        kind: Int,
+    ) = event(0, kind, 0).copy(historyTimeMs = wallMs, wallMs = wallMs)
 
     private fun event(
         minute: Long,

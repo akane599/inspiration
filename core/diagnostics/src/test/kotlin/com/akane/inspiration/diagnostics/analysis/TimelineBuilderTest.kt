@@ -93,6 +93,43 @@ class TimelineBuilderTest {
     }
 
     @Test
+    fun `a reset's restated screen and doze state reopen their lanes at the reset without a wake pulse`() {
+        val screenOn =
+            build(
+                listOf(
+                    at(min, HistoryKind.SCREEN_ON),
+                    at(2 * min, HistoryKind.RESET),
+                    at(2 * min, HistoryKind.SCREEN_ON),
+                    at(5 * min, HistoryKind.SCREEN_OFF),
+                ),
+                to = 10 * min,
+            )
+        assertEquals(listOf(seg(SCREEN_ON, min, 2 * min), seg(SCREEN_ON, 2 * min, 5 * min)), screenOn.of(SCREEN_ON))
+        assertEquals("the restated screen-on is not a wake", listOf(min), screenOn.pulses())
+
+        val dozing =
+            build(
+                listOf(
+                    at(2 * min, HistoryKind.RESET),
+                    at(2 * min, HistoryKind.SCREEN_OFF),
+                    at(2 * min, HistoryKind.DEEP_IDLE_ON),
+                    at(6 * min, HistoryKind.DEEP_IDLE_OFF),
+                ),
+                to = 10 * min,
+            )
+        assertEquals(listOf(seg(DEEP_IDLE, 2 * min, 6 * min)), dozing.of(DEEP_IDLE))
+        assertTrue(dozing.of(SCREEN_ON).isEmpty())
+
+        // A real screen-on at the reset's instant, after the restated screen-off, is still a wake.
+        val woke =
+            build(
+                listOf(at(2 * min, HistoryKind.RESET), at(2 * min, HistoryKind.SCREEN_OFF), at(2 * min, HistoryKind.SCREEN_ON)),
+                to = 10 * min,
+            )
+        assertEquals(listOf(2 * min), woke.pulses())
+    }
+
+    @Test
     fun `a gap of exactly 10 minutes is maintenance and one millisecond more is awake`() {
         val exact = build(deepGap(10 * min))
         assertEquals(listOf(seg(MAINTENANCE, 10 * min, 20 * min)), exact.of(MAINTENANCE))

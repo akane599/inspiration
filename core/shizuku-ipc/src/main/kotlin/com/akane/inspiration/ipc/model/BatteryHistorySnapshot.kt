@@ -18,14 +18,15 @@ data class BatteryHistorySnapshot(
     val truncated: Boolean,
 ) : android.os.Parcelable {
     companion object {
-        fun unavailable(reason: String): BatteryHistorySnapshot = BatteryHistorySnapshot(
-            available = false,
-            reason = reason,
-            statsStartMs = 0L,
-            sessionChanged = false,
-            events = emptyList(),
-            truncated = false,
-        )
+        fun unavailable(reason: String): BatteryHistorySnapshot =
+            BatteryHistorySnapshot(
+                available = false,
+                reason = reason,
+                statsStartMs = 0L,
+                sessionChanged = false,
+                events = emptyList(),
+                truncated = false,
+            )
     }
 }
 
@@ -53,6 +54,12 @@ object HistoryKind {
     const val PLUGGED = 3
     const val UNPLUGGED = 4
     const val LEVEL = 5
+
+    /**
+     * A battery-stats reset; [HistoryEvent.plugType] is the plug state at the reset (0 at an unplug reset). The
+     * reset's screen state (SCREEN_ON or SCREEN_OFF) and any doze entry follow it at the same history time; rows
+     * ingested before that was emitted have none, so a consumer must treat a bare RESET's screen state as unknown.
+     */
     const val RESET = 6
     const val START = 7
     const val SHUTDOWN = 8

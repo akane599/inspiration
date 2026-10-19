@@ -21,13 +21,33 @@ class TimelineEventsTest {
 
     @Test
     fun `unplugged baseline closes an old plugged state`() {
-        val seeded = TimelineEvents.withSeeds(
-            listOf(event(HistoryKind.PLUGGED, 10), event(HistoryKind.RESET, 50)), emptyList(),
-        )
+        val seeded =
+            TimelineEvents.withSeeds(
+                listOf(event(HistoryKind.PLUGGED, 10), event(HistoryKind.RESET, 50)),
+                emptyList(),
+            )
         assertTrue(TimelineBuilder.build(seeded, 100, 300).segments.none { it.kind == SegmentKind.CHARGING })
     }
 
-    private fun event(kind: Int, wallMs: Long) = HistoryEvent(
+    @Test
+    fun `a reset seed stays ahead of the screen state it restates at the same instant`() {
+        // As the store returns them (wall time, then insertion order): the RESET, then its restated screen-on.
+        val before = listOf(event(HistoryKind.SCREEN_OFF, 20), event(HistoryKind.RESET, 50), event(HistoryKind.SCREEN_ON, 50))
+
+        val seeded = TimelineEvents.withSeeds(before, listOf(event(HistoryKind.SCREEN_OFF, 200)))
+
+        assertEquals(
+            listOf(HistoryKind.SCREEN_OFF, HistoryKind.RESET, HistoryKind.SCREEN_ON, HistoryKind.SCREEN_OFF),
+            seeded.map { it.kind },
+        )
+        val screen = TimelineBuilder.build(seeded, 100, 300).segments.filter { it.kind == SegmentKind.SCREEN_ON }
+        assertEquals(listOf(100L to 200L), screen.map { it.startMs to it.endMs })
+    }
+
+    private fun event(
+        kind: Int,
+        wallMs: Long,
+    ) = HistoryEvent(
         historyTimeMs = wallMs,
         wallMs = wallMs,
         kind = kind,
@@ -40,14 +60,15 @@ class TimelineEventsTest {
 
     @Test
     fun `keeps the last event of each state track before the window`() {
-        val before = listOf(
-            event(HistoryKind.SCREEN_ON, 100),
-            event(HistoryKind.SCREEN_OFF, 200),
-            event(HistoryKind.SCREEN_ON, 300),
-            event(HistoryKind.PLUGGED, 150),
-            event(HistoryKind.LEVEL, 350),
-            event(HistoryKind.SHUTDOWN, 50),
-        )
+        val before =
+            listOf(
+                event(HistoryKind.SCREEN_ON, 100),
+                event(HistoryKind.SCREEN_OFF, 200),
+                event(HistoryKind.SCREEN_ON, 300),
+                event(HistoryKind.PLUGGED, 150),
+                event(HistoryKind.LEVEL, 350),
+                event(HistoryKind.SHUTDOWN, 50),
+            )
         val inWindow = listOf(event(HistoryKind.LEVEL, 1_000))
 
         val result = TimelineEvents.withSeeds(before, inWindow)
@@ -62,12 +83,13 @@ class TimelineEventsTest {
 
     @Test
     fun `keeps the last two idle events so a gap that began before the window survives`() {
-        val before = listOf(
-            event(HistoryKind.DEEP_IDLE_ON, 10),
-            event(HistoryKind.DEEP_IDLE_OFF, 20),
-            event(HistoryKind.LIGHT_IDLE_ON, 30),
-            event(HistoryKind.LIGHT_IDLE_OFF, 40),
-        )
+        val before =
+            listOf(
+                event(HistoryKind.DEEP_IDLE_ON, 10),
+                event(HistoryKind.DEEP_IDLE_OFF, 20),
+                event(HistoryKind.LIGHT_IDLE_ON, 30),
+                event(HistoryKind.LIGHT_IDLE_OFF, 40),
+            )
 
         val kinds = TimelineEvents.withSeeds(before, emptyList()).map { it.kind }
 
@@ -83,19 +105,20 @@ class TimelineEventsTest {
 
     @Test
     fun `the last event of each kind is enough to seed the same state as the full history`() {
-        val full = listOf(
-            event(HistoryKind.SCREEN_ON, 10),
-            event(HistoryKind.SCREEN_OFF, 20),
-            event(HistoryKind.SCREEN_ON, 30),
-            event(HistoryKind.PLUGGED, 15),
-            event(HistoryKind.UNPLUGGED, 25),
-            event(HistoryKind.DEEP_IDLE_ON, 12),
-            event(HistoryKind.DEEP_IDLE_OFF, 22),
-            event(HistoryKind.DEEP_IDLE_ON, 32),
-            event(HistoryKind.LIGHT_IDLE_ON, 14),
-            event(HistoryKind.LIGHT_IDLE_OFF, 16),
-            event(HistoryKind.LEVEL, 40),
-        )
+        val full =
+            listOf(
+                event(HistoryKind.SCREEN_ON, 10),
+                event(HistoryKind.SCREEN_OFF, 20),
+                event(HistoryKind.SCREEN_ON, 30),
+                event(HistoryKind.PLUGGED, 15),
+                event(HistoryKind.UNPLUGGED, 25),
+                event(HistoryKind.DEEP_IDLE_ON, 12),
+                event(HistoryKind.DEEP_IDLE_OFF, 22),
+                event(HistoryKind.DEEP_IDLE_ON, 32),
+                event(HistoryKind.LIGHT_IDLE_ON, 14),
+                event(HistoryKind.LIGHT_IDLE_OFF, 16),
+                event(HistoryKind.LEVEL, 40),
+            )
         val lastOfEachKind = full.groupBy { it.kind }.values.map { events -> events.maxBy { it.wallMs } }
         val inWindow = listOf(event(HistoryKind.LEVEL, 1_000))
 
@@ -127,13 +150,17 @@ class TimelineEventsTest {
         assertGapIsAwake(HistoryKind.PLUGGED, HistoryKind.UNPLUGGED)
     }
 
-    private fun assertGapIsAwake(on: Int, off: Int) {
-        val before = listOf(
-            event(HistoryKind.DEEP_IDLE_ON, 0),
-            event(HistoryKind.DEEP_IDLE_OFF, 100_000),
-            event(on, 150_000),
-            event(off, 200_000),
-        )
+    private fun assertGapIsAwake(
+        on: Int,
+        off: Int,
+    ) {
+        val before =
+            listOf(
+                event(HistoryKind.DEEP_IDLE_ON, 0),
+                event(HistoryKind.DEEP_IDLE_OFF, 100_000),
+                event(on, 150_000),
+                event(off, 200_000),
+            )
         val inWindow = listOf(event(HistoryKind.DEEP_IDLE_ON, 300_000))
         val timeline = TimelineBuilder.build(TimelineEvents.withSeeds(before, inWindow), 250_000, 350_000)
 

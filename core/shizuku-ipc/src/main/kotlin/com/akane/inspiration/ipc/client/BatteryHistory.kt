@@ -96,7 +96,10 @@ internal object BatteryHistoryExtractor {
      * The next page resumes at `historyTimeMs > last`, so a page must not end in the middle of
      * one timestamp. Keeps them only if they are the whole page (no progress otherwise).
      */
-    private fun dropTrailingTime(events: MutableList<HistoryEvent>, time: Long) {
+    private fun dropTrailingTime(
+        events: MutableList<HistoryEvent>,
+        time: Long,
+    ) {
         val keep = events.indexOfLast { it.historyTimeMs != time } + 1
         if (keep > 0) events.subList(keep, events.size).clear()
     }
@@ -116,14 +119,22 @@ private class HistoryWalker {
             anchorWallMs = record.currentTime
             anchorTimeMs = record.time
         }
-        val kinds = when (record.cmd) {
-            HistoryBits.CMD_RESET -> listOf(HistoryKind.RESET).also { setBaseline(record) }
-            HistoryBits.CMD_START -> listOf(HistoryKind.START).also { setBaseline(record) }
-            HistoryBits.CMD_SHUTDOWN -> listOf(HistoryKind.SHUTDOWN)
-            HistoryBits.CMD_OVERFLOW -> emptyList<Int>().also { clearBaseline() }
-            HistoryBits.CMD_UPDATE, HistoryBits.CMD_CURRENT_TIME -> transitions(record)
-            else -> emptyList()
-        }
+        val kinds =
+            when (record.cmd) {
+                HistoryBits.CMD_RESET -> resetKinds(record).also { setBaseline(record) }
+
+                // START is written before the battery service reports anything (zeroed states), so its state is no
+                // evidence and the first UPDATE after it emits the real transitions.
+                HistoryBits.CMD_START -> listOf(HistoryKind.START).also { setBaseline(record) }
+
+                HistoryBits.CMD_SHUTDOWN -> listOf(HistoryKind.SHUTDOWN)
+
+                HistoryBits.CMD_OVERFLOW -> emptyList<Int>().also { clearBaseline() }
+
+                HistoryBits.CMD_UPDATE, HistoryBits.CMD_CURRENT_TIME -> transitions(record)
+
+                else -> emptyList()
+            }
         return kinds.map { kind -> event(record, kind) }
     }
 
@@ -144,6 +155,20 @@ private class HistoryWalker {
         return kinds
     }
 
+    /**
+     * A RESET is written whole from the live state: at an unplug reset it still carries the screen and doze state
+     * (with `plugType` already 0), and at an empty-buffer reset it is a copy of the current state. Consumers treat a
+     * RESET as a boundary that ends every state, so the record's screen state and any doze state follow it as events
+     * at the same instant; later records are transitions from this baseline. Plug state stays on the RESET's
+     * `plugType`: at an unplug reset the plugged flag is still set and the next record emits the UNPLUGGED.
+     */
+    private fun resetKinds(record: HistoryRecord): List<Int> =
+        buildList {
+            add(HistoryKind.RESET)
+            add(if (record.states and HistoryBits.STATE_SCREEN_ON_FLAG != 0) HistoryKind.SCREEN_ON else HistoryKind.SCREEN_OFF)
+            idleEntry(record.idleMode())?.let(::add)
+        }
+
     private fun setBaseline(record: HistoryRecord) {
         screenOn = record.states and HistoryBits.STATE_SCREEN_ON_FLAG != 0
         plugged = record.states and HistoryBits.STATE_BATTERY_PLUGGED_FLAG != 0
@@ -163,16 +188,25 @@ private class HistoryWalker {
      * Exit of the old doze state first, then entry of the new one, so light to deep (or back) at
      * one timestamp reads as OFF then ON.
      */
-    private fun idleTransition(from: Int, to: Int): List<Int> = buildList {
-        when (from) {
-            HistoryBits.DEVICE_IDLE_MODE_LIGHT -> add(HistoryKind.LIGHT_IDLE_OFF)
-            HistoryBits.DEVICE_IDLE_MODE_DEEP -> add(HistoryKind.DEEP_IDLE_OFF)
+    private fun idleTransition(
+        from: Int,
+        to: Int,
+    ): List<Int> =
+        buildList {
+            when (from) {
+                HistoryBits.DEVICE_IDLE_MODE_LIGHT -> add(HistoryKind.LIGHT_IDLE_OFF)
+                HistoryBits.DEVICE_IDLE_MODE_DEEP -> add(HistoryKind.DEEP_IDLE_OFF)
+            }
+            idleEntry(to)?.let(::add)
         }
-        when (to) {
-            HistoryBits.DEVICE_IDLE_MODE_LIGHT -> add(HistoryKind.LIGHT_IDLE_ON)
-            HistoryBits.DEVICE_IDLE_MODE_DEEP -> add(HistoryKind.DEEP_IDLE_ON)
+
+    /** The entry event of a device-idle mode; null for off. */
+    private fun idleEntry(mode: Int): Int? =
+        when (mode) {
+            HistoryBits.DEVICE_IDLE_MODE_LIGHT -> HistoryKind.LIGHT_IDLE_ON
+            HistoryBits.DEVICE_IDLE_MODE_DEEP -> HistoryKind.DEEP_IDLE_ON
+            else -> null
         }
-    }
 
     /** The 2-bit device-idle field; the unused value 3 is treated as off. */
     private fun HistoryRecord.idleMode(): Int {
@@ -184,7 +218,10 @@ private class HistoryWalker {
         }
     }
 
-    private fun event(record: HistoryRecord, kind: Int) = HistoryEvent(
+    private fun event(
+        record: HistoryRecord,
+        kind: Int,
+    ) = HistoryEvent(
         historyTimeMs = record.time,
         wallMs = anchorWallMs?.let { it + (record.time - anchorTimeMs) } ?: -1L,
         kind = kind,

@@ -19,7 +19,8 @@ import com.akane.inspiration.telemetry.store.knownStateEndWallMs
  *   was seen). A gap of at most [MAINTENANCE_MAX_GAP_MS] that overlaps no screen-on or charging span
  *   is MAINTENANCE; any other non-empty gap is AWAKE. The gap length is measured unclamped, so a
  *   gap that began before `from` keeps its true length. A SHUTDOWN ends every open state and starts no gap.
- * - **Wake pulses.** Every SCREEN_ON, plus every DEEP_IDLE_OFF with no `*_IDLE_ON` within
+ * - **Wake pulses.** Every SCREEN_ON except the one that restates a RESET's screen state right after it, plus every
+ *   DEEP_IDLE_OFF with no `*_IDLE_ON` within
  *   [WAKE_PULSE_REENTRY_MS] (inclusive; light idle counts, so deep-to-light is not a pulse). A pulse
  *   inside a MAINTENANCE gap (start inclusive, end exclusive) is dropped. No cause is claimed.
  * - **Points.** One level point per LEVEL event in [from, to]; temperature is deci-Celsius / 10.
@@ -113,11 +114,11 @@ object TimelineBuilder {
                 .map { it.wallMs }
         var next = 0
         val pulses = ArrayList<Long>()
-        for (event in ordered) {
+        for ((index, event) in ordered.withIndex()) {
             val t = event.wallMs
             when (event.kind) {
                 HistoryKind.SCREEN_ON -> {
-                    pulses += t
+                    if (!ordered.restatesReset(index)) pulses += t
                 }
 
                 HistoryKind.DEEP_IDLE_OFF -> {
@@ -131,6 +132,15 @@ object TimelineBuilder {
         return pulses
             .filter { t -> t in from..to && maintenance.none { t >= it.startMs && t < it.endMs } }
             .distinct()
+    }
+
+    /** Whether the event at [index] is the screen state its RESET restates (same record), not a transition. */
+    private fun List<HistoryEvent>.restatesReset(index: Int): Boolean {
+        val previous = getOrNull(index - 1) ?: return false
+        val event = get(index)
+        return previous.kind == HistoryKind.RESET &&
+            previous.historyTimeMs == event.historyTimeMs &&
+            previous.wallMs == event.wallMs
     }
 }
 
@@ -199,7 +209,8 @@ private class Spans(
                     }
 
                     HistoryKind.RESET, HistoryKind.START -> {
-                        // The fresh baseline carries plug state, but no screen or idle state.
+                        // A boundary: the boundary itself carries the plug state. A RESET's screen and doze state
+                        // follow it at the same instant (ties keep input order) and reopen their lanes; START has none.
                         listOf(screen, plug, deep, light, gaps).forEach { it.close(t) }
                         if (event.plugType != 0) plug.open(t)
                     }
