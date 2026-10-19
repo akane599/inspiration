@@ -8,26 +8,30 @@ import com.akane.inspiration.diagnostics.model.SensorKind
 
 /**
  * Resolves handles from `SensorManager.getSensorList(TYPE_ALL)`. `Sensor.getHandle()` is hidden,
- * so it is read by plain reflection (process-wide hidden-API exemptions are installed by the app).
+ * so it is read by plain reflection; the app exempts exactly [GET_HANDLE_SIGNATURE] from the
+ * hidden-API policy, and nothing else in its process.
  * The map is built once, on first use; any failure leaves it empty, so every unknown handle is OTHER,
  * and the failure is logged once. Only the failures that can occur are caught (a missing or failing
  * sensor service, a hidden or inaccessible `getHandle()`, a non-Int handle); errors propagate.
  */
-class AndroidSensorCatalog(private val context: Context) : SensorCatalog {
+class AndroidSensorCatalog(
+    private val context: Context,
+) : SensorCatalog {
     private val kindsByHandle: Map<Int, SensorKind> by lazy { buildKinds() }
 
     override fun kindOf(handle: Int): SensorKind =
         if (handle == GPS_SENSOR_HANDLE) SensorKind.GPS else kindsByHandle[handle] ?: SensorKind.OTHER
 
     private fun buildKinds(): Map<Int, SensorKind> {
-        val sensors = try {
-            context.getSystemService(SensorManager::class.java)?.getSensorList(Sensor.TYPE_ALL).orEmpty()
-        } catch (e: RuntimeException) {
-            // A missing or failing sensor service: there is nothing to map.
-            return unavailable(e)
-        }
+        val sensors =
+            try {
+                context.getSystemService(SensorManager::class.java)?.getSensorList(Sensor.TYPE_ALL).orEmpty()
+            } catch (e: RuntimeException) {
+                // A missing or failing sensor service: there is nothing to map.
+                return unavailable(e)
+            }
         return try {
-            val getHandle = Sensor::class.java.getMethod("getHandle")
+            val getHandle = Sensor::class.java.getMethod(GET_HANDLE)
             val kinds = HashMap<Int, SensorKind>()
             sensors.forEach { sensor ->
                 val kind = kindOfType(sensor.type)
@@ -50,13 +54,22 @@ class AndroidSensorCatalog(private val context: Context) : SensorCatalog {
         return emptyMap()
     }
 
-    private fun kindOfType(type: Int): SensorKind = when (type) {
-        Sensor.TYPE_ACCELEROMETER, Sensor.TYPE_ACCELEROMETER_UNCALIBRATED -> SensorKind.ACCELEROMETER
-        Sensor.TYPE_GYROSCOPE, Sensor.TYPE_GYROSCOPE_UNCALIBRATED -> SensorKind.GYROSCOPE
-        else -> SensorKind.OTHER
-    }
+    private fun kindOfType(type: Int): SensorKind =
+        when (type) {
+            Sensor.TYPE_ACCELEROMETER, Sensor.TYPE_ACCELEROMETER_UNCALIBRATED -> SensorKind.ACCELEROMETER
+            Sensor.TYPE_GYROSCOPE, Sensor.TYPE_GYROSCOPE_UNCALIBRATED -> SensorKind.GYROSCOPE
+            else -> SensorKind.OTHER
+        }
 
-    private companion object {
-        const val TAG = "AndroidSensorCatalog"
+    companion object {
+        private const val TAG = "AndroidSensorCatalog"
+        private const val GET_HANDLE = "getHandle"
+
+        /**
+         * The hidden-API signature of the one hidden member this catalog reads, for
+         * `HiddenApiBypass.addHiddenApiExemptions`. Without the exemption, a platform that hides
+         * `getHandle()` from apps leaves accelerometer and gyroscope handles as OTHER.
+         */
+        const val GET_HANDLE_SIGNATURE = "Landroid/hardware/Sensor;->$GET_HANDLE()I"
     }
 }

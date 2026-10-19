@@ -4,10 +4,10 @@ import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
+import android.database.sqlite.SQLiteDatabase
 import android.os.BatteryManager
 import android.os.ParcelFileDescriptor
 import android.os.SystemClock
-import android.database.sqlite.SQLiteDatabase
 import android.util.Log
 import com.akane.inspiration.InspirationApplication
 import com.akane.inspiration.diagnostics.dictionary.DiagnosticDictionary
@@ -41,6 +41,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeout
 import org.json.JSONArray
 import org.json.JSONObject
+import org.lsposed.hiddenapibypass.HiddenApiBypass
 import rikka.shizuku.ShizukuBinderWrapper
 import rikka.shizuku.SystemServiceHelper
 import java.io.InputStream
@@ -259,11 +260,12 @@ class ProbeReceiver : BroadcastReceiver() {
 
     private suspend fun probeCapture(context: Context) {
         val app = context as InspirationApplication
-        val result = app.appContainer.capturer.captureFull(
-            trigger = CaptureTrigger.MARKER,
-            deadlineMs = PROBE_TIMEOUT_MS,
-            ingestHistory = true,
-        )
+        val result =
+            app.appContainer.capturer.captureFull(
+                trigger = CaptureTrigger.MARKER,
+                deadlineMs = PROBE_TIMEOUT_MS,
+                ingestHistory = true,
+            )
         val latest = app.appContainer.store.latest()
         log(
             JSONObject().put(
@@ -289,34 +291,41 @@ class ProbeReceiver : BroadcastReceiver() {
     )
 
     /** Resolves the PROBE_DIFF / PROBE_INSIGHTS snapshot pair; logs the reason under [section] when none exists. */
-    private suspend fun resolveProbeDiffInput(store: SnapshotStore, intent: Intent, section: String): ProbeDiffInput? {
+    private suspend fun resolveProbeDiffInput(
+        store: SnapshotStore,
+        intent: Intent,
+        section: String,
+    ): ProbeDiffInput? {
         val latest = store.latest()
         if (latest == null) {
             log(JSONObject().put(section, JSONObject().put("available", false).put("reason", "no_snapshots")))
             return null
         }
-        val resolved = intent.getStringExtra(EXTRA_REFERENCE_KIND)
-            ?.let(::referenceKind)
-            ?.let { ReferenceResolver(store).resolve(it, latest.clock.wallMs) }
-        val input = if (resolved != null) {
-            ProbeDiffInput(
-                resolved.ref,
-                resolved.now,
-                resolved.coveredFromWallMs,
-                resolved.coveredToWallMs,
-                resolved.perUidAvailable,
-            )
-        } else {
-            store.lastAtOrBefore(latest.clock.wallMs - 1, null)?.let { ref ->
+        val resolved =
+            intent
+                .getStringExtra(EXTRA_REFERENCE_KIND)
+                ?.let(::referenceKind)
+                ?.let { ReferenceResolver(store).resolve(it, latest.clock.wallMs) }
+        val input =
+            if (resolved != null) {
                 ProbeDiffInput(
-                    ref,
-                    latest,
-                    ref.clock.wallMs,
-                    latest.clock.wallMs,
-                    ref.kind == SnapshotKind.FULL && latest.kind == SnapshotKind.FULL,
+                    resolved.ref,
+                    resolved.now,
+                    resolved.coveredFromWallMs,
+                    resolved.coveredToWallMs,
+                    resolved.perUidAvailable,
                 )
+            } else {
+                store.lastAtOrBefore(latest.clock.wallMs - 1, null)?.let { ref ->
+                    ProbeDiffInput(
+                        ref,
+                        latest,
+                        ref.clock.wallMs,
+                        latest.clock.wallMs,
+                        ref.kind == SnapshotKind.FULL && latest.kind == SnapshotKind.FULL,
+                    )
+                }
             }
-        }
         if (input == null) {
             log(JSONObject().put(section, JSONObject().put("available", false).put("reason", "no_reference")))
         }
@@ -324,7 +333,10 @@ class ProbeReceiver : BroadcastReceiver() {
     }
 
     // Usage: adb shell am broadcast -a com.akane.inspiration.debug.PROBE_INSIGHTS [--es reference_kind since_unplugged] -n com.akane.inspiration/.debug.ProbeReceiver
-    private suspend fun probeInsights(context: Context, intent: Intent) {
+    private suspend fun probeInsights(
+        context: Context,
+        intent: Intent,
+    ) {
         val app = context as InspirationApplication
         val container = app.appContainer
         val input = resolveProbeDiffInput(container.store, intent, "insights") ?: return
@@ -355,11 +367,15 @@ class ProbeReceiver : BroadcastReceiver() {
         )
 
         val dictionary = container.dictionary
-        val partials = diff.uids.filter { it.valid }
-            .flatMap { it.partialWakelocks }
-            .groupBy { it.name }
-            .mapValues { (_, locks) -> locks.sumOf { it.durationMs } }
-            .entries.sortedByDescending { it.value }.take(TOP_LOOKUPS)
+        val partials =
+            diff.uids
+                .filter { it.valid }
+                .flatMap { it.partialWakelocks }
+                .groupBy { it.name }
+                .mapValues { (_, locks) -> locks.sumOf { it.durationMs } }
+                .entries
+                .sortedByDescending { it.value }
+                .take(TOP_LOOKUPS)
         val kernels = diff.kernelWakelocks.sortedByDescending { it.durationMs }.take(TOP_LOOKUPS)
         log(
             JSONObject().put(
@@ -375,18 +391,19 @@ class ProbeReceiver : BroadcastReceiver() {
         dictionary: DiagnosticDictionary,
         kind: EntryKind,
         names: List<Pair<String, Long>>,
-    ): JSONArray = JSONArray().apply {
-        names.forEach { (name, durationMs) ->
-            val explanation = dictionary.explain(kind, name, Locale.ENGLISH)
-            put(
-                JSONObject()
-                    .put("name", name)
-                    .put("durationMs", durationMs)
-                    .putNullable("id", explanation?.id)
-                    .putNullable("title", explanation?.title),
-            )
+    ): JSONArray =
+        JSONArray().apply {
+            names.forEach { (name, durationMs) ->
+                val explanation = dictionary.explain(kind, name, Locale.ENGLISH)
+                put(
+                    JSONObject()
+                        .put("name", name)
+                        .put("durationMs", durationMs)
+                        .putNullable("id", explanation?.id)
+                        .putNullable("title", explanation?.title),
+                )
+            }
         }
-    }
 
     private fun IntervalMetrics.toJson(): JSONObject =
         JSONObject()
@@ -406,52 +423,67 @@ class ProbeReceiver : BroadcastReceiver() {
             .put("discontinuities", JSONArray(discontinuities))
 
     private fun Insight.toJson(): JSONObject {
-        val json = JSONObject()
-            .put("rule", rule.name)
-            .put("severity", severity.name)
-            .putNullable("uid", subjectUid)
+        val json =
+            JSONObject()
+                .put("rule", rule.name)
+                .put("severity", severity.name)
+                .putNullable("uid", subjectUid)
         when (this) {
-            is NightVampire -> json
-                .putNullable("packageName", packageName)
-                .put("totalMah", totalMah)
-                .put("bgShare", bgShare)
-                .put("fgActivityMs", fgActivityMs)
-            is AwakeViolation -> json
-                .put("awakeRatio", awakeRatio)
-                .put("screenOffMs", screenOffMs)
-                .put("culpritScope", culpritScope.name)
-                .put("culpritCount", culprits.size)
-                .put(
-                    "culprits",
-                    JSONArray().apply {
-                        culprits.take(MAX_LOGGED_CULPRITS).forEach { culprit ->
-                            put(
-                                JSONObject()
-                                    .put("kind", culprit.kind.name)
-                                    .put("name", culprit.name)
-                                    .putNullable("uid", culprit.uid)
-                                    .putNullable("durationMs", culprit.durationMs)
-                                    .putNullable("count", culprit.count),
-                            )
-                        }
-                    },
-                )
-            is ModemDrain -> json
-                .put("mobileRadioMah", mobileRadioMah)
-                .put("screenMah", screenMah)
-                .put("signalAvailable", signalAvailable)
-                .put("signalBinPct", JSONArray(signalBinPct))
-                .putNullable("scanningMs", scanningMs)
-                .putNullable("radioActiveMs", radioActiveMs)
-            is SensorLeak -> json
-                .putNullable("packageName", packageName)
-                .put("sensor", sensor.name)
-                .put("durationMs", durationMs)
+            is NightVampire -> {
+                json
+                    .putNullable("packageName", packageName)
+                    .put("totalMah", totalMah)
+                    .put("bgShare", bgShare)
+                    .put("fgActivityMs", fgActivityMs)
+            }
+
+            is AwakeViolation -> {
+                json
+                    .put("awakeRatio", awakeRatio)
+                    .put("screenOffMs", screenOffMs)
+                    .put("culpritScope", culpritScope.name)
+                    .put("culpritCount", culprits.size)
+                    .put(
+                        "culprits",
+                        JSONArray().apply {
+                            culprits.take(MAX_LOGGED_CULPRITS).forEach { culprit ->
+                                put(
+                                    JSONObject()
+                                        .put("kind", culprit.kind.name)
+                                        .put("name", culprit.name)
+                                        .putNullable("uid", culprit.uid)
+                                        .putNullable("durationMs", culprit.durationMs)
+                                        .putNullable("count", culprit.count),
+                                )
+                            }
+                        },
+                    )
+            }
+
+            is ModemDrain -> {
+                json
+                    .put("mobileRadioMah", mobileRadioMah)
+                    .put("screenMah", screenMah)
+                    .put("signalAvailable", signalAvailable)
+                    .put("signalBinPct", JSONArray(signalBinPct))
+                    .putNullable("scanningMs", scanningMs)
+                    .putNullable("radioActiveMs", radioActiveMs)
+            }
+
+            is SensorLeak -> {
+                json
+                    .putNullable("packageName", packageName)
+                    .put("sensor", sensor.name)
+                    .put("durationMs", durationMs)
+            }
         }
         return json
     }
 
-    private suspend fun probeDiff(context: Context, intent: Intent) {
+    private suspend fun probeDiff(
+        context: Context,
+        intent: Intent,
+    ) {
         val app = context as InspirationApplication
         val input = resolveProbeDiffInput(app.appContainer.store, intent, "diff") ?: return
         val diff = SnapshotDiffer.diff(input.ref, input.now)
@@ -471,25 +503,27 @@ class ProbeReceiver : BroadcastReceiver() {
         logJournalMode(app)
     }
 
-    private fun referenceKind(value: String): ReferenceKind? = when (value) {
-        "since_unplugged" -> ReferenceKind.SinceUnplugged
-        "since_screen_off" -> ReferenceKind.SinceScreenOff
-        "screen_on_session" -> ReferenceKind.ScreenOnSession
-        "last_24h" -> ReferenceKind.Last24h
-        else -> null
-    }
+    private fun referenceKind(value: String): ReferenceKind? =
+        when (value) {
+            "since_unplugged" -> ReferenceKind.SinceUnplugged
+            "since_screen_off" -> ReferenceKind.SinceScreenOff
+            "screen_on_session" -> ReferenceKind.ScreenOnSession
+            "last_24h" -> ReferenceKind.Last24h
+            else -> null
+        }
 
     private fun logJournalMode(app: InspirationApplication) {
-        SQLiteDatabase.openDatabase(
-            app.getDatabasePath(DATABASE_NAME).path,
-            null,
-            SQLiteDatabase.OPEN_READONLY,
-        ).use { database ->
-            database.rawQuery("PRAGMA journal_mode", null).use { cursor ->
-                val mode = if (cursor.moveToFirst()) cursor.getString(0) else null
-                log(JSONObject().put("database", JSONObject().putNullable("journalMode", mode)))
+        SQLiteDatabase
+            .openDatabase(
+                app.getDatabasePath(DATABASE_NAME).path,
+                null,
+                SQLiteDatabase.OPEN_READONLY,
+            ).use { database ->
+                database.rawQuery("PRAGMA journal_mode", null).use { cursor ->
+                    val mode = if (cursor.moveToFirst()) cursor.getString(0) else null
+                    log(JSONObject().put("database", JSONObject().putNullable("journalMode", mode)))
+                }
             }
-        }
     }
 
     private fun requestPermission(context: Context) {
@@ -502,6 +536,9 @@ class ProbeReceiver : BroadcastReceiver() {
     }
 
     private fun readInProcess(): JSONObject {
+        // The app process exempts only Sensor.getHandle() (N-26). This D1 comparison path links the
+        // BatteryStatsClient hidden surface in-process, so it exempts exactly that, only when it runs.
+        HiddenApiBypass.addHiddenApiExemptions(*IN_PROCESS_HIDDEN_API_PREFIXES)
         val startedAt = SystemClock.elapsedRealtime()
         val usage = BatteryStatsClient(binderSource = { shizukuSystemService(BATTERY_STATS_SERVICE) }).readUsage(0L)
         return JSONObject()
@@ -595,13 +632,14 @@ class ProbeReceiver : BroadcastReceiver() {
         const val ACTION_PROBE_DIFF = "com.akane.inspiration.debug.PROBE_DIFF"
         const val ACTION_PROBE_INSIGHTS = "com.akane.inspiration.debug.PROBE_INSIGHTS"
         const val ACTION_REQUEST_PERMISSION = "com.akane.inspiration.debug.PROBE_REQUEST_PERMISSION"
-        val ACTIONS = setOf(
-            ACTION_PROBE,
-            ACTION_PROBE_CAPTURE,
-            ACTION_PROBE_DIFF,
-            ACTION_PROBE_INSIGHTS,
-            ACTION_REQUEST_PERMISSION,
-        )
+        val ACTIONS =
+            setOf(
+                ACTION_PROBE,
+                ACTION_PROBE_CAPTURE,
+                ACTION_PROBE_DIFF,
+                ACTION_PROBE_INSIGHTS,
+                ACTION_REQUEST_PERMISSION,
+            )
         const val MAX_LOGGED_CULPRITS = 5
         const val TOP_LOOKUPS = 3
         const val EXTRA_REFERENCE_KIND = "reference_kind"
@@ -612,6 +650,18 @@ class ProbeReceiver : BroadcastReceiver() {
         const val PROBE_TIMEOUT_MS = 10_000L
         const val TAG = "InspirationProbe"
         const val UNKNOWN_STATUS = -1
+
+        /** The hidden classes BatteryStatsClient links (the `:core:hidden-api-stub` battery surface). */
+        val IN_PROCESS_HIDDEN_API_PREFIXES =
+            arrayOf(
+                "Lcom/android/internal/app/IBatteryStats",
+                "Lcom/android/internal/os/BatteryStatsHistoryIterator",
+                "Landroid/os/BatteryStats",
+                "Landroid/os/BatteryUsageStats",
+                "Landroid/os/BatteryConsumer",
+                "Landroid/os/UidBatteryConsumer",
+                "Landroid/os/AggregateBatteryConsumer",
+            )
     }
 }
 

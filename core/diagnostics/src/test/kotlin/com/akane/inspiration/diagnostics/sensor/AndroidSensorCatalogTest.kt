@@ -19,10 +19,16 @@ import org.robolectric.shadows.ShadowSensor
 class AndroidSensorCatalogTest {
     private val context: Context = ApplicationProvider.getApplicationContext()
 
-    private fun addSensor(type: Int, handle: Int) {
+    private fun addSensor(
+        type: Int,
+        handle: Int,
+    ) {
         val sensor = ShadowSensor.newInstance(type)
         // Robolectric does not assign handles; set the field Sensor.getHandle() returns.
-        Sensor::class.java.getDeclaredField("mHandle").apply { isAccessible = true }.setInt(sensor, handle)
+        Sensor::class.java
+            .getDeclaredField("mHandle")
+            .apply { isAccessible = true }
+            .setInt(sensor, handle)
         shadowOf(context.getSystemService(SensorManager::class.java)).addSensor(sensor)
     }
 
@@ -56,9 +62,10 @@ class AndroidSensorCatalogTest {
 
     @Test
     fun sensorServiceFailureFallsBackToOther() {
-        val broken = object : android.content.ContextWrapper(context) {
-            override fun getSystemServiceName(serviceClass: Class<*>): String = throw IllegalStateException("no sensors")
-        }
+        val broken =
+            object : android.content.ContextWrapper(context) {
+                override fun getSystemServiceName(serviceClass: Class<*>): String = throw IllegalStateException("no sensors")
+            }
         val catalog = AndroidSensorCatalog(broken)
         assertEquals(SensorKind.OTHER, catalog.kindOf(3))
         assertEquals(SensorKind.GPS, catalog.kindOf(-10000))
@@ -66,13 +73,24 @@ class AndroidSensorCatalogTest {
 
     @Test
     fun sensorServiceFailureIsLoggedOnce() {
-        val broken = object : android.content.ContextWrapper(context) {
-            override fun getSystemServiceName(serviceClass: Class<*>): String = throw IllegalStateException("no sensors")
-        }
+        val broken =
+            object : android.content.ContextWrapper(context) {
+                override fun getSystemServiceName(serviceClass: Class<*>): String = throw IllegalStateException("no sensors")
+            }
         val catalog = AndroidSensorCatalog(broken)
         assertEquals(SensorKind.OTHER, catalog.kindOf(3))
         assertEquals(SensorKind.OTHER, catalog.kindOf(4))
         assertEquals(SensorKind.OTHER, catalog.kindOf(5))
         assertEquals(1, ShadowLog.getLogsForTag("AndroidSensorCatalog").size)
+    }
+
+    @Test
+    fun hiddenApiSignatureNamesExactlyTheReflectedMember() {
+        // The app exempts only this signature (N-26); it must match the member read by reflection.
+        val getHandle = Sensor::class.java.getMethod("getHandle")
+        assertEquals(Int::class.javaPrimitiveType, getHandle.returnType)
+        assertEquals(0, getHandle.parameterCount)
+        val signature = "L${getHandle.declaringClass.name.replace('.', '/')};->${getHandle.name}()I"
+        assertEquals(signature, AndroidSensorCatalog.GET_HANDLE_SIGNATURE)
     }
 }

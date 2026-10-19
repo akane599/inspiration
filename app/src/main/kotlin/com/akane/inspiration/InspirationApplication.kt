@@ -8,6 +8,7 @@ import android.util.Log
 import androidx.core.content.ContextCompat
 import com.akane.inspiration.capture.ChargingCaptureScheduler
 import com.akane.inspiration.capture.RuntimeCaptureReceiver
+import com.akane.inspiration.diagnostics.sensor.AndroidSensorCatalog
 import com.akane.inspiration.status.StatusNotificationController
 import kotlinx.coroutines.launch
 import org.lsposed.hiddenapibypass.HiddenApiBypass
@@ -18,9 +19,13 @@ class InspirationApplication : Application() {
 
     override fun attachBaseContext(base: Context) {
         super.attachBaseContext(base)
-        // minSdk 31 is always >= P, where the hidden-API restrictions start.
+        // minSdk 31 is always >= P, where the hidden-API restrictions start. Exempt only the one hidden
+        // member the app process reads; the privileged reads run in the Shizuku UserService (shell UID).
+        // Without the exemption the sensor catalog falls back to OTHER for every handle.
         try {
-            HiddenApiBypass.addHiddenApiExemptions("L")
+            if (!HiddenApiBypass.addHiddenApiExemptions(AndroidSensorCatalog.GET_HANDLE_SIGNATURE)) {
+                Log.w(TAG, "Hidden API exemption for Sensor.getHandle() was not applied")
+            }
         } catch (throwable: Throwable) {
             Log.w(TAG, "Unable to add hidden API exemptions", throwable)
         }
