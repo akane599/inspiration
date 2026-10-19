@@ -263,16 +263,17 @@ class DiagnosticRuleEngineTest {
         val report = engine.evaluate(inputOf(diff, metricsOf(screenOffMs = 2 * HOUR)))
 
         assertEquals(report.insights.sortedWith(insightOrder), report.insights)
-        // RED first: GPS leak (360 000 ms) before the vampires (9 mAh, 5 mAh); then the AMBER set.
+        // RED first, by rule priority: the vampires (9 mAh, 5 mAh) before the GPS leak, whose 360 000 ms is in
+        // another unit; then the AMBER set in the same rule priority.
         val kinds = report.insights.map { it::class }
         assertEquals(
             listOf(
-                SensorLeak::class,
                 NightVampire::class,
                 NightVampire::class,
                 SensorLeak::class,
                 ModemDrain::class,
                 AwakeViolation::class,
+                SensorLeak::class,
             ),
             kinds,
         )

@@ -4,17 +4,27 @@ import org.junit.Assert.assertEquals
 import org.junit.Test
 
 class InsightOrderTest {
-    private fun vampire(uid: Int, mah: Double, severity: Severity = Severity.RED, pkg: String? = "p$uid") =
-        NightVampire(severity, uid, pkg, mah, bgShare = 0.9, fgActivityMs = 0)
+    private fun vampire(
+        uid: Int,
+        mah: Double,
+        severity: Severity = Severity.RED,
+        pkg: String? = "p$uid",
+    ) = NightVampire(severity, uid, pkg, mah, bgShare = 0.9, fgActivityMs = 0)
 
-    private fun awake(ratio: Double, severity: Severity) =
-        AwakeViolation(severity, ratio, screenOffMs = 3_600_000, CulpritScope.SCREEN_OFF_ONLY, emptyList())
+    private fun awake(
+        ratio: Double,
+        severity: Severity,
+    ) = AwakeViolation(severity, ratio, screenOffMs = 3_600_000, CulpritScope.SCREEN_OFF_ONLY, emptyList())
 
     private fun modem(mah: Double) =
         ModemDrain(Severity.AMBER, mah, 10.0, signalAvailable = false, signalBinPct = emptyList(), scanningMs = null, radioActiveMs = null)
 
-    private fun leak(uid: Int, ms: Long, sensor: SensorKind = SensorKind.GPS, severity: Severity = Severity.RED) =
-        SensorLeak(severity, uid, "p$uid", sensor, ms)
+    private fun leak(
+        uid: Int,
+        ms: Long,
+        sensor: SensorKind = SensorKind.GPS,
+        severity: Severity = Severity.RED,
+    ) = SensorLeak(severity, uid, "p$uid", sensor, ms)
 
     @Test
     fun ruleAndSubjectUidAreFixedPerType() {
@@ -28,15 +38,37 @@ class InsightOrderTest {
     }
 
     @Test
-    fun severityDescendingThenMagnitudeDescending() {
+    fun severityDescendingThenRulePriorityThenMagnitudeDescending() {
         val amberBig = vampire(10_001, 99.0, Severity.AMBER)
         val redSmall = vampire(10_002, 2.0, Severity.RED)
         val redBig = vampire(10_003, 5.0, Severity.RED)
         val redAwake = awake(0.30, Severity.RED)
         val redLeak = leak(10_004, 600_000)
         val sorted = listOf(amberBig, redSmall, redAwake, redBig, redLeak).sortedWith(insightOrder)
-        // Red first; among reds the larger evidence number wins (leak ms > vampire mAh > awake ratio).
-        assertEquals(listOf(redLeak, redBig, redSmall, redAwake, amberBig), sorted)
+        // Red first; among reds the rule priority decides, and magnitude only ranks within one rule.
+        assertEquals(listOf(redBig, redSmall, redAwake, redLeak, amberBig), sorted)
+    }
+
+    @Test
+    fun aLongGpsLeakDoesNotOutrankOtherRulesByItsUnit() {
+        // A 5-minute RED GPS leak is 300 000 ms; that number must not beat mAh or a ratio.
+        val gps = leak(10_001, 300_000)
+        val vampire = vampire(10_002, 3.0)
+        val awake = awake(0.90, Severity.RED)
+        assertEquals(RuleId.NIGHT_VAMPIRE, listOf(gps, awake, vampire).sortedWith(insightOrder).first().rule)
+        assertEquals(listOf(awake, gps), listOf(gps, awake).sortedWith(insightOrder))
+    }
+
+    @Test
+    fun amberRulesFollowTheFixedPriorityWhateverTheirMagnitudes() {
+        val motion = leak(10_001, 99_000_000, SensorKind.ACCELEROMETER, Severity.AMBER)
+        val awake = awake(0.19, Severity.AMBER)
+        val modem = modem(5.0)
+        val vampire = vampire(10_002, 2.0, Severity.AMBER)
+        assertEquals(
+            listOf(vampire, modem, awake, motion),
+            listOf(motion, awake, modem, vampire).sortedWith(insightOrder),
+        )
     }
 
     @Test
@@ -56,9 +88,10 @@ class InsightOrderTest {
     }
 
     @Test
-    fun nullSubjectUidSortsAfterUidWhenEvidenceTies() {
-        val awakeTie = awake(5.0, Severity.RED)
-        val vampireTie = vampire(10_001, 5.0)
-        assertEquals(listOf(vampireTie, awakeTie), listOf(awakeTie, vampireTie).sortedWith(insightOrder))
+    fun equalVampireEvidenceFallsBackToUidThenPackage() {
+        val high = vampire(10_002, 5.0, pkg = "a")
+        val lowB = vampire(10_001, 5.0, pkg = "b")
+        val lowA = vampire(10_001, 5.0, pkg = "a")
+        assertEquals(listOf(lowA, lowB, high), listOf(high, lowB, lowA).sortedWith(insightOrder))
     }
 }
