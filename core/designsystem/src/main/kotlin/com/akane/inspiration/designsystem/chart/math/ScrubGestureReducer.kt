@@ -10,26 +10,73 @@ sealed interface ScrubGestureState {
     data object Idle : ScrubGestureState
 
     /** Pointer is down, slop not yet crossed: tap, brush, scroll hand-off and long press are all still possible. */
-    data class Pressed(val downX: Float, val downY: Float) : ScrubGestureState
+    data class Pressed(
+        val downX: Float,
+        val downY: Float,
+    ) : ScrubGestureState
 
-    data class Scrubbing(val tMs: Long) : ScrubGestureState
+    /**
+     * Pointer went down within the hit radius of a selection edge, slop not yet crossed. It becomes a handle
+     * drag only on horizontal-dominant movement past the slop; vertical movement releases to the parent and
+     * an Up is a tap, exactly as in [Pressed].
+     */
+    data class PressedOnHandle(
+        val edge: HandleEdge,
+        val otherEdgeMs: Long,
+        val edgeMs: Long,
+        val downX: Float,
+        val downY: Float,
+    ) : ScrubGestureState
 
-    data class Brushing(val anchorMs: Long, val currentMs: Long) : ScrubGestureState
+    data class Scrubbing(
+        val tMs: Long,
+    ) : ScrubGestureState
 
-    data class DraggingHandle(val edge: HandleEdge, val otherEdgeMs: Long, val currentMs: Long) : ScrubGestureState
+    data class Brushing(
+        val anchorMs: Long,
+        val currentMs: Long,
+    ) : ScrubGestureState
+
+    /**
+     * @property grabOffsetMs edge time minus the unclamped time under the Down point, so the edge moves by
+     *   the finger's delta instead of jumping to the finger's absolute position.
+     */
+    data class DraggingHandle(
+        val edge: HandleEdge,
+        val otherEdgeMs: Long,
+        val currentMs: Long,
+        val grabOffsetMs: Long,
+    ) : ScrubGestureState
 }
 
 /** Pointer events; x and y are in px within the plot. */
 sealed interface ScrubGestureEvent {
-    data class Down(val x: Float, val y: Float) : ScrubGestureEvent
-    data class LongPress(val x: Float) : ScrubGestureEvent
-    data class Move(val x: Float, val y: Float) : ScrubGestureEvent
-    data class Up(val x: Float) : ScrubGestureEvent
+    data class Down(
+        val x: Float,
+        val y: Float,
+    ) : ScrubGestureEvent
+
+    data class LongPress(
+        val x: Float,
+    ) : ScrubGestureEvent
+
+    data class Move(
+        val x: Float,
+        val y: Float,
+    ) : ScrubGestureEvent
+
+    data class Up(
+        val x: Float,
+    ) : ScrubGestureEvent
+
     data object Cancel : ScrubGestureEvent
 }
 
 sealed interface SelectionCommit {
-    data class Set(val range: TimeRange) : SelectionCommit
+    data class Set(
+        val range: TimeRange,
+    ) : SelectionCommit
+
     data object Clear : SelectionCommit
 }
 
@@ -50,120 +97,204 @@ data class ScrubGestureResult(
 /**
  * Pure gesture state machine for the scrubbing chart: no Compose types, so every transition is unit-tested.
  *
- * - Down within [handleHitPx] of a selection edge starts a handle drag; otherwise it is Pressed.
- * - From Pressed, crossing [slopPx] on either axis decides by the dominant axis: horizontal starts a brush,
+ * - Down within [handleHitPx] (a radius) of a selection edge is PressedOnHandle; otherwise it is Pressed.
+ *   Neither consumes the Down.
+ * - From either pressed state, crossing [slopPx] on either axis decides by the dominant axis: horizontal
+ *   starts a brush (or, from PressedOnHandle, a handle drag that moves the edge by the finger's delta),
  *   vertical releases to the parent. LongPress starts scrubbing.
  * - Up after a brush commits the range, unless it is shorter than [minSelectionMs] (a no-op, not a clear).
- *   Up in Pressed is a tap and clears an existing selection.
+ *   Up in either pressed state is a tap and clears an existing selection.
  */
-class ScrubGestureReducer(val minSelectionMs: Long, val slopPx: Float, val handleHitPx: Float) {
-
+class ScrubGestureReducer(
+    val minSelectionMs: Long,
+    val slopPx: Float,
+    val handleHitPx: Float,
+) {
     fun reduce(
         state: ScrubGestureState,
         event: ScrubGestureEvent,
         scale: TimeScale,
         selection: TimeRange?,
-    ): ScrubGestureResult = when (event) {
-        ScrubGestureEvent.Cancel -> ScrubGestureResult(ScrubGestureState.Idle)
-        is ScrubGestureEvent.Down -> down(event, scale, selection)
-        is ScrubGestureEvent.LongPress -> longPress(state, event, scale)
-        is ScrubGestureEvent.Move -> move(state, event, scale)
-        is ScrubGestureEvent.Up -> up(
-            when (state) {
-                is ScrubGestureState.Brushing -> state.copy(currentMs = timeAt(event.x, scale))
-                is ScrubGestureState.DraggingHandle -> state.copy(currentMs = timeAt(event.x, scale))
-                else -> state
-            },
-            scale,
-            selection,
-        )
-    }
+    ): ScrubGestureResult =
+        when (event) {
+            ScrubGestureEvent.Cancel -> {
+                ScrubGestureResult(ScrubGestureState.Idle)
+            }
 
-    private fun down(event: ScrubGestureEvent.Down, scale: TimeScale, selection: TimeRange?): ScrubGestureResult {
-        val handle = selection?.let { nearestHandle(it, event.x, scale) }
-        return if (handle != null) {
-            ScrubGestureResult(handle, consume = true)
-        } else {
-            ScrubGestureResult(ScrubGestureState.Pressed(event.x, event.y))
+            is ScrubGestureEvent.Down -> {
+                down(event, scale, selection)
+            }
+
+            is ScrubGestureEvent.LongPress -> {
+                longPress(state, event, scale)
+            }
+
+            is ScrubGestureEvent.Move -> {
+                move(state, event, scale)
+            }
+
+            is ScrubGestureEvent.Up -> {
+                up(
+                    when (state) {
+                        is ScrubGestureState.Brushing -> state.copy(currentMs = timeAt(event.x, scale))
+                        is ScrubGestureState.DraggingHandle -> state.copy(currentMs = handleTimeAt(state, event.x, scale))
+                        else -> state
+                    },
+                    scale,
+                    selection,
+                )
+            }
         }
-    }
 
-    private fun nearestHandle(selection: TimeRange, x: Float, scale: TimeScale): ScrubGestureState.DraggingHandle? {
-        val startDistance = abs(x - scale.toX(selection.startMs))
-        val endDistance = abs(x - scale.toX(selection.endMs))
+    private fun down(
+        event: ScrubGestureEvent.Down,
+        scale: TimeScale,
+        selection: TimeRange?,
+    ): ScrubGestureResult =
+        ScrubGestureResult(
+            selection?.let { nearestHandle(it, event, scale) } ?: ScrubGestureState.Pressed(event.x, event.y),
+        )
+
+    private fun nearestHandle(
+        selection: TimeRange,
+        event: ScrubGestureEvent.Down,
+        scale: TimeScale,
+    ): ScrubGestureState.PressedOnHandle? {
+        val startDistance = abs(event.x - scale.toX(selection.startMs))
+        val endDistance = abs(event.x - scale.toX(selection.endMs))
         if (minOf(startDistance, endDistance) > handleHitPx) return null
         return if (startDistance <= endDistance) {
-            ScrubGestureState.DraggingHandle(HandleEdge.START, selection.endMs, selection.startMs)
+            ScrubGestureState.PressedOnHandle(HandleEdge.START, selection.endMs, selection.startMs, event.x, event.y)
         } else {
-            ScrubGestureState.DraggingHandle(HandleEdge.END, selection.startMs, selection.endMs)
+            ScrubGestureState.PressedOnHandle(HandleEdge.END, selection.startMs, selection.endMs, event.x, event.y)
         }
     }
 
-    private fun longPress(state: ScrubGestureState, event: ScrubGestureEvent.LongPress, scale: TimeScale): ScrubGestureResult {
-        if (state != ScrubGestureState.Idle && state !is ScrubGestureState.Pressed) return ScrubGestureResult(state)
+    private fun longPress(
+        state: ScrubGestureState,
+        event: ScrubGestureEvent.LongPress,
+        scale: TimeScale,
+    ): ScrubGestureResult {
+        val pressed =
+            state == ScrubGestureState.Idle ||
+                state is ScrubGestureState.Pressed ||
+                state is ScrubGestureState.PressedOnHandle
+        if (!pressed) return ScrubGestureResult(state)
         val t = timeAt(event.x, scale)
         return ScrubGestureResult(ScrubGestureState.Scrubbing(t), cursorMs = t, consume = true)
     }
 
-    private fun move(state: ScrubGestureState, event: ScrubGestureEvent.Move, scale: TimeScale): ScrubGestureResult =
+    private fun move(
+        state: ScrubGestureState,
+        event: ScrubGestureEvent.Move,
+        scale: TimeScale,
+    ): ScrubGestureResult =
         when (state) {
-            is ScrubGestureState.Pressed -> movePressed(state, event, scale)
+            is ScrubGestureState.Pressed -> {
+                movePressed(state, state.downX, state.downY, event) {
+                    ScrubGestureState.Brushing(timeAt(state.downX, scale), timeAt(event.x, scale))
+                }
+            }
+
+            is ScrubGestureState.PressedOnHandle -> {
+                movePressed(state, state.downX, state.downY, event) {
+                    val drag =
+                        ScrubGestureState.DraggingHandle(
+                            edge = state.edge,
+                            otherEdgeMs = state.otherEdgeMs,
+                            currentMs = state.edgeMs,
+                            grabOffsetMs = state.edgeMs - scale.toTime(state.downX),
+                        )
+                    drag.copy(currentMs = handleTimeAt(drag, event.x, scale))
+                }
+            }
+
             is ScrubGestureState.Scrubbing -> {
                 val t = timeAt(event.x, scale)
                 ScrubGestureResult(ScrubGestureState.Scrubbing(t), cursorMs = t, consume = true)
             }
-            is ScrubGestureState.Brushing ->
+
+            is ScrubGestureState.Brushing -> {
                 ScrubGestureResult(state.copy(currentMs = timeAt(event.x, scale)), consume = true)
-            is ScrubGestureState.DraggingHandle ->
-                ScrubGestureResult(state.copy(currentMs = timeAt(event.x, scale)), consume = true)
-            ScrubGestureState.Idle -> ScrubGestureResult(state)
+            }
+
+            is ScrubGestureState.DraggingHandle -> {
+                ScrubGestureResult(state.copy(currentMs = handleTimeAt(state, event.x, scale)), consume = true)
+            }
+
+            ScrubGestureState.Idle -> {
+                ScrubGestureResult(state)
+            }
         }
 
-    private fun movePressed(
-        state: ScrubGestureState.Pressed,
+    /** Slop decision shared by both pressed states: stay, release on vertical, or enter [horizontal]. */
+    private inline fun movePressed(
+        pressed: ScrubGestureState,
+        downX: Float,
+        downY: Float,
         event: ScrubGestureEvent.Move,
-        scale: TimeScale,
+        horizontal: () -> ScrubGestureState,
     ): ScrubGestureResult {
-        val dx = abs(event.x - state.downX)
-        val dy = abs(event.y - state.downY)
+        val dx = abs(event.x - downX)
+        val dy = abs(event.y - downY)
         return when {
-            dx <= slopPx && dy <= slopPx -> ScrubGestureResult(state)
+            dx <= slopPx && dy <= slopPx -> ScrubGestureResult(pressed)
             dy > dx -> ScrubGestureResult(ScrubGestureState.Idle, release = true)
-            else -> ScrubGestureResult(
-                ScrubGestureState.Brushing(timeAt(state.downX, scale), timeAt(event.x, scale)),
-                consume = true,
-            )
+            else -> ScrubGestureResult(horizontal(), consume = true)
         }
     }
 
-    private fun up(state: ScrubGestureState, scale: TimeScale, selection: TimeRange?): ScrubGestureResult =
+    private fun up(
+        state: ScrubGestureState,
+        scale: TimeScale,
+        selection: TimeRange?,
+    ): ScrubGestureResult =
         when (state) {
-            ScrubGestureState.Idle -> ScrubGestureResult(state)
-            is ScrubGestureState.Pressed -> ScrubGestureResult(
-                ScrubGestureState.Idle,
-                commit = if (selection != null) SelectionCommit.Clear else null,
-            )
-            is ScrubGestureState.Scrubbing -> ScrubGestureResult(ScrubGestureState.Idle, consume = true)
+            ScrubGestureState.Idle -> {
+                ScrubGestureResult(state)
+            }
+
+            is ScrubGestureState.Pressed, is ScrubGestureState.PressedOnHandle -> {
+                ScrubGestureResult(
+                    ScrubGestureState.Idle,
+                    commit = if (selection != null) SelectionCommit.Clear else null,
+                )
+            }
+
+            is ScrubGestureState.Scrubbing -> {
+                ScrubGestureResult(ScrubGestureState.Idle, consume = true)
+            }
+
             is ScrubGestureState.Brushing -> {
                 val long = abs(state.currentMs - state.anchorMs) >= minSelectionMs
                 val range = if (long) normalizeSelection(state.anchorMs, state.currentMs, scale.window, minSelectionMs) else null
                 ScrubGestureResult(ScrubGestureState.Idle, commit = range?.let { SelectionCommit.Set(it) }, consume = true)
             }
+
             is ScrubGestureState.DraggingHandle -> {
                 // A too-short result widens away from the fixed edge, so only the dragged edge moves.
                 val other = state.otherEdgeMs
-                val dragged = if (abs(state.currentMs - other) >= minSelectionMs) {
-                    state.currentMs
-                } else if (state.currentMs >= other) {
-                    other + minSelectionMs
-                } else {
-                    other - minSelectionMs
-                }
+                val dragged =
+                    if (abs(state.currentMs - other) >= minSelectionMs) {
+                        state.currentMs
+                    } else if (state.currentMs >= other) {
+                        other + minSelectionMs
+                    } else {
+                        other - minSelectionMs
+                    }
                 val range = normalizeSelection(other, dragged, scale.window, minSelectionMs)
                 ScrubGestureResult(ScrubGestureState.Idle, commit = range?.let { SelectionCommit.Set(it) }, consume = true)
             }
         }
 
-    private fun timeAt(x: Float, scale: TimeScale): Long =
-        scale.toTime(x).coerceIn(scale.window.startMs, scale.window.endMs)
+    private fun timeAt(
+        x: Float,
+        scale: TimeScale,
+    ): Long = scale.toTime(x).coerceIn(scale.window.startMs, scale.window.endMs)
+
+    private fun handleTimeAt(
+        state: ScrubGestureState.DraggingHandle,
+        x: Float,
+        scale: TimeScale,
+    ): Long = (scale.toTime(x) + state.grabOffsetMs).coerceIn(scale.window.startMs, scale.window.endMs)
 }

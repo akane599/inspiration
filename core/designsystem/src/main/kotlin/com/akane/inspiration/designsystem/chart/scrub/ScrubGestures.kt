@@ -18,7 +18,10 @@ import com.akane.inspiration.designsystem.chart.model.TimeRange
 import kotlinx.coroutines.withTimeoutOrNull
 
 /** Horizontal room the value-axis labels take either side of the time axis. */
-internal class Gutters(val leftPx: Float, val rightPx: Float)
+internal class Gutters(
+    val leftPx: Float,
+    val rightPx: Float,
+)
 
 /** Everything the gesture loop reads at event time. All are `rememberUpdatedState` values. */
 internal class ScrubGestureInputs(
@@ -39,62 +42,69 @@ internal fun Modifier.scrubGestures(
     window: TimeRange,
     state: ScrubInteractionState,
     inputs: ScrubGestureInputs,
-): Modifier = pointerInput(window) {
-    val handleHitPx = ScrubChartMetrics.HandleHit.toPx()
-    val slopPx = viewConfiguration.touchSlop
-    val longPressMs = viewConfiguration.longPressTimeoutMillis
-    awaitEachGesture {
-        val down = awaitFirstDown(requireUnconsumed = false)
-        val gutters = inputs.gutters.value
-        val plotWidth = (size.width - gutters.leftPx - gutters.rightPx).coerceAtLeast(1f)
-        val driver = ScrubGestureDriver(
-            reducer = ScrubGestureReducer(inputs.minSelectionMs.value, slopPx, handleHitPx),
-            scale = TimeScale(window, plotWidth),
-            state = state,
-            inputs = inputs,
-        )
-        try {
-            val originX = gutters.leftPx
-            val first = driver.dispatch(ScrubGestureEvent.Down(down.position.x - originX, down.position.y))
-            if (first.consume) down.consume()
-            var lastX = down.position.x - originX
-            var lastUptime = down.uptimeMillis
-            while (true) {
-                val pressed = driver.gestureState is ScrubGestureState.Pressed
-                val event = if (pressed) {
-                    val remaining = (longPressMs - (lastUptime - down.uptimeMillis)).coerceAtLeast(0L)
-                    withTimeoutOrNull(remaining) { awaitPointerEvent() }
-                } else {
-                    awaitPointerEvent()
+): Modifier =
+    pointerInput(window) {
+        // HandleHit is the 48 dp target's diameter; the reducer takes a radius.
+        val handleHitPx = ScrubChartMetrics.HandleHit.toPx() / 2f
+        val slopPx = viewConfiguration.touchSlop
+        val longPressMs = viewConfiguration.longPressTimeoutMillis
+        awaitEachGesture {
+            val down = awaitFirstDown(requireUnconsumed = false)
+            val gutters = inputs.gutters.value
+            val plotWidth = (size.width - gutters.leftPx - gutters.rightPx).coerceAtLeast(1f)
+            val driver =
+                ScrubGestureDriver(
+                    reducer = ScrubGestureReducer(inputs.minSelectionMs.value, slopPx, handleHitPx),
+                    scale = TimeScale(window, plotWidth),
+                    state = state,
+                    inputs = inputs,
+                )
+            try {
+                val originX = gutters.leftPx
+                val first = driver.dispatch(ScrubGestureEvent.Down(down.position.x - originX, down.position.y))
+                if (first.consume) down.consume()
+                var lastX = down.position.x - originX
+                var lastUptime = down.uptimeMillis
+                while (true) {
+                    val pressed =
+                        driver.gestureState is ScrubGestureState.Pressed ||
+                            driver.gestureState is ScrubGestureState.PressedOnHandle
+                    val event =
+                        if (pressed) {
+                            val remaining = (longPressMs - (lastUptime - down.uptimeMillis)).coerceAtLeast(0L)
+                            withTimeoutOrNull(remaining) { awaitPointerEvent() }
+                        } else {
+                            awaitPointerEvent()
+                        }
+                    if (event == null) {
+                        driver.dispatch(ScrubGestureEvent.LongPress(lastX))
+                        continue
+                    }
+                    val change = event.changes.firstOrNull { it.id == down.id } ?: break
+                    lastX = change.position.x - originX
+                    lastUptime = change.uptimeMillis
+                    if (change.isConsumed) {
+                        driver.dispatch(ScrubGestureEvent.Cancel)
+                        break
+                    }
+                    val reducerEvent =
+                        if (change.pressed) {
+                            ScrubGestureEvent.Move(lastX, change.position.y)
+                        } else {
+                            ScrubGestureEvent.Up(lastX)
+                        }
+                    val result = driver.dispatch(reducerEvent)
+                    if (result.release) break
+                    if (result.consume) {
+                        event.changes.forEach { if (it.positionChanged() || !it.pressed) it.consume() }
+                    }
+                    if (!change.pressed) break
                 }
-                if (event == null) {
-                    driver.dispatch(ScrubGestureEvent.LongPress(lastX))
-                    continue
-                }
-                val change = event.changes.firstOrNull { it.id == down.id } ?: break
-                lastX = change.position.x - originX
-                lastUptime = change.uptimeMillis
-                if (change.isConsumed) {
-                    driver.dispatch(ScrubGestureEvent.Cancel)
-                    break
-                }
-                val reducerEvent = if (change.pressed) {
-                    ScrubGestureEvent.Move(lastX, change.position.y)
-                } else {
-                    ScrubGestureEvent.Up(lastX)
-                }
-                val result = driver.dispatch(reducerEvent)
-                if (result.release) break
-                if (result.consume) {
-                    event.changes.forEach { if (it.positionChanged() || !it.pressed) it.consume() }
-                }
-                if (!change.pressed) break
+            } finally {
+                driver.finish()
             }
-        } finally {
-            driver.finish()
         }
     }
-}
 
 /** Runs the reducer for one gesture and mirrors its result into the draw-phase state and callbacks. */
 private class ScrubGestureDriver(
@@ -147,13 +157,19 @@ private class ScrubGestureDriver(
         }
     }
 
-    private fun showPreview(a: Long, b: Long) {
+    private fun showPreview(
+        a: Long,
+        b: Long,
+    ) {
         state.setPreview(a, b)
         // The live preview is drawn at full dim, so a commit arrives without a second fade.
         state.dimProgress.floatValue = 1f
     }
 
-    private fun publishCursor(result: ScrubGestureResult, wasScrubbing: Boolean) {
+    private fun publishCursor(
+        result: ScrubGestureResult,
+        wasScrubbing: Boolean,
+    ) {
         val cursor = result.cursorMs
         if (cursor != null) {
             if (!wasScrubbing) inputs.haptic.value.performHapticFeedback(HapticFeedbackType.LongPress)
@@ -171,13 +187,19 @@ private class ScrubGestureDriver(
 
     private fun publishCommit(commit: SelectionCommit?) {
         when (commit) {
-            null -> Unit
+            null -> {
+                Unit
+            }
+
             is SelectionCommit.Set -> {
                 committed = true
                 state.commitCount.intValue += 1
                 inputs.onSelectionChange.value(commit.range)
             }
-            SelectionCommit.Clear -> inputs.onSelectionChange.value(null)
+
+            SelectionCommit.Clear -> {
+                inputs.onSelectionChange.value(null)
+            }
         }
     }
 }

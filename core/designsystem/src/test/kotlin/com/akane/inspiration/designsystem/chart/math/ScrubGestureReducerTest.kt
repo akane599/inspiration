@@ -19,11 +19,17 @@ class ScrubGestureReducerTest {
     private val reducer = ScrubGestureReducer(minSelectionMs = 5_000L, slopPx = 10f, handleHitPx = 48f)
     private val selection = TimeRange.of(20_000L, 60_000L) // x = 200..600
 
-    private fun step(state: ScrubGestureState, event: ScrubGestureEvent, sel: TimeRange? = null) =
-        reducer.reduce(state, event, scale, sel)
+    private fun step(
+        state: ScrubGestureState,
+        event: ScrubGestureEvent,
+        sel: TimeRange? = null,
+    ) = reducer.reduce(state, event, scale, sel)
 
     /** Runs the events in order, returning the final result. */
-    private fun run(sel: TimeRange?, vararg events: ScrubGestureEvent): ScrubGestureResult {
+    private fun run(
+        sel: TimeRange?,
+        vararg events: ScrubGestureEvent,
+    ): ScrubGestureResult {
         var result = ScrubGestureResult(ScrubGestureState.Idle)
         for (e in events) result = step(result.state, e, sel)
         return result
@@ -146,26 +152,73 @@ class ScrubGestureReducerTest {
     }
 
     @Test
-    fun downNearStartEdgeStartsHandleDragAndUpCommitsAdjustedRange() {
+    fun downNearStartEdgeWaitsForSlopThenDragsByDeltaAndUpCommitsAdjustedRange() {
         val down = step(ScrubGestureState.Idle, Down(205f, 50f), selection)
-        assertEquals(ScrubGestureState.DraggingHandle(HandleEdge.START, 60_000L, 20_000L), down.state)
-        assertTrue(down.consume)
-        val moved = step(down.state, Move(100f, 55f), selection)
-        assertEquals(ScrubGestureState.DraggingHandle(HandleEdge.START, 60_000L, 10_000L), moved.state)
+        assertEquals(ScrubGestureState.PressedOnHandle(HandleEdge.START, 60_000L, 20_000L, 205f, 50f), down.state)
+        assertFalse(down.consume)
+        val wobble = step(down.state, Move(210f, 53f), selection)
+        assertEquals(down.state, wobble.state)
+        assertFalse(wobble.consume)
+        // Dragged 105 px left of the Down point: the edge moves by 10 500 ms, not to the finger's absolute time.
+        val moved = step(wobble.state, Move(100f, 55f), selection)
+        assertEquals(
+            ScrubGestureState.DraggingHandle(HandleEdge.START, 60_000L, 9_500L, grabOffsetMs = -500L),
+            moved.state,
+        )
         assertTrue(moved.consume)
         val up = step(moved.state, Up(100f), selection)
-        assertEquals(SelectionCommit.Set(TimeRange.of(10_000L, 60_000L)), up.commit)
+        assertEquals(SelectionCommit.Set(TimeRange.of(9_500L, 60_000L)), up.commit)
         assertEquals(ScrubGestureState.Idle, up.state)
     }
 
     @Test
     fun downNearEndEdgeAdjustsEndAndCrossingSwapsEnds() {
         val down = step(ScrubGestureState.Idle, Down(640f, 50f), selection) // 40 px from 600
-        assertEquals(ScrubGestureState.DraggingHandle(HandleEdge.END, 20_000L, 60_000L), down.state)
+        assertEquals(ScrubGestureState.PressedOnHandle(HandleEdge.END, 20_000L, 60_000L, 640f, 50f), down.state)
         val widened = run(selection, Down(595f, 50f), Move(800f, 50f), Up(800f))
-        assertEquals(SelectionCommit.Set(TimeRange.of(20_000L, 80_000L)), widened.commit)
+        assertEquals(SelectionCommit.Set(TimeRange.of(20_000L, 80_500L)), widened.commit)
         val crossed = run(selection, Down(195f, 50f), Move(800f, 50f), Up(800f))
-        assertEquals(SelectionCommit.Set(TimeRange.of(60_000L, 80_000L)), crossed.commit)
+        assertEquals(SelectionCommit.Set(TimeRange.of(60_000L, 80_500L)), crossed.commit)
+    }
+
+    @Test
+    fun tapNearHandleDoesNotMoveSelection() {
+        val r = run(selection, Down(240f, 50f), Up(240f))
+        assertFalse(r.commit is SelectionCommit.Set)
+        // Normal tap semantics: a tap clears the selection, exactly as a tap away from the handles does.
+        assertEquals(SelectionCommit.Clear, r.commit)
+        assertEquals(ScrubGestureState.Idle, r.state)
+        // A wobble inside the slop is still a tap.
+        assertEquals(SelectionCommit.Clear, run(selection, Down(205f, 50f), Move(212f, 56f), Up(212f)).commit)
+    }
+
+    @Test
+    fun verticalMoveFromHandleReleasesToParent() {
+        val down = step(ScrubGestureState.Idle, Down(205f, 50f), selection)
+        val r = step(down.state, Move(208f, 120f), selection)
+        assertTrue(r.release)
+        assertFalse(r.consume)
+        assertEquals(ScrubGestureState.Idle, r.state)
+        assertNull(step(r.state, Up(300f), selection).commit)
+    }
+
+    @Test
+    fun handleDragFollowsDeltaAndClampsToWindow() {
+        val r = run(selection, Down(610f, 50f), Move(640f, 50f), Move(700f, 50f))
+        // 90 px right of the Down point = +9 000 ms on the 60 000 ms edge.
+        assertEquals(
+            ScrubGestureState.DraggingHandle(HandleEdge.END, 20_000L, 69_000L, grabOffsetMs = -1_000L),
+            r.state,
+        )
+        val past = run(selection, Down(610f, 50f), Move(700f, 50f), Up(5_000f))
+        assertEquals(SelectionCommit.Set(TimeRange.of(20_000L, 100_000L)), past.commit)
+    }
+
+    @Test
+    fun longPressOnHandleStillScrubs() {
+        val r = run(selection, Down(205f, 50f), LongPress(205f))
+        assertEquals(ScrubGestureState.Scrubbing(20_500L), r.state)
+        assertTrue(r.consume)
     }
 
     @Test
@@ -185,12 +238,14 @@ class ScrubGestureReducerTest {
 
     @Test
     fun cancelResetsFromEveryStateWithoutCommit() {
-        val states = listOf(
-            ScrubGestureState.Pressed(1f, 2f),
-            ScrubGestureState.Scrubbing(10L),
-            ScrubGestureState.Brushing(10L, 20L),
-            ScrubGestureState.DraggingHandle(HandleEdge.END, 10L, 20L),
-        )
+        val states =
+            listOf(
+                ScrubGestureState.Pressed(1f, 2f),
+                ScrubGestureState.PressedOnHandle(HandleEdge.START, 60_000L, 20_000L, 200f, 50f),
+                ScrubGestureState.Scrubbing(10L),
+                ScrubGestureState.Brushing(10L, 20L),
+                ScrubGestureState.DraggingHandle(HandleEdge.END, 10L, 20L, grabOffsetMs = 0L),
+            )
         for (s in states) {
             val r = step(s, Cancel, selection)
             assertEquals(ScrubGestureState.Idle, r.state)
