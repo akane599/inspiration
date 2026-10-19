@@ -70,6 +70,9 @@ enum class ToolkitRefusal {
     INVALID_ARGUMENT,
     NOT_INSTALLED,
 
+    /** Package actions need Inspiration to run in Android user 0 (not a work profile or secondary user). */
+    UNSUPPORTED_USER,
+
     /** Hard-deny rules: system, persistent, role holders and so on (or the service could not decide). */
     PROTECTED_APP,
     CALLER,

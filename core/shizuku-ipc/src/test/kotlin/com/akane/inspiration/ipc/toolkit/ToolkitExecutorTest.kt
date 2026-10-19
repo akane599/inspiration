@@ -443,6 +443,52 @@ class ToolkitExecutorTest {
         assertEquals(ToolkitCode.OK, result.code)
     }
 
+    // --- F-05: only user 0 ---------------------------------------------------------------------
+
+    @Test
+    fun `outside user 0 every package read and write is refused without running a command`() {
+        appModes["RUN_ANY_IN_BACKGROUND"] = "ignore"
+        val executor =
+            ToolkitExecutor(
+                runner = runner,
+                inspector = inspector,
+                dexopt = BgDexoptController(runner, { true }, { 0L }, { }),
+                ownPackage = OWN,
+                userId = 10,
+                sleepMs = { },
+            ).also { runner.handler = ::device }
+        val refused = ToolkitResult.refused(ToolkitCode.UNSUPPORTED_USER)
+
+        assertEquals(refused, executor.setAppOp(APP, AppOp.RUN_ANY_IN_BACKGROUND.code, AppOpMode.ALLOW.code))
+        assertEquals(refused, executor.getAppOps(APP))
+        assertEquals(refused, executor.setStandbyBucket(APP, StandbyBucket.RARE.code))
+        assertEquals(refused, executor.getStandbyBucket(APP))
+        assertEquals(refused, executor.forceStop(APP))
+
+        assertTrue("no command may run: ${runner.calls}", runner.calls.isEmpty())
+        assertEquals("ignore", appModes["RUN_ANY_IN_BACKGROUND"])
+        assertEquals(0, inspector.protectedQueries)
+    }
+
+    @Test
+    fun `outside user 0 the global doze profile still applies`() {
+        val device = FakeDozeDevice()
+        runner.handler = device::handle
+        val executor =
+            ToolkitExecutor(runner, inspector, BgDexoptController(runner, { true }, { 0L }, { }), OWN, userId = 10) { }
+
+        val result = executor.applyDozeProfile(DozeProfile.BALANCED.code, null)
+
+        assertEquals(ToolkitResult.done(before = null, after = DozeProfile.BALANCED.constants), result)
+    }
+
+    @Test
+    fun `the toolkit user comes from the app uid and an unknown uid is not user 0`() {
+        assertEquals(0, toolkitUserId(10_123))
+        assertEquals(10, toolkitUserId(1_010_123))
+        assertEquals(-1, toolkitUserId(null))
+    }
+
     // --- Doze -------------------------------------------------------------------------------
 
     private fun dozeExecutor(device: FakeDozeDevice): ToolkitExecutor {

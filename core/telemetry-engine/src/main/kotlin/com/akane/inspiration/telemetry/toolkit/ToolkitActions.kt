@@ -1623,6 +1623,8 @@ class ToolkitActions internal constructor(
 
             ToolkitCode.NOT_INSTALLED -> ToolkitRefusal.NOT_INSTALLED
 
+            ToolkitCode.UNSUPPORTED_USER -> ToolkitRefusal.UNSUPPORTED_USER
+
             ToolkitCode.DENY_APP_ID,
             ToolkitCode.DENY_PERSISTENT,
             ToolkitCode.DENY_SYSTEM,

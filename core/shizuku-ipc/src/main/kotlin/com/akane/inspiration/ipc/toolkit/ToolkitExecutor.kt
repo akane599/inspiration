@@ -15,6 +15,15 @@ private const val USER = "0"
 private const val SHIZUKU_PACKAGE = "moe.shizuku.privileged.api"
 private const val FIRST_APPLICATION_UID = 10_000
 
+private const val PER_USER_UID_RANGE = 100_000
+private const val UNKNOWN_USER = -1
+
+/**
+ * The Android user of the app's [appUid] (UID / 100 000). An unresolvable UID is [UNKNOWN_USER], which is not
+ * user 0, so the toolkit refuses package actions (fail closed).
+ */
+internal fun toolkitUserId(appUid: Int?): Int = appUid?.let { it / PER_USER_UID_RANGE } ?: UNKNOWN_USER
+
 // ApplicationInfo flag values (stable; FLAG_PERSISTENT/FLAG_UPDATED_SYSTEM_APP are not all public API).
 private const val FLAG_SYSTEM = 0x1
 private const val FLAG_PERSISTENT = 0x8
@@ -23,7 +32,8 @@ private const val FLAG_UPDATED_SYSTEM_APP = 0x80
 /**
  * Typed write surface. Callers have already passed the UID check (the service does that first, on
  * the binder thread). Every entry point then takes one write mutex and validates in this order:
- * package regex, user-0 install check, hard-deny rules; any failure to decide refuses.
+ * the service runs for user 0, package regex, user-0 install check, hard-deny rules; any failure to
+ * decide refuses. Global doze actions do not depend on the user and stay available.
  *
  * Every argv is fixed with an absolute executable and pins `--user 0`. `cmd settings` accepts the
  * option for the global namespace too (SettingsService parses `--user` before the namespace; the
@@ -37,6 +47,11 @@ internal class ToolkitExecutor(
     private val inspector: PackageInspector,
     private val dexopt: BgDexoptController,
     private val ownPackage: String,
+    /**
+     * The Android user the service inspects packages in (the app's UID / 100 000; negative when unknown).
+     * Package commands pin `--user 0`, so outside user 0 they would act on another user's copy; see [gate].
+     */
+    private val userId: Int = 0,
     private val elapsedMs: () -> Long = SystemClock::elapsedRealtime,
     private val sleepMs: (Long) -> Unit = { Thread.sleep(it) },
 ) {
@@ -257,7 +272,13 @@ internal class ToolkitExecutor(
         ) : Gate
     }
 
+    /**
+     * Every package read and write passes here first. Outside user 0 (a work profile or secondary user) the
+     * package facts come from that user while every argv and protection check pins `--user 0`, so the
+     * command could change the owner's copy of a same-named app and still read back as done: refused.
+     */
     private fun gate(pkg: String?): Gate {
+        if (userId != 0) return deny(ToolkitCode.UNSUPPORTED_USER)
         if (!PackageNames.isValid(pkg)) return deny(ToolkitCode.ARG_PACKAGE)
         val name = pkg.orEmpty()
         val facts =

@@ -64,6 +64,9 @@ object ToolkitCode {
     const val ARG_VALUE = 12
     const val NOT_INSTALLED = 13
 
+    /** Package actions run only for Android user 0; the service runs for another user (work profile etc.). */
+    const val UNSUPPORTED_USER = 14
+
     const val DENY_APP_ID = 20
     const val DENY_PERSISTENT = 21
     const val DENY_SYSTEM = 22

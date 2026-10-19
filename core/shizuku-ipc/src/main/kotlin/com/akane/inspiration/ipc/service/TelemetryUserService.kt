@@ -39,6 +39,7 @@ import com.akane.inspiration.ipc.toolkit.NoContextInspector
 import com.akane.inspiration.ipc.toolkit.NoContextPluggedProbe
 import com.akane.inspiration.ipc.toolkit.ProcessCommandRunner
 import com.akane.inspiration.ipc.toolkit.ToolkitExecutor
+import com.akane.inspiration.ipc.toolkit.toolkitUserId
 import java.io.File
 import java.io.FileDescriptor
 import java.io.IOException
@@ -48,6 +49,7 @@ internal interface DumpPipe {
     val writeDescriptor: FileDescriptor
 
     fun closeRead()
+
     fun closeWrite()
 }
 
@@ -162,31 +164,33 @@ class TelemetryUserService private constructor(
         }
     }
 
-    private fun isCalledByOwnUid(): Boolean = try {
-        callingUid() == Process.myUid()
-    } catch (_: RuntimeException) {
-        false
-    }
+    private fun isCalledByOwnUid(): Boolean =
+        try {
+            callingUid() == Process.myUid()
+        } catch (_: RuntimeException) {
+            false
+        }
 
     override fun readKernelBattery(): KernelBatterySnapshot {
         if (!isCallerAllowed()) return KernelBatterySnapshot.unavailable(Reasons.CALLER)
 
         val batteryDirectory = batterySupplyDirectory() ?: return KernelBatterySnapshot.unavailable(Reasons.IO)
-        val snapshot = KernelBatterySnapshot(
-            available = true,
-            reason = null,
-            currentNowRaw = batteryDirectory.longNode("current_now"),
-            voltageNowRaw = batteryDirectory.longNode("voltage_now"),
-            chargeCounterRaw = batteryDirectory.longNode("charge_counter"),
-            chargeFullRaw = batteryDirectory.longNode("charge_full"),
-            chargeFullDesignRaw = batteryDirectory.longNode("charge_full_design"),
-            cycleCount = batteryDirectory.intNode("cycle_count"),
-            temperatureDeciC = batteryDirectory.intNode("temp"),
-            status = batteryDirectory.textNode("status"),
-            capacityPercent = batteryDirectory.intNode("capacity"),
-            sourcePath = batteryDirectory.path,
-            readAtElapsedMs = elapsedRealtimeMs(),
-        )
+        val snapshot =
+            KernelBatterySnapshot(
+                available = true,
+                reason = null,
+                currentNowRaw = batteryDirectory.longNode("current_now"),
+                voltageNowRaw = batteryDirectory.longNode("voltage_now"),
+                chargeCounterRaw = batteryDirectory.longNode("charge_counter"),
+                chargeFullRaw = batteryDirectory.longNode("charge_full"),
+                chargeFullDesignRaw = batteryDirectory.longNode("charge_full_design"),
+                cycleCount = batteryDirectory.intNode("cycle_count"),
+                temperatureDeciC = batteryDirectory.intNode("temp"),
+                status = batteryDirectory.textNode("status"),
+                capacityPercent = batteryDirectory.intNode("capacity"),
+                sourcePath = batteryDirectory.path,
+                readAtElapsedMs = elapsedRealtimeMs(),
+            )
         return if (snapshot.hasReadableValue()) snapshot else KernelBatterySnapshot.unavailable(Reasons.IO)
     }
 
@@ -194,16 +198,22 @@ class TelemetryUserService private constructor(
         if (!isCallerAllowed()) return CpuTimeSnapshot.unavailable(Reasons.CALLER)
 
         val policyDirectory = File(fileRoot, CPU_FREQ_POLICY_PATH)
-        val entries = policyDirectory.listFiles()
-            ?.filter { it.isDirectory && POLICY_NAME.matches(it.name) }
-            ?.sortedBy { it.name }
-            ?.flatMap { directory -> parseTimeInState(directory, policyNumber(directory.name)) }
-            .orEmpty()
-        return if (entries.isEmpty()) CpuTimeSnapshot.unavailable(Reasons.IO) else CpuTimeSnapshot(
-            available = true,
-            reason = null,
-            entries = entries,
-        )
+        val entries =
+            policyDirectory
+                .listFiles()
+                ?.filter { it.isDirectory && POLICY_NAME.matches(it.name) }
+                ?.sortedBy { it.name }
+                ?.flatMap { directory -> parseTimeInState(directory, policyNumber(directory.name)) }
+                .orEmpty()
+        return if (entries.isEmpty()) {
+            CpuTimeSnapshot.unavailable(Reasons.IO)
+        } else {
+            CpuTimeSnapshot(
+                available = true,
+                reason = null,
+                entries = entries,
+            )
+        }
     }
 
     override fun readBatteryUsage(maxAgeMs: Long): BatteryUsageSnapshot {
@@ -239,11 +249,12 @@ class TelemetryUserService private constructor(
         if (!DumpTarget.isValid(target)) return DumpResult.unavailable(Reasons.TARGET)
         val dumpRequest = dumpRequest(target) ?: return DumpResult.unavailable(Reasons.TARGET)
         val binder = serviceBinder(dumpRequest.serviceName) ?: return DumpResult.unavailable(Reasons.REMOTE)
-        val pipe = try {
-            pipeFactory()
-        } catch (_: IOException) {
-            return DumpResult.unavailable(Reasons.IO)
-        }
+        val pipe =
+            try {
+                pipeFactory()
+            } catch (_: IOException) {
+                return DumpResult.unavailable(Reasons.IO)
+            }
         try {
             startThread(
                 Runnable {
@@ -266,19 +277,25 @@ class TelemetryUserService private constructor(
 
     // Typed privileged actions (txns 20-31). The caller-UID check runs first, on the binder thread;
     // a denied caller gets a CALLER refusal with no parsing and no process spawned.
-    override fun setAppOp(packageName: String?, op: Int, mode: Int): ToolkitResult =
-        guarded { toolkit.setAppOp(packageName, op, mode) }
+    override fun setAppOp(
+        packageName: String?,
+        op: Int,
+        mode: Int,
+    ): ToolkitResult = guarded { toolkit.setAppOp(packageName, op, mode) }
 
     override fun getAppOps(packageName: String?): ToolkitResult = guarded { toolkit.getAppOps(packageName) }
 
-    override fun setStandbyBucket(packageName: String?, bucket: Int): ToolkitResult =
-        guarded { toolkit.setStandbyBucket(packageName, bucket) }
+    override fun setStandbyBucket(
+        packageName: String?,
+        bucket: Int,
+    ): ToolkitResult = guarded { toolkit.setStandbyBucket(packageName, bucket) }
 
-    override fun getStandbyBucket(packageName: String?): ToolkitResult =
-        guarded { toolkit.getStandbyBucket(packageName) }
+    override fun getStandbyBucket(packageName: String?): ToolkitResult = guarded { toolkit.getStandbyBucket(packageName) }
 
-    override fun applyDozeProfile(profile: Int, expectedBeforeRaw: String?): ToolkitResult =
-        guarded { toolkit.applyDozeProfile(profile, expectedBeforeRaw) }
+    override fun applyDozeProfile(
+        profile: Int,
+        expectedBeforeRaw: String?,
+    ): ToolkitResult = guarded { toolkit.applyDozeProfile(profile, expectedBeforeRaw) }
 
     override fun getDozeState(): ToolkitResult = guarded { toolkit.getDozeState() }
 
@@ -295,52 +312,69 @@ class TelemetryUserService private constructor(
 
     override fun cancelBgDexopt(): ToolkitResult = guarded { toolkit.cancelBgDexopt() }
 
-    override fun restoreDozeRaw(rawOrNull: String?, expectedCurrentRaw: String?): ToolkitResult =
-        guarded { toolkit.restoreDozeRaw(rawOrNull, expectedCurrentRaw) }
+    override fun restoreDozeRaw(
+        rawOrNull: String?,
+        expectedCurrentRaw: String?,
+    ): ToolkitResult = guarded { toolkit.restoreDozeRaw(rawOrNull, expectedCurrentRaw) }
 
     override fun getApiVersion(): Int = if (isCallerAllowed()) ToolkitApi.VERSION else -1
 
     private inline fun guarded(block: () -> ToolkitResult): ToolkitResult =
         if (isCallerAllowed()) block() else ToolkitResult.refused(ToolkitCode.CALLER)
 
-    private fun isCallerAllowed(): Boolean = try {
-        appUid != null && callingUid() == appUid
-    } catch (_: RuntimeException) {
-        false
-    }
+    private fun isCallerAllowed(): Boolean =
+        try {
+            appUid != null && callingUid() == appUid
+        } catch (_: RuntimeException) {
+            false
+        }
 
     private fun batterySupplyDirectory(): File? {
-        val supplies = File(fileRoot, POWER_SUPPLY_PATH).listFiles()
-            ?.filter { it.isDirectory && it.textNode("type") == BATTERY_TYPE }
-            .orEmpty()
+        val supplies =
+            File(fileRoot, POWER_SUPPLY_PATH)
+                .listFiles()
+                ?.filter { it.isDirectory && it.textNode("type") == BATTERY_TYPE }
+                .orEmpty()
         return supplies.firstOrNull { it.name == PREFERRED_BATTERY_NAME } ?: supplies.firstOrNull()
     }
 
-    private fun parseTimeInState(directory: File, policy: Int): List<ClusterFreqTime> =
-        directory.textNode("stats/time_in_state")
+    private fun parseTimeInState(
+        directory: File,
+        policy: Int,
+    ): List<ClusterFreqTime> =
+        directory
+            .textNode("stats/time_in_state")
             ?.lineSequence()
             ?.mapNotNull { line ->
                 val fields = line.trim().split(WHITESPACE, limit = 3)
                 val frequencyKhz = fields.getOrNull(0)?.toLongOrNull()
                 val ticks = fields.getOrNull(1)?.toLongOrNull()
-                if (frequencyKhz == null || ticks == null) null else ClusterFreqTime(
-                    policy = policy,
-                    freqKhz = frequencyKhz,
-                    timeMs = ticks * TICK_DURATION_MS,
-                )
-            }
-            ?.toList()
+                if (frequencyKhz == null || ticks == null) {
+                    null
+                } else {
+                    ClusterFreqTime(
+                        policy = policy,
+                        freqKhz = frequencyKhz,
+                        timeMs = ticks * TICK_DURATION_MS,
+                    )
+                }
+            }?.toList()
             .orEmpty()
 
     private fun policyNumber(name: String): Int = name.removePrefix(POLICY_PREFIX).toInt()
 
-    private fun File.textNode(name: String): String? = try {
-        resolve(name).takeIf(File::isFile)?.readText()?.trim()?.takeIf(String::isNotEmpty)
-    } catch (_: IOException) {
-        null
-    } catch (_: SecurityException) {
-        null
-    }
+    private fun File.textNode(name: String): String? =
+        try {
+            resolve(name)
+                .takeIf(File::isFile)
+                ?.readText()
+                ?.trim()
+                ?.takeIf(String::isNotEmpty)
+        } catch (_: IOException) {
+            null
+        } catch (_: SecurityException) {
+            null
+        }
 
     private fun File.longNode(name: String): Long? = textNode(name)?.toLongOrNull()
 
@@ -357,7 +391,10 @@ class TelemetryUserService private constructor(
             status != null ||
             capacityPercent != null
 
-    private data class DumpRequest(val serviceName: String, val args: Array<String>)
+    private data class DumpRequest(
+        val serviceName: String,
+        val args: Array<String>,
+    )
 
     private companion object {
         const val POWER_SUPPLY_PATH = "sys/class/power_supply"
@@ -379,48 +416,54 @@ class TelemetryUserService private constructor(
             return ToolkitExecutor(
                 runner = runner,
                 inspector = NoContextInspector,
-                dexopt = BgDexoptController(
-                    runner = runner,
-                    plugged = NoContextPluggedProbe,
-                    clockMs = System::currentTimeMillis,
-                    elapsedMs = SystemClock::elapsedRealtime,
-                    startThread = { },
-                ),
+                dexopt =
+                    BgDexoptController(
+                        runner = runner,
+                        plugged = NoContextPluggedProbe,
+                        clockMs = System::currentTimeMillis,
+                        elapsedMs = SystemClock::elapsedRealtime,
+                        startThread = { },
+                    ),
                 ownPackage = "",
             )
         }
 
         fun createToolkit(context: Context): ToolkitExecutor {
             val runner = ProcessCommandRunner()
-            val dexopt = BgDexoptController(
-                runner = runner,
-                plugged = AndroidPluggedProbe(context, runner),
-                clockMs = System::currentTimeMillis,
-                elapsedMs = SystemClock::elapsedRealtime,
-                startThread = { job -> Thread(job, "bg-dexopt").apply { isDaemon = true }.start() },
-            )
+            val dexopt =
+                BgDexoptController(
+                    runner = runner,
+                    plugged = AndroidPluggedProbe(context, runner),
+                    clockMs = System::currentTimeMillis,
+                    elapsedMs = SystemClock::elapsedRealtime,
+                    startThread = { job -> Thread(job, "bg-dexopt").apply { isDaemon = true }.start() },
+                )
             return ToolkitExecutor(
                 runner = runner,
                 inspector = AndroidPackageInspector(context, runner),
                 dexopt = dexopt,
                 ownPackage = context.packageName,
+                // Shizuku builds this Context for the calling app's user, so package lookups answer for it.
+                userId = toolkitUserId(resolveApplicationUid(context)),
             )
         }
 
-        fun resolveApplicationUid(context: Context): Int? = try {
-            context.packageManager.getPackageUid(context.packageName, 0)
-        } catch (_: PackageManager.NameNotFoundException) {
-            null
-        } catch (_: RuntimeException) {
-            null
-        }
+        fun resolveApplicationUid(context: Context): Int? =
+            try {
+                context.packageManager.getPackageUid(context.packageName, 0)
+            } catch (_: PackageManager.NameNotFoundException) {
+                null
+            } catch (_: RuntimeException) {
+                null
+            }
 
-        fun dumpRequest(target: Int): DumpRequest? = when (target) {
-            DumpTarget.BATTERYSTATS_PROTO -> DumpRequest(BATTERY_STATS_SERVICE, arrayOf("--proto"))
-            DumpTarget.POWER_PROTO -> DumpRequest(POWER_SERVICE, arrayOf("--proto"))
-            DumpTarget.ALARM_PROTO -> DumpRequest("alarm", arrayOf("--proto"))
-            DumpTarget.DEVICEIDLE_TEXT -> DumpRequest(DEVICE_IDLE_SERVICE, emptyArray())
-            else -> null
-        }
+        fun dumpRequest(target: Int): DumpRequest? =
+            when (target) {
+                DumpTarget.BATTERYSTATS_PROTO -> DumpRequest(BATTERY_STATS_SERVICE, arrayOf("--proto"))
+                DumpTarget.POWER_PROTO -> DumpRequest(POWER_SERVICE, arrayOf("--proto"))
+                DumpTarget.ALARM_PROTO -> DumpRequest("alarm", arrayOf("--proto"))
+                DumpTarget.DEVICEIDLE_TEXT -> DumpRequest(DEVICE_IDLE_SERVICE, emptyArray())
+                else -> null
+            }
     }
 }

@@ -198,6 +198,7 @@
     <string name="toolkit_warning_restore_state_changed">Ayar, Inspiration bu değişikliği yaptığından beri değişti. Geri yükleme mevcut değerin üzerine yazar.</string>
     <string name="toolkit_refused_invalid_argument">Bu istek geçerli değil.</string>
     <string name="toolkit_refused_not_installed">Bu uygulama yüklü değil.</string>
+    <string name="toolkit_refused_unsupported_user">Uygulama denetimleri yalnızca Inspiration ana Android kullanıcısında çalışırken kullanılabilir; iş profilinde veya ikincil kullanıcıda kullanılamaz.</string>
     <string name="toolkit_refused_protected_app">Bu korumalı bir uygulama. Inspiration sistem, kalıcı veya rol sahibi uygulamaları değiştirmez.</string>
     <string name="toolkit_refused_caller">Shizuku bu isteği reddetti.</string>
     <string name="toolkit_refused_stale">Ayar bu arada değişti. Kontrol edip yeniden deneyin.</string>
