@@ -15,6 +15,7 @@ import com.akane.inspiration.telemetry.store.HealthSample
 import com.akane.inspiration.telemetry.store.TelemetrySample
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -23,6 +24,13 @@ import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+
+/**
+ * How long the curve stays live after its newest point: three periods plus the service bind timeout (5 s) a single
+ * failed read may take, the rule the Cockpit gauge uses, so one transient miss never drops the "Live" badge while
+ * stopped reads end it within ~14 s.
+ */
+internal const val LIVE_STALE_MS = 3 * CURVE_PERIOD_MS + 5_000L
 
 /** What the last load read. A null read failed; an empty list is a real "nothing recorded". */
 private class HealthInputs(
@@ -60,6 +68,10 @@ class HealthViewModel(
     private var observedUnplugMs: Long? = null
     private var liveJob: Job? = null
     private var refreshJob: Job? = null
+
+    /** A live point arrived within [LIVE_STALE_MS]. Only then is the curve live (a running live job is not enough). */
+    private var liveFresh = false
+    private var staleJob: Job? = null
 
     /** Follows the refresh tick while visible, reloading on each one. */
     private var ticksJob: Job? = null
@@ -146,14 +158,40 @@ class HealthViewModel(
                 viewModelScope.launch {
                     deps
                         .liveReadings(CURVE_PERIOD_MS)
-                        .catch { /* A failed live read leaves the curve as it was; it must not take the screen down. */ }
-                        .collect { reading -> if (visible && charging) onReading(reading) }
+                        .catch {
+                            // A failed live read leaves the curve as it was; it must not take the screen down. It ends
+                            // the readings, though, so the curve is no longer live.
+                            endLive()
+                            render()
+                        }.collect { reading -> if (visible && charging) onReading(reading) }
                 }
         } else if (!wanted && liveJob != null) {
             liveJob?.cancel()
             liveJob = null
+            endLive()
             closeBinding()
         }
+    }
+
+    /**
+     * The source emits only successful reads, so silence means the reads stopped (Shizuku gone, every read failing):
+     * once no newer point arrives within [LIVE_STALE_MS], the curve is not live and the charge stops counting up.
+     */
+    private fun markLive() {
+        liveFresh = true
+        staleJob?.cancel()
+        staleJob =
+            viewModelScope.launch {
+                delay(LIVE_STALE_MS)
+                liveFresh = false
+                render()
+            }
+    }
+
+    private fun endLive() {
+        staleJob?.cancel()
+        staleJob = null
+        liveFresh = false
     }
 
     private fun closeBinding() {
@@ -166,6 +204,7 @@ class HealthViewModel(
         val point = reading.toCurvePoint() ?: return
         if (live.lastOrNull()?.let { it.wallMs >= point.wallMs } == true) return
         live += point
+        markLive()
         render()
     }
 
@@ -227,7 +266,7 @@ class HealthViewModel(
             return
         }
         val nowMs = deps.clocks.wallMs()
-        val liveActive = liveJob != null
+        val liveActive = liveFresh
         val sampled =
             (loaded.samples.orEmpty().mapNotNull { it.toCurvePoint() } + live)
                 .distinctBy { it.wallMs }

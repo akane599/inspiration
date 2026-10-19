@@ -249,6 +249,85 @@ class HealthViewModelTest {
             vm.onIntent(HealthIntent.Hidden)
         }
 
+    @Test
+    fun `a curve whose readings stop is no longer live and its charge stops counting up`() =
+        runTest(dispatcher) {
+            val readings = MutableSharedFlow<LiveReading>()
+            val vm = viewModel(readings)
+            try {
+                vm.onIntent(HealthIntent.Visible)
+                vm.onIntent(HealthIntent.PlugChanged(true))
+                runCurrent()
+                readings.emit(liveReading(NOW_MS, levelPct = 40))
+                deps.clocks.wall = NOW_MS + 3 * SEC_MS
+                readings.emit(liveReading(deps.clocks.wall, levelPct = 41))
+                runCurrent()
+                assertEquals(CurveSource.Live, (vm.state.value.curve as CurveUi.Ready).source)
+
+                // The Shizuku server dies mid-charge: the source emits nothing more, but the phone still says charging.
+                advanceTimeBy(LIVE_STALE_MS - 1)
+                runCurrent()
+                assertEquals("still within the staleness window", CurveSource.Live, (vm.state.value.curve as CurveUi.Ready).source)
+
+                advanceTimeBy(2)
+                runCurrent()
+                assertEquals(CurveSource.Recorded, (vm.state.value.curve as CurveUi.Ready).source)
+                assertEquals(
+                    CurveSource.Recorded,
+                    vm.state.value.analysis
+                        ?.source,
+                )
+
+                // A later render (here a pull, minutes on) must not stretch the charge to now.
+                deps.clocks.wall = NOW_MS + 10 * MIN_MS
+                vm.onIntent(HealthIntent.Refresh)
+                runCurrent()
+                assertEquals(CurveSource.Recorded, (vm.state.value.curve as CurveUi.Ready).source)
+                assertEquals(
+                    "the charge ends at its newest reading",
+                    3 * SEC_MS,
+                    vm.state.value.analysis
+                        ?.chargeMs,
+                )
+
+                // Readings resuming make it live again.
+                readings.emit(liveReading(deps.clocks.wall, levelPct = 42))
+                runCurrent()
+                assertEquals(CurveSource.Live, (vm.state.value.curve as CurveUi.Ready).source)
+            } finally {
+                vm.onIntent(HealthIntent.Hidden)
+            }
+        }
+
+    @Test
+    fun `a failing live source keeps the curve but not its live state`() =
+        runTest(dispatcher) {
+            val failure = CompletableDeferred<Unit>()
+            val vm =
+                viewModel(
+                    flow {
+                        emit(liveReading(NOW_MS, levelPct = 40))
+                        emit(liveReading(NOW_MS + 3 * SEC_MS, levelPct = 41))
+                        failure.await()
+                        throw IllegalStateException("binder died")
+                    },
+                )
+            try {
+                vm.onIntent(HealthIntent.Visible)
+                vm.onIntent(HealthIntent.PlugChanged(true))
+                runCurrent()
+                assertEquals(CurveSource.Live, (vm.state.value.curve as CurveUi.Ready).source)
+
+                failure.complete(Unit)
+                runCurrent()
+
+                assertEquals(HealthPhase.Ready, vm.state.value.phase)
+                assertEquals(CurveSource.Recorded, (vm.state.value.curve as CurveUi.Ready).source)
+            } finally {
+                vm.onIntent(HealthIntent.Hidden)
+            }
+        }
+
     // ---- observed charge boundaries --------------------------------------------------------------
 
     @Test
@@ -518,7 +597,17 @@ class HealthViewModelTest {
                 assertEquals(CurveSource.History, curve.source)
                 assertEquals(50, curve.startLevelPct)
                 assertEquals(52, curve.endLevelPct)
+                // No reading has arrived on this visit yet, so the charge ends at its newest point, not at now.
                 assertEquals(
+                    8 * SEC_MS,
+                    vm.state.value.analysis
+                        ?.chargeMs,
+                )
+                readings.emit(liveReading(deps.clocks.wall, levelPct = 53))
+                runCurrent()
+                assertEquals(CurveSource.Live, (vm.state.value.curve as CurveUi.Ready).source)
+                assertEquals(
+                    "a fresh reading makes the charge run to now",
                     10 * SEC_MS,
                     vm.state.value.analysis
                         ?.chargeMs,
