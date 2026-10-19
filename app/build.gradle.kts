@@ -46,7 +46,20 @@ android {
         release {
             signingConfigs.findByName("release")?.let { signingConfig = it }
             isMinifyEnabled = true
+            isShrinkResources = true
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
+        }
+    }
+    androidResources {
+        // The app ships English (default values) and Turkish. Dropping the libraries' other translations
+        // keeps Material3's built-in text in the same language as the app's own text.
+        localeFilters += listOf("en", "tr")
+    }
+    packaging {
+        resources {
+            // The lite protobuf runtime needs no .proto sources, and DebugProbesKt.bin serves only the JVM
+            // coroutines debug agent.
+            excludes += listOf("**/*.proto", "DebugProbesKt.bin")
         }
     }
     compileOptions {
@@ -57,6 +70,14 @@ android {
         compose = true
     }
     experimentalProperties["android.experimental.enableScreenshotTest"] = true
+}
+
+androidComponents {
+    onVariants(selector().withBuildType("release")) { variant ->
+        // Library version markers are read by Android Studio's App Inspection, which needs a debuggable build.
+        variant.packaging.resources.excludes
+            .add("META-INF/*.version")
+    }
 }
 
 if (missingReleaseSigningKeys.isNotEmpty() && missingReleaseSigningKeys.size < releaseSigningKeys.size) {
