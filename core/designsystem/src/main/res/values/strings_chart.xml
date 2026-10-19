@@ -19,6 +19,11 @@
     <!-- Empty state and actions -->
     <string name="chart_empty">No data for this period</string>
     <string name="chart_clear_selection">Clear selection</string>
+    <string name="chart_select_interval">Select interval</string>
+    <string name="chart_start_earlier">Move start earlier</string>
+    <string name="chart_start_later">Move start later</string>
+    <string name="chart_end_earlier">Move end earlier</string>
+    <string name="chart_end_later">Move end later</string>
 
     <!-- Readout row: values at the cursor, selection summary, window summary -->
     <string name="chart_readout_battery">Battery %1$d%%</string>
