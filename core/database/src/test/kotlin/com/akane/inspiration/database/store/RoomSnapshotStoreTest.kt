@@ -455,6 +455,37 @@ class RoomSnapshotStoreTest {
         }
 
     @Test
+    fun `lastHistoryOfEachKindBefore ignores events whose wall time is unknown`() =
+        runBlocking {
+            fun event(
+                kind: Int,
+                historyTimeMs: Long,
+                wallMs: Long,
+            ) = HistoryEvent(
+                historyTimeMs = historyTimeMs,
+                wallMs = wallMs,
+                kind = kind,
+                levelPct = 50,
+                chargeUah = -1L,
+                temperatureDeciC = 300,
+                voltageMv = 3_900,
+                plugType = 0,
+            )
+            val known = event(HistoryKind.SCREEN_ON, historyTimeMs = 30, wallMs = 300)
+            store.insertHistory(
+                listOf(
+                    event(HistoryKind.UNPLUGGED, historyTimeMs = 10, wallMs = -1),
+                    event(HistoryKind.SCREEN_ON, historyTimeMs = 20, wallMs = -1),
+                    known,
+                ),
+                statsStartMs = 1L,
+            )
+
+            assertEquals(listOf(known), store.lastHistoryOfEachKindBefore(400L))
+            assertEquals(emptyList<HistoryEvent>(), store.lastHistoryOfEachKindBefore(300L))
+        }
+
+    @Test
     fun `lastHistoryOfEachKindBefore returns only the newest event per kind strictly before the bound`() =
         runBlocking {
             fun event(

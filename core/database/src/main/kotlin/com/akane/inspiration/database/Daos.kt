@@ -223,13 +223,14 @@ interface HistoryDao {
     ): List<HistoryEventEntity>
 
     /**
-     * The newest event of each `kind` with `wallMs < beforeWallMs`, oldest first: at most one row per kind,
-     * however much history precedes the bound. (SQLite returns the bare `id` of the row that holds each
-     * group's `MAX(wallMs)`.)
+     * The newest event of each `kind` with `0 <= wallMs < beforeWallMs`, oldest first: at most one row per kind,
+     * however much history precedes the bound. Rows with an unknown wall time (`wallMs = -1`) are never seeds.
+     * (SQLite returns the bare `id` of the row that holds each group's `MAX(wallMs)`.)
      */
     @Query(
         "SELECT * FROM history_event WHERE id IN " +
-            "(SELECT id FROM (SELECT id, MAX(wallMs) FROM history_event WHERE wallMs < :beforeWallMs GROUP BY kind)) " +
+            "(SELECT id FROM (SELECT id, MAX(wallMs) FROM history_event " +
+            "WHERE wallMs >= 0 AND wallMs < :beforeWallMs GROUP BY kind)) " +
             "ORDER BY wallMs, id",
     )
     suspend fun lastOfEachKindBefore(beforeWallMs: Long): List<HistoryEventEntity>
