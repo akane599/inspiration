@@ -1,5 +1,7 @@
 package com.akane.inspiration.telemetry.toolkit
 
+import android.os.DeadObjectException
+import android.os.RemoteException
 import com.akane.inspiration.ipc.ITelemetryUserService
 import com.akane.inspiration.ipc.ShizukuManager
 import com.akane.inspiration.ipc.ShizukuState
@@ -30,8 +32,10 @@ class ToolkitGatewayTest {
     private var apiVersion = ToolkitApi.VERSION
     private var returnNull = false
     private var dexoptState = BgDexoptState.RUNNING
-    private var serviceThrows: RuntimeException? = null
-    private var apiVersionThrows: RuntimeException? = null
+
+    // Throwable: a dead binder is a checked RemoteException, which the AIDL methods declare.
+    private var serviceThrows: Throwable? = null
+    private var apiVersionThrows: Throwable? = null
 
     /** A service stand-in built with a dynamic proxy: the Binder stub cannot load in plain JVM tests. */
     private val service: ITelemetryUserService =
@@ -71,15 +75,21 @@ class ToolkitGatewayTest {
         override suspend fun <T> withTelemetryService(
             timeoutMs: Long,
             block: suspend (ITelemetryUserService) -> T,
-        ): T? =
-            when {
-                !available -> null
+        ): T? {
+            if (!available) return null
+            // As ShizukuManagerImpl: a RemoteException from the session (a binder that died on the API check or
+            // during the typed call) ends it with null, like a lost answer; the gateway never sees the exception.
+            return try {
+                when {
+                    // The call ran, then its answer was dropped (a rebind meanwhile, or a binder that died mid-call).
+                    dropAnswer -> block(service).let { null }
 
-                // The call ran, then its answer was dropped (a rebind meanwhile, or a binder that died mid-call).
-                dropAnswer -> block(service).let { null }
-
-                else -> block(service).also { holdersWhenCallEnded += openHolds }
+                    else -> block(service).also { holdersWhenCallEnded += openHolds }
+                }
+            } catch (_: RemoteException) {
+                null
             }
+        }
 
         var dropAnswer = false
 
@@ -173,6 +183,29 @@ class ToolkitGatewayTest {
 
             assertEquals(GatewayReply.Unavailable(GatewayUnavailable.NO_SERVICE, sent = true), reply)
             assertEquals(listOf("setStandbyBucket(com.example.app, 4)"), sent)
+        }
+
+    @Test
+    fun `a binder that dies on the api check was never sent the write`() =
+        runTest {
+            apiVersionThrows = DeadObjectException()
+
+            assertEquals(
+                GatewayReply.Unavailable(GatewayUnavailable.NO_SERVICE, sent = false),
+                gateway.setStandbyBucket("com.example.app", StandbyBucket.RARE),
+            )
+            assertTrue(sent.isEmpty())
+        }
+
+    @Test
+    fun `a binder that dies during the typed call may have committed the write`() =
+        runTest {
+            serviceThrows = DeadObjectException()
+
+            assertEquals(
+                GatewayReply.Unavailable(GatewayUnavailable.NO_SERVICE, sent = true),
+                gateway.setStandbyBucket("com.example.app", StandbyBucket.RARE),
+            )
         }
 
     @Test
