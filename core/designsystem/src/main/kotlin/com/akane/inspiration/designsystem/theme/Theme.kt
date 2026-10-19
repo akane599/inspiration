@@ -26,13 +26,14 @@ fun InspirationTheme(
     content: @Composable () -> Unit,
 ) {
     val base = if (darkTheme) InspirationDarkColorScheme else InspirationLightColorScheme
-    val colorScheme = if (dynamicAccent) {
-        val context = LocalContext.current
-        val dynamic = if (darkTheme) dynamicDarkColorScheme(context) else dynamicLightColorScheme(context)
-        base.withAccentFrom(dynamic)
-    } else {
-        base
-    }
+    val colorScheme =
+        if (dynamicAccent) {
+            val context = LocalContext.current
+            val dynamic = if (darkTheme) dynamicDarkColorScheme(context) else dynamicLightColorScheme(context)
+            base.withAccentFrom(dynamic)
+        } else {
+            base
+        }
     CompositionLocalProvider(
         LocalTelemetryColors provides if (darkTheme) DarkTelemetryColors else LightTelemetryColors,
         LocalStatusColors provides if (darkTheme) DarkStatusColors else LightStatusColors,
@@ -48,17 +49,23 @@ fun InspirationTheme(
     }
 }
 
-internal fun ColorScheme.withAccentFrom(dynamic: ColorScheme): ColorScheme = copy(
-    primary = dynamic.primary,
-    onPrimary = dynamic.onPrimary,
-    primaryContainer = dynamic.primaryContainer,
-    onPrimaryContainer = dynamic.onPrimaryContainer,
-    secondary = dynamic.secondary,
-    onSecondary = dynamic.onSecondary,
-    secondaryContainer = dynamic.secondaryContainer,
-    onSecondaryContainer = dynamic.onSecondaryContainer,
-    tertiary = dynamic.tertiary,
-    onTertiary = dynamic.onTertiary,
-    tertiaryContainer = dynamic.tertiaryContainer,
-    onTertiaryContainer = dynamic.onTertiaryContainer,
-)
+/**
+ * This scheme with only the accent roles (primary, secondary, tertiary and their on* / *Container roles) taken from
+ * [dynamic]. No screen turns [InspirationTheme]'s `dynamicAccent` on yet. Both stay as the pinned phase-4 G2 theme
+ * option (reviewed in audit §3), and AccentTest pins which roles are taken.
+ */
+internal fun ColorScheme.withAccentFrom(dynamic: ColorScheme): ColorScheme =
+    copy(
+        primary = dynamic.primary,
+        onPrimary = dynamic.onPrimary,
+        primaryContainer = dynamic.primaryContainer,
+        onPrimaryContainer = dynamic.onPrimaryContainer,
+        secondary = dynamic.secondary,
+        onSecondary = dynamic.onSecondary,
+        secondaryContainer = dynamic.secondaryContainer,
+        onSecondaryContainer = dynamic.onSecondaryContainer,
+        tertiary = dynamic.tertiary,
+        onTertiary = dynamic.onTertiary,
+        tertiaryContainer = dynamic.tertiaryContainer,
+        onTertiaryContainer = dynamic.onTertiaryContainer,
+    )
