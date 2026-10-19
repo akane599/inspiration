@@ -12,6 +12,7 @@ import androidx.room.PrimaryKey
         Index(value = ["bootCount", "elapsedRealtimeMs"]),
         Index(value = ["wallMs"]),
         Index(value = ["statsStartMs"]),
+        Index(value = ["trigger", "wallMs"]),
     ],
 )
 data class SnapshotEntity(

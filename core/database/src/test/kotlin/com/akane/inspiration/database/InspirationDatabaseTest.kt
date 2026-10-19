@@ -1,10 +1,12 @@
 package com.akane.inspiration.database
 
+import android.database.Cursor
 import androidx.room.RoomDatabase
 import androidx.test.core.app.ApplicationProvider
 import kotlinx.coroutines.runBlocking
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
@@ -78,6 +80,33 @@ class InspirationDatabaseTest {
         database.close()
         database = InspirationDatabase.create(context, databaseName)
         assertEquals(4700.0, database.healthDao().all().last().measuredMah!!, 0.0)
+    }
+
+    @Test
+    fun `version three databases gain the trigger index and keep their snapshots`() = runBlocking {
+        database.close()
+        context.openOrCreateDatabase(databaseName, 0, null).use { old ->
+            createExportedSchema(old, version = 3)
+            old.execSQL(
+                "INSERT INTO snapshot (kind, trigger, wallMs, elapsedRealtimeMs, uptimeMs, bootCount) " +
+                    "VALUES ('LIGHT', 'SCREEN_ON', 5, 6, 7, 1)",
+            )
+            assertFalse(TRIGGER_INDEX in old.rawQuery("PRAGMA index_list(snapshot)", null).strings("name"))
+            old.version = 3
+        }
+
+        // Opening runs MIGRATION_3_4, then Room checks the result against the version 4 entities.
+        database = InspirationDatabase.create(context, databaseName)
+
+        assertEquals(5L, database.snapshotDao().latestByTrigger("SCREEN_ON")!!.wallMs)
+        val sqlite = database.openHelper.readableDatabase
+        assertEquals(listOf("trigger", "wallMs"), sqlite.query("PRAGMA index_info(`$TRIGGER_INDEX`)").strings("name"))
+        assertLatestByTriggerSearchesTheIndex()
+    }
+
+    @Test
+    fun `latestByTrigger searches the trigger index instead of scanning snapshots`() {
+        assertLatestByTriggerSearchesTheIndex()
     }
 
     @Test
@@ -263,7 +292,41 @@ class InspirationDatabaseTest {
         bootCount = 1,
     )
 
+    /** Creates the tables, indices and Room metadata of exported schema [version] in [db]. */
+    private fun createExportedSchema(db: android.database.sqlite.SQLiteDatabase, version: Int) {
+        val schema = org.json.JSONObject(java.io.File(
+            "schemas/com.akane.inspiration.database.InspirationDatabase/$version.json",
+        ).readText()).getJSONObject("database")
+        val entities = schema.getJSONArray("entities")
+        for (i in 0 until entities.length()) {
+            val entity = entities.getJSONObject(i)
+            val table = entity.getString("tableName")
+            db.execSQL(entity.getString("createSql").replace("\${TABLE_NAME}", table))
+            val indices = entity.optJSONArray("indices") ?: org.json.JSONArray()
+            for (j in 0 until indices.length()) {
+                db.execSQL(indices.getJSONObject(j).getString("createSql").replace("\${TABLE_NAME}", table))
+            }
+        }
+        val setup = schema.getJSONArray("setupQueries")
+        for (i in 0 until setup.length()) db.execSQL(setup.getString(i))
+    }
+
+    /** The plan of `SnapshotDao.latestByTrigger`'s statement, verbatim: an index search, no scan and no sort. */
+    private fun assertLatestByTriggerSearchesTheIndex() {
+        val plan = database.openHelper.readableDatabase.query(
+            "EXPLAIN QUERY PLAN SELECT * FROM snapshot WHERE trigger = ? ORDER BY wallMs DESC, id DESC LIMIT 1",
+            arrayOf("SCREEN_ON"),
+        ).strings("detail")
+        assertTrue(plan.toString(), plan.any { "INDEX $TRIGGER_INDEX" in it })
+        assertFalse(plan.toString(), plan.any { it.startsWith("SCAN") || "TEMP B-TREE" in it })
+    }
+
+    private fun Cursor.strings(column: String): List<String> = use { cursor ->
+        buildList { while (cursor.moveToNext()) add(cursor.getString(cursor.getColumnIndexOrThrow(column))) }
+    }
+
     private companion object {
         const val DAY_MS = 24L * 60L * 60L * 1_000L
+        const val TRIGGER_INDEX = "index_snapshot_trigger_wallMs"
     }
 }

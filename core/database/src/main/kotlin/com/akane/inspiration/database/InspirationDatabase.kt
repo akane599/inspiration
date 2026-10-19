@@ -28,7 +28,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         HealthSampleEntity::class,
         ToolkitActionEntity::class,
     ],
-    version = 3,
+    version = 4,
     exportSchema = true,
 )
 abstract class InspirationDatabase : RoomDatabase() {
@@ -49,7 +49,7 @@ abstract class InspirationDatabase : RoomDatabase() {
                 InspirationDatabase::class.java,
                 name,
             ).setJournalMode(JournalMode.WRITE_AHEAD_LOGGING)
-                .addMigrations(MIGRATION_1_2, MIGRATION_2_3)
+                .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4)
                 .build()
 
         val MIGRATION_1_2: Migration = object : Migration(1, 2) {
@@ -66,6 +66,13 @@ abstract class InspirationDatabase : RoomDatabase() {
             override fun migrate(db: SupportSQLiteDatabase) {
                 db.execSQL("DELETE FROM charge_session")
                 db.execSQL("UPDATE battery_health_sample SET measuredMah = NULL")
+            }
+        }
+
+        /** `latestByTrigger` (newest row of one trigger) seeks this index instead of scanning `snapshot`. */
+        val MIGRATION_3_4: Migration = object : Migration(3, 4) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_snapshot_trigger_wallMs` ON `snapshot` (`trigger`, `wallMs`)")
             }
         }
 
