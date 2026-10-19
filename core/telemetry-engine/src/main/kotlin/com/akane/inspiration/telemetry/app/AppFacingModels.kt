@@ -70,10 +70,22 @@ interface AppLabels {
     suspend fun icon(packageName: String): Bitmap?
 
     /**
-     * The installed package behind an app [uid], for the per-UID rows batterystats reports without one
-     * (`UidBatteryConsumer.getPackageWithHighestDrain()` is often null). Null for system and shared
-     * platform UIDs (app id below 10000) and for UIDs no visible package owns. When several packages share
-     * the UID, the alphabetically first is returned so the answer is stable between calls.
+     * The visible installed packages that run as app [uid], in any order. Empty for system and shared platform
+     * UIDs (app id below 10000), which own no single app, and for UIDs no visible package owns. Screens name a
+     * UID through [packageForUid], never through this list directly.
      */
-    suspend fun packageForUid(uid: Int): String? = null
+    suspend fun packagesForUid(uid: Int): List<String> = emptyList()
+}
+
+/**
+ * The installed package that identifies app [uid]: the one rule every screen uses to name a battery-stats UID.
+ * batterystats' [reported] name (`UidBatteryConsumer.getPackageWithHighestDrain()`) is a *process* name such as
+ * `com.example.chat:push`, or null, so it is only a hint. Without its `:process` suffix it is the answer when it is
+ * one of the UID's packages; otherwise the alphabetically first of them is, so the answer is stable between calls.
+ * Null when no visible package runs as [uid] (system and shared platform UIDs included): the result is always a
+ * package `PackageManager` lists for the UID, never the reported name itself.
+ */
+suspend fun AppLabels.packageForUid(uid: Int, reported: String?): String? {
+    val owners = packagesForUid(uid)
+    return reported?.substringBefore(':')?.takeIf { it in owners } ?: owners.minOrNull()
 }

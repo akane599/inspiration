@@ -47,7 +47,9 @@ object XRayMapper {
     /**
      * Apps ranked by energy, biggest first. Empty when the interval has no per-app data ([perUidAvailable]
      * false, H14) or the statistics are invalid. A UID whose package changed inside the interval is left out:
-     * its total would count the new package from zero. Labels are filled in by the caller; icons load per visible row.
+     * its total would count the new package from zero. A row's [AppRow.packageName] is still batterystats' reported
+     * name, a process name and only a hint: the caller resolves it against the UID's installed packages and fills in
+     * the label before the row is shown or acted on. Icons load per visible row.
      */
     fun apps(diff: SnapshotDiff, perUidAvailable: Boolean): List<AppRow> {
         if (!perUidAvailable || !diff.validity.batteryStats) return emptyList()

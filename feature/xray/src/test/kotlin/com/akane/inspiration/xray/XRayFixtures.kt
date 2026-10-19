@@ -314,11 +314,11 @@ internal class FakeXRayDeps(
             return null
         }
 
-        override suspend fun packageForUid(uid: Int): String? = packagesByUid[uid]
+        override suspend fun packagesForUid(uid: Int): List<String> = packagesByUid[uid].orEmpty()
     }
 
-    /** What `PackageManager` would answer for a UID batterystats reported without a package. */
-    val packagesByUid = mutableMapOf<Int, String>()
+    /** What `PackageManager` lists as running under each UID; the sample apps are installed. */
+    val packagesByUid = mutableMapOf(10_001 to listOf(MAPS), 10_002 to listOf(CHATTY))
 
     /** Icons the ViewModel asked for; rows load their own, so it should ask for none. */
     var iconLoads = 0

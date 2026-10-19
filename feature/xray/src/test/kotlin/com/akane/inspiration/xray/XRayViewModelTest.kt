@@ -187,7 +187,7 @@ class XRayViewModelTest {
 
     @Test
     fun `an app uid reported without a package resolves its package, label and actions from the uid`() {
-        val fake = FakeXRayDeps().apply { packagesByUid[CHATTY_UID] = CHATTY }
+        val fake = FakeXRayDeps().apply { packagesByUid[CHATTY_UID] = listOf(CHATTY) }
         start(fake, readyOf(diffOf(uids = listOf(uidDelta(CHATTY_UID, null, 60.0)))))
 
         val row = state.apps.single()
@@ -196,6 +196,46 @@ class XRayViewModelTest {
 
         openChatty()
         assertTrue(detail.actions is ActionsState.Loaded)
+    }
+
+    @Test
+    fun `an app uid reported under a process name is named, labelled and acted on as its package`() {
+        // batterystats reports the UID's busiest process, e.g. "pkg:push"; the toolkit refuses such a name.
+        start(FakeXRayDeps(), readyOf(diffOf(uids = listOf(uidDelta(CHATTY_UID, "$CHATTY:push", 60.0)))))
+
+        val row = state.apps.single()
+        assertEquals(CHATTY, row.packageName)
+        assertEquals("Label of $CHATTY", row.label)
+
+        openChatty()
+        assertTrue(detail.actions is ActionsState.Loaded)
+    }
+
+    @Test
+    fun `a shared uid is named by the reported package when it owns it, else by its first package`() {
+        val fake = FakeXRayDeps().apply {
+            packagesByUid[CHATTY_UID] = listOf(CHATTY, "com.example.aardvark")
+            packagesByUid[MAPS_UID] = listOf(MAPS, "com.example.aardvark.maps")
+        }
+        val uids = listOf(uidDelta(CHATTY_UID, "$CHATTY:push", 60.0), uidDelta(MAPS_UID, "$MAPS.persistent", 20.0))
+        start(fake, readyOf(diffOf(uids = uids)))
+
+        assertEquals(CHATTY, state.apps.first { it.uid == CHATTY_UID }.packageName)
+        assertEquals("com.example.aardvark.maps", state.apps.first { it.uid == MAPS_UID }.packageName)
+        assertEquals("Label of com.example.aardvark.maps", state.apps.first { it.uid == MAPS_UID }.label)
+    }
+
+    @Test
+    fun `a uid no installed package runs as has no package, label or actions, whatever was reported`() {
+        start(FakeXRayDeps(), readyOf(diffOf(uids = listOf(uidDelta(10_003, "com.example.gone:remote", 5.0)))))
+
+        val row = state.apps.single()
+        assertNull(row.packageName)
+        assertNull(row.label)
+
+        vm.onIntent(XRayIntent.OpenApp(10_003))
+        assertEquals(ActionsState.NoPackage, detail.actions)
+        assertTrue(deps.device.calls.isEmpty())
     }
 
     @Test

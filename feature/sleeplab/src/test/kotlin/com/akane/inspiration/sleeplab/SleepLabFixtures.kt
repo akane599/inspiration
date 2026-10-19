@@ -74,9 +74,18 @@ internal class FakeAppLabels(val labels: MutableMap<String, String> = mutableMap
 
     override suspend fun icon(packageName: String): Bitmap? = null
 
-    val uidOwners = mutableMapOf<Int, String>()
+    /** What `PackageManager` lists as running under each UID. */
+    val uidPackages = mutableMapOf<Int, List<String>>()
+    val uidLooked = mutableListOf<Int>()
 
-    override suspend fun packageForUid(uid: Int): String? = uidOwners[uid]
+    /** When set, every UID lookup throws it: a package manager that cannot answer. */
+    var uidFailure: Exception? = null
+
+    override suspend fun packagesForUid(uid: Int): List<String> {
+        uidLooked += uid
+        uidFailure?.let { throw it }
+        return uidPackages[uid].orEmpty()
+    }
 }
 
 internal fun emptyTimeline(from: Long = NOW_MS - 10 * HOUR_MS, to: Long = NOW_MS) =

@@ -9,6 +9,7 @@ import com.akane.inspiration.diagnostics.analysis.AnalysisState
 import com.akane.inspiration.diagnostics.analysis.IntervalAnalysis
 import com.akane.inspiration.telemetry.app.RefreshResult
 import com.akane.inspiration.telemetry.app.attempt
+import com.akane.inspiration.telemetry.app.packageForUid
 import com.akane.inspiration.telemetry.diff.ResolvedReference
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.channels.Channel
@@ -42,8 +43,6 @@ class SleepLabViewModel(private val deps: SleepLabDependencies) : ViewModel() {
 
     /** The user asked for the running refresh (main thread only, like every intent). */
     private var userWaiting = false
-    private val labelCache = HashMap<String, String>()
-    private val uidPackageCache = HashMap<Int, String?>()
 
     init {
         viewModelScope.launch {
@@ -89,28 +88,22 @@ class SleepLabViewModel(private val deps: SleepLabDependencies) : ViewModel() {
         loadHypnogram(analysis.resolved)
     }
 
-    /** batterystats often reports an app UID without a package; PackageManager knows which one owns it. */
+    /**
+     * batterystats names a UID by one of its process names ("com.app:push"), or not at all; only the UID's installed
+     * packages say which app it is. A UID with no installed package (or whose lookup failed) is shown by its UID.
+     * Nothing is cached here: [SleepLabDependencies.appLabels] keeps the bounded cache, and a later emission asks again.
+     */
     private suspend fun withOwnerPackages(analysis: IntervalAnalysis): IntervalAnalysis {
-        if (analysis.diff.uids.none { it.packageName == null }) return analysis
         val uids = analysis.diff.uids.map { uid ->
-            if (uid.packageName != null) {
-                uid
-            } else {
-                val pkg = uidPackageCache.getOrPut(uid.uid) { attempt { deps.appLabels.packageForUid(uid.uid) } }
-                if (pkg == null) uid else uid.copy(packageName = pkg)
-            }
+            val pkg = attempt { deps.appLabels.packageForUid(uid.uid, reported = uid.packageName) }
+            if (pkg == uid.packageName) uid else uid.copy(packageName = pkg)
         }
         return analysis.copy(diff = analysis.diff.copy(uids = uids))
     }
 
-    /** Labels are cached for the ViewModel's life; only the packages the tabs will show are looked up. */
-    private suspend fun labelsFor(analysis: IntervalAnalysis): Map<String, String> {
-        val packages = visiblePackages(analysis)
-        for (pkg in packages) {
-            if (pkg !in labelCache) attempt { deps.appLabels.label(pkg) }?.let { labelCache[pkg] = it }
-        }
-        return packages.mapNotNull { pkg -> labelCache[pkg]?.let { pkg to it } }.toMap()
-    }
+    /** Only the packages the tabs will show are looked up; a label that cannot be read falls back to the package. */
+    private suspend fun labelsFor(analysis: IntervalAnalysis): Map<String, String> =
+        visiblePackages(analysis).mapNotNull { pkg -> attempt { deps.appLabels.label(pkg) }?.let { pkg to it } }.toMap()
 
     private suspend fun loadHypnogram(resolved: ResolvedReference) {
         val timeline = attempt { deps.timeline(resolved.coveredFromWallMs, resolved.coveredToWallMs) }

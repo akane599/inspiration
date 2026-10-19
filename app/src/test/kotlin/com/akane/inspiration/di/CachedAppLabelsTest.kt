@@ -1,6 +1,7 @@
 package com.akane.inspiration.di
 
 import android.graphics.Bitmap
+import com.akane.inspiration.telemetry.app.packageForUid
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
@@ -38,30 +39,43 @@ class CachedAppLabelsTest {
     private val source = FakeSource(mapOf("a.app" to "Alpha", "b.app" to "Beta", "c.app" to "Gamma"))
 
     @Test
-    fun `an app uid resolves to its package, the alphabetically first when shared, and is cached`() = runTest {
+    fun `an app uid lists its packages sorted, and the lookup is cached, an unowned uid included`() = runTest {
         source.uidPackages[10_221] = listOf("a.app")
         source.uidPackages[10_300] = listOf("z.shared", "m.shared", "q.shared")
         source.uidPackages[1_010_221] = listOf("b.app")
         val labels = labels()
 
-        assertEquals("a.app", labels.packageForUid(10_221))
-        assertEquals("m.shared", labels.packageForUid(10_300))
-        assertEquals("a secondary user's app uid resolves too", "b.app", labels.packageForUid(1_010_221))
-        assertNull("no owner is a cached miss", labels.packageForUid(10_999))
-        assertEquals("a.app", labels.packageForUid(10_221))
-        assertNull(labels.packageForUid(10_999))
+        assertEquals(listOf("a.app"), labels.packagesForUid(10_221))
+        assertEquals(listOf("m.shared", "q.shared", "z.shared"), labels.packagesForUid(10_300))
+        assertEquals("a secondary user's app uid resolves too", listOf("b.app"), labels.packagesForUid(1_010_221))
+        assertEquals("no owner is a cached miss", emptyList<String>(), labels.packagesForUid(10_999))
+        assertEquals(listOf("a.app"), labels.packagesForUid(10_221))
+        assertEquals(emptyList<String>(), labels.packagesForUid(10_999))
         assertEquals(listOf(10_221, 10_300, 1_010_221, 10_999), source.uidLoads)
     }
 
     @Test
-    fun `shared platform uids never resolve to a package and never ask the source`() = runTest {
+    fun `shared platform uids own no package and never ask the source`() = runTest {
         source.uidPackages[1_000] = listOf("android", "com.android.settings")
         val labels = labels()
 
-        assertNull(labels.packageForUid(0))
-        assertNull(labels.packageForUid(1_000))
-        assertNull(labels.packageForUid(1_001_000))
+        assertEquals(emptyList<String>(), labels.packagesForUid(0))
+        assertEquals(emptyList<String>(), labels.packagesForUid(1_000))
+        assertEquals(emptyList<String>(), labels.packagesForUid(1_001_000))
+        assertNull("a platform uid is named by the uid, not by a reported package", labels.packageForUid(1_000, reported = "android"))
         assertEquals(emptyList<Int>(), source.uidLoads)
+    }
+
+    @Test
+    fun `a reported process name names its uid only through the uid's installed packages`() = runTest {
+        source.uidPackages[10_300] = listOf("z.shared", "m.shared", "q.shared")
+        val labels = labels()
+
+        assertEquals("q.shared", labels.packageForUid(10_300, reported = "q.shared:push"))
+        assertEquals("not installed under this uid", "m.shared", labels.packageForUid(10_300, reported = "q.shared.persistent"))
+        assertEquals("m.shared", labels.packageForUid(10_300, reported = null))
+        assertNull("an unowned uid keeps no name", labels.packageForUid(10_999, reported = "gone.app:remote"))
+        assertEquals("one PackageManager read per uid", listOf(10_300, 10_999), source.uidLoads)
     }
 
     private fun TestScope.labels(maxLabels: Int = 8, maxIcons: Int = 8) =

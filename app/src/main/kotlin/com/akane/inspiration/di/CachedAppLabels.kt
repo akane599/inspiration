@@ -54,7 +54,7 @@ class CachedAppLabels(
 ) : AppLabels {
     private val labels = Lru<Resolved<String>>(maxLabels)
     private val icons = Lru<Resolved<Bitmap>>(maxIcons)
-    private val packages = Lru<Resolved<String>>(maxLabels)
+    private val uidPackages = Lru<List<String>>(maxLabels)
 
     override suspend fun label(packageName: String): String {
         labels.get(packageName)?.let { return it.value ?: packageName }
@@ -70,12 +70,13 @@ class CachedAppLabels(
         return loaded
     }
 
-    override suspend fun packageForUid(uid: Int): String? {
-        if (uid % PER_USER_UID_RANGE < FIRST_APPLICATION_UID) return null // shared platform UIDs own no single app
+    /** Sorted by name; a UID no visible package runs as is cached too, as an empty list. */
+    override suspend fun packagesForUid(uid: Int): List<String> {
+        if (uid % PER_USER_UID_RANGE < FIRST_APPLICATION_UID) return emptyList() // shared platform UIDs own no single app
         val key = uid.toString()
-        packages.get(key)?.let { return it.value }
-        val loaded = withContext(ioDispatcher) { source.loadPackagesForUid(uid) }.minOrNull()
-        packages.put(key, Resolved(loaded))
+        uidPackages.get(key)?.let { return it }
+        val loaded = withContext(ioDispatcher) { source.loadPackagesForUid(uid) }.distinct().sorted()
+        uidPackages.put(key, loaded)
         return loaded
     }
 

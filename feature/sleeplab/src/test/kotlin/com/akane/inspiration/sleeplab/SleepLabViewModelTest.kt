@@ -35,6 +35,7 @@ class SleepLabViewModelTest {
     fun setUp() {
         Dispatchers.setMain(dispatcher)
         deps = FakeSleepLabDeps()
+        deps.appLabels.uidPackages += mapOf(10_001 to listOf("com.chat"), 10_002 to listOf("com.mail"))
     }
 
     @After
@@ -84,8 +85,8 @@ class SleepLabViewModelTest {
     }
 
     @Test
-    fun `rows without a reported package resolve the owner through packageForUid`() = runTest(dispatcher) {
-        deps.appLabels.uidOwners[10_003] = "com.news"
+    fun `rows without a reported package resolve the owner from the uid's packages`() = runTest(dispatcher) {
+        deps.appLabels.uidPackages[10_003] = listOf("com.news")
         deps.appLabels.labels["com.news"] = "News"
         deps.analysis.value = AnalysisState.Ready(
             intervalAnalysis(
@@ -109,6 +110,64 @@ class SleepLabViewModelTest {
         assertEquals("News", alarm.appLabel)
         val unowned = (analysis.appWakelocks as ListUi.Rows).rows.first { it.uid == 1_000 }
         assertEquals(null, unowned.appLabel)
+    }
+
+    private fun newsAnalysis(reported: String?, coveredTo: Long = NOW_MS) = intervalAnalysis(
+        resolved = resolved(coveredTo = coveredTo),
+        diff = snapshotDiff(
+            uids = listOf(uidDelta(10_003, reported, wakelocks = listOf(wakelock("sync", 7_000, 1)), alarms = listOf(UidAlarm("t", 2)))),
+        ),
+    )
+
+    @Test
+    fun `a uid reported under a process name is shown and labelled as its package`() = runTest(dispatcher) {
+        deps.appLabels.uidPackages[10_003] = listOf("com.news")
+        deps.appLabels.labels["com.news"] = "News"
+        deps.analysis.value = AnalysisState.Ready(newsAnalysis(reported = "com.news:sync"))
+        val vm = viewModel()
+
+        visible(vm)
+
+        val analysis = vm.state.value.analysis as AnalysisUi.Ready
+        val wake = (analysis.appWakelocks as ListUi.Rows).rows.single()
+        assertEquals("com.news", wake.packageName)
+        assertEquals("News", wake.appLabel)
+        assertEquals("News", (analysis.alarms as ListUi.Rows).rows.single().appLabel)
+        assertEquals("labels are read for the package, never the process name", listOf("com.news"), deps.appLabels.looked.distinct())
+    }
+
+    @Test
+    fun `a uid no installed package runs as is shown by its uid, whatever was reported`() = runTest(dispatcher) {
+        deps.analysis.value = AnalysisState.Ready(newsAnalysis(reported = "com.news:sync"))
+        val vm = viewModel()
+
+        visible(vm)
+
+        val wake = ((vm.state.value.analysis as AnalysisUi.Ready).appWakelocks as ListUi.Rows).rows.single()
+        assertNull(wake.packageName)
+        assertNull(wake.appLabel)
+        assertTrue(deps.appLabels.looked.isEmpty())
+    }
+
+    @Test
+    fun `a uid lookup that failed is asked again on the next analysis instead of being remembered`() = runTest(dispatcher) {
+        deps.appLabels.uidFailure = IllegalStateException("package manager died")
+        deps.analysis.value = AnalysisState.Ready(newsAnalysis(reported = null))
+        val vm = viewModel()
+        visible(vm)
+        val first = ((vm.state.value.analysis as AnalysisUi.Ready).appWakelocks as ListUi.Rows).rows.single()
+        assertNull("a failed lookup degrades the row, not the screen", first.appLabel)
+
+        deps.appLabels.uidFailure = null
+        deps.appLabels.uidPackages[10_003] = listOf("com.news")
+        deps.appLabels.labels["com.news"] = "News"
+        // A refresh produced a newer analysis (a different object; an equal one would be conflated away).
+        deps.analysis.value = AnalysisState.Ready(newsAnalysis(reported = null, coveredTo = NOW_MS - MIN_MS))
+        runCurrent()
+
+        val second = ((vm.state.value.analysis as AnalysisUi.Ready).appWakelocks as ListUi.Rows).rows.single()
+        assertEquals("News", second.appLabel)
+        assertEquals(listOf(10_003, 10_003), deps.appLabels.uidLooked)
     }
 
     @Test

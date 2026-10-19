@@ -11,6 +11,7 @@ import com.akane.inspiration.ipc.toolkit.AppOpMode
 import com.akane.inspiration.ipc.toolkit.StandbyBucket
 import com.akane.inspiration.telemetry.app.RefreshResult
 import com.akane.inspiration.telemetry.app.attempt
+import com.akane.inspiration.telemetry.app.packageForUid
 import com.akane.inspiration.telemetry.diff.ReferenceKind
 import com.akane.inspiration.telemetry.toolkit.AppToolkitState
 import com.akane.inspiration.telemetry.toolkit.Override
@@ -178,8 +179,9 @@ class XRayViewModel(private val deps: XRayDependencies) : ViewModel() {
     }
 
     private suspend fun withIdentities(rows: List<AppRow>): List<AppRow> = rows.map { row ->
-        // batterystats often reports an app UID without a package; PackageManager knows which one owns it.
-        val pkg = row.packageName ?: deps.appLabels.packageForUid(row.uid) ?: return@map row
+        // batterystats names a UID by one of its process names ("com.app:push"), or not at all; only the UID's
+        // installed packages say which app it is. The quick actions act on that package, so it is never the hint.
+        val pkg = deps.appLabels.packageForUid(row.uid, reported = row.packageName) ?: return@map row.copy(packageName = null)
         // Icons are not loaded here: rows load their own when composed, so an emission costs no bitmaps.
         row.copy(packageName = pkg, label = deps.appLabels.label(pkg))
     }

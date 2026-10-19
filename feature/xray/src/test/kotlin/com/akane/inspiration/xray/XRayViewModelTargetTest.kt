@@ -43,7 +43,7 @@ class XRayViewModelTargetTest {
     fun setUp() {
         Dispatchers.setMain(UnconfinedTestDispatcher())
         deps = FakeXRayDeps()
-        deps.packagesByUid[SUITE_UID] = SUITE_A
+        deps.packagesByUid[SUITE_UID] = listOf(SUITE_A, SUITE_B)
         deps.analysis.value = suiteAnalysis(packageName = null, totalMah = 30.0)
         vm = XRayViewModel(deps)
         vm.onIntent(XRayIntent.Visible)
