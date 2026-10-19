@@ -142,6 +142,12 @@ class RoomSnapshotStore(
 
     override suspend fun setHistoryCursor(statsStartMs: Long, lastHistoryTimeMs: Long) {
         database.withTransaction {
+            // Forward only within a stats session (a late, older write must not undo a newer one); a new session
+            // starts its own cursor.
+            val current = database.historyDao().cursor()
+            if (current != null && current.statsStartMs == statsStartMs && current.lastHistoryTimeMs >= lastHistoryTimeMs) {
+                return@withTransaction
+            }
             database.historyDao().upsertCursor(
                 HistoryCursorEntity(
                     statsStartMs = statsStartMs,

@@ -27,7 +27,10 @@ import com.akane.inspiration.telemetry.store.Marker
 import com.akane.inspiration.telemetry.store.SnapshotStore
 import com.akane.inspiration.telemetry.store.TelemetrySample
 import com.akane.inspiration.telemetry.store.ToolkitActionRecord
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.async
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.coroutines.yield
@@ -187,6 +190,39 @@ class SnapshotCapturerTest {
         assertEquals(listOf(old, new), store.history)
         assertEquals(20L to 9L, store.cursor)
         assertEquals(10L to 5L, source.receivedCursors.last())
+    }
+
+    @Test
+    fun `overlapping history ingests run one at a time, each from the cursor the last one left`() = runTest {
+        val store = FakeStore()
+        val gate = CompletableDeferred<Unit>()
+        val source = object : FakeSource(
+            histories = listOf(
+                listOf(page(truncated = false, historyEvent(100))),
+                listOf(page(truncated = false, historyEvent(200))),
+            ),
+        ) {
+            override suspend fun full(trigger: CaptureTrigger, historyCursor: Pair<Long, Long>?): FullRead {
+                val first = receivedCursors.isEmpty()
+                val read = super.full(trigger, historyCursor)
+                if (first) gate.await() // e.g. the app-open refresh, stalled in a slow dump
+                return read
+            }
+        }
+        val capturer = SnapshotCapturer(source, store, TestClocks())
+
+        val slow = async { capturer.ingestHistory(CaptureTrigger.APP_OPEN, deadlineMs = 10_000) }
+        runCurrent()
+        val fast = async { capturer.ingestHistory(CaptureTrigger.CHARGE_JOB, deadlineMs = 10_000) }
+        runCurrent()
+        assertEquals("the second ingest waits for the first", 1, source.receivedCursors.size)
+
+        gate.complete(Unit)
+        slow.await()
+        fast.await()
+
+        assertEquals(listOf(0L to 0L, 10L to 100L), source.receivedCursors)
+        assertEquals(10L to 200L, store.cursor)
     }
 
     @Test

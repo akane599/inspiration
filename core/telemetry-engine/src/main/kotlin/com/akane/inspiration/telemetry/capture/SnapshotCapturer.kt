@@ -21,6 +21,8 @@ import com.akane.inspiration.telemetry.source.TelemetrySource
 import com.akane.inspiration.telemetry.store.SnapshotStore
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 import kotlin.math.abs
@@ -30,7 +32,24 @@ class SnapshotCapturer(
     private val store: SnapshotStore,
     private val clocks: Clocks,
 ) {
+    /**
+     * History ingests run one at a time (the app-open refresh, a marker, the charge job all share this capturer):
+     * each starts from the cursor, so one that overlapped a slower one would page the same history again.
+     */
+    private val historyIngestLock = Mutex()
+
+    /** With [ingestHistory] it waits for any other history ingest to finish; [deadlineMs] bounds the read. */
     suspend fun captureFull(
+        trigger: CaptureTrigger,
+        deadlineMs: Long,
+        ingestHistory: Boolean,
+    ): CaptureResult = if (ingestHistory) {
+        historyIngestLock.withLock { readAndSave(trigger, deadlineMs, ingestHistory = true) }
+    } else {
+        readAndSave(trigger, deadlineMs, ingestHistory = false)
+    }
+
+    private suspend fun readAndSave(
         trigger: CaptureTrigger,
         deadlineMs: Long,
         ingestHistory: Boolean,
@@ -56,10 +75,10 @@ class SnapshotCapturer(
      * then decides to capture saves it with [captureFull] instead of making a second full read. Each history page
      * is persisted as it arrives, so the pages read before the deadline count even when the read misses it.
      */
-    suspend fun ingestHistory(trigger: CaptureTrigger, deadlineMs: Long): HistoryIngest {
+    suspend fun ingestHistory(trigger: CaptureTrigger, deadlineMs: Long): HistoryIngest = historyIngestLock.withLock {
         val cursor = store.historyCursor() ?: (0L to 0L)
         val read = withTimeoutOrNull(deadlineMs) { source.full(trigger, cursor) { persistPage(it) } }
-        return HistoryIngest(trigger, read)
+        HistoryIngest(trigger, read)
     }
 
     /** Saves the snapshot of [ingest]'s read; a read that failed or timed out is recorded as a miss, not retried. */
