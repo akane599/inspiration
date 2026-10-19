@@ -34,6 +34,10 @@ data class SnapshotEntity(
     val chargeCounterUah: Long? = null,
     val dischargedMah: Double? = null,
     @ColumnInfo(defaultValue = "0") val truncatedUids: Int = 0,
+    val uidIdentityUserId: Int? = null,
+    val uidIdentityUserSerial: Long? = null,
+    val uidIdentityReaderEpoch: String? = null,
+    val uidIdentityPackageChangeSequence: Int? = null,
 )
 
 @Entity(
@@ -121,6 +125,7 @@ data class SnapshotUidEntity(
     val cpuSystemMs: Long,
     val fgActivityMs: Long,
     val fgServiceMs: Long,
+    val ownerInstallFingerprint: String? = null,
 )
 
 @Entity(

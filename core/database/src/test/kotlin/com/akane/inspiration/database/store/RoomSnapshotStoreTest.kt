@@ -4,13 +4,18 @@ import androidx.test.core.app.ApplicationProvider
 import com.akane.inspiration.database.InspirationDatabase
 import com.akane.inspiration.database.SnapshotWakelockEntity
 import com.akane.inspiration.database.ToolkitActionEntity
+import com.akane.inspiration.ipc.model.BatteryUsageSnapshot
 import com.akane.inspiration.ipc.model.HistoryEvent
 import com.akane.inspiration.ipc.model.HistoryKind
+import com.akane.inspiration.ipc.model.UidUsage
 import com.akane.inspiration.telemetry.capacity.ChargeSegment
 import com.akane.inspiration.telemetry.capacity.SegmentVerdict
+import com.akane.inspiration.telemetry.capture.SnapshotCapturer
 import com.akane.inspiration.telemetry.common.Clocks
 import com.akane.inspiration.telemetry.diff.ReferenceKind
 import com.akane.inspiration.telemetry.diff.ReferenceResolver
+import com.akane.inspiration.telemetry.diff.SnapshotDiffer
+import com.akane.inspiration.telemetry.dump.DumpParse
 import com.akane.inspiration.telemetry.dump.KernelWakelock
 import com.akane.inspiration.telemetry.dump.SystemTimers
 import com.akane.inspiration.telemetry.dump.UidAlarm
@@ -24,7 +29,14 @@ import com.akane.inspiration.telemetry.snapshot.LiveReading
 import com.akane.inspiration.telemetry.snapshot.SnapshotClock
 import com.akane.inspiration.telemetry.snapshot.SnapshotKind
 import com.akane.inspiration.telemetry.snapshot.SourceAvailability
+import com.akane.inspiration.telemetry.snapshot.UidIdentityProof
+import com.akane.inspiration.telemetry.snapshot.UidIdentityScope
+import com.akane.inspiration.telemetry.snapshot.UidOwnerFingerprint
+import com.akane.inspiration.telemetry.snapshot.UidOwnerInstall
 import com.akane.inspiration.telemetry.snapshot.UidSnapshot
+import com.akane.inspiration.telemetry.source.FullRead
+import com.akane.inspiration.telemetry.source.LightRead
+import com.akane.inspiration.telemetry.source.TelemetrySource
 import com.akane.inspiration.telemetry.status.UnplugSummary
 import com.akane.inspiration.telemetry.status.UnplugSummaryCalculator
 import com.akane.inspiration.telemetry.store.ChargeSessionRecord
@@ -98,6 +110,198 @@ class RoomSnapshotStoreTest {
                 val id = store.insert(snapshot)
                 assertEquals(snapshot.copy(id = id), store.byId(id))
             }
+        }
+
+    @Test
+    fun `identity round trips atomically while partial malformed and cross user evidence stays unknown`() =
+        runBlocking {
+            val scope = UidIdentityScope(0, 7, "test-reader", 0)
+            val fingerprint = requireNotNull(UidOwnerFingerprint.create(10_001, 7, listOf(UidOwnerInstall("test.owner", 10_001, 123))))
+            val snapshot =
+                fullSnapshot(uids = listOf(uidSnapshot().copy(ownerInstallFingerprint = fingerprint)))
+                    .copy(truncatedUids = 0, uidIdentityScope = scope)
+            val id = store.insert(snapshot)
+            assertEquals(snapshot.copy(id = id), store.byId(id))
+            assertEquals(
+                fingerprint,
+                database
+                    .snapshotDao()
+                    .uidsForSnapshot(id)
+                    .single()
+                    .ownerInstallFingerprint,
+            )
+            val secondaryUid = 110_001
+            val secondaryFingerprint =
+                requireNotNull(UidOwnerFingerprint.create(secondaryUid, 0, listOf(UidOwnerInstall("test.owner", secondaryUid, 123))))
+            val secondary =
+                snapshot.copy(
+                    uidIdentityScope = scope.copy(userId = 1, userSerial = 0),
+                    uids = listOf(snapshot.uids.single().copy(uid = secondaryUid, ownerInstallFingerprint = secondaryFingerprint)),
+                )
+            val secondaryId = store.insert(secondary)
+            assertEquals(secondary.copy(id = secondaryId), store.byId(secondaryId))
+            assertTrue(store.unplugWindowSnapshots(0, Long.MAX_VALUE).all { it.uidIdentityScope == null && it.uids.isEmpty() })
+            assertTrue(store.snapshotsBetween(0, Long.MAX_VALUE).all { it.uidIdentityScope == null && it.uids.isEmpty() })
+            val sql = database.openHelper.writableDatabase
+            for (column in listOf(
+                "uidIdentityUserId",
+                "uidIdentityUserSerial",
+                "uidIdentityReaderEpoch",
+                "uidIdentityPackageChangeSequence",
+            )) {
+                val partial = store.insert(snapshot)
+                sql.execSQL("UPDATE snapshot SET `$column` = NULL WHERE id = ?", arrayOf(partial))
+                val read = requireNotNull(store.byId(partial))
+                assertNull(read.uidIdentityScope)
+                assertNull(read.uids.single().ownerInstallFingerprint)
+            }
+            sql.execSQL(
+                "UPDATE snapshot_uid SET ownerInstallFingerprint = ? WHERE snapshotId = ?",
+                arrayOf<Any?>("v2:" + "a".repeat(64), id),
+            )
+            assertNull(
+                store
+                    .byId(id)!!
+                    .uids
+                    .single()
+                    .ownerInstallFingerprint,
+            )
+            val crossUser = store.insert(snapshot.copy(uidIdentityScope = scope.copy(userId = 1)))
+            assertNull(
+                store
+                    .byId(crossUser)!!
+                    .uids
+                    .single()
+                    .ownerInstallFingerprint,
+            )
+            val invalidScope = store.insert(snapshot.copy(uidIdentityScope = scope.copy(userSerial = -1)))
+            assertNull(store.byId(invalidScope)!!.uidIdentityScope)
+        }
+
+    @Test
+    fun `child insertion failure rolls back snapshot scope and uid evidence together`() =
+        runBlocking {
+            val scope = UidIdentityScope(0, 7, "test-reader", 0)
+            val fingerprint = UidOwnerFingerprint.create(10_001, 7, listOf(UidOwnerInstall("test.owner", 10_001, 123)))
+            database.openHelper.writableDatabase.execSQL(
+                "CREATE TRIGGER reject_cpu BEFORE INSERT ON snapshot_cpu_freq BEGIN SELECT RAISE(ABORT, 'test child failure'); END",
+            )
+            val frequency = CpuFreqTime(0, 1_000, 10)
+            val snapshot =
+                fullSnapshot(
+                    uids = listOf(uidSnapshot().copy(ownerInstallFingerprint = fingerprint)),
+                    cpuFreq = listOf(frequency),
+                ).copy(uidIdentityScope = scope, truncatedUids = 0)
+            assertTrue(runCatching { store.insert(snapshot) }.isFailure)
+            assertNull(store.latest())
+            for (table in listOf("snapshot", "snapshot_uid", "snapshot_component", "snapshot_cpu_freq")) {
+                database.openHelper.readableDatabase.query("SELECT COUNT(*) FROM `$table`").use {
+                    assertTrue(it.moveToFirst())
+                    assertEquals(0, it.getInt(0))
+                }
+            }
+        }
+
+    @Test
+    fun `capture Room differ retains shared hint rotation but suppresses legacy scope changes and truncation`() =
+        runBlocking {
+            val scope = UidIdentityScope(0, 7, "test-reader", 0)
+            val fingerprint =
+                requireNotNull(
+                    UidOwnerFingerprint.create(
+                        10_001,
+                        7,
+                        listOf(
+                            UidOwnerInstall("shared.a", 10_001, 123),
+                            UidOwnerInstall("shared.b", 10_001, 456),
+                        ),
+                    ),
+                )
+            var elapsed = 1_000L
+            var total = 30.0
+            var hint = "shared.a"
+            var proof: UidIdentityProof? = UidIdentityProof(scope, mapOf(10_001 to fingerprint))
+            var truncated = 0
+            val source =
+                object : TelemetrySource {
+                    override fun light() =
+                        LightRead(
+                            SnapshotClock(elapsed, elapsed, elapsed / 2, 1, null, null),
+                            70,
+                            false,
+                            "discharging",
+                            null,
+                            null,
+                            null,
+                            null,
+                        )
+
+                    override suspend fun full(
+                        trigger: CaptureTrigger,
+                        historyCursor: Pair<Long, Long>?,
+                    ) = FullRead(
+                        light(),
+                        BatteryUsageSnapshot(
+                            true,
+                            null,
+                            10,
+                            10 + elapsed,
+                            total,
+                            0,
+                            0,
+                            listOf(UidUsage(10_001, hint, total, emptyMap(), emptyMap())),
+                            deviceComponents = mapOf("CPU" to total),
+                            truncatedUids = truncated,
+                        ),
+                        DumpParse.Unavailable("test"),
+                        DumpParse.Unavailable("test"),
+                        null,
+                        emptyList(),
+                        emptyList(),
+                        proof,
+                    )
+                }
+            val capturer = SnapshotCapturer(source, store, TestClocks(1_000, 1_000))
+
+            suspend fun capture(): BatterySnapshot {
+                val result = capturer.captureFull(CaptureTrigger.APP_OPEN, deadlineMs = 1_000, ingestHistory = false)
+                assertTrue(result is com.akane.inspiration.telemetry.capture.CaptureResult.Saved)
+                return requireNotNull(store.latest())
+            }
+            val ref = capture()
+            elapsed = 2_000
+            total = 50.0
+            hint = "shared.b"
+            val now = capture()
+            val good = SnapshotDiffer.diff(ref, now)
+            assertTrue(good.uids.single().valid)
+            assertFalse(good.uids.single().packageChanged)
+            assertEquals(20.0, good.uids.single().totalMah, 0.0)
+            for (badProof in listOf(null, UidIdentityProof(scope.copy(packageChangeSequence = 1), mapOf(10_001 to fingerprint)))) {
+                proof = badProof
+                val withheld = SnapshotDiffer.diff(ref, capture())
+                assertFalse(withheld.uids.single().valid)
+                assertEquals(20.0, withheld.deviceComponentsMah.getValue("CPU"), 0.0)
+            }
+            proof = UidIdentityProof(scope, mapOf(10_001 to fingerprint))
+            truncated = 1
+            val truncatedNow = capture()
+            assertNull(truncatedNow.uidIdentityScope)
+            assertFalse(
+                SnapshotDiffer
+                    .diff(ref, truncatedNow)
+                    .uids
+                    .single()
+                    .valid,
+            )
+            assertTrue(
+                SnapshotDiffer
+                    .diff(ref, truncatedNow)
+                    .validity.problems
+                    .contains("truncated_uid_usage"),
+            )
+            capturer.captureLight(CaptureTrigger.SCREEN_OFF)
+            assertNull(store.latest()!!.uidIdentityScope)
         }
 
     @Test

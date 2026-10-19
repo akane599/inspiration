@@ -6,6 +6,9 @@ import com.akane.inspiration.telemetry.dump.UidAlarm
 import com.akane.inspiration.telemetry.dump.UidWakelock
 import com.akane.inspiration.telemetry.snapshot.SnapshotKind
 import com.akane.inspiration.telemetry.snapshot.SourceAvailability
+import com.akane.inspiration.telemetry.snapshot.UidIdentityScope
+import com.akane.inspiration.telemetry.snapshot.UidOwnerFingerprint
+import com.akane.inspiration.telemetry.snapshot.UidOwnerInstall
 import com.akane.inspiration.telemetry.snapshot.UidSnapshot
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
@@ -31,6 +34,7 @@ class XRayMapperTest {
                 fgServiceMs = 0,
                 partialWakelocks = emptyList(),
                 wakeupAlarms = emptyList(),
+                ownerInstallFingerprint = UidOwnerFingerprint.create(10_001, 7, listOf(UidOwnerInstall("test.owner", 10_001, 123))),
             )
         val ref =
             snapshotAt(1_000).let { snapshot ->
@@ -38,6 +42,7 @@ class XRayMapperTest {
                     kind = SnapshotKind.FULL,
                     clock = snapshot.clock.copy(statsStartMs = 100_000, statsDurationMs = 1_000),
                     uids = listOf(previousUid),
+                    uidIdentityScope = UidIdentityScope(0, 7, "test-reader", 0),
                     deviceComponentsMah = mapOf("CPU" to 4.0),
                 )
             }
@@ -49,6 +54,15 @@ class XRayMapperTest {
             )
         val complete = XRayMapper.apps(SnapshotDiffer.diff(ref, now), perUidAvailable = true)
         assertEquals(10.0, complete.single().totalMah, 0.0)
+        for (unknown in listOf(
+            now.copy(uidIdentityScope = null),
+            now.copy(uidIdentityScope = now.uidIdentityScope!!.copy(readerEpoch = "new-reader")),
+            now.copy(uids = listOf(previousUid.copy(totalMah = 50.0, ownerInstallFingerprint = null))),
+        )) {
+            val withheld = SnapshotDiffer.diff(ref, unknown)
+            assertTrue(XRayMapper.apps(withheld, perUidAvailable = true).isEmpty())
+            assertEquals(1.0, XRayMapper.components(withheld).single { it.key == "CPU" }.mah!!, 0.0)
+        }
 
         for ((refTruncated, nowTruncated) in listOf(1 to 0, 0 to 1, 1 to 1)) {
             val dropped =

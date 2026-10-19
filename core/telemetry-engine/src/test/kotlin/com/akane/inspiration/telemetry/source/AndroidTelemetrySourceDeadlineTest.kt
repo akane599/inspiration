@@ -38,6 +38,7 @@ import com.akane.inspiration.telemetry.snapshot.CaptureTrigger
 import com.akane.inspiration.telemetry.snapshot.LiveReading
 import com.akane.inspiration.telemetry.snapshot.SnapshotKind
 import com.akane.inspiration.telemetry.snapshot.SourceAvailability
+import com.akane.inspiration.telemetry.snapshot.UidOwnerInstall
 import com.akane.inspiration.telemetry.store.ChargeSessionRecord
 import com.akane.inspiration.telemetry.store.HealthSample
 import com.akane.inspiration.telemetry.store.Marker
@@ -322,7 +323,16 @@ class AndroidTelemetrySourceDeadlineTest {
                         }
                     }
                 val store = MemoryStore()
-                val capturer = SnapshotCapturer(source(service, clocks), store, clocks)
+                val capturer =
+                    SnapshotCapturer(
+                        source(
+                            service,
+                            clocks,
+                            UidIdentityReader(KnownIdentityBackend(), openingBudgetMs = 1_000, closingBudgetMs = 1_000),
+                        ),
+                        store,
+                        clocks,
+                    )
 
                 capturer.captureFull(CaptureTrigger.MARKER, deadlineMs = 5_000, ingestHistory = false)
                 elapsed = 2_000L
@@ -366,17 +376,151 @@ class AndroidTelemetrySourceDeadlineTest {
             }
         }
 
+    @Test
+    fun `full identity guards surround telemetry while LIGHT and kernel reads never query owners`() =
+        runBlocking {
+            val backend = KnownIdentityBackend()
+            var changeDuringTelemetry = false
+            val service =
+                object : ITelemetryUserService.Default() {
+                    override fun readBatteryUsage(maxAgeMs: Long): BatteryUsageSnapshot {
+                        if (changeDuringTelemetry) backend.sequence++
+                        return BatteryUsageSnapshot(
+                            true,
+                            null,
+                            10,
+                            20,
+                            40.0,
+                            0,
+                            0,
+                            listOf(UidUsage(12345, "hint", 40.0, emptyMap(), emptyMap())),
+                        )
+                    }
+
+                    override fun openDump(target: Int): DumpResult = DumpResult.unavailable("test")
+
+                    override fun readKernelBattery() = KernelBatterySnapshot.unavailable("test")
+                }
+            val telemetry =
+                source(service, uidIdentityReader = UidIdentityReader(backend, openingBudgetMs = 1_000, closingBudgetMs = 1_000))
+            telemetry.light()
+            telemetry.kernelReading()
+            assertEquals(0, backend.calls.get())
+            assertNotNull(telemetry.full(CaptureTrigger.APP_OPEN, null)!!.uidIdentity)
+            changeDuringTelemetry = true
+            val changed = requireNotNull(telemetry.full(CaptureTrigger.APP_OPEN, null))
+            assertNull(changed.uidIdentity)
+            assertEquals(
+                40.0,
+                changed.usage!!
+                    .uids
+                    .single()
+                    .totalMah,
+                0.0,
+            )
+        }
+
+    @Test
+    fun `identity owner timeout preserves acquired FULL telemetry before the outer deadline`() =
+        runBlocking {
+            val started = CountDownLatch(1)
+            val release = CountDownLatch(1)
+            val finished = CountDownLatch(1)
+            val backend =
+                object : KnownIdentityBackend() {
+                    override fun packagesForUid(uid: Int): List<String> {
+                        started.countDown()
+                        try {
+                            release.await()
+                        } finally {
+                            finished.countDown()
+                        }
+                        return super.packagesForUid(uid)
+                    }
+                }
+            val service =
+                object : ITelemetryUserService.Default() {
+                    override fun readBatteryUsage(maxAgeMs: Long) =
+                        BatteryUsageSnapshot(
+                            true,
+                            null,
+                            10,
+                            20,
+                            40.0,
+                            0,
+                            0,
+                            listOf(UidUsage(12345, "hint", 40.0, emptyMap(), emptyMap())),
+                            deviceComponents = mapOf("CPU" to 10.0),
+                        )
+
+                    override fun openDump(target: Int) = DumpResult.unavailable("test")
+                }
+            val store = MemoryStore()
+            val telemetry =
+                source(
+                    service,
+                    uidIdentityReader = UidIdentityReader(backend, openingBudgetMs = 1_000, ownerBudgetMs = 50, closingBudgetMs = 1_000),
+                )
+            val call =
+                async(
+                    Dispatchers.Default,
+                ) { SnapshotCapturer(telemetry, store, FixedClocks).captureFull(CaptureTrigger.APP_OPEN, 3_000, false) }
+            try {
+                assertTrue(started.await(2, TimeUnit.SECONDS))
+                assertTrue(withTimeout(2_000) { call.await() } is CaptureResult.Saved)
+                val saved = store.snapshots.single()
+                assertNull(saved.uidIdentityScope)
+                assertNull(saved.uids.single().ownerInstallFingerprint)
+                assertEquals(40.0, saved.uids.single().totalMah, 0.0)
+                assertEquals(10.0, saved.deviceComponentsMah.getValue("CPU"), 0.0)
+                assertEquals(1L, finished.count)
+            } finally {
+                release.countDown()
+                call.cancelAndJoin()
+                assertTrue(finished.await(2, TimeUnit.SECONDS))
+            }
+        }
+
+    private open class KnownIdentityBackend : UidIdentityBackend {
+        override val userId = 0
+        var sequence = 0
+        val calls = AtomicInteger()
+
+        override fun userSerial(): Long {
+            calls.incrementAndGet()
+            return 7
+        }
+
+        override fun packageChangeSequence(): Int {
+            calls.incrementAndGet()
+            return sequence
+        }
+
+        override fun packagesForUid(uid: Int): List<String> {
+            calls.incrementAndGet()
+            return listOf("test.owner")
+        }
+
+        override fun packageInfo(packageName: String): UidOwnerInstall {
+            calls.incrementAndGet()
+            return UidOwnerInstall(packageName, 12345, 123)
+        }
+    }
+
     private fun elapsedMs(startedNs: Long) = (System.nanoTime() - startedNs) / 1_000_000
 
     private fun source(
         service: ITelemetryUserService,
         clocks: Clocks = FixedClocks,
-    ) = source(DirectShizuku(service), clocks)
+        uidIdentityReader: UidIdentityReader = UidIdentityReader(AndroidUidIdentityBackend(RuntimeEnvironment.getApplication())),
+    ) = source(DirectShizuku(service), clocks, uidIdentityReader)
 
     private fun source(
         shizuku: ShizukuManager,
         clocks: Clocks = FixedClocks,
+        uidIdentityReader: UidIdentityReader = UidIdentityReader(AndroidUidIdentityBackend(RuntimeEnvironment.getApplication())),
     ) = AndroidTelemetrySource(
+        uidIdentityReader = uidIdentityReader,
         context = RuntimeEnvironment.getApplication(),
         shizuku = shizuku,
         clocks = clocks,

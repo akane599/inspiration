@@ -35,6 +35,8 @@ import com.akane.inspiration.telemetry.snapshot.LiveReading
 import com.akane.inspiration.telemetry.snapshot.SnapshotClock
 import com.akane.inspiration.telemetry.snapshot.SnapshotKind
 import com.akane.inspiration.telemetry.snapshot.SourceAvailability
+import com.akane.inspiration.telemetry.snapshot.UidIdentityScope
+import com.akane.inspiration.telemetry.snapshot.UidOwnerFingerprint
 import com.akane.inspiration.telemetry.snapshot.UidSnapshot
 import com.akane.inspiration.telemetry.store.ChargeSessionRecord
 import com.akane.inspiration.telemetry.store.HealthSample
@@ -297,6 +299,7 @@ class RoomSnapshotStore(
 
     private suspend fun readSnapshot(snapshot: SnapshotEntity): BatterySnapshot {
         val snapshotDao = database.snapshotDao()
+        val identityScope = snapshot.identityScope()
         val components = snapshotDao.componentsForSnapshot(snapshot.id)
         val wakelocks = snapshotDao.wakelocksForSnapshot(snapshot.id)
         val alarms = snapshotDao.alarmsForSnapshot(snapshot.id)
@@ -338,6 +341,7 @@ class RoomSnapshotStore(
                         wakelocks = partialWakelocksByUid[uid.uid].orEmpty(),
                         alarms = alarmsByUid[uid.uid].orEmpty(),
                         sensors = sensorsByUid[uid.uid].orEmpty(),
+                        identityScope = identityScope,
                     )
                 },
             deviceComponentsMah = componentsByUid[DEVICE_UID].orEmpty().associate { it.component to it.mah },
@@ -358,6 +362,7 @@ class RoomSnapshotStore(
                     it.source to SourceAvailability(it.available, it.reason)
                 },
             truncatedUids = snapshot.truncatedUids,
+            uidIdentityScope = identityScope,
         )
     }
 
@@ -391,6 +396,14 @@ class RoomSnapshotStore(
 
     private fun SnapshotEntity.toClock() = SnapshotClock(wallMs, elapsedRealtimeMs, uptimeMs, bootCount, statsStartMs, statsDurationMs)
 
+    private fun SnapshotEntity.identityScope(): UidIdentityScope? {
+        val userId = uidIdentityUserId ?: return null
+        val serial = uidIdentityUserSerial ?: return null
+        val epoch = uidIdentityReaderEpoch ?: return null
+        val sequence = uidIdentityPackageChangeSequence ?: return null
+        return UidIdentityScope(userId, serial, epoch, sequence).takeIf { it.isKnown() }
+    }
+
     private fun BatterySnapshot.toEntity() =
         SnapshotEntity(
             kind = kind.name,
@@ -410,6 +423,10 @@ class RoomSnapshotStore(
             chargeCounterUah = battery.chargeCounterUah,
             dischargedMah = battery.dischargedMah,
             truncatedUids = truncatedUids,
+            uidIdentityUserId = uidIdentityScope?.takeIf { it.isKnown() }?.userId,
+            uidIdentityUserSerial = uidIdentityScope?.takeIf { it.isKnown() }?.userSerial,
+            uidIdentityReaderEpoch = uidIdentityScope?.takeIf { it.isKnown() }?.readerEpoch,
+            uidIdentityPackageChangeSequence = uidIdentityScope?.takeIf { it.isKnown() }?.packageChangeSequence,
         )
 
     private fun SystemTimers.toEntity(snapshotId: Long) =
@@ -484,6 +501,7 @@ class RoomSnapshotStore(
             cpuSystemMs = cpuSystemMs,
             fgActivityMs = fgActivityMs,
             fgServiceMs = fgServiceMs,
+            ownerInstallFingerprint = UidOwnerFingerprint.known(ownerInstallFingerprint),
         )
 
     private fun SnapshotUidEntity.toDomain(
@@ -491,6 +509,7 @@ class RoomSnapshotStore(
         wakelocks: List<SnapshotWakelockEntity>,
         alarms: List<SnapshotAlarmEntity>,
         sensors: List<SnapshotUidSensorEntity>,
+        identityScope: UidIdentityScope?,
     ) = UidSnapshot(
         uid = uid,
         packageName = packageName,
@@ -509,6 +528,7 @@ class RoomSnapshotStore(
         wakeupAlarms = alarms.filterNot { it.count == 0L && it.alarmDumpWakeups > 0L }.map { UidAlarm(it.tag, it.count) },
         sensors = sensors.map { UidSensor(it.handle, it.totalMs, it.bgMs, it.count) },
         alarmDumpWakeups = alarms.filter { it.alarmDumpWakeups > 0L }.map { UidAlarm(it.tag, it.alarmDumpWakeups) },
+        ownerInstallFingerprint = if (identityScope?.covers(uid) == true) UidOwnerFingerprint.known(ownerInstallFingerprint) else null,
     )
 
     private fun BatterySnapshot.componentEntities(snapshotId: Long): List<SnapshotComponentEntity> =

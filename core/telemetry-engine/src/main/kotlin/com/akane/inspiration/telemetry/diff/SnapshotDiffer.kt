@@ -12,7 +12,9 @@ import com.akane.inspiration.telemetry.snapshot.DiffValidity
 import com.akane.inspiration.telemetry.snapshot.SleepStats
 import com.akane.inspiration.telemetry.snapshot.SnapshotDiff
 import com.akane.inspiration.telemetry.snapshot.UidDelta
+import com.akane.inspiration.telemetry.snapshot.UidOwnerFingerprint
 import com.akane.inspiration.telemetry.snapshot.UidSnapshot
+import com.akane.inspiration.telemetry.snapshot.isApplicationUid
 import kotlin.math.abs
 
 object SnapshotDiffer {
@@ -217,12 +219,23 @@ object SnapshotDiffer {
         return (refByUid.keys + nowByUid.keys).sorted().map { uid ->
             val previous = refByUid[uid]
             val current = nowByUid[uid]
+            val applicationUid = isApplicationUid(uid)
+            val scope = ref.uidIdentityScope
+            val comparableScope =
+                scope != null && scope.isKnown() && scope == now.uidIdentityScope &&
+                    scope.covers(uid) && ref.clock.bootCount >= 0 && sameBootWithIncreasingElapsed(ref, now)
+            val previousFingerprint = UidOwnerFingerprint.known(previous?.ownerInstallFingerprint)
+            val currentFingerprint = UidOwnerFingerprint.known(current?.ownerInstallFingerprint)
+            val knownOwners = comparableScope && previousFingerprint != null && currentFingerprint != null
+            val packageChanged = applicationUid && knownOwners && previousFingerprint != currentFingerprint
+            val identityValid = !applicationUid || (knownOwners && previousFingerprint == currentFingerprint)
+            if (!identityValid) problems += if (packageChanged) "uid_identity_changed:$uid" else "uid_identity_unknown:$uid"
             if (current == null) {
                 UidDelta(
                     uid = uid,
                     packageName = previous?.packageName,
                     packageChanged = false,
-                    valid = true,
+                    valid = identityValid,
                     totalMah = 0.0,
                     fgMah = previous?.fgMah?.let { 0.0 },
                     bgMah = previous?.bgMah?.let { 0.0 },
@@ -239,15 +252,9 @@ object SnapshotDiffer {
                     alarmDumpWakeups = previous?.alarmDumpWakeups?.map { it.copy(count = 0) }.orEmpty(),
                 )
             } else {
-                // packageName is the framework's "package with highest drain": often null when nothing was
-                // attributed, and may carry a ":process" suffix. Only two known, different packages mean the
-                // UID was reused; real reuse also shows up as negative deltas, which `valid` already gates.
-                val previousPackage = previous?.packageName?.substringBefore(':')
-                val currentPackage = current.packageName?.substringBefore(':')
-                val packageChanged =
-                    uid >= FIRST_APPLICATION_UID &&
-                        previousPackage != null && currentPackage != null && previousPackage != currentPackage
-                val baseline = if (packageChanged) null else previous
+                // The highest-drain package is only a display hint. Never reset to a zero baseline
+                // on hint rotation or unknown identity: application output requires proof at both endpoints.
+                val baseline = previous
                 val delta =
                     UidDelta(
                         uid = uid,
@@ -289,9 +296,9 @@ object SnapshotDiffer {
                                 "negative_uid_alarm_dump",
                             ),
                     )
-                val valid = !hasNegative(delta)
-                if (!valid) problems += "negative_uid:$uid"
-                delta.copy(valid = valid)
+                val countersValid = !hasNegative(delta)
+                if (!countersValid) problems += "negative_uid:$uid"
+                delta.copy(valid = identityValid && countersValid)
             }
         }
     }
@@ -484,6 +491,4 @@ object SnapshotDiffer {
         now: Double?,
         ref: Double?,
     ): Double? = now?.minus(ref ?: 0.0)
-
-    private const val FIRST_APPLICATION_UID = 10_000
 }

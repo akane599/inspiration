@@ -75,22 +75,16 @@ class InspirationDatabaseTest {
     @Test
     fun `version two derived estimates are cleared once while raw kernel health survives`() =
         runBlocking {
-            database.healthDao().insert(HealthSampleEntity(1, 4800.0, 5000.0, 123, 4500.0))
-            database.chargeSessionDao().upsert(
-                ChargeSessionEntity(
-                    statsStartMs = 1,
-                    startHistoryTimeMs = 100,
-                    startWallMs = 100,
-                    endWallMs = 200,
-                    startPct = 20,
-                    endPct = 80,
-                    estimateMah = 4500.0,
-                    independent = true,
-                    accepted = true,
-                ),
-            )
             database.close()
-            context.openOrCreateDatabase(databaseName, 0, null).use { it.version = 2 }
+            context.openOrCreateDatabase(databaseName, 0, null).use { old ->
+                createExportedSchema(old, version = 2)
+                old.execSQL("INSERT INTO battery_health_sample VALUES (1, 4800, 5000, 123, 4500)")
+                old.execSQL(
+                    "INSERT INTO charge_session (statsStartMs, startHistoryTimeMs, startWallMs, endWallMs, startPct, endPct, estimateMah, independent, accepted) " +
+                        "VALUES (1, 100, 100, 200, 20, 80, 4500, 1, 1)",
+                )
+                old.version = 2
+            }
             database = InspirationDatabase.create(context, databaseName)
             assertTrue(database.chargeSessionDao().all().isEmpty())
             assertEquals(listOf(HealthSampleEntity(1, 4800.0, 5000.0, 123, null)), database.healthDao().all())
@@ -122,13 +116,159 @@ class InspirationDatabaseTest {
                 old.version = 3
             }
 
-            // Opening runs MIGRATION_3_4, then Room checks the result against the version 4 entities.
+            // Opening runs the migration chain, then Room validates against the current entities.
             database = InspirationDatabase.create(context, databaseName)
 
             assertEquals(5L, database.snapshotDao().latestByTrigger("SCREEN_ON")!!.wallMs)
             val sqlite = database.openHelper.readableDatabase
             assertEquals(listOf("trigger", "wallMs"), sqlite.query("PRAGMA index_info(`$TRIGGER_INDEX`)").strings("name"))
             assertLatestByTriggerSearchesTheIndex()
+        }
+
+    @Test
+    fun `version four identity columns are nullable and preserve raw data index and foreign keys`() =
+        runBlocking {
+            database.close()
+            context.openOrCreateDatabase(databaseName, 0, null).use { old ->
+                createExportedSchema(old, version = 4)
+                old.execSQL(
+                    "INSERT INTO snapshot (id, kind, trigger, wallMs, elapsedRealtimeMs, uptimeMs, bootCount, truncatedUids) VALUES (42, 'FULL', 'APP_OPEN', 5, 6, 3, 1, 2)",
+                )
+                old.execSQL(
+                    "INSERT INTO snapshot_uid (snapshotId, uid, packageName, totalMah, cpuUserMs, cpuSystemMs, fgActivityMs, fgServiceMs) VALUES (42, 10001, 'test.owner', 40, 4, 5, 6, 7)",
+                )
+                old.execSQL("INSERT INTO snapshot_component VALUES (42, 10001, 'CPU', 10)")
+                old.execSQL("INSERT INTO snapshot_availability VALUES (42, 'usage', 1, NULL)")
+                old.execSQL("INSERT INTO snapshot_uid_sensor VALUES (42, 10001, 7, 100, 50, 2)")
+                old.execSQL("INSERT INTO snapshot_alarm VALUES (42, 10001, 'sync', 3, 4)")
+                old.execSQL("INSERT INTO snapshot_wakelock VALUES (42, 'PARTIAL', 10001, 'held', 100, 50, 2)")
+                old.execSQL("INSERT INTO snapshot_cpu_freq VALUES (42, 0, 1000, 100)")
+                old.execSQL("INSERT INTO history_event (statsStartMs, historyTimeMs, wallMs, kind) VALUES (100, 200, 300, '1')")
+                old.execSQL(
+                    "INSERT INTO charge_session (statsStartMs, startHistoryTimeMs, startWallMs, endWallMs, startPct, endPct, estimateMah, independent, accepted) VALUES (1, 100, 100, 200, 20, 80, 4500, 1, 1)",
+                )
+                old.execSQL("INSERT INTO toolkit_action (startedAt, kind, op, status) VALUES (1, 'test', 'test', 'done')")
+                old.execSQL("INSERT INTO history_cursor VALUES (1, 100, 200)")
+                old.execSQL("INSERT INTO battery_health_sample VALUES (1, 4800, 5000, NULL, 4700)")
+                old.version = 4
+            }
+            // Production builder runs 4->5 and Room validates the migrated schema against fresh v5 entities.
+            database = InspirationDatabase.create(context, databaseName)
+            val row = requireNotNull(database.snapshotDao().byId(42))
+            assertEquals(2, row.truncatedUids)
+            assertNull(row.uidIdentityUserId)
+            assertNull(row.uidIdentityUserSerial)
+            assertNull(row.uidIdentityReaderEpoch)
+            assertNull(row.uidIdentityPackageChangeSequence)
+            val uid = database.snapshotDao().uidsForSnapshot(42).single()
+            assertEquals(40.0, uid.totalMah, 0.0)
+            assertEquals("test.owner", uid.packageName)
+            assertNull(uid.ownerInstallFingerprint)
+            assertEquals(
+                100L,
+                database
+                    .snapshotDao()
+                    .uidSensorsForSnapshot(42)
+                    .single()
+                    .totalMs,
+            )
+            assertEquals(
+                4L,
+                database
+                    .snapshotDao()
+                    .alarmsForSnapshot(42)
+                    .single()
+                    .alarmDumpWakeups,
+            )
+            assertEquals(
+                100L,
+                database
+                    .snapshotDao()
+                    .wakelocksForSnapshot(42)
+                    .single()
+                    .durationMs,
+            )
+            assertEquals(
+                100L,
+                database
+                    .snapshotDao()
+                    .cpuFrequenciesForSnapshot(42)
+                    .single()
+                    .timeMs,
+            )
+            assertTrue(
+                database
+                    .snapshotDao()
+                    .availabilityForSnapshot(42)
+                    .single()
+                    .available,
+            )
+            assertEquals(1, database.historyDao().between(0, 1_000).size)
+            assertEquals(
+                4500.0,
+                requireNotNull(
+                    database
+                        .chargeSessionDao()
+                        .all()
+                        .single()
+                        .estimateMah,
+                ),
+                0.0,
+            )
+            assertEquals(
+                "done",
+                database
+                    .toolkitActionDao()
+                    .newest(1)
+                    .single()
+                    .status,
+            )
+            assertEquals(
+                10.0,
+                database
+                    .snapshotDao()
+                    .componentsForSnapshot(42)
+                    .single()
+                    .mah,
+                0.0,
+            )
+            assertEquals(HistoryCursorEntity(statsStartMs = 100, lastHistoryTimeMs = 200), database.historyDao().cursor())
+            assertEquals(
+                4700.0,
+                requireNotNull(
+                    database
+                        .healthDao()
+                        .all()
+                        .single()
+                        .measuredMah,
+                ),
+                0.0,
+            )
+            val sqlite = database.openHelper.readableDatabase
+            assertEquals(5, sqlite.version)
+            val freshName = "$databaseName-fresh"
+            val fresh = InspirationDatabase.create(context, freshName)
+            try {
+                for (table in listOf("snapshot", "snapshot_uid")) {
+                    fun columns(db: androidx.sqlite.db.SupportSQLiteDatabase): List<List<String?>> =
+                        db.query("PRAGMA table_info(`$table`)").use { cursor ->
+                            buildList { while (cursor.moveToNext()) add((1..5).map { cursor.getString(it) }) }
+                        }
+                    assertEquals(columns(fresh.openHelper.readableDatabase), columns(sqlite))
+                }
+            } finally {
+                fresh.close()
+                context.deleteDatabase(freshName)
+            }
+            assertEquals(listOf("trigger", "wallMs"), sqlite.query("PRAGMA index_info(`$TRIGGER_INDEX`)").strings("name"))
+            sqlite.query("PRAGMA foreign_key_check").use { assertFalse(it.moveToFirst()) }
+            sqlite.query("PRAGMA journal_mode").use {
+                assertTrue(it.moveToFirst())
+                assertEquals("wal", it.getString(0).lowercase())
+            }
+            assertEquals(1, database.snapshotDao().deleteById(42))
+            assertTrue(database.snapshotDao().uidsForSnapshot(42).isEmpty())
+            assertTrue(database.snapshotDao().componentsForSnapshot(42).isEmpty())
         }
 
     @Test

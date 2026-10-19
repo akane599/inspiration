@@ -37,6 +37,7 @@ class AndroidTelemetrySource(
     private val bindTimeoutMs: Long = DEFAULT_BIND_TIMEOUT_MS,
     private val dumpReadTimeoutMs: Long = DEFAULT_DUMP_READ_TIMEOUT_MS,
     private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
+    private val uidIdentityReader: UidIdentityReader = UidIdentityReader(AndroidUidIdentityBackend(context), ioDispatcher),
 ) : TelemetrySource {
     private val batteryManager = context.getSystemService(BatteryManager::class.java)
     private val powerManager = context.getSystemService(PowerManager::class.java)
@@ -56,11 +57,30 @@ class AndroidTelemetrySource(
         withContext(ioDispatcher) {
             val light = light()
             shizuku.withTelemetryService(bindTimeoutMs) { service ->
+                val identityOpening = uidIdentityReader.open()
                 val usage = binderCall { service.readBatteryUsage(0L) }
                 val batteryStats = readBatteryStats(service)
                 val alarm = readAlarm(service)
                 val kernel = binderCall { service.readKernelBattery() }
                 val cpu = binderCall { service.readCpuTimeInState() }
+                val identityUids =
+                    usage?.uids.orEmpty().map { it.uid } +
+                        (batteryStats as? DumpParse.Ok)
+                            ?.value
+                            ?.uids
+                            .orEmpty()
+                            .map { it.uid } +
+                        (alarm as? DumpParse.Ok)
+                            ?.value
+                            ?.filterStats
+                            .orEmpty()
+                            .map { it.uid }
+                val uidIdentity =
+                    if (usage?.available == true && usage.truncatedUids == 0) {
+                        uidIdentityReader.close(identityOpening, identityUids.toSet())
+                    } else {
+                        null
+                    }
                 val history =
                     historyCursor
                         ?.let { cursor ->
@@ -74,6 +94,7 @@ class AndroidTelemetrySource(
                     kernel = kernel,
                     cpuTimes = cpu?.entries.orEmpty(),
                     history = history,
+                    uidIdentity = uidIdentity,
                 )
             }
         }

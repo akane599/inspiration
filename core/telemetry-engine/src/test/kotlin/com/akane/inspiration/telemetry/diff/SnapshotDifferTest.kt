@@ -17,6 +17,9 @@ import com.akane.inspiration.telemetry.snapshot.LiveReading
 import com.akane.inspiration.telemetry.snapshot.SnapshotClock
 import com.akane.inspiration.telemetry.snapshot.SnapshotKind
 import com.akane.inspiration.telemetry.snapshot.SourceAvailability
+import com.akane.inspiration.telemetry.snapshot.UidIdentityScope
+import com.akane.inspiration.telemetry.snapshot.UidOwnerFingerprint
+import com.akane.inspiration.telemetry.snapshot.UidOwnerInstall
 import com.akane.inspiration.telemetry.snapshot.UidSnapshot
 import com.akane.inspiration.telemetry.store.ChargeSessionRecord
 import com.akane.inspiration.telemetry.store.HealthSample
@@ -63,7 +66,7 @@ class SnapshotDifferTest {
     }
 
     @Test
-    fun `complete membership keeps the 40 to 50 delta and a genuinely new uid zero baseline`() {
+    fun `complete membership keeps 40 to 50 but a newly observed uid has no proven baseline`() {
         val diff =
             SnapshotDiffer.diff(
                 snapshot(elapsed = 1_000, uids = listOf(uid(totalMah = 40.0))),
@@ -78,7 +81,8 @@ class SnapshotDifferTest {
                 ),
             )
 
-        assertTrue(diff.uids.all { it.valid })
+        assertTrue(diff.uids.first().valid)
+        assertFalse(diff.uids.last().valid)
         assertEquals(10.0, diff.uids.first().totalMah, 0.0)
         assertEquals(2.0, diff.uids.last().totalMah, 0.0)
         assertFalse(diff.validity.problems.contains("truncated_uid_usage"))
@@ -724,26 +728,29 @@ class SnapshotDifferTest {
     }
 
     @Test
-    fun `missing uid has a zero delta and package changes start a new application uid`() {
-        val missing =
-            SnapshotDiffer.diff(
-                snapshot(elapsed = 1_000, uids = listOf(uid(totalMah = 3.0))),
-                snapshot(elapsed = 2_000, duration = 2_000),
+    fun `missing rows and changed proven installs never create valid zero baselines`() {
+        val ref = snapshot(elapsed = 1_000, uids = listOf(uid(totalMah = 30.0)))
+        val missing = SnapshotDiffer.diff(ref, snapshot(elapsed = 2_000, duration = 2_000))
+        assertFalse(missing.uids.single().valid)
+        val replacement =
+            uid(totalMah = 50.0).copy(
+                ownerInstallFingerprint = UidOwnerFingerprint.create(10_001, 7, listOf(UidOwnerInstall("test.owner", 10_001, 456))),
             )
-        assertEquals(0.0, missing.uids.single().totalMah, 0.0)
-
-        val changed =
-            SnapshotDiffer.diff(
-                snapshot(elapsed = 1_000, uids = listOf(uid(totalMah = 3.0, packageName = "old"))),
-                snapshot(elapsed = 2_000, duration = 2_000, uids = listOf(uid(totalMah = 2.0, packageName = "new"))),
-            )
+        val changed = SnapshotDiffer.diff(ref, snapshot(elapsed = 2_000, duration = 2_000, uids = listOf(replacement)))
         assertTrue(changed.uids.single().packageChanged)
-        assertEquals(2.0, changed.uids.single().totalMah, 0.0)
+        assertFalse(changed.uids.single().valid)
+        assertEquals(20.0, changed.uids.single().totalMah, 0.0)
+        assertTrue(changed.validity.problems.contains("uid_identity_changed:10001"))
     }
 
     @Test
     fun `an unknown or process-qualified package name keeps the uid baseline`() {
-        listOf(null to "com.example.app", "com.example.app" to null, "com.example.app" to "com.example.app:remote").forEach { (before, after) ->
+        listOf(
+            null to "com.example.app",
+            "com.example.app" to null,
+            "com.example.app" to "com.example.app:remote",
+            "shared.owner.a" to "shared.owner.b",
+        ).forEach { (before, after) ->
             val delta =
                 SnapshotDiffer
                     .diff(
@@ -752,8 +759,51 @@ class SnapshotDifferTest {
                     ).uids
                     .single()
             assertFalse("$before -> $after", delta.packageChanged)
+            assertTrue("$before -> $after", delta.valid)
             assertEquals("$before -> $after", 20.0, delta.totalMah, 0.0)
         }
+    }
+
+    @Test
+    fun `legacy malformed and cross scope identity with positive counters is unknown not changed`() {
+        val ref = snapshot(elapsed = 1_000, uids = listOf(uid(totalMah = 30.0)), components = mapOf("CPU" to 1.0))
+        val now = snapshot(elapsed = 2_000, duration = 2_000, uids = listOf(uid(totalMah = 50.0)), components = mapOf("CPU" to 2.0))
+        val scope = requireNotNull(ref.uidIdentityScope)
+        val unknowns =
+            listOf(
+                now.copy(uidIdentityScope = null),
+                now.copy(uidIdentityScope = scope.copy(userSerial = 8)),
+                now.copy(uidIdentityScope = scope.copy(userId = 1)),
+                now.copy(uidIdentityScope = scope.copy(readerEpoch = "new-reader")),
+                now.copy(uidIdentityScope = scope.copy(packageChangeSequence = 1)),
+                now.copy(clock = now.clock.copy(bootCount = 2)),
+                now.copy(uids = listOf(now.uids.single().copy(ownerInstallFingerprint = null))),
+                now.copy(uids = listOf(now.uids.single().copy(ownerInstallFingerprint = "v2:" + "a".repeat(64)))),
+            )
+        for (unknown in unknowns) {
+            val unknownRef =
+                ref.copy(
+                    uidIdentityScope = unknown.uidIdentityScope,
+                    uids = listOf(ref.uids.single().copy(ownerInstallFingerprint = unknown.uids.single().ownerInstallFingerprint)),
+                    clock = ref.clock.copy(bootCount = unknown.clock.bootCount),
+                )
+            for ((before, after) in listOf(ref to unknown, unknownRef to now)) {
+                val result = SnapshotDiffer.diff(before, after)
+                assertFalse(result.uids.single().valid)
+                assertFalse(result.uids.single().packageChanged)
+                assertTrue(result.validity.problems.contains("uid_identity_unknown:10001"))
+                assertEquals(1.0, result.deviceComponentsMah.getValue("CPU"), 0.0)
+            }
+        }
+        val systemRef = ref.copy(uidIdentityScope = null, uids = listOf(uid(uid = 1_000, totalMah = 30.0)))
+        val systemNow = now.copy(uidIdentityScope = null, uids = listOf(uid(uid = 1_000, totalMah = 50.0)))
+        assertTrue(
+            SnapshotDiffer
+                .diff(systemRef, systemNow)
+                .uids
+                .single()
+                .valid,
+        )
     }
 
     @Test
@@ -873,6 +923,7 @@ class SnapshotDifferTest {
         cpuFreq = emptyList(),
         availability = emptyMap(),
         truncatedUids = 0,
+        uidIdentityScope = if (kind == SnapshotKind.FULL) UidIdentityScope(0, 7, "test-reader", 0) else null,
     )
 
     private fun uid(
@@ -895,6 +946,7 @@ class SnapshotDifferTest {
         fgServiceMs = 0,
         partialWakelocks = emptyList(),
         wakeupAlarms = emptyList(),
+        ownerInstallFingerprint = UidOwnerFingerprint.create(uid, 7, listOf(UidOwnerInstall("test.owner", uid, 123))),
     )
 
     private fun systemTimers(start: Long) =

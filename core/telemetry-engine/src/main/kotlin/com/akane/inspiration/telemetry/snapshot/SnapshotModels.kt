@@ -47,6 +47,7 @@ data class BatterySnapshot(
     val cpuFreq: List<CpuFreqTime>,
     val availability: Map<String, SourceAvailability>,
     val truncatedUids: Int,
+    val uidIdentityScope: UidIdentityScope? = null,
 )
 
 data class SourceAvailability(
@@ -86,6 +87,8 @@ data class UidSnapshot(
     // The alarm dump's own wakeup count per tag (count = wakeupCount). A separate counter, never added
     // into [wakeupAlarms] (the two overlap), so consumers must not sum them.
     val alarmDumpWakeups: List<UidAlarm> = emptyList(),
+    // Capture-local complete ownership/install evidence, never inferred from the attribution hint.
+    val ownerInstallFingerprint: String? = null,
 )
 
 data class CpuFreqTime(

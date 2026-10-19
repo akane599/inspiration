@@ -10,9 +10,13 @@ import com.akane.inspiration.telemetry.dump.DumpParse
 import com.akane.inspiration.telemetry.dump.DumpSnapshot
 import com.akane.inspiration.telemetry.snapshot.CaptureTrigger
 import com.akane.inspiration.telemetry.snapshot.SnapshotClock
+import com.akane.inspiration.telemetry.snapshot.UidIdentityProof
 
 interface TelemetrySource {
-    suspend fun full(trigger: CaptureTrigger, historyCursor: Pair<Long, Long>?): FullRead?
+    suspend fun full(
+        trigger: CaptureTrigger,
+        historyCursor: Pair<Long, Long>?,
+    ): FullRead?
 
     /**
      * [full] that hands each history page to [onHistoryPage] as soon as it is read, so the pages read before a
@@ -37,6 +41,7 @@ data class FullRead(
     val kernel: KernelBatterySnapshot?,
     val cpuTimes: List<ClusterFreqTime>,
     val history: List<BatteryHistorySnapshot>,
+    val uidIdentity: UidIdentityProof? = null,
 )
 
 data class LightRead(

@@ -12,6 +12,9 @@ import com.akane.inspiration.telemetry.diff.SnapshotDiffer
 import com.akane.inspiration.telemetry.dump.KernelWakelock
 import com.akane.inspiration.telemetry.snapshot.SnapshotKind
 import com.akane.inspiration.telemetry.snapshot.SourceAvailability
+import com.akane.inspiration.telemetry.snapshot.UidIdentityScope
+import com.akane.inspiration.telemetry.snapshot.UidOwnerFingerprint
+import com.akane.inspiration.telemetry.snapshot.UidOwnerInstall
 import com.akane.inspiration.telemetry.snapshot.UidSnapshot
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
@@ -39,6 +42,7 @@ class DiagnosticRuleEngineTest {
                 partialWakelocks = listOf(wakelock("partial", 0)),
                 wakeupAlarms = emptyList(),
                 sensors = listOf(sensor(GPS_SENSOR_HANDLE, 0)),
+                ownerInstallFingerprint = UidOwnerFingerprint.create(10_001, 7, listOf(UidOwnerInstall("test.owner", 10_001, 123))),
             )
         val ref =
             lightSnapshot(0).let { snapshot ->
@@ -46,6 +50,7 @@ class DiagnosticRuleEngineTest {
                     kind = SnapshotKind.FULL,
                     clock = snapshot.clock.copy(statsStartMs = 100_000, statsDurationMs = HOUR),
                     uids = listOf(previousUid),
+                    uidIdentityScope = UidIdentityScope(0, 7, "test-reader", 0),
                     deviceComponentsMah = mapOf("SCREEN" to 10.0, "MOBILE_RADIO" to 20.0),
                     kernelWakelocks = listOf(KernelWakelock("independent kernel", 0, 0)),
                 )
@@ -70,6 +75,7 @@ class DiagnosticRuleEngineTest {
             refTruncated: Int,
             nowTruncated: Int,
             summed: Boolean = false,
+            identityKnown: Boolean = true,
         ) = engine.evaluate(
             inputOf(
                 SnapshotDiffer
@@ -79,7 +85,7 @@ class DiagnosticRuleEngineTest {
                             uids = listOf(if (refTruncated > 0) previousUid.copy(totalMah = 0.0, bgMah = null) else previousUid),
                             availability = if (summed) mapOf("usage" to SourceAvailability(true, "device_from_uid_sum")) else emptyMap(),
                         ),
-                        now.copy(truncatedUids = nowTruncated),
+                        now.copy(truncatedUids = nowTruncated, uidIdentityScope = now.uidIdentityScope.takeIf { identityKnown }),
                     ).copy(sleep = sleepStats(2 * HOUR, HOUR)),
                 metricsOf(),
             ),
@@ -109,6 +115,19 @@ class DiagnosticRuleEngineTest {
             assertTrue(culprits.all { it.uid == null })
             assertTrue(truncated.insights.any { it is ModemDrain })
         }
+        val unknownIdentity = report(0, 0, identityKnown = false)
+        assertEquals(1, unknownIdentity.skippedInvalidUids)
+        assertTrue(unknownIdentity.insights.none { it is NightVampire || it is SensorLeak })
+        assertEquals(
+            listOf("independent kernel"),
+            unknownIdentity.insights
+                .filterIsInstance<AwakeViolation>()
+                .single()
+                .culprits
+                .map { it.name },
+        )
+        assertTrue(unknownIdentity.insights.any { it is ModemDrain })
+
         // The same component values are not independent when the truncated endpoint sums UID rows.
         val incompleteAggregate = report(1, 0, summed = true)
         assertTrue(incompleteAggregate.insights.none { it is ModemDrain })
