@@ -27,6 +27,7 @@ import androidx.compose.ui.graphics.layer.CompositingStrategy
 import androidx.compose.ui.graphics.layer.drawLayer
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalLocale
 import androidx.compose.ui.platform.LocalResources
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
@@ -162,13 +163,15 @@ fun SleepHypnogram(
     val stageNames = remember(resources) { HypnogramStage.entries.map { resources.getString(it.labelRes) } }
     val durationsMs = remember(data) { stageDurationsMs(data) }
     val format = rememberTelemetryFormat()
+    // The composition's locale, the one rememberTelemetryFormat uses, so axis and a11y dates match the rest of the UI.
+    val locale = LocalLocale.current.platformLocale
     val durationTexts = remember(durationsMs, format) { durationsMs.map(format::duration) }
-    val description = remember(data, zone, stageNames, durationTexts, resources) {
-        describe(resources, data.window, zone, stageNames, durationTexts)
+    val description = remember(data, zone, locale, stageNames, durationTexts, resources) {
+        describe(resources, data.window, zone, locale, stageNames, durationTexts)
     }
-    val selectionDescription = remember(selection, zone, resources, format) {
+    val selectionDescription = remember(selection, zone, locale, resources, format) {
         selection?.let {
-            val formatter = clockFormatter(data.window)
+            val formatter = clockFormatter(data.window, locale)
             resources.getString(
                 R.string.chart_a11y_selection,
                 formatClock(formatter, it.startMs, zone),
@@ -199,6 +202,7 @@ fun SleepHypnogram(
                     size = size,
                     data = data,
                     zone = zone,
+                    locale = locale,
                     palette = palette,
                     stageNames = stageNames,
                     durationTexts = durationTexts,
@@ -257,6 +261,7 @@ private fun buildLayer(
     size: Size,
     data: HypnogramData,
     zone: ZoneId,
+    locale: Locale,
     palette: HypnogramPalette,
     stageNames: List<String>,
     durationTexts: List<String>,
@@ -285,7 +290,7 @@ private fun buildLayer(
     // Time axis: ticks and labels measured here, once.
     val sample = measure("00:00")
     val maxTicks = maxOf(2, (plotWidth / (sample.size.width + MinTickSpacing.toPx())).toInt())
-    val formatter = clockFormatter(data.window)
+    val formatter = clockFormatter(data.window, locale)
     val ticks = niceTimeTicks(data.window, maxTicks, zone).map { TimeTick(it, measure(formatClock(formatter, it, zone))) }
     val tickLength = TickLength.toPx()
     val axisHeight = tickLength + TickLabelGap.toPx() + sample.size.height
@@ -445,8 +450,9 @@ private fun DrawScope.drawHypnogramOverlay(
     }
 }
 
-private fun clockFormatter(window: TimeRange): DateTimeFormatter =
-    DateTimeFormatter.ofPattern(if (window.durationMs >= TWO_DAYS_MS) "d MMM" else "HH:mm", Locale.getDefault())
+/** Axis and a11y clock labels in [locale]: the date for a window of two days or more, else the time. */
+internal fun clockFormatter(window: TimeRange, locale: Locale): DateTimeFormatter =
+    DateTimeFormatter.ofPattern(if (window.durationMs >= TWO_DAYS_MS) "d MMM" else "HH:mm", locale)
 
 private fun formatClock(formatter: DateTimeFormatter, tMs: Long, zone: ZoneId): String =
     formatter.format(Instant.ofEpochMilli(tMs).atZone(zone))
@@ -455,10 +461,11 @@ private fun describe(
     resources: Resources,
     window: TimeRange,
     zone: ZoneId,
+    locale: Locale,
     stageNames: List<String>,
     durationTexts: List<String>,
 ): String {
-    val formatter = clockFormatter(window)
+    val formatter = clockFormatter(window, locale)
     val span = resources.getString(
         R.string.chart_a11y_window,
         formatClock(formatter, window.startMs, zone),
