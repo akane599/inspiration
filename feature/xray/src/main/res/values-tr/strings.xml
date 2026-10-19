@@ -99,6 +99,7 @@
     <string name="xray_actions_title">Hızlı işlemler</string>
     <string name="xray_actions_loading">Uygulamanın mevcut ayarları okunuyor…</string>
     <string name="xray_actions_no_package">Tek bir uygulama paketi olmadığı için bu kayıtta hızlı işlemler kullanılamaz.</string>
+    <string name="xray_actions_unsupported_user">Hızlı işlemler yalnızca Android kullanıcı 0 içindeki uygulamalar için kullanılabilir.</string>
     <string name="xray_actions_retry">Yeniden oku</string>
     <string name="xray_blocked_title">Shizuku hazır değil</string>
     <string name="xray_blocked_not_installed">Uygulama ayarlarını buradan değiştirmek için Shizuku\'yu kurup başlatın.</string>

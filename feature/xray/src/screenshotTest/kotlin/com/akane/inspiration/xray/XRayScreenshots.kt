@@ -30,7 +30,8 @@ private fun Screen(state: XRayState) {
 @Composable
 private fun SheetBody(detail: AppDetail) {
     Surface(color = MaterialTheme.colorScheme.surfaceContainerLow, shape = MaterialTheme.shapes.extraLarge) {
-        AppDetailContent(detail = detail, onIntent = {}, explain = XRayPreviewData.explain, modifier = Modifier.padding(top = MaterialTheme.spacing.md))
+        AppDetailContent(detail = detail, onIntent = {
+        }, explain = XRayPreviewData.explain, modifier = Modifier.padding(top = MaterialTheme.spacing.md))
     }
 }
 
@@ -142,9 +143,10 @@ fun XRayDetailDark() = InspirationTheme(darkTheme = true) { SheetBody(XRayPrevie
 @PreviewTest
 @Preview(name = "detail-allowed-override", showBackground = true, widthDp = 412, heightDp = 1640)
 @Composable
-fun XRayDetailAllowedOverride() = InspirationTheme(darkTheme = false) {
-    SheetBody(XRayPreviewData.detailWithOverride.copy(actions = XRayPreviewData.loaded, notice = null))
-}
+fun XRayDetailAllowedOverride() =
+    InspirationTheme(darkTheme = false) {
+        SheetBody(XRayPreviewData.detailWithOverride.copy(actions = XRayPreviewData.loaded, notice = null))
+    }
 
 @PreviewTest
 @Preview(name = "detail-blocked", showBackground = true, widthDp = 360, heightDp = 1160)
@@ -165,6 +167,40 @@ fun XRayDetailNoPackage() = InspirationTheme(darkTheme = false) { SheetBody(XRay
 @Preview(name = "detail-turkish", showBackground = true, widthDp = 360, heightDp = 1640, locale = "tr")
 @Composable
 fun XRayDetailTurkish() = InspirationTheme(darkTheme = false) { SheetBody(XRayPreviewData.detailWithOverride) }
+
+// ---- unsupported profile actions: analytics stay visible, no owner controls or restores ----------
+
+@PreviewTest
+@Preview(name = "detail-unsupported-user-light", showBackground = true, widthDp = 412, heightDp = 1160)
+@Composable
+fun XRayDetailUnsupportedUserLight() = InspirationTheme(darkTheme = false) { SheetBody(XRayPreviewData.detailUnsupportedUser) }
+
+@PreviewTest
+@Preview(
+    name = "detail-unsupported-user-dark",
+    showBackground = true,
+    widthDp = 360,
+    heightDp = 1160,
+    uiMode = Configuration.UI_MODE_NIGHT_YES,
+)
+@Composable
+fun XRayDetailUnsupportedUserDark() =
+    InspirationTheme(darkTheme = true) {
+        // An unsupported state must hide restore buttons even if a stale owner override somehow survives.
+        SheetBody(XRayPreviewData.detailUnsupportedUser.copy(overrides = XRayPreviewData.detailWithOverride.overrides))
+    }
+
+@PreviewTest
+@Preview(
+    name = "detail-unsupported-user-turkish-large-font",
+    showBackground = true,
+    widthDp = 360,
+    heightDp = 1800,
+    locale = "tr",
+    fontScale = 1.5f,
+)
+@Composable
+fun XRayDetailUnsupportedUserTurkishLargeFont() = InspirationTheme(darkTheme = false) { SheetBody(XRayPreviewData.detailUnsupportedUser) }
 
 // ---- confirmation -------------------------------------------------------------------------------
 

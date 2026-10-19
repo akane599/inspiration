@@ -43,10 +43,10 @@ import com.akane.inspiration.telemetry.store.ToolkitActionRecord
 import com.akane.inspiration.telemetry.store.ToolkitActionStatus
 import com.akane.inspiration.telemetry.toolkit.ToolkitActions
 import com.akane.inspiration.telemetry.toolkit.ToolkitGateway
-import java.lang.reflect.Proxy
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import java.lang.reflect.Proxy
 
 internal const val CHATTY = "com.example.chatty"
 internal const val MAPS = "com.example.maps"
@@ -54,21 +54,22 @@ internal const val HOUR_MS = 3_600_000L
 
 internal fun clockAt(wallMs: Long) = SnapshotClock(wallMs, wallMs, wallMs / 2, 1, null, null)
 
-internal fun snapshotAt(wallMs: Long) = BatterySnapshot(
-    id = wallMs,
-    kind = SnapshotKind.LIGHT,
-    trigger = CaptureTrigger.APP_OPEN,
-    clock = clockAt(wallMs),
-    battery = BatteryState(null, null, null, null, null, null, null, null),
-    system = null,
-    uids = emptyList(),
-    deviceComponentsMah = emptyMap(),
-    kernelWakelocks = emptyList(),
-    wakeupReasons = emptyList(),
-    cpuFreq = emptyList(),
-    availability = emptyMap(),
-    truncatedUids = 0,
-)
+internal fun snapshotAt(wallMs: Long) =
+    BatterySnapshot(
+        id = wallMs,
+        kind = SnapshotKind.LIGHT,
+        trigger = CaptureTrigger.APP_OPEN,
+        clock = clockAt(wallMs),
+        battery = BatteryState(null, null, null, null, null, null, null, null),
+        system = null,
+        uids = emptyList(),
+        deviceComponentsMah = emptyMap(),
+        kernelWakelocks = emptyList(),
+        wakeupReasons = emptyList(),
+        cpuFreq = emptyList(),
+        availability = emptyMap(),
+        truncatedUids = 0,
+    )
 
 internal fun uidDelta(
     uid: Int,
@@ -146,7 +147,23 @@ internal fun readyOf(
         IntervalAnalysis(
             resolved = resolved,
             diff = diff,
-            metrics = IntervalMetrics(resolved.boundaryFromWallMs, resolved.boundaryToWallMs, 0, 0, 0, 0, null, null, 0, 0, 0, null, null, emptyList()),
+            metrics =
+                IntervalMetrics(
+                    resolved.boundaryFromWallMs,
+                    resolved.boundaryToWallMs,
+                    0,
+                    0,
+                    0,
+                    0,
+                    null,
+                    null,
+                    0,
+                    0,
+                    0,
+                    null,
+                    null,
+                    emptyList(),
+                ),
             report = DiagnosticReport(emptyList(), emptyMap(), 0),
             story = BatteryStory(emptyList()),
         ),
@@ -154,13 +171,15 @@ internal fun readyOf(
     )
 
 /** Two apps and a handful of components: enough for ranking, shares and the detail sheet. */
-internal fun sampleDiff() = diffOf(
-    uids = listOf(
-        uidDelta(10_001, MAPS, 20.0, mapOf("SCREEN" to 12.0, "CPU" to 8.0)),
-        uidDelta(10_002, CHATTY, 60.0, mapOf("CPU" to 40.0, "MOBILE_RADIO" to 15.0, "WIFI" to 5.0)),
-    ),
-    components = mapOf("SCREEN" to 50.0, "CPU" to 30.0, "MOBILE_RADIO" to 15.0, "WIFI" to 5.0),
-)
+internal fun sampleDiff() =
+    diffOf(
+        uids =
+            listOf(
+                uidDelta(10_001, MAPS, 20.0, mapOf("SCREEN" to 12.0, "CPU" to 8.0)),
+                uidDelta(10_002, CHATTY, 60.0, mapOf("CPU" to 40.0, "MOBILE_RADIO" to 15.0, "WIFI" to 5.0)),
+            ),
+        components = mapOf("SCREEN" to 50.0, "CPU" to 30.0, "MOBILE_RADIO" to 15.0, "WIFI" to 5.0),
+    )
 
 // ---- the device behind the toolkit ----------------------------------------------------------
 
@@ -189,47 +208,62 @@ internal class FakeDevice {
 
     private fun writeRefusal() = refuseWritesWith?.let { ToolkitResult.refused(it) } ?: refusal()
 
-    private fun appOps() = AppOp.entries.joinToString(",") { op ->
-        "${op.argv}=${if (op == AppOp.RUN_ANY_IN_BACKGROUND) runAnyInBackground else "allow"}"
-    }
-
-    val service: ITelemetryUserService = Proxy.newProxyInstance(
-        ITelemetryUserService::class.java.classLoader,
-        arrayOf(ITelemetryUserService::class.java),
-    ) { _, method, args ->
-        if (method.name == "getApiVersion") return@newProxyInstance ToolkitApi.VERSION
-        calls += method.name
-        when (method.name) {
-            "getAppOps" -> refusal() ?: ToolkitResult.done(after = appOps())
-            "getStandbyBucket" -> refusal() ?: ToolkitResult.done(after = bucket.toString())
-            "setAppOp" -> {
-                writes += "setAppOp"
-                writeRefusal() ?: run {
-                    val before = runAnyInBackground
-                    val mode = AppOpMode.fromCode(args[2] as Int)!!
-                    check(AppOp.fromCode(args[1] as Int) == AppOp.RUN_ANY_IN_BACKGROUND)
-                    runAnyInBackground = if (mode == AppOpMode.IGNORE) "ignore" else "allow"
-                    ToolkitResult.done(before = before, after = runAnyInBackground)
-                }
-            }
-            "setStandbyBucket" -> {
-                writes += "setStandbyBucket"
-                writeRefusal() ?: run {
-                    val before = bucket
-                    bucket = StandbyBucket.fromCode(args[1] as Int)!!.rawValue
-                    ToolkitResult.done(before = before.toString(), after = bucket.toString())
-                }
-            }
-            "forceStop" -> {
-                writes += "forceStop"
-                writeRefusal() ?: ToolkitResult.done(before = "stopped=false", after = "stopped=true")
-            }
-            else -> null
+    private fun appOps() =
+        AppOp.entries.joinToString(",") { op ->
+            "${op.argv}=${if (op == AppOp.RUN_ANY_IN_BACKGROUND) runAnyInBackground else "allow"}"
         }
-    } as ITelemetryUserService
+
+    val service: ITelemetryUserService =
+        Proxy.newProxyInstance(
+            ITelemetryUserService::class.java.classLoader,
+            arrayOf(ITelemetryUserService::class.java),
+        ) { _, method, args ->
+            if (method.name == "getApiVersion") return@newProxyInstance ToolkitApi.VERSION
+            calls += method.name
+            when (method.name) {
+                "getAppOps" -> {
+                    refusal() ?: ToolkitResult.done(after = appOps())
+                }
+
+                "getStandbyBucket" -> {
+                    refusal() ?: ToolkitResult.done(after = bucket.toString())
+                }
+
+                "setAppOp" -> {
+                    writes += "setAppOp"
+                    writeRefusal() ?: run {
+                        val before = runAnyInBackground
+                        val mode = AppOpMode.fromCode(args[2] as Int)!!
+                        check(AppOp.fromCode(args[1] as Int) == AppOp.RUN_ANY_IN_BACKGROUND)
+                        runAnyInBackground = if (mode == AppOpMode.IGNORE) "ignore" else "allow"
+                        ToolkitResult.done(before = before, after = runAnyInBackground)
+                    }
+                }
+
+                "setStandbyBucket" -> {
+                    writes += "setStandbyBucket"
+                    writeRefusal() ?: run {
+                        val before = bucket
+                        bucket = StandbyBucket.fromCode(args[1] as Int)!!.rawValue
+                        ToolkitResult.done(before = before.toString(), after = bucket.toString())
+                    }
+                }
+
+                "forceStop" -> {
+                    writes += "forceStop"
+                    writeRefusal() ?: ToolkitResult.done(before = "stopped=false", after = "stopped=true")
+                }
+
+                else -> {
+                    null
+                }
+            }
+        } as ITelemetryUserService
 }
 
-private class FakeShizuku(private val device: FakeDevice) : ShizukuManager {
+private class FakeShizuku(
+    private val device: FakeDevice,
+) : ShizukuManager {
     private val service = device.service
     override val state: StateFlow<ShizukuState> = MutableStateFlow(ShizukuState.Ready(2000, 13))
     override val telemetryService: StateFlow<ITelemetryUserService?> = MutableStateFlow(service)
@@ -238,7 +272,10 @@ private class FakeShizuku(private val device: FakeDevice) : ShizukuManager {
 
     override fun start() = Unit
 
-    override suspend fun <T> withTelemetryService(timeoutMs: Long, block: suspend (ITelemetryUserService) -> T): T? {
+    override suspend fun <T> withTelemetryService(
+        timeoutMs: Long,
+        block: suspend (ITelemetryUserService) -> T,
+    ): T? {
         device.gate?.await()
         return block(service)
     }
@@ -251,6 +288,9 @@ private class FakeShizuku(private val device: FakeDevice) : ShizukuManager {
 /** Keeps the toolkit audit rows in memory; everything else reads as empty. */
 internal class MemoryStore : SnapshotStore {
     val rows = mutableListOf<ToolkitActionRecord>()
+
+    /** Includes override subscription and restore/planning reads that need not reach the Binder fake. */
+    var auditReads = 0
 
     /** When set, an audit insert throws it, as Room does on a full disk (`SQLiteFullException` is a RuntimeException). */
     var insertFailure: RuntimeException? = null
@@ -271,37 +311,96 @@ internal class MemoryStore : SnapshotStore {
     }
 
     override suspend fun toolkitActions(limit: Int): List<ToolkitActionRecord> {
+        auditReads++
         readFailure?.let { throw it }
         return rows.sortedByDescending { it.id }.take(limit)
     }
 
     override suspend fun pendingToolkitActions(): List<ToolkitActionRecord> {
+        auditReads++
         readFailure?.let { throw it }
         return rows.filter { it.status == ToolkitActionStatus.PENDING }.sortedBy { it.id }
     }
 
     override suspend fun insert(snapshot: BatterySnapshot): Long = 0L
+
     override suspend fun byId(id: Long): BatterySnapshot? = null
+
     override suspend fun latest(kind: SnapshotKind?): BatterySnapshot? = null
-    override suspend fun firstAtOrAfter(wallMs: Long, kind: SnapshotKind?, statsStartMs: Long?, bootCount: Int?): BatterySnapshot? = null
-    override suspend fun lastAtOrBefore(wallMs: Long, kind: SnapshotKind?): BatterySnapshot? = null
+
+    override suspend fun firstAtOrAfter(
+        wallMs: Long,
+        kind: SnapshotKind?,
+        statsStartMs: Long?,
+        bootCount: Int?,
+    ): BatterySnapshot? = null
+
+    override suspend fun lastAtOrBefore(
+        wallMs: Long,
+        kind: SnapshotKind?,
+    ): BatterySnapshot? = null
+
     override suspend fun latestByTrigger(trigger: CaptureTrigger): BatterySnapshot? = null
-    override suspend fun snapshotsBetween(fromWallMs: Long, toWallMs: Long): List<BatterySnapshot> = emptyList()
-    override suspend fun insertHistory(events: List<HistoryEvent>, statsStartMs: Long) = Unit
-    override suspend fun historyBetween(fromWallMs: Long, toWallMs: Long): List<HistoryEvent> = emptyList()
+
+    override suspend fun snapshotsBetween(
+        fromWallMs: Long,
+        toWallMs: Long,
+    ): List<BatterySnapshot> = emptyList()
+
+    override suspend fun insertHistory(
+        events: List<HistoryEvent>,
+        statsStartMs: Long,
+    ) = Unit
+
+    override suspend fun historyBetween(
+        fromWallMs: Long,
+        toWallMs: Long,
+    ): List<HistoryEvent> = emptyList()
+
     override suspend fun historyCursor(): Pair<Long, Long>? = null
-    override suspend fun setHistoryCursor(statsStartMs: Long, lastHistoryTimeMs: Long) = Unit
-    override suspend fun addMarker(snapshotId: Long, label: String, wallMs: Long): Long = 0L
+
+    override suspend fun setHistoryCursor(
+        statsStartMs: Long,
+        lastHistoryTimeMs: Long,
+    ) = Unit
+
+    override suspend fun addMarker(
+        snapshotId: Long,
+        label: String,
+        wallMs: Long,
+    ): Long = 0L
+
     override suspend fun marker(id: Long): Pair<Long, BatterySnapshot>? = null
+
     override suspend fun markers(): List<Marker> = emptyList()
+
     override suspend fun insertSamples(samples: List<LiveReading>) = Unit
-    override suspend fun samplesBetween(from: Long, to: Long): List<TelemetrySample> = emptyList()
-    override suspend fun upsertChargeSession(statsStartMs: Long, segment: ChargeSegment, verdict: SegmentVerdict) = Unit
+
+    override suspend fun samplesBetween(
+        from: Long,
+        to: Long,
+    ): List<TelemetrySample> = emptyList()
+
+    override suspend fun upsertChargeSession(
+        statsStartMs: Long,
+        segment: ChargeSegment,
+        verdict: SegmentVerdict,
+    ) = Unit
+
     override suspend fun chargeSessions(): List<ChargeSessionRecord> = emptyList()
+
     override suspend fun acceptedEstimatesChronological(limit: Int): List<Double> = emptyList()
+
     override suspend fun healthSamples(): List<HealthSample> = emptyList()
+
     override suspend fun insertHealthSample(sample: HealthSample) = Unit
-    override suspend fun recordMiss(wallMs: Long, trigger: CaptureTrigger, reason: String) = Unit
+
+    override suspend fun recordMiss(
+        wallMs: Long,
+        trigger: CaptureTrigger,
+        reason: String,
+    ) = Unit
+
     override suspend fun prune(nowWallMs: Long) = Unit
 }
 
@@ -314,15 +413,17 @@ internal class FakeXRayDeps(
     override val selection = AnalysisSelection()
     override val shizukuState = MutableStateFlow(shizuku)
     override val toolkit = ToolkitActions(ToolkitGateway(FakeShizuku(device)), device.store, holdBinding = { AutoCloseable {} })
-    override val appLabels: AppLabels = object : AppLabels {
-        override suspend fun label(packageName: String) = "Label of $packageName"
-        override suspend fun icon(packageName: String): Bitmap? {
-            iconLoads++
-            return null
-        }
+    override val appLabels: AppLabels =
+        object : AppLabels {
+            override suspend fun label(packageName: String) = "Label of $packageName"
 
-        override suspend fun packagesForUid(uid: Int): List<String> = packagesByUid[uid].orEmpty()
-    }
+            override suspend fun icon(packageName: String): Bitmap? {
+                iconLoads++
+                return null
+            }
+
+            override suspend fun packagesForUid(uid: Int): List<String> = packagesByUid[uid].orEmpty()
+        }
 
     /** What `PackageManager` lists as running under each UID; the sample apps are installed. */
     val packagesByUid = mutableMapOf(10_001 to listOf(MAPS), 10_002 to listOf(CHATTY))

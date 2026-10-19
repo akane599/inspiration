@@ -99,6 +99,7 @@
     <string name="xray_actions_title">Quick actions</string>
     <string name="xray_actions_loading">Reading the app\'s current settings…</string>
     <string name="xray_actions_no_package">Quick actions aren\'t available for this entry, because it has no single app package.</string>
+    <string name="xray_actions_unsupported_user">Quick actions are available only for apps in Android user 0.</string>
     <string name="xray_actions_retry">Read again</string>
     <string name="xray_blocked_title">Shizuku isn\'t ready</string>
     <string name="xray_blocked_not_installed">Install and start Shizuku to change app settings from here.</string>

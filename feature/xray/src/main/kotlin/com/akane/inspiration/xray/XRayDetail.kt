@@ -100,10 +100,11 @@ fun AppDetailContent(
     val spacing = MaterialTheme.spacing
     val app = detail.app
     Column(
-        modifier = modifier
-            .fillMaxWidth()
-            .verticalScroll(rememberScrollState())
-            .padding(start = spacing.md, end = spacing.md, bottom = spacing.lg),
+        modifier =
+            modifier
+                .fillMaxWidth()
+                .verticalScroll(rememberScrollState())
+                .padding(start = spacing.md, end = spacing.md, bottom = spacing.lg),
         verticalArrangement = Arrangement.spacedBy(spacing.lg),
     ) {
         DetailHeader(app, loadIcon)
@@ -117,7 +118,10 @@ fun AppDetailContent(
 }
 
 @Composable
-private fun DetailHeader(app: AppRow, loadIcon: AppIconLoader) {
+private fun DetailHeader(
+    app: AppRow,
+    loadIcon: AppIconLoader,
+) {
     val spacing = MaterialTheme.spacing
     val name = displayName(app)
     Column(verticalArrangement = Arrangement.spacedBy(spacing.ms)) {
@@ -148,9 +152,10 @@ private fun DetailHeader(app: AppRow, loadIcon: AppIconLoader) {
             )
         }
         GroupBar(slices = app.slices, total = app.totalMah.toFloat())
-        val items = ComponentGroup.entries.filter { group -> app.slices.any { it.group == group } }.map { group ->
-            LegendItem(color = group.role().color(), label = stringResource(groupLabelRes(group)))
-        }
+        val items =
+            ComponentGroup.entries.filter { group -> app.slices.any { it.group == group } }.map { group ->
+                LegendItem(color = group.role().color(), label = stringResource(groupLabelRes(group)))
+            }
         LegendRow(items = items.toImmutableList())
     }
 }
@@ -188,23 +193,36 @@ private fun ProcessStateSection(states: ProcessStateMah) {
 private fun ActivitySection(app: AppRow) {
     val format = rememberTelemetryFormat()
     Section(title = stringResource(R.string.xray_detail_activity)) {
-        ValueRow(stringResource(R.string.xray_detail_cpu_time), if (app.dumpCountersAvailable) durationText(format, app.cpuMs) else stringResource(R.string.xray_value_unavailable))
-        ValueRow(stringResource(R.string.xray_detail_foreground_time), if (app.dumpCountersAvailable) durationText(format, app.foregroundMs) else stringResource(R.string.xray_value_unavailable))
+        ValueRow(
+            stringResource(R.string.xray_detail_cpu_time),
+            if (app.dumpCountersAvailable) durationText(format, app.cpuMs) else stringResource(R.string.xray_value_unavailable),
+        )
+        ValueRow(
+            stringResource(R.string.xray_detail_foreground_time),
+            if (app.dumpCountersAvailable) durationText(format, app.foregroundMs) else stringResource(R.string.xray_value_unavailable),
+        )
     }
 }
 
 @Composable
-private fun WakelockSection(app: AppRow, explain: Explainer) {
+private fun WakelockSection(
+    app: AppRow,
+    explain: Explainer,
+) {
     val format = rememberTelemetryFormat()
     Section(title = stringResource(R.string.xray_detail_wakelocks)) {
-        if (!app.dumpCountersAvailable) Text(stringResource(R.string.xray_value_unavailable))
-        else if (app.wakelocks.isEmpty()) NoneRecorded()
+        if (!app.dumpCountersAvailable) {
+            Text(stringResource(R.string.xray_value_unavailable))
+        } else if (app.wakelocks.isEmpty()) {
+            NoneRecorded()
+        }
         app.wakelocks.forEach { wakelock ->
             val explanation = remember(wakelock.name, explain) { explain(EntryKind.PARTIAL, wakelock.name) }
             NamedEntry(
                 name = wakelock.name,
-                facts = stringResource(R.string.xray_detail_wakelock_line, durationText(format, wakelock.durationMs)) +
-                    " · " + timesText(wakelock.count),
+                facts =
+                    stringResource(R.string.xray_detail_wakelock_line, durationText(format, wakelock.durationMs)) +
+                        " · " + timesText(wakelock.count),
                 title = explanation?.title,
                 body = explanation?.body,
             )
@@ -213,10 +231,16 @@ private fun WakelockSection(app: AppRow, explain: Explainer) {
 }
 
 @Composable
-private fun AlarmSection(app: AppRow, explain: Explainer) {
+private fun AlarmSection(
+    app: AppRow,
+    explain: Explainer,
+) {
     Section(title = stringResource(R.string.xray_detail_alarms)) {
-        if (!app.alarmsAvailable) Text(stringResource(R.string.xray_value_unavailable))
-        else if (app.alarms.isEmpty()) NoneRecorded()
+        if (!app.alarmsAvailable) {
+            Text(stringResource(R.string.xray_value_unavailable))
+        } else if (app.alarms.isEmpty()) {
+            NoneRecorded()
+        }
         app.alarms.forEach { alarm ->
             val explanation = remember(alarm.tag, explain) { explain(EntryKind.ALARM, alarm.tag) }
             NamedEntry(
@@ -230,7 +254,10 @@ private fun AlarmSection(app: AppRow, explain: Explainer) {
 }
 
 @Composable
-private fun Section(title: String, content: @Composable () -> Unit) {
+private fun Section(
+    title: String,
+    content: @Composable () -> Unit,
+) {
     Column(verticalArrangement = Arrangement.spacedBy(MaterialTheme.spacing.sm)) {
         CardTitle(title)
         content()
@@ -238,7 +265,11 @@ private fun Section(title: String, content: @Composable () -> Unit) {
 }
 
 @Composable
-private fun ValueRow(label: String, value: String, detail: String? = null) {
+private fun ValueRow(
+    label: String,
+    value: String,
+    detail: String? = null,
+) {
     Row(
         modifier = Modifier.fillMaxWidth().semantics(mergeDescendants = true) {},
         verticalAlignment = Alignment.Bottom,
@@ -273,7 +304,12 @@ private fun NoneRecorded() {
 
 /** One wakelock or alarm: its name, the numbers, and the dictionary's plain-language explanation when there is one. */
 @Composable
-private fun NamedEntry(name: String, facts: String, title: String?, body: String?) {
+private fun NamedEntry(
+    name: String,
+    facts: String,
+    title: String?,
+    body: String?,
+) {
     Column(
         modifier = Modifier.fillMaxWidth().semantics(mergeDescendants = true) {},
         verticalArrangement = Arrangement.spacedBy(MaterialTheme.spacing.xs),
@@ -296,7 +332,10 @@ private fun NamedEntry(name: String, facts: String, title: String?, body: String
  * it. Switches show the read-back state; a tap only asks, and the state changes when the system confirms.
  */
 @Composable
-private fun QuickActions(detail: AppDetail, onIntent: (XRayIntent) -> Unit) {
+private fun QuickActions(
+    detail: AppDetail,
+    onIntent: (XRayIntent) -> Unit,
+) {
     val spacing = MaterialTheme.spacing
     Column(
         modifier = Modifier.fillMaxWidth().filterTouchesWhenObscured(),
@@ -304,20 +343,36 @@ private fun QuickActions(detail: AppDetail, onIntent: (XRayIntent) -> Unit) {
     ) {
         CardTitle(stringResource(R.string.xray_actions_title))
         when (val actions = detail.actions) {
-            is ActionsState.Blocked -> BlockedCard(actions.reason)
-            ActionsState.NoPackage -> InfoText(stringResource(R.string.xray_actions_no_package))
-            ActionsState.Loading -> LoadingLine(stringResource(R.string.xray_actions_loading))
+            is ActionsState.Blocked -> {
+                BlockedCard(actions.reason)
+            }
+
+            ActionsState.NoPackage -> {
+                InfoText(stringResource(R.string.xray_actions_no_package))
+            }
+
+            ActionsState.UnsupportedUser -> {
+                InfoText(stringResource(R.string.xray_actions_unsupported_user))
+            }
+
+            ActionsState.Loading -> {
+                LoadingLine(stringResource(R.string.xray_actions_loading))
+            }
+
             is ActionsState.Unavailable -> {
                 InfoText(problemText(actions.problem))
                 TextButton(onClick = { onIntent(XRayIntent.ReloadActions) }) {
                     Text(stringResource(R.string.xray_actions_retry))
                 }
             }
-            is ActionsState.Loaded -> Controls(actions.controls, enabled = !detail.busy, onIntent = onIntent)
+
+            is ActionsState.Loaded -> {
+                Controls(actions.controls, enabled = !detail.busy, onIntent = onIntent)
+            }
         }
         if (detail.busy) LoadingLine(stringResource(R.string.xray_actions_busy))
         detail.notice?.let { NoticeLine(it) }
-        if (detail.overrides.isNotEmpty() && detail.actions !is ActionsState.Blocked) {
+        if (detail.overrides.isNotEmpty() && detail.actions !is ActionsState.Blocked && detail.actions != ActionsState.UnsupportedUser) {
             Overrides(detail, onIntent)
         }
     }
@@ -351,7 +406,10 @@ private fun BlockedCard(reason: BlockedReason) {
 }
 
 @Composable
-private fun InfoText(text: String, small: Boolean = false) {
+private fun InfoText(
+    text: String,
+    small: Boolean = false,
+) {
     val style = if (small) MaterialTheme.typography.bodySmall else MaterialTheme.typography.bodyMedium
     Text(text = text, style = style, color = MaterialTheme.colorScheme.onSurfaceVariant)
 }
@@ -383,7 +441,11 @@ private fun NoticeLine(notice: ActionNotice) {
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-private fun Controls(controls: AppControls, enabled: Boolean, onIntent: (XRayIntent) -> Unit) {
+private fun Controls(
+    controls: AppControls,
+    enabled: Boolean,
+    onIntent: (XRayIntent) -> Unit,
+) {
     val spacing = MaterialTheme.spacing
     Column(verticalArrangement = Arrangement.spacedBy(spacing.lg)) {
         RestrictRow(controls = controls, enabled = enabled, onIntent = onIntent)
@@ -405,17 +467,19 @@ private fun Controls(controls: AppControls, enabled: Boolean, onIntent: (XRayInt
                         enabled = enabled,
                         // The selected bucket is unmistakable: a check, a stronger fill and an outline.
                         leadingIcon = if (selected) ({ SelectedCheck() }) else null,
-                        colors = FilterChipDefaults.filterChipColors(
-                            selectedContainerColor = MaterialTheme.colorScheme.primaryContainer,
-                            selectedLabelColor = MaterialTheme.colorScheme.onPrimaryContainer,
-                            selectedLeadingIconColor = MaterialTheme.colorScheme.onPrimaryContainer,
-                        ),
-                        border = FilterChipDefaults.filterChipBorder(
-                            enabled = enabled,
-                            selected = selected,
-                            selectedBorderColor = MaterialTheme.colorScheme.primary,
-                            selectedBorderWidth = MaterialTheme.spacing.xs / 4, // the 1 dp hairline of an unselected chip
-                        ),
+                        colors =
+                            FilterChipDefaults.filterChipColors(
+                                selectedContainerColor = MaterialTheme.colorScheme.primaryContainer,
+                                selectedLabelColor = MaterialTheme.colorScheme.onPrimaryContainer,
+                                selectedLeadingIconColor = MaterialTheme.colorScheme.onPrimaryContainer,
+                            ),
+                        border =
+                            FilterChipDefaults.filterChipBorder(
+                                enabled = enabled,
+                                selected = selected,
+                                selectedBorderColor = MaterialTheme.colorScheme.primary,
+                                selectedBorderWidth = MaterialTheme.spacing.xs / 4, // the 1 dp hairline of an unselected chip
+                            ),
                     )
                 }
             }
@@ -428,10 +492,11 @@ private fun Controls(controls: AppControls, enabled: Boolean, onIntent: (XRayInt
             FilledTonalButton(
                 onClick = { onIntent(XRayIntent.Act(ActionRequest.ForceStop)) },
                 enabled = enabled,
-                colors = ButtonDefaults.filledTonalButtonColors(
-                    containerColor = MaterialTheme.colorScheme.errorContainer,
-                    contentColor = MaterialTheme.colorScheme.onErrorContainer,
-                ),
+                colors =
+                    ButtonDefaults.filledTonalButtonColors(
+                        containerColor = MaterialTheme.colorScheme.errorContainer,
+                        contentColor = MaterialTheme.colorScheme.onErrorContainer,
+                    ),
             ) {
                 Text(stringResource(R.string.xray_action_force_stop))
             }
@@ -446,12 +511,13 @@ private fun SelectedCheck() {
     val color = LocalContentColor.current
     val strokeWidth = MaterialTheme.spacing.xs / 2
     Canvas(modifier = Modifier.size(FilterChipDefaults.IconSize)) {
-        val path = Path().apply {
-            CHECK_POINTS.forEachIndexed { i, (x, y) ->
-                val point = Offset(x * size.width, y * size.height)
-                if (i == 0) moveTo(point.x, point.y) else lineTo(point.x, point.y)
+        val path =
+            Path().apply {
+                CHECK_POINTS.forEachIndexed { i, (x, y) ->
+                    val point = Offset(x * size.width, y * size.height)
+                    if (i == 0) moveTo(point.x, point.y) else lineTo(point.x, point.y)
+                }
             }
-        }
         drawPath(
             path = path,
             color = color,
@@ -463,19 +529,24 @@ private fun SelectedCheck() {
 private val CHECK_POINTS = listOf(0.12f to 0.55f, 0.40f to 0.80f, 0.88f to 0.22f)
 
 @Composable
-private fun RestrictRow(controls: AppControls, enabled: Boolean, onIntent: (XRayIntent) -> Unit) {
+private fun RestrictRow(
+    controls: AppControls,
+    enabled: Boolean,
+    onIntent: (XRayIntent) -> Unit,
+) {
     val spacing = MaterialTheme.spacing
     val editable = enabled && controls.restrictionEditable
     Column(verticalArrangement = Arrangement.spacedBy(spacing.xs)) {
         Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .toggleable(
-                    value = controls.restricted,
-                    enabled = editable,
-                    role = Role.Switch,
-                    onValueChange = { onIntent(XRayIntent.Act(ActionRequest.SetRestricted(it))) },
-                ),
+            modifier =
+                Modifier
+                    .fillMaxWidth()
+                    .toggleable(
+                        value = controls.restricted,
+                        enabled = editable,
+                        role = Role.Switch,
+                        onValueChange = { onIntent(XRayIntent.Act(ActionRequest.SetRestricted(it))) },
+                    ),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(spacing.md),
         ) {
@@ -495,7 +566,10 @@ private fun RestrictRow(controls: AppControls, enabled: Boolean, onIntent: (XRay
 }
 
 @Composable
-private fun Overrides(detail: AppDetail, onIntent: (XRayIntent) -> Unit) {
+private fun Overrides(
+    detail: AppDetail,
+    onIntent: (XRayIntent) -> Unit,
+) {
     val spacing = MaterialTheme.spacing
     InspirationCard(modifier = Modifier.fillMaxWidth()) {
         Column(verticalArrangement = Arrangement.spacedBy(spacing.sm)) {
@@ -534,7 +608,10 @@ private fun Overrides(detail: AppDetail, onIntent: (XRayIntent) -> Unit) {
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-internal fun ConfirmationDialog(confirmation: Confirmation, onIntent: (XRayIntent) -> Unit) {
+internal fun ConfirmationDialog(
+    confirmation: Confirmation,
+    onIntent: (XRayIntent) -> Unit,
+) {
     BasicAlertDialog(onDismissRequest = { onIntent(XRayIntent.DismissConfirmation) }) {
         ConfirmationPanel(
             confirmation = confirmation,
@@ -589,14 +666,15 @@ fun ConfirmationPanel(
                 Button(
                     onClick = onConfirm,
                     modifier = Modifier.filterTouchesWhenObscured(),
-                    colors = if (destructive) {
-                        ButtonDefaults.buttonColors(
-                            containerColor = MaterialTheme.colorScheme.error,
-                            contentColor = MaterialTheme.colorScheme.onError,
-                        )
-                    } else {
-                        ButtonDefaults.buttonColors()
-                    },
+                    colors =
+                        if (destructive) {
+                            ButtonDefaults.buttonColors(
+                                containerColor = MaterialTheme.colorScheme.error,
+                                contentColor = MaterialTheme.colorScheme.onError,
+                            )
+                        } else {
+                            ButtonDefaults.buttonColors()
+                        },
                 ) {
                     Text(stringResource(confirmActionRes(confirmation.request)))
                 }
@@ -604,4 +682,3 @@ fun ConfirmationPanel(
         }
     }
 }
-

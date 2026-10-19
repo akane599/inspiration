@@ -21,19 +21,33 @@ enum class XRayStatus { LOADING, EMPTY, FAILED, READY }
  * shows "—"); nothing is ever estimated. [key] is the battery-stats component name, or [XRayMapper.OTHER_KEY].
  */
 @Immutable
-data class ComponentRow(val key: String, val mah: Double?, val sharePct: Double?)
+data class ComponentRow(
+    val key: String,
+    val mah: Double?,
+    val sharePct: Double?,
+)
 
 /** Components of the per-app bar. Few on purpose: the bar has only a handful of telemetry hues. */
 enum class ComponentGroup { SCREEN, CPU, RADIOS, OTHER }
 
 @Immutable
-data class GroupSlice(val group: ComponentGroup, val mah: Double)
+data class GroupSlice(
+    val group: ComponentGroup,
+    val mah: Double,
+)
 
 @Immutable
-data class WakelockRow(val name: String, val durationMs: Long, val count: Long)
+data class WakelockRow(
+    val name: String,
+    val durationMs: Long,
+    val count: Long,
+)
 
 @Immutable
-data class AlarmRow(val tag: String, val count: Long)
+data class AlarmRow(
+    val tag: String,
+    val count: Long,
+)
 
 /** Energy by process state. A null field means the interval has no figure for it. */
 @Immutable
@@ -86,11 +100,17 @@ enum class BlockedReason { NOT_INSTALLED, NOT_RUNNING, PERMISSION_REQUIRED, PERM
 
 /** What a toolkit call came back with when it was not a success. */
 sealed interface Problem {
-    data class Refused(val reason: ToolkitRefusal) : Problem
+    data class Refused(
+        val reason: ToolkitRefusal,
+    ) : Problem
 
-    data class Unavailable(val reason: ToolkitUnavailable) : Problem
+    data class Unavailable(
+        val reason: ToolkitUnavailable,
+    ) : Problem
 
-    data class Failed(val code: Int?) : Problem
+    data class Failed(
+        val code: Int?,
+    ) : Problem
 }
 
 /** Read-back of the app's current settings: this is what the controls show, never an optimistic guess. */
@@ -104,16 +124,25 @@ data class AppControls(
 
 sealed interface ActionsState {
     /** Shizuku is not Ready. Granting happens in Cockpit or Toolkit, never here. */
-    data class Blocked(val reason: BlockedReason) : ActionsState
+    data class Blocked(
+        val reason: BlockedReason,
+    ) : ActionsState
 
     /** The entry has no single package to act on. */
     data object NoPackage : ActionsState
 
+    /** Package-only toolkit APIs cannot address this Android user's installation. Analytics stay available. */
+    data object UnsupportedUser : ActionsState
+
     data object Loading : ActionsState
 
-    data class Loaded(val controls: AppControls) : ActionsState
+    data class Loaded(
+        val controls: AppControls,
+    ) : ActionsState
 
-    data class Unavailable(val problem: Problem) : ActionsState
+    data class Unavailable(
+        val problem: Problem,
+    ) : ActionsState
 }
 
 /** A change of ours to this app that read-back shows is still in effect. */
@@ -133,7 +162,9 @@ sealed interface Change {
 
     data object Unrestricted : Change
 
-    data class BucketSet(val bucket: StandbyBucket) : Change
+    data class BucketSet(
+        val bucket: StandbyBucket,
+    ) : Change
 
     data object ForceStopped : Change
 
@@ -141,9 +172,13 @@ sealed interface Change {
 }
 
 sealed interface ActionNotice {
-    data class Applied(val change: Change) : ActionNotice
+    data class Applied(
+        val change: Change,
+    ) : ActionNotice
 
-    data class Rejected(val problem: Problem) : ActionNotice
+    data class Rejected(
+        val problem: Problem,
+    ) : ActionNotice
 }
 
 /**
@@ -151,14 +186,20 @@ sealed interface ActionNotice {
  * sheet, which came from the in-app list (H12), never from an Intent.
  */
 sealed interface ActionRequest {
-    data class SetRestricted(val restricted: Boolean) : ActionRequest
+    data class SetRestricted(
+        val restricted: Boolean,
+    ) : ActionRequest
 
-    data class SetBucket(val bucket: StandbyBucket) : ActionRequest
+    data class SetBucket(
+        val bucket: StandbyBucket,
+    ) : ActionRequest
 
     data object ForceStop : ActionRequest
 
     /** [actionId] is an audit row id taken from this app's [OverrideRow]s. */
-    data class Restore(val actionId: Long) : ActionRequest
+    data class Restore(
+        val actionId: Long,
+    ) : ActionRequest
 }
 
 @Immutable
@@ -199,20 +240,26 @@ sealed interface XRayIntent {
     /** The route stopped (activity stop or tab left). */
     data object Hidden : XRayIntent
 
-    data class SelectTab(val tab: XRayTab) : XRayIntent
+    data class SelectTab(
+        val tab: XRayTab,
+    ) : XRayIntent
 
     /** Asks for a fresh capture (empty and error states). */
     data object Capture : XRayIntent
 
     data object ClearSlice : XRayIntent
 
-    data class OpenApp(val uid: Int) : XRayIntent
+    data class OpenApp(
+        val uid: Int,
+    ) : XRayIntent
 
     data object CloseApp : XRayIntent
 
     data object ReloadActions : XRayIntent
 
-    data class Act(val request: ActionRequest) : XRayIntent
+    data class Act(
+        val request: ActionRequest,
+    ) : XRayIntent
 
     data object ConfirmPending : XRayIntent
 
@@ -224,11 +271,12 @@ sealed interface XRayEffect {
     data object RefreshFailed : XRayEffect
 }
 
-internal fun ShizukuState.blockedReason(): BlockedReason? = when (this) {
-    is ShizukuState.Ready -> null
-    ShizukuState.NotInstalled -> BlockedReason.NOT_INSTALLED
-    ShizukuState.NotRunning -> BlockedReason.NOT_RUNNING
-    ShizukuState.PermissionRequired -> BlockedReason.PERMISSION_REQUIRED
-    ShizukuState.PermissionDenied -> BlockedReason.PERMISSION_DENIED
-    is ShizukuState.UnsupportedServer -> BlockedReason.UNSUPPORTED_SERVER
-}
+internal fun ShizukuState.blockedReason(): BlockedReason? =
+    when (this) {
+        is ShizukuState.Ready -> null
+        ShizukuState.NotInstalled -> BlockedReason.NOT_INSTALLED
+        ShizukuState.NotRunning -> BlockedReason.NOT_RUNNING
+        ShizukuState.PermissionRequired -> BlockedReason.PERMISSION_REQUIRED
+        ShizukuState.PermissionDenied -> BlockedReason.PERMISSION_DENIED
+        is ShizukuState.UnsupportedServer -> BlockedReason.UNSUPPORTED_SERVER
+    }
