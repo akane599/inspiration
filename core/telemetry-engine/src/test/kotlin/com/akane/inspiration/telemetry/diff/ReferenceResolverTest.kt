@@ -1,6 +1,7 @@
 package com.akane.inspiration.telemetry.diff
 
 import com.akane.inspiration.ipc.model.HistoryEvent
+import com.akane.inspiration.ipc.model.HistoryKind
 import com.akane.inspiration.telemetry.capacity.ChargeSegment
 import com.akane.inspiration.telemetry.capacity.SegmentVerdict
 import com.akane.inspiration.telemetry.snapshot.BatterySnapshot
@@ -9,7 +10,9 @@ import com.akane.inspiration.telemetry.snapshot.CaptureTrigger
 import com.akane.inspiration.telemetry.snapshot.LiveReading
 import com.akane.inspiration.telemetry.snapshot.SnapshotClock
 import com.akane.inspiration.telemetry.snapshot.SnapshotKind
+import com.akane.inspiration.telemetry.snapshot.SourceAvailability
 import com.akane.inspiration.telemetry.store.ChargeSessionRecord
+import com.akane.inspiration.telemetry.store.HISTORY_SOURCE
 import com.akane.inspiration.telemetry.store.HealthSample
 import com.akane.inspiration.telemetry.store.Marker
 import com.akane.inspiration.telemetry.store.SnapshotStore
@@ -132,10 +135,145 @@ class ReferenceResolverTest {
             assertFalse(resolved.perUidAvailable)
         }
 
+    /*
+     * Captures land after the history event they record: the broadcast is posted once the framework has noted
+     * the event, then delivered and read (redroid: SCREEN_OFF capture +26 ms, SCREEN_ON capture +1 ms). The
+     * cases below offset every capture from its history time instead of placing it exactly on it.
+     */
+
+    @Test
+    fun `since screen off ends at the screen-on capture that lands just after the history event`() =
+        runTest {
+            // The redroid store of audit N-02: a charge job ran during the screen-off period.
+            val off = NOW - 45_000L
+            val on = NOW - 5_600L
+            val offCapture = snapshot(off + 26, CaptureTrigger.SCREEN_OFF, SnapshotKind.LIGHT)
+            val chargeJob = snapshot(off + 36, CaptureTrigger.CHARGE_JOB)
+            val onCapture = snapshot(on + 1, CaptureTrigger.SCREEN_ON, SnapshotKind.LIGHT)
+            val appOpen = snapshot(on + 3, CaptureTrigger.APP_OPEN)
+            val store = LoadCountingStore(listOf(offCapture, chargeJob, onCapture, appOpen))
+            val events = listOf(history(off, HistoryKind.SCREEN_OFF), history(on, HistoryKind.SCREEN_ON))
+
+            val resolved = ReferenceResolver(store).resolve(ReferenceKind.SinceScreenOff, NOW, events)!!
+
+            assertEquals(off, resolved.boundaryFromWallMs)
+            assertEquals(on + 1, resolved.boundaryToWallMs)
+            assertEquals(chargeJob, resolved.ref)
+            assertEquals(onCapture, resolved.now)
+            assertEquals(on - off - 35, resolved.coveredToWallMs - resolved.coveredFromWallMs)
+        }
+
+    @Test
+    fun `since screen off resolves from the broadcast captures when they lag the history by seconds`() =
+        runTest {
+            val off = NOW - 3 * HOUR_MS
+            val on = NOW - HOUR_MS
+            val offCapture = snapshot(off + 2_000L, CaptureTrigger.SCREEN_OFF, SnapshotKind.LIGHT)
+            val onCapture = snapshot(on + 1_500L, CaptureTrigger.SCREEN_ON, SnapshotKind.LIGHT)
+            val store = LoadCountingStore(listOf(offCapture, onCapture, snapshot(NOW - 1_000L, CaptureTrigger.APP_OPEN)))
+            val events = listOf(history(off, HistoryKind.SCREEN_OFF), history(on, HistoryKind.SCREEN_ON))
+
+            val resolved = ReferenceResolver(store).resolve(ReferenceKind.SinceScreenOff, NOW, events)!!
+
+            assertEquals(off, resolved.boundaryFromWallMs)
+            assertEquals(offCapture, resolved.ref)
+            assertEquals(onCapture, resolved.now)
+            assertEquals(2_000L, resolved.gapMs)
+        }
+
+    @Test
+    fun `since screen off does not reach past the capture slack for an end`() =
+        runTest {
+            val off = NOW - 3 * HOUR_MS
+            val on = NOW - HOUR_MS
+            val offCapture = snapshot(off + 20L, CaptureTrigger.SCREEN_OFF, SnapshotKind.LIGHT)
+            // Delivered only when the app became active again, a minute into the screen-on period.
+            val deferredOn = snapshot(on + 60_000L, CaptureTrigger.SCREEN_ON, SnapshotKind.LIGHT)
+            val events = listOf(history(off, HistoryKind.SCREEN_OFF), history(on, HistoryKind.SCREEN_ON))
+
+            assertNull(
+                ReferenceResolver(LoadCountingStore(listOf(offCapture, deferredOn))).resolve(ReferenceKind.SinceScreenOff, NOW, events),
+            )
+        }
+
+    @Test
+    fun `a captured screen-off period newer than the history wins over it`() =
+        runTest {
+            val events = listOf(history(NOW - 5 * HOUR_MS, HistoryKind.SCREEN_OFF), history(NOW - 4 * HOUR_MS, HistoryKind.SCREEN_ON))
+            val offCapture = snapshot(NOW - 2 * HOUR_MS, CaptureTrigger.SCREEN_OFF, SnapshotKind.LIGHT)
+            val onCapture = snapshot(NOW - HOUR_MS, CaptureTrigger.SCREEN_ON, SnapshotKind.LIGHT)
+            val store =
+                LoadCountingStore(
+                    listOf(snapshot(NOW - 4 * HOUR_MS + 10L, CaptureTrigger.SCREEN_ON, SnapshotKind.LIGHT), offCapture, onCapture),
+                )
+
+            val resolved = ReferenceResolver(store).resolve(ReferenceKind.SinceScreenOff, NOW, events)!!
+
+            assertEquals(offCapture.clock.wallMs, resolved.boundaryFromWallMs)
+            assertEquals(onCapture.clock.wallMs, resolved.boundaryToWallMs)
+            assertEquals(offCapture, resolved.ref)
+            assertEquals(onCapture, resolved.now)
+        }
+
+    @Test
+    fun `stale history loses to a newer capture past the history horizon`() =
+        runTest {
+            // Day 1: an ingest stores this unplug and screen-on. Day 2: the device charged overnight and was
+            // unplugged and woken, but no ingest has run since (Shizuku down after a reboot).
+            val dayOne = NOW - 30 * HOUR_MS
+            val ingest = snapshot(dayOne + HOUR_MS, CaptureTrigger.APP_OPEN, ingestedHistory = true)
+            val unplug = snapshot(NOW - 2 * HOUR_MS, CaptureTrigger.POWER_DISCONNECTED, SnapshotKind.LIGHT)
+            val screenOn = snapshot(NOW - HOUR_MS, CaptureTrigger.SCREEN_ON, SnapshotKind.LIGHT)
+            val failedRefresh = snapshot(NOW - 1_000L, CaptureTrigger.APP_OPEN, SnapshotKind.LIGHT)
+            val store = LoadCountingStore(listOf(ingest, unplug, screenOn, failedRefresh))
+            val events = listOf(history(dayOne, HistoryKind.UNPLUGGED), history(dayOne + 10L, HistoryKind.SCREEN_ON))
+            val resolver = ReferenceResolver(store)
+
+            assertEquals(ingest.clock.wallMs, store.historyHorizonWallMs())
+            assertEquals(unplug.clock.wallMs, resolver.resolve(ReferenceKind.SinceUnplugged, NOW, events)!!.boundaryFromWallMs)
+            assertEquals(screenOn.clock.wallMs, resolver.resolve(ReferenceKind.ScreenOnSession, NOW, events)!!.boundaryFromWallMs)
+        }
+
+    @Test
+    fun `a capture of an event the history holds keeps the history time as the start`() =
+        runTest {
+            val unplugged = NOW - 5 * HOUR_MS
+            val screenOn = NOW - 3 * HOUR_MS
+            // Lagging captures (+800 ms) and captures deferred to the app open whose ingest stored the events
+            // (500 ms past that ingest's clock) both belong to the history's events.
+            val ingest = snapshot(NOW - 1_000L, CaptureTrigger.APP_OPEN, ingestedHistory = true)
+            val events = listOf(history(unplugged, HistoryKind.UNPLUGGED), history(screenOn, HistoryKind.SCREEN_ON))
+            val captureSets =
+                listOf(
+                    listOf(
+                        snapshot(unplugged + 800L, CaptureTrigger.POWER_DISCONNECTED, SnapshotKind.LIGHT),
+                        snapshot(screenOn + 800L, CaptureTrigger.SCREEN_ON, SnapshotKind.LIGHT),
+                    ),
+                    listOf(
+                        snapshot(NOW - 500L, CaptureTrigger.POWER_DISCONNECTED, SnapshotKind.LIGHT),
+                        snapshot(NOW - 499L, CaptureTrigger.SCREEN_ON, SnapshotKind.LIGHT),
+                    ),
+                )
+
+            for (captures in captureSets) {
+                val store = LoadCountingStore(captures + ingest)
+                assertEquals(ingest.clock.wallMs, store.historyHorizonWallMs())
+                val resolver = ReferenceResolver(store)
+                assertEquals(unplugged, resolver.resolve(ReferenceKind.SinceUnplugged, NOW, events)!!.boundaryFromWallMs)
+                assertEquals(screenOn, resolver.resolve(ReferenceKind.ScreenOnSession, NOW, events)!!.boundaryFromWallMs)
+            }
+        }
+
+    private fun history(
+        wallMs: Long,
+        kind: Int,
+    ) = HistoryEvent(0, wallMs, kind, 0, -1, 0, 0, 0)
+
     private fun snapshot(
         wallMs: Long,
         trigger: CaptureTrigger,
         kind: SnapshotKind = SnapshotKind.FULL,
+        ingestedHistory: Boolean = false,
     ) = BatterySnapshot(
         id = wallMs,
         kind = kind,
@@ -148,7 +286,7 @@ class ReferenceResolverTest {
         kernelWakelocks = emptyList(),
         wakeupReasons = emptyList(),
         cpuFreq = emptyList(),
-        availability = emptyMap(),
+        availability = if (ingestedHistory) mapOf(HISTORY_SOURCE to SourceAvailability(true, null)) else emptyMap(),
         truncatedUids = 0,
     )
 
