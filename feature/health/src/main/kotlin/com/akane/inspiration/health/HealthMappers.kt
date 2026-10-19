@@ -347,7 +347,7 @@ internal fun wearAnalysis(
     var highObserved = 0L
     for ((a, b) in points.zipWithNext()) {
         val dt = b.wallMs - a.wallMs
-        val cap = if (a.fromHistory || b.fromHistory) HISTORY_MAX_GAP_MS else SAMPLE_MAX_GAP_MS
+        val cap = if (a.fromHistory) HISTORY_MAX_GAP_MS else SAMPLE_MAX_GAP_MS
         if (dt <= 0 || dt > cap) continue
         a.temperatureC?.let { t ->
             hotObserved += dt

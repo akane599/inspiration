@@ -420,6 +420,53 @@ class HealthMappersTest {
         )
     }
 
+    @Test
+    fun `heat and voltage holdover caps follow only the predecessor source at exact boundaries`() {
+        for (predecessorFromHistory in listOf(false, true)) {
+            for (successorFromHistory in listOf(false, true)) {
+                for (gapMs in listOf(30_000L, 30_001L, 1_200_000L, 1_200_001L)) {
+                    val points =
+                        listOf(
+                            point(NOW_MS, level = 40, tempC = 45.0, voltageMv = 4_400, fromHistory = predecessorFromHistory),
+                            point(NOW_MS + gapMs, level = 41, tempC = 30.0, voltageMv = 4_000, fromHistory = successorFromHistory),
+                        )
+                    val analysis = checkNotNull(wearAnalysis(points, null, NOW_MS + gapMs, liveActive = false))
+                    val capMs = if (predecessorFromHistory) 1_200_000L else 30_000L
+                    val expectedCoverageMs = if (gapMs <= capMs) gapMs else 0L
+                    val case = "history predecessor=$predecessorFromHistory, history successor=$successorFromHistory, gap=$gapMs"
+                    assertEquals("$case hot time", expectedCoverageMs, analysis.hotMs)
+                    assertEquals("$case hot coverage", expectedCoverageMs, analysis.hotObservedMs)
+                    assertEquals("$case high-voltage time", expectedCoverageMs, analysis.highVoltageMs)
+                    assertEquals("$case voltage coverage", expectedCoverageMs, analysis.voltageObservedMs)
+                    assertEquals("$case retains full charge duration", gapMs, analysis.chargeMs)
+                }
+            }
+        }
+    }
+
+    @Test
+    fun `history after a foreground run does not extend measured heat or voltage evidence`() {
+        val span = ChargeSpan(NOW_MS, NOW_MS + 20 * MIN_MS)
+        val samples =
+            listOf(
+                point(NOW_MS, level = 40, tempC = 45.0, voltageMv = 4_400),
+                point(NOW_MS + 3 * SEC_MS, level = 41, tempC = 45.0, voltageMv = 4_400),
+            )
+        val history =
+            listOf(
+                point(NOW_MS + 20 * MIN_MS, level = 50, tempC = 30.0, voltageMv = 4_000, fromHistory = true),
+            )
+        val session = chargeSession(span, samples, history, hasLive = false)
+        assertEquals(listOf(false, false, true), session.map { it.fromHistory })
+        val analysis = checkNotNull(wearAnalysis(session, span, NOW_MS + 20 * MIN_MS, liveActive = false))
+        assertEquals(20 * MIN_MS, analysis.chargeMs)
+        assertEquals(3 * SEC_MS, analysis.hotMs)
+        assertEquals(3 * SEC_MS, analysis.hotObservedMs)
+        assertEquals(3 * SEC_MS, analysis.highVoltageMs)
+        assertEquals(3 * SEC_MS, analysis.voltageObservedMs)
+        assertTrue(analysis.sparse)
+    }
+
     // ---- heat and voltage analysis --------------------------------------------------------------
 
     /** 11 readings 10 s apart: hot for the first five, at high voltage for the first three. */
