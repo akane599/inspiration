@@ -20,19 +20,23 @@ interface AppLabelSource {
     fun loadPackagesForUid(uid: Int): List<String>
 }
 
-class PackageManagerAppLabelSource(private val packageManager: PackageManager) : AppLabelSource {
+class PackageManagerAppLabelSource(
+    private val packageManager: PackageManager,
+) : AppLabelSource {
     @Suppress("DEPRECATION") // The flags overload needs API 33; this call is identical for flags 0 on API 31+.
-    override fun loadLabel(packageName: String): String? = try {
-        packageManager.getApplicationInfo(packageName, 0).loadLabel(packageManager).toString()
-    } catch (_: PackageManager.NameNotFoundException) {
-        null
-    }
+    override fun loadLabel(packageName: String): String? =
+        try {
+            packageManager.getApplicationInfo(packageName, 0).loadLabel(packageManager).toString()
+        } catch (_: PackageManager.NameNotFoundException) {
+            null
+        }
 
-    override fun loadIcon(packageName: String): Bitmap? = try {
-        packageManager.getApplicationIcon(packageName).toBitmap(ICON_PX, ICON_PX)
-    } catch (_: PackageManager.NameNotFoundException) {
-        null
-    }
+    override fun loadIcon(packageName: String): Bitmap? =
+        try {
+            packageManager.getApplicationIcon(packageName).toBitmap(ICON_PX, ICON_PX)
+        } catch (_: PackageManager.NameNotFoundException) {
+            null
+        }
 
     override fun loadPackagesForUid(uid: Int): List<String> = packageManager.getPackagesForUid(uid)?.toList().orEmpty()
 
@@ -42,9 +46,9 @@ class PackageManagerAppLabelSource(private val packageManager: PackageManager) :
 }
 
 /**
- * [AppLabels] with a bounded in-memory LRU per kind (H15). A package the source does not know is cached
- * too (label = the package name, no icon), so a screen full of missing packages asks the source once each.
- * Loads run on [ioDispatcher]; a cache hit returns without switching context.
+ * [AppLabels] with bounded in-memory LRUs for cosmetic labels and icons (H15). A package the source does
+ * not know is cached too (label = the package name, no icon). UID ownership is read fresh on every lookup.
+ * Loads run on [ioDispatcher]; a cosmetic cache hit returns without switching context.
  */
 class CachedAppLabels(
     private val source: AppLabelSource,
@@ -54,7 +58,6 @@ class CachedAppLabels(
 ) : AppLabels {
     private val labels = Lru<Resolved<String>>(maxLabels)
     private val icons = Lru<Resolved<Bitmap>>(maxIcons)
-    private val uidPackages = Lru<List<String>>(maxLabels)
 
     override suspend fun label(packageName: String): String {
         labels.get(packageName)?.let { return it.value ?: packageName }
@@ -70,29 +73,35 @@ class CachedAppLabels(
         return loaded
     }
 
-    /** Sorted by name; a UID no visible package runs as is cached too, as an empty list. */
+    /** Current visible owners, distinct and sorted by name; membership is never cached. */
     override suspend fun packagesForUid(uid: Int): List<String> {
         if (uid % PER_USER_UID_RANGE < FIRST_APPLICATION_UID) return emptyList() // shared platform UIDs own no single app
-        val key = uid.toString()
-        uidPackages.get(key)?.let { return it }
-        val loaded = withContext(ioDispatcher) { source.loadPackagesForUid(uid) }.distinct().sorted()
-        uidPackages.put(key, loaded)
-        return loaded
+        return withContext(ioDispatcher) {
+            source.loadPackagesForUid(uid).distinct().sorted()
+        }
     }
 
     /** A cached lookup; [value] null is a cached "not found". */
-    private class Resolved<V : Any>(val value: V?)
+    private class Resolved<V : Any>(
+        val value: V?,
+    )
 
-    private class Lru<V : Any>(private val maxEntries: Int) {
-        private val map = object : LinkedHashMap<String, V>(INITIAL_CAPACITY, LOAD_FACTOR, true) {
-            override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, V>): Boolean = size > maxEntries
-        }
+    private class Lru<V : Any>(
+        private val maxEntries: Int,
+    ) {
+        private val map =
+            object : LinkedHashMap<String, V>(INITIAL_CAPACITY, LOAD_FACTOR, true) {
+                override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, V>): Boolean = size > maxEntries
+            }
 
         @Synchronized
         fun get(key: String): V? = map[key]
 
         @Synchronized
-        fun put(key: String, value: V) {
+        fun put(
+            key: String,
+            value: V,
+        ) {
             map[key] = value
         }
     }
