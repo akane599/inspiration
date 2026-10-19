@@ -150,7 +150,7 @@ internal class ToolkitExecutor(
                 }
             val before = "stopped=${target.facts.stopped}"
             val write = runner.run(listOf(CMD, "activity", "force-stop", "--user", USER, pkg.orEmpty()))
-            if (!write.ok) return ToolkitResult.failed(execCode(write), before = before)
+            if (!write.ok) return writeFailed(write, before)
             val after =
                 when (val now = inspector.lookup(pkg.orEmpty())) {
                     is PackageLookup.Found -> "stopped=${now.stopped}"

@@ -208,6 +208,31 @@ class ToolkitExecutorTest {
     }
 
     @Test
+    fun `a force-stop that timed out after it may have committed is unverified, not failed`() {
+        val executor = executor()
+        val base = runner.handler
+        runner.handler = { argv ->
+            val out = base(argv)
+            if ("force-stop" in argv) CommandOutput(exitCode = -1, text = "", timedOut = true) else out
+        }
+
+        val result = executor.forceStop(APP)
+
+        assertEquals(ToolkitResult.unavailable(ToolkitCode.UNVERIFIED, before = "stopped=false"), result)
+    }
+
+    @Test
+    fun `a force-stop that failed outright is still FAILED`() {
+        val executor = executor()
+        val base = runner.handler
+        runner.handler = { argv -> if ("force-stop" in argv) failure() else base(argv) }
+
+        val result = executor.forceStop(APP)
+
+        assertEquals(ToolkitResult.failed(ToolkitCode.EXEC, before = "stopped=false"), result)
+    }
+
+    @Test
     fun `a failing command is reported as FAILED with the prior read back`() {
         val executor = executor()
         val base = runner.handler
