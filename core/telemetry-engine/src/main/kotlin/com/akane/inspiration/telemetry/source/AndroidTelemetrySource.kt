@@ -77,7 +77,9 @@ class AndroidTelemetrySource(
                             .map { it.uid }
                 val uidIdentity =
                     if (usage?.available == true && usage.truncatedUids == 0) {
-                        uidIdentityReader.close(identityOpening, identityUids.toSet())
+                        // Energy orders the per-UID fallback, so a budget cut there drops only negligible rows.
+                        val energy = usage.uids.groupingBy { it.uid }.fold(0.0) { total, row -> total + row.totalMah }
+                        uidIdentityReader.close(identityOpening, identityUids.toSet(), energy)
                     } else {
                         null
                     }

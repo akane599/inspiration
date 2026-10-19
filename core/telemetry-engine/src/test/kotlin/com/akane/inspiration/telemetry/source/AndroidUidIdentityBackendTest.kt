@@ -9,6 +9,7 @@ import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
@@ -92,6 +93,34 @@ class AndroidUidIdentityBackendTest {
         install(456)
         assertEquals(456L, backend.packageInfo("test.owner")!!.firstInstallTimeMs)
         assertNull(backend.packageInfo("missing.owner"))
+    }
+
+    @Test
+    fun `bulk installed owners carry each package full uid and first install time`() {
+        val context = RuntimeEnvironment.getApplication()
+        for ((name, time) in listOf("shared.a" to 123L, "shared.b" to 456L, "single.c" to 789L)) {
+            shadowOf(context.packageManager).installPackage(
+                PackageInfo().apply {
+                    packageName = name
+                    firstInstallTime = time
+                    applicationInfo =
+                        ApplicationInfo().apply {
+                            packageName = name
+                            uid = if (name.startsWith("shared")) 10_123 else 10_124
+                        }
+                },
+            )
+        }
+        val owners = requireNotNull(AndroidUidIdentityBackend(context).installedOwners())
+        assertTrue(
+            owners.containsAll(
+                listOf(
+                    UidOwnerInstall("shared.a", 10_123, 123),
+                    UidOwnerInstall("shared.b", 10_123, 456),
+                    UidOwnerInstall("single.c", 10_124, 789),
+                ),
+            ),
+        )
     }
 
     @Implements(className = "android.app.ApplicationPackageManager")
