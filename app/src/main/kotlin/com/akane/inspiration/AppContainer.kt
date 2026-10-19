@@ -12,10 +12,9 @@ import com.akane.inspiration.di.CachedAppLabels
 import com.akane.inspiration.di.PackageManagerAppLabelSource
 import com.akane.inspiration.di.Preloaded
 import com.akane.inspiration.di.RefreshCoordinator
-import com.akane.inspiration.di.newApplicationScope
 import com.akane.inspiration.di.TimelineEvents
+import com.akane.inspiration.di.newApplicationScope
 import com.akane.inspiration.di.reconcileOnEachReady
-import com.akane.inspiration.diagnostics.R as DiagnosticsR
 import com.akane.inspiration.diagnostics.analysis.AnalysisSelection
 import com.akane.inspiration.diagnostics.analysis.AnalysisSession
 import com.akane.inspiration.diagnostics.analysis.AnalysisState
@@ -68,14 +67,16 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.util.Locale
+import com.akane.inspiration.diagnostics.R as DiagnosticsR
 
 /**
  * Manual DI root. It also implements the five pinned per-feature dependency interfaces (H4), so a screen
  * only ever sees its own interface: no container, no raw `ToolkitGateway`, no Intent. Nothing in here polls;
  * live readings flow only while a screen collects [liveReadings] (H13).
  */
-class AppContainer(context: Context) :
-    CockpitDependencies,
+class AppContainer(
+    context: Context,
+) : CockpitDependencies,
     XRayDependencies,
     SleepLabDependencies,
     HealthDependencies,
@@ -84,26 +85,32 @@ class AppContainer(context: Context) :
 
     val applicationScope: CoroutineScope = newApplicationScope()
     override val clocks: Clocks = AndroidClocks(appContext)
-    val shizukuManager: ShizukuManager = ShizukuManagerImpl(
-        context = appContext,
-        scope = applicationScope,
-    )
+    val shizukuManager: ShizukuManager =
+        ShizukuManagerImpl(
+            context = appContext,
+            scope = applicationScope,
+        )
     val database: InspirationDatabase = InspirationDatabase.create(appContext)
     val store: SnapshotStore = RoomSnapshotStore(database)
     private val telemetrySource = AndroidTelemetrySource(appContext, shizukuManager, clocks)
-    val capturer = SnapshotCapturer(
-        source = telemetrySource,
-        store = store,
-        clocks = clocks,
-    )
+    val capturer =
+        SnapshotCapturer(
+            source = telemetrySource,
+            store = store,
+            clocks = clocks,
+        )
     private val liveTelemetry = LiveTelemetry(telemetrySource, PowerCalibrator(), clocks, store)
 
     // The bundled dictionary (a disk read plus a parse) loads on IO from construction; see [Preloaded].
-    private val dictionaryLoad = Preloaded(applicationScope) {
-        val json = appContext.resources.openRawResource(DiagnosticsR.raw.diagnostic_dictionary)
-            .bufferedReader().use { it.readText() }
-        DiagnosticDictionary(DictionaryLoader.parse(json))
-    }
+    private val dictionaryLoad =
+        Preloaded(applicationScope) {
+            val json =
+                appContext.resources
+                    .openRawResource(DiagnosticsR.raw.diagnostic_dictionary)
+                    .bufferedReader()
+                    .use { it.readText() }
+            DiagnosticDictionary(DictionaryLoader.parse(json))
+        }
 
     /** The preloaded dictionary: it never parses on the calling thread (at most it waits for the IO load). */
     val dictionary: DiagnosticDictionary get() = dictionaryLoad.get()
@@ -111,12 +118,13 @@ class AppContainer(context: Context) :
 
     // ---- refresh (H7) ----------------------------------------------------------------------
 
-    private val refreshCoordinator = RefreshCoordinator(
-        nowWallMs = clocks::wallMs,
-        debounceMs = CapturePolicy.APP_OPEN_DEBOUNCE_MS,
-        onFailure = { android.util.Log.w("AppContainer", "App refresh failed", it) },
-        capture = ::captureFull,
-    )
+    private val refreshCoordinator =
+        RefreshCoordinator(
+            nowWallMs = clocks::wallMs,
+            debounceMs = CapturePolicy.APP_OPEN_DEBOUNCE_MS,
+            onFailure = { android.util.Log.w("AppContainer", "App refresh failed", it) },
+            capture = ::captureFull,
+        )
 
     /** Wall time of the last successful refresh; it feeds [analysisSession] as its refresh tick. */
     val lastRefreshWallMs: StateFlow<Long?> = refreshCoordinator.lastRefreshWallMs
@@ -131,7 +139,10 @@ class AppContainer(context: Context) :
                 emitStatusTick()
                 RefreshResult.Refreshed(clocks.wallMs())
             }
-            is CaptureResult.Missed -> RefreshResult.Failed(result.reason)
+
+            is CaptureResult.Missed -> {
+                RefreshResult.Failed(result.reason)
+            }
         }
 
     // ---- analysis (H3) ---------------------------------------------------------------------
@@ -139,13 +150,14 @@ class AppContainer(context: Context) :
     override val selection = AnalysisSelection()
 
     /** The one process-wide session, recomputed on a selection change or a refresh and shared by every screen. */
-    val analysisSession = AnalysisSession(
-        analyzer = IntervalAnalyzer(store, ruleEngine),
-        selection = selection,
-        refreshTicks = lastRefreshWallMs.filterNotNull(),
-        scope = applicationScope,
-        nowWallMs = clocks::wallMs,
-    )
+    val analysisSession =
+        AnalysisSession(
+            analyzer = IntervalAnalyzer(store, ruleEngine),
+            selection = selection,
+            refreshTicks = lastRefreshWallMs.filterNotNull(),
+            scope = applicationScope,
+            nowWallMs = clocks::wallMs,
+        )
     override val analysis: StateFlow<AnalysisState> = analysisSession.state
 
     override fun dictionary(): DiagnosticDictionary = dictionary
@@ -155,15 +167,23 @@ class AppContainer(context: Context) :
      * mid charge or mid Doze still shows that state (see [TimelineEvents]). Building walks every event of the
      * window, which for a multi-day interval is far too much for the main thread the screens call from.
      */
-    override suspend fun timeline(from: Long, to: Long): Timeline = withContext(Dispatchers.Default) {
-        val events = TimelineEvents.withSeeds(
-            before = store.lastHistoryOfEachKindBefore(from),
-            inWindow = store.historyBetween(from, to),
-        )
-        TimelineBuilder.build(events, from, to)
-    }
+    override suspend fun timeline(
+        from: Long,
+        to: Long,
+    ): Timeline =
+        withContext(Dispatchers.Default) {
+            val events =
+                TimelineEvents.withSeeds(
+                    before = store.lastHistoryOfEachKindBefore(from),
+                    inWindow = store.historyBetween(from, to),
+                )
+            TimelineBuilder.build(events, from, to)
+        }
 
-    override suspend fun historyBetween(from: Long, to: Long): List<HistoryEvent> = store.historyBetween(from, to)
+    override suspend fun historyBetween(
+        from: Long,
+        to: Long,
+    ): List<HistoryEvent> = store.historyBetween(from, to)
 
     // ---- Shizuku ---------------------------------------------------------------------------
 
@@ -187,28 +207,31 @@ class AppContainer(context: Context) :
         return store.addMarker(saved.id, label, clocks.wallMs())
     }
 
-    override suspend fun kernelBattery(): KernelCapacitySnapshot? = KernelCapacitySnapshot.from(
-        shizukuManager.withTelemetryService(KERNEL_READ_TIMEOUT_MS) { service ->
-            runCatching { service.readKernelBattery() }.getOrNull()
-        },
-    )
+    override suspend fun kernelBattery(): KernelCapacitySnapshot? =
+        KernelCapacitySnapshot.from(
+            telemetrySource.kernelBatterySnapshot(KERNEL_READ_TIMEOUT_MS),
+        )
 
     override suspend fun healthSamples(): List<HealthSample> = store.healthSamples()
 
     override suspend fun chargeSessions(): List<ChargeSessionRecord> = store.chargeSessions()
 
-    override suspend fun samplesBetween(from: Long, to: Long): List<TelemetrySample> = store.samplesBetween(from, to)
+    override suspend fun samplesBetween(
+        from: Long,
+        to: Long,
+    ): List<TelemetrySample> = store.samplesBetween(from, to)
 
     // ---- toolkit (H12) ---------------------------------------------------------------------
 
     /** The only toolkit API features see; the raw gateway stays inside this container. */
-    override val toolkit = ToolkitActions(
-        gateway = ToolkitGateway(shizukuManager),
-        store = store,
-        holdBinding = shizukuManager::holdBinding,
-        nowMs = clocks::wallMs,
-        elapsedMs = clocks::elapsedRealtimeMs,
-    )
+    override val toolkit =
+        ToolkitActions(
+            gateway = ToolkitGateway(shizukuManager),
+            store = store,
+            holdBinding = shizukuManager::holdBinding,
+            nowMs = clocks::wallMs,
+            elapsedMs = clocks::elapsedRealtimeMs,
+        )
 
     // ---- app labels and the picker (H15) ---------------------------------------------------
 
@@ -216,21 +239,28 @@ class AppContainer(context: Context) :
 
     // The ResolveInfoFlags overload is API 33+; the Int overload is identical for flags 0 and works on API 31+.
     @Suppress("DEPRECATION")
-    override suspend fun installedApps(): List<AppEntry> = withContext(Dispatchers.IO) {
-        val launcher = Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER)
-        val launchable = appContext.packageManager
-            .queryIntentActivities(launcher, 0)
-            .map { it.activityInfo.packageName }
-            .toSet()
-        val restricted = toolkit.activeOverrides().first().mapNotNull { it.pkg }.toSet()
-        AppEntries.build(
-            launchable = launchable,
-            restricted = restricted,
-            excluded = setOf(appContext.packageName, SHIZUKU_PACKAGE),
-            locale = Locale.getDefault(),
-            label = appLabels::label,
-        )
-    }
+    override suspend fun installedApps(): List<AppEntry> =
+        withContext(Dispatchers.IO) {
+            val launcher = Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER)
+            val launchable =
+                appContext.packageManager
+                    .queryIntentActivities(launcher, 0)
+                    .map { it.activityInfo.packageName }
+                    .toSet()
+            val restricted =
+                toolkit
+                    .activeOverrides()
+                    .first()
+                    .mapNotNull { it.pkg }
+                    .toSet()
+            AppEntries.build(
+                launchable = launchable,
+                restricted = restricted,
+                excluded = setOf(appContext.packageName, SHIZUKU_PACKAGE),
+                locale = Locale.getDefault(),
+                label = appLabels::label,
+            )
+        }
 
     // ---- status notification (ticks, switch, blocked state) --------------------------------
 

@@ -32,14 +32,15 @@ import org.robolectric.annotation.Config
 class AndroidTelemetrySourceKernelReadingTest {
     private val context = RuntimeEnvironment.getApplication()
 
-    private val cachedAtStart = CalibrationInput(
-        sysfsCurrentRaw = -150_000L,
-        sysfsVoltageRaw = 3_900_000L,
-        bmCurrentNowUa = -150_000,
-        bmVoltageMv = 3_900,
-        isCharging = false,
-        plugged = false,
-    )
+    private val cachedAtStart =
+        CalibrationInput(
+            sysfsCurrentRaw = -150_000L,
+            sysfsVoltageRaw = 3_900_000L,
+            bmCurrentNowUa = -150_000,
+            bmVoltageMv = 3_900,
+            isCharging = false,
+            plugged = false,
+        )
 
     private fun source(kernel: KernelBatterySnapshot): AndroidTelemetrySource {
         shadowOf(context.getSystemService(BatteryManager::class.java))
@@ -49,32 +50,37 @@ class AndroidTelemetrySourceKernelReadingTest {
             shizuku = DirectShizuku(KernelService(kernel)),
             clocks = FixedClocks,
             calibrationInputReader = CalibrationInputReader { cachedAtStart },
-            ioDispatcher = Dispatchers.Unconfined,
         )
     }
 
     @Test
-    fun `a kernel read without current_now takes the live current from the fresh battery manager value`() = runBlocking {
-        val source = source(kernel(currentNowRaw = null, voltageNowRaw = 4_000_000L))
+    fun `a kernel read without current_now takes the live current from the fresh battery manager value`() =
+        runBlocking {
+            val source = source(kernel(currentNowRaw = null, voltageNowRaw = 4_000_000L))
 
-        val reading = LiveTelemetry(source, PowerCalibrator(), FixedClocks, ioDispatcher = Dispatchers.Unconfined)
-            .readings(periodMs = 1L)
-            .first()
+            val reading =
+                LiveTelemetry(source, PowerCalibrator(), FixedClocks, ioDispatcher = Dispatchers.Unconfined)
+                    .readings(periodMs = 1L)
+                    .first()
 
-        assertEquals("fresh -1200 mA, not the -150 mA cached at process start", -1_200, reading.currentMa)
-        assertEquals("calibrated from the fresh current and the kernel voltage", -4.8, reading.watts ?: Double.NaN, 1e-9)
-    }
+            assertEquals("fresh -1200 mA, not the -150 mA cached at process start", -1_200, reading.currentMa)
+            assertEquals("calibrated from the fresh current and the kernel voltage", -4.8, reading.watts ?: Double.NaN, 1e-9)
+        }
 
     @Test
-    fun `a kernel read without sysfs values never substitutes the ones cached at process start`() = runBlocking {
-        val input = checkNotNull(source(KernelBatterySnapshot.unavailable("no battery supply")).kernelReading()?.calibrationInput)
+    fun `a kernel read without sysfs values never substitutes the ones cached at process start`() =
+        runBlocking {
+            val input = checkNotNull(source(KernelBatterySnapshot.unavailable("no battery supply")).kernelReading()?.calibrationInput)
 
-        assertNull(input.sysfsCurrentRaw)
-        assertNull(input.sysfsVoltageRaw)
-        assertEquals(-1_200_000, input.bmCurrentNowUa)
-    }
+            assertNull(input.sysfsCurrentRaw)
+            assertNull(input.sysfsVoltageRaw)
+            assertEquals(-1_200_000, input.bmCurrentNowUa)
+        }
 
-    private fun kernel(currentNowRaw: Long?, voltageNowRaw: Long?) = KernelBatterySnapshot(
+    private fun kernel(
+        currentNowRaw: Long?,
+        voltageNowRaw: Long?,
+    ) = KernelBatterySnapshot(
         available = true,
         reason = null,
         currentNowRaw = currentNowRaw,
@@ -90,25 +96,39 @@ class AndroidTelemetrySourceKernelReadingTest {
         readAtElapsedMs = 2L,
     )
 
-    private class KernelService(private val snapshot: KernelBatterySnapshot) : ITelemetryUserService.Default() {
+    private class KernelService(
+        private val snapshot: KernelBatterySnapshot,
+    ) : ITelemetryUserService.Default() {
         override fun readKernelBattery(): KernelBatterySnapshot = snapshot
     }
 
-    private class DirectShizuku(private val service: ITelemetryUserService) : ShizukuManager {
+    private class DirectShizuku(
+        private val service: ITelemetryUserService,
+    ) : ShizukuManager {
         override val state: StateFlow<ShizukuState> = MutableStateFlow(ShizukuState.Ready(2000, 13))
         override val telemetryService: StateFlow<ITelemetryUserService?> = MutableStateFlow(service)
+
         override fun requestPermission() = Unit
+
         override fun start() = Unit
-        override suspend fun <T> withTelemetryService(timeoutMs: Long, block: suspend (ITelemetryUserService) -> T): T? =
-            block(service)
+
+        override suspend fun <T> withTelemetryService(
+            timeoutMs: Long,
+            block: suspend (ITelemetryUserService) -> T,
+        ): T? = block(service)
+
         override fun holdBinding(): AutoCloseable = AutoCloseable {}
+
         override fun stop() = Unit
     }
 
     private object FixedClocks : Clocks {
         override fun wallMs(): Long = 1_000L
+
         override fun elapsedRealtimeMs(): Long = 2_000L
+
         override fun uptimeMs(): Long = 3_000L
+
         override fun bootCount(): Int = 4
     }
 }

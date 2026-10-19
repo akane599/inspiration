@@ -1,13 +1,24 @@
 package com.akane.inspiration.telemetry.source
 
+import android.content.ComponentName
+import android.content.ServiceConnection
+import android.content.pm.ApplicationInfo
+import android.content.pm.PackageInfo
+import android.content.pm.PackageManager
+import android.os.Binder
+import android.os.IBinder
+import android.os.Parcel
 import com.akane.inspiration.ipc.ITelemetryUserService
+import com.akane.inspiration.ipc.ShizukuFacade
 import com.akane.inspiration.ipc.ShizukuManager
+import com.akane.inspiration.ipc.ShizukuManagerImpl
 import com.akane.inspiration.ipc.ShizukuState
 import com.akane.inspiration.ipc.model.BatteryHistorySnapshot
 import com.akane.inspiration.ipc.model.BatteryUsageSnapshot
 import com.akane.inspiration.ipc.model.DumpResult
 import com.akane.inspiration.ipc.model.HistoryEvent
 import com.akane.inspiration.ipc.model.HistoryKind
+import com.akane.inspiration.ipc.model.KernelBatterySnapshot
 import com.akane.inspiration.telemetry.calibration.CalibrationInput
 import com.akane.inspiration.telemetry.capacity.ChargeSegment
 import com.akane.inspiration.telemetry.capacity.SegmentVerdict
@@ -24,19 +35,38 @@ import com.akane.inspiration.telemetry.store.Marker
 import com.akane.inspiration.telemetry.store.SnapshotStore
 import com.akane.inspiration.telemetry.store.TelemetrySample
 import com.akane.inspiration.telemetry.store.ToolkitActionRecord
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.async
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.cancelAndJoin
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.test.StandardTestDispatcher
+import kotlinx.coroutines.test.TestCoroutineScheduler
+import kotlinx.coroutines.withTimeout
+import kotlinx.coroutines.withTimeoutOrNull
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.RuntimeEnvironment
+import org.robolectric.Shadows.shadowOf
 import org.robolectric.annotation.Config
+import java.lang.reflect.Proxy
 import java.util.Collections
+import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicInteger
 
 /**
  * The real AndroidTelemetrySource + SnapshotCapturer against a service whose calls block like Binder
@@ -44,9 +74,118 @@ import java.util.concurrent.TimeUnit
  * release its caller on time, and history pages read before it must be kept so a large backlog makes progress.
  * Real threads and time; deadlines are scaled down from the 10 s production capture deadline.
  */
+@OptIn(ExperimentalCoroutinesApi::class)
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [35])
 class AndroidTelemetrySourceDeadlineTest {
+    @Test
+    fun `a standalone kernel deadline includes acquisition and releases service use while transact is blocked`() =
+        runBlocking {
+            val fixture = KernelFixture(connectImmediately = false)
+            val telemetry = source(fixture.manager)
+            val startedNs = System.nanoTime()
+            val call = async(Dispatchers.Default) { telemetry.kernelBatterySnapshot(KERNEL_DEADLINE_MS) }
+            try {
+                assertTrue("the manager must acquire a service use", fixture.facade.bound.await(2L, TimeUnit.SECONDS))
+                delay(KERNEL_ACQUISITION_MS)
+                fixture.facade.connect()
+                assertTrue("the Binder transaction must start before the deadline", fixture.transaction.entered.await(2L, TimeUnit.SECONDS))
+
+                assertNotNull(
+                    "the caller must finish before the blocked transaction is released",
+                    withTimeoutOrNull(KERNEL_DEADLINE_MS + KERNEL_SLACK_MS) {
+                        call.join()
+                        true
+                    },
+                )
+                assertNull(call.await())
+                val tookMs = elapsedMs(startedNs)
+                assertTrue(
+                    "acquisition and read must share $KERNEL_DEADLINE_MS ms, not get separate budgets: $tookMs ms",
+                    tookMs < KERNEL_DEADLINE_MS + KERNEL_SLACK_MS,
+                )
+                assertEquals("native work remains blocked", 1L, fixture.transaction.finished.count)
+                fixture.scheduler.advanceUntilIdle()
+                assertEquals("the real manager released its last active service use", 1, fixture.facade.unbinds.get())
+            } finally {
+                fixture.transaction.release.countDown()
+                call.cancelAndJoin()
+                fixture.close()
+            }
+        }
+
+    @Test
+    fun `cancelling a live kernel reading promptly releases the real manager refcount`() =
+        runBlocking {
+            val fixture = KernelFixture()
+            val holder = fixture.manager.holdBinding()
+            val call = async(Dispatchers.Default) { source(fixture.manager).kernelReading() }
+            try {
+                assertTrue("the Binder transaction must be in flight", fixture.transaction.entered.await(2L, TimeUnit.SECONDS))
+                call.cancel()
+                assertNotNull(
+                    "cancellation must complete without waiting for native Binder work",
+                    withTimeoutOrNull(KERNEL_SLACK_MS) {
+                        call.join()
+                        true
+                    },
+                )
+                assertTrue(call.isCancelled)
+                assertEquals(1L, fixture.transaction.finished.count)
+
+                holder.close()
+                fixture.scheduler.advanceUntilIdle()
+                assertEquals("no active service user may keep the binding after the holder closes", 1, fixture.facade.unbinds.get())
+                assertNull(fixture.manager.telemetryService.value)
+                assertEquals("unbind did not need the transaction to finish", 1L, fixture.transaction.finished.count)
+            } finally {
+                fixture.transaction.release.countDown()
+                call.cancelAndJoin()
+                holder.close()
+                fixture.close()
+            }
+        }
+
+    @Test
+    fun `an outer kernel deadline is not swallowed as an unavailable result`() =
+        runBlocking {
+            val fixture = KernelFixture()
+            val call =
+                async(Dispatchers.Default) {
+                    runCatching {
+                        withTimeout(KERNEL_DEADLINE_MS) {
+                            source(fixture.manager).kernelBatterySnapshot(KERNEL_DEADLINE_MS * 10)
+                        }
+                    }
+                }
+            try {
+                assertTrue(fixture.transaction.entered.await(2L, TimeUnit.SECONDS))
+                val result = withTimeout(KERNEL_DEADLINE_MS + KERNEL_SLACK_MS) { call.await() }
+                assertTrue("only the helper's own timeout becomes null", result.exceptionOrNull() is CancellationException)
+                assertEquals(1L, fixture.transaction.finished.count)
+            } finally {
+                fixture.transaction.release.countDown()
+                call.cancelAndJoin()
+                fixture.close()
+            }
+        }
+
+    @Test
+    fun `a cancellation raised by the kernel boundary is propagated rather than swallowed`() =
+        runBlocking {
+            val cancellation = CancellationException("kernel read cancelled")
+            val service =
+                object : ITelemetryUserService.Default() {
+                    override fun readKernelBattery(): KernelBatterySnapshot = throw cancellation
+                }
+
+            val result = runCatching { source(service).kernelBatterySnapshot() }
+
+            assertTrue(result.exceptionOrNull() is CancellationException)
+            assertEquals(cancellation.message, result.exceptionOrNull()?.message)
+            assertFalse(result.isSuccess)
+        }
+
     @Test
     fun `a capture deadline releases the caller while a binder call still blocks`() =
         runBlocking {
@@ -108,10 +247,12 @@ class AndroidTelemetrySourceDeadlineTest {
 
     private fun elapsedMs(startedNs: Long) = (System.nanoTime() - startedNs) / 1_000_000
 
-    private fun source(service: ITelemetryUserService) =
+    private fun source(service: ITelemetryUserService) = source(DirectShizuku(service))
+
+    private fun source(shizuku: ShizukuManager) =
         AndroidTelemetrySource(
             context = RuntimeEnvironment.getApplication(),
-            shizuku = DirectShizuku(service),
+            shizuku = shizuku,
             clocks = FixedClocks,
             calibrationInputReader =
                 CalibrationInputReader {
@@ -125,6 +266,145 @@ class AndroidTelemetrySourceDeadlineTest {
                     )
                 },
         )
+
+    /** Real manager + AIDL proxy, with virtual time only for its 3 s idle-unbind cleanup. */
+    private class KernelFixture(
+        connectImmediately: Boolean = true,
+    ) : AutoCloseable {
+        val transaction = LatchKernelTransaction()
+        val facade = KernelFacade(transaction, connectImmediately)
+        val scheduler = TestCoroutineScheduler()
+        private val scope = CoroutineScope(SupervisorJob() + StandardTestDispatcher(scheduler))
+        val manager: ShizukuManagerImpl
+
+        init {
+            val context = RuntimeEnvironment.getApplication()
+            shadowOf(context.packageManager).installPackage(
+                PackageInfo().apply {
+                    packageName = "moe.shizuku.privileged.api"
+                    applicationInfo = ApplicationInfo().apply { packageName = "moe.shizuku.privileged.api" }
+                },
+            )
+            manager = ShizukuManagerImpl(context, facade.api, scope)
+            manager.start()
+            check(manager.state.value is ShizukuState.Ready)
+        }
+
+        override fun close() {
+            transaction.release.countDown()
+            try {
+                if (transaction.entered.count == 0L) {
+                    assertTrue("test must not leave a Binder worker blocked", transaction.finished.await(2L, TimeUnit.SECONDS))
+                }
+            } finally {
+                manager.stop()
+                scope.cancel()
+            }
+        }
+    }
+
+    /** No local interface: Stub.asInterface creates a proxy which calls this real, latch-blocked transact. */
+    private class LatchKernelTransaction : Binder() {
+        val entered = CountDownLatch(1)
+        val release = CountDownLatch(1)
+        val finished = CountDownLatch(1)
+
+        override fun onTransact(
+            code: Int,
+            data: Parcel,
+            reply: Parcel?,
+            flags: Int,
+        ): Boolean {
+            // readKernelBattery = 1 in the AIDL; explicit method IDs are relative to FIRST_CALL_TRANSACTION.
+            if (code != IBinder.FIRST_CALL_TRANSACTION + 1) return super.onTransact(code, data, reply, flags)
+            data.enforceInterface("com.akane.inspiration.ipc.ITelemetryUserService")
+            entered.countDown()
+            var interrupted = false
+            try {
+                while (true) {
+                    try {
+                        release.await()
+                        break
+                    } catch (_: InterruptedException) {
+                        interrupted = true // Binder/driver work cannot be ended by interrupting its caller thread.
+                    }
+                }
+                checkNotNull(reply).writeNoException()
+                reply.writeTypedObject(KernelBatterySnapshot.unavailable("test"), 0)
+                return true
+            } finally {
+                finished.countDown()
+                if (interrupted) Thread.currentThread().interrupt()
+            }
+        }
+    }
+
+    private class KernelFacade(
+        private val transaction: IBinder,
+        private val connectImmediately: Boolean,
+    ) {
+        val bound = CountDownLatch(1)
+        val unbinds = AtomicInteger()
+
+        @Volatile private var connection: ServiceConnection? = null
+
+        // The IPC module does not export rikka.shizuku API classes on this module's compile classpath.
+        // A proxy scripts the existing facade without adding a test dependency or changing its production API.
+        val api: ShizukuFacade =
+            Proxy.newProxyInstance(
+                ShizukuFacade::class.java.classLoader,
+                arrayOf(ShizukuFacade::class.java),
+            ) { _, method, args ->
+                when (method.name) {
+                    "pingBinder" -> {
+                        true
+                    }
+
+                    "getUid" -> {
+                        2000
+                    }
+
+                    "getVersion" -> {
+                        13
+                    }
+
+                    "isPreV11", "shouldShowRequestPermissionRationale" -> {
+                        false
+                    }
+
+                    "checkSelfPermission" -> {
+                        PackageManager.PERMISSION_GRANTED
+                    }
+
+                    "bindUserService" -> {
+                        connection = checkNotNull(args)[1] as ServiceConnection
+                        bound.countDown()
+                        if (connectImmediately) connect()
+                        null
+                    }
+
+                    "unbindUserService" -> {
+                        unbinds.incrementAndGet()
+                        null
+                    }
+
+                    "requestPermission", "addBinderReceivedListenerSticky", "removeBinderReceivedListener",
+                    "addBinderDeadListener", "removeBinderDeadListener", "addRequestPermissionResultListener",
+                    "removeRequestPermissionResultListener",
+                    -> {
+                        null
+                    }
+
+                    else -> {
+                        error("Unexpected facade method: ${method.name}")
+                    }
+                }
+            } as ShizukuFacade
+
+        fun connect() {
+            checkNotNull(connection).onServiceConnected(ComponentName("test", "service"), transaction)
+        }
+    }
 
     /**
      * Every history page is full (truncated), as on a large first-ingest backlog, so paging continues until its
@@ -310,6 +590,9 @@ class AndroidTelemetrySourceDeadlineTest {
     }
 
     private companion object {
+        const val KERNEL_DEADLINE_MS = 800L
+        const val KERNEL_ACQUISITION_MS = 600L
+        const val KERNEL_SLACK_MS = 300L
         const val PAGE_MS = 150L
         const val DEADLINE_MS = 400L
         const val SLACK_MS = 400L
