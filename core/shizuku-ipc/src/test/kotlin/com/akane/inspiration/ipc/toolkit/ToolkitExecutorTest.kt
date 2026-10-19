@@ -21,35 +21,46 @@ class ToolkitExecutorTest {
     private val appModes = mutableMapOf<String, String>()
     private var bucket = 10
 
-    private fun executor(): ToolkitExecutor = ToolkitExecutor(
-        runner = runner,
-        inspector = inspector,
-        dexopt = BgDexoptController(runner, { true }, { 0L }, { }),
-        ownPackage = OWN,
-        sleepMs = { },
-    ).also { runner.handler = ::device }
+    private fun executor(): ToolkitExecutor =
+        ToolkitExecutor(
+            runner = runner,
+            inspector = inspector,
+            dexopt = BgDexoptController(runner, { true }, { 0L }, { }),
+            ownPackage = OWN,
+            sleepMs = { },
+        ).also { runner.handler = ::device }
 
     /** Models appops + standby bucket behaviour as observed on the API 36 emulator. */
-    private fun device(argv: List<String>): CommandOutput = when {
-        argv.take(5) == listOf(CMD, "appops", "get", "--user", "0") -> {
-            val op = argv[6]
-            appModes[op]?.let { ok("$op: $it") } ?: ok("No operations.\nDefault mode: allow")
+    private fun device(argv: List<String>): CommandOutput =
+        when {
+            argv.take(5) == listOf(CMD, "appops", "get", "--user", "0") -> {
+                val op = argv[6]
+                appModes[op]?.let { ok("$op: $it") } ?: ok("No operations.\nDefault mode: allow")
+            }
+
+            argv.take(5) == listOf(CMD, "appops", "set", "--user", "0") -> {
+                appModes[argv[6]] = argv[7]
+                ok()
+            }
+
+            argv.take(5) == listOf(CMD, "activity", "get-standby-bucket", "--user", "0") -> {
+                ok("$bucket")
+            }
+
+            argv.take(5) == listOf(CMD, "activity", "set-standby-bucket", "--user", "0") -> {
+                bucket = StandbyBucket.entries.first { it.argv == argv[6] }.rawValue
+                ok()
+            }
+
+            argv.take(5) == listOf(CMD, "activity", "force-stop", "--user", "0") -> {
+                inspector.packages[argv[5]] = userApp(stopped = true)
+                ok()
+            }
+
+            else -> {
+                failure("unexpected $argv")
+            }
         }
-        argv.take(5) == listOf(CMD, "appops", "set", "--user", "0") -> {
-            appModes[argv[6]] = argv[7]
-            ok()
-        }
-        argv.take(5) == listOf(CMD, "activity", "get-standby-bucket", "--user", "0") -> ok("$bucket")
-        argv.take(5) == listOf(CMD, "activity", "set-standby-bucket", "--user", "0") -> {
-            bucket = StandbyBucket.entries.first { it.argv == argv[6] }.rawValue
-            ok()
-        }
-        argv.take(5) == listOf(CMD, "activity", "force-stop", "--user", "0") -> {
-            inspector.packages[argv[5]] = userApp(stopped = true)
-            ok()
-        }
-        else -> failure("unexpected $argv")
-    }
 
     @Test
     fun `UID overrides are shown but package writes are refused without mutation`() {
@@ -58,7 +69,9 @@ class ToolkitExecutorTest {
             if (argv[1] == "appops" && argv[2] == "get") {
                 val op = argv[6]
                 ok("Uid mode: $op: ignore\n$op: default")
-            } else error("Unexpected write: $argv")
+            } else {
+                error("Unexpected write: $argv")
+            }
         }
         val read = executor.getAppOps(APP)
         assertEquals(ToolkitStatus.DONE, read.status)
@@ -215,11 +228,22 @@ class ToolkitExecutorTest {
 
     @Test
     fun `invalid package names are refused before any lookup or process`() {
-        val bad = listOf(
-            null, "", "com.example.app\n", "-com.example", "com.example.-x", "singleword", "com..x",
-            "com.exämple.app", "com.example.app; reboot", "com example", "1com.example", ".com.example",
-            "a." + "b".repeat(254),
-        )
+        val bad =
+            listOf(
+                null,
+                "",
+                "com.example.app\n",
+                "-com.example",
+                "com.example.-x",
+                "singleword",
+                "com..x",
+                "com.exämple.app",
+                "com.example.app; reboot",
+                "com example",
+                "1com.example",
+                ".com.example",
+                "a." + "b".repeat(254),
+            )
         val executor = executor()
         for (name in bad) {
             assertEquals("$name", ToolkitCode.ARG_PACKAGE, executor.setAppOp(name, 1, 1).code)
@@ -239,22 +263,28 @@ class ToolkitExecutorTest {
 
     @Test
     fun `every hard deny rule refuses on every package action and runs no command`() {
-        data class Case(val name: String, val pkg: String, val lookup: PackageLookup, val expected: Int)
-        val cases = listOf(
-            Case("own package", OWN, userApp(), ToolkitCode.DENY_OWN),
-            Case("shizuku", "moe.shizuku.privileged.api", userApp(), ToolkitCode.DENY_OWN),
-            Case("appId below 10000", "com.android.systemui", userApp(appId = 10), ToolkitCode.DENY_APP_ID),
-            Case("appId just below app range", "com.example.low", userApp(appId = 9_999), ToolkitCode.DENY_APP_ID),
-            Case("persistent", "com.example.persist", userApp(flags = FLAG_PERSISTENT), ToolkitCode.DENY_PERSISTENT),
-            Case("pure system app", "com.example.sys", userApp(flags = FLAG_SYSTEM), ToolkitCode.DENY_SYSTEM),
-            Case(
-                "persistent beats updated system",
-                "com.example.both",
-                userApp(flags = FLAG_SYSTEM or FLAG_UPDATED_SYSTEM_APP or FLAG_PERSISTENT),
-                ToolkitCode.DENY_PERSISTENT,
-            ),
-            Case("lookup failed", "com.example.unknown", PackageLookup.Unknown, ToolkitCode.PROTECTION_UNKNOWN),
+        data class Case(
+            val name: String,
+            val pkg: String,
+            val lookup: PackageLookup,
+            val expected: Int,
         )
+        val cases =
+            listOf(
+                Case("own package", OWN, userApp(), ToolkitCode.DENY_OWN),
+                Case("shizuku", "moe.shizuku.privileged.api", userApp(), ToolkitCode.DENY_OWN),
+                Case("appId below 10000", "com.android.systemui", userApp(appId = 10), ToolkitCode.DENY_APP_ID),
+                Case("appId just below app range", "com.example.low", userApp(appId = 9_999), ToolkitCode.DENY_APP_ID),
+                Case("persistent", "com.example.persist", userApp(flags = FLAG_PERSISTENT), ToolkitCode.DENY_PERSISTENT),
+                Case("pure system app", "com.example.sys", userApp(flags = FLAG_SYSTEM), ToolkitCode.DENY_SYSTEM),
+                Case(
+                    "persistent beats updated system",
+                    "com.example.both",
+                    userApp(flags = FLAG_SYSTEM or FLAG_UPDATED_SYSTEM_APP or FLAG_PERSISTENT),
+                    ToolkitCode.DENY_PERSISTENT,
+                ),
+                Case("lookup failed", "com.example.unknown", PackageLookup.Unknown, ToolkitCode.PROTECTION_UNKNOWN),
+            )
         for (case in cases) {
             inspector.packages[case.pkg] = case.lookup
             runner.calls.clear()
@@ -265,13 +295,14 @@ class ToolkitExecutorTest {
             }
             assertTrue("${case.name} spawned ${runner.calls}", runner.calls.isEmpty())
         }
-        val protectedCases = listOf(
-            "role holder" to ProtectedPackages(roleHolders = setOf("com.example.guarded")),
-            "default ime" to ProtectedPackages(defaultIme = setOf("com.example.guarded")),
-            "accessibility" to ProtectedPackages(accessibility = setOf("com.example.guarded")),
-            "device admin" to ProtectedPackages(deviceAdmins = setOf("com.example.guarded")),
-            "always-on vpn" to ProtectedPackages(alwaysOnVpn = setOf("com.example.guarded")),
-        )
+        val protectedCases =
+            listOf(
+                "role holder" to ProtectedPackages(roleHolders = setOf("com.example.guarded")),
+                "default ime" to ProtectedPackages(defaultIme = setOf("com.example.guarded")),
+                "accessibility" to ProtectedPackages(accessibility = setOf("com.example.guarded")),
+                "device admin" to ProtectedPackages(deviceAdmins = setOf("com.example.guarded")),
+                "always-on vpn" to ProtectedPackages(alwaysOnVpn = setOf("com.example.guarded")),
+            )
         for ((name, set) in protectedCases) {
             inspector.packages["com.example.guarded"] = userApp()
             inspector.protectedSet = set
@@ -299,14 +330,15 @@ class ToolkitExecutorTest {
 
     // --- protected-package cache (F-07) -----------------------------------------------------
 
-    private fun clockedExecutor(clock: FakeClock): ToolkitExecutor = ToolkitExecutor(
-        runner = runner,
-        inspector = inspector,
-        dexopt = BgDexoptController(runner, { true }, { 0L }, { }),
-        ownPackage = OWN,
-        elapsedMs = clock::now,
-        sleepMs = { },
-    ).also { runner.handler = ::device }
+    private fun clockedExecutor(clock: FakeClock): ToolkitExecutor =
+        ToolkitExecutor(
+            runner = runner,
+            inspector = inspector,
+            dexopt = BgDexoptController(runner, { true }, { 0L }, { }),
+            ownPackage = OWN,
+            elapsedMs = clock::now,
+            sleepMs = { },
+        ).also { runner.handler = ::device }
 
     @Test
     fun `reads reuse the protected-package set within the TTL and read it again after`() {
@@ -465,6 +497,114 @@ class ToolkitExecutorTest {
     }
 
     @Test
+    fun `duplicate-key original blocks every profile even when observed before executor recreation`() {
+        val prior = "inactive_to=600000,inactive_to=1800000"
+        assertTrue(DozeRaw.isSafe(prior))
+        assertFalse(DozeRaw.isRestorable(prior))
+        val device = FakeDozeDevice(raw = prior)
+        val observedExecutor = dozeExecutor(device)
+        assertEquals(prior, observedExecutor.getDozeState().afterRaw)
+        val freshExecutor = dozeExecutor(device)
+
+        for (executor in listOf(observedExecutor, freshExecutor)) {
+            for (profile in DozeProfile.entries) {
+                val result = executor.applyDozeProfile(profile.code, prior)
+
+                assertEquals(profile.name, ToolkitResult.refused(ToolkitCode.ARG_VALUE, before = prior), result)
+                assertEquals(prior, device.raw)
+                assertTrue("neither put nor delete is allowed", device.writes.isEmpty())
+            }
+        }
+    }
+
+    @Test
+    fun `safe-character malformed originals block every profile without put or delete`() {
+        val originals =
+            listOf(
+                "oem_key=5.5.5",
+                "inactive_to=abc",
+                "inactive_to=1,,sensing_to=0",
+                "inactive_to",
+                "Foo=1",
+            )
+        for (prior in originals) {
+            assertTrue(prior, DozeRaw.isSafe(prior))
+            assertFalse(prior, DozeRaw.isRestorable(prior))
+            val device = FakeDozeDevice(raw = prior)
+            val executor = dozeExecutor(device)
+
+            for (profile in DozeProfile.entries) {
+                val result = executor.applyDozeProfile(profile.code, prior)
+
+                assertEquals("$prior ${profile.name}", ToolkitResult.refused(ToolkitCode.ARG_VALUE, before = prior), result)
+                assertEquals(prior, device.raw)
+                assertTrue("neither put nor delete is allowed", device.writes.isEmpty())
+            }
+        }
+    }
+
+    @Test
+    fun `every profile can restore nullable and OEM originals with a fresh executor`() {
+        val originals = listOf(null, "inactive_to=1800000", "sec_deep_idle_to=300000,oem_factor=1.5,sec_flag_2=true")
+        for (prior in originals) {
+            for (profile in DozeProfile.entries) {
+                val device = FakeDozeDevice(raw = prior)
+                val applied = dozeExecutor(device).applyDozeProfile(profile.code, prior)
+                assertEquals("$prior ${profile.name}", ToolkitResult.done(before = prior, after = profile.constants), applied)
+                device.writes.clear()
+
+                val restored = dozeExecutor(device).restoreDozeRaw(prior, applied.afterRaw)
+
+                assertEquals("$prior ${profile.name}", ToolkitResult.done(before = profile.constants, after = prior), restored)
+                assertEquals(prior, device.raw)
+                val expected =
+                    if (prior == null) {
+                        listOf(CMD, "settings", "delete", "--user", "0", "global", "device_idle_constants")
+                    } else {
+                        listOf(CMD, "settings", "put", "--user", "0", "global", "device_idle_constants", prior)
+                    }
+                assertEquals(listOf(expected), device.writes)
+            }
+        }
+    }
+
+    @Test
+    fun `fresh executor keeps stale-current checks for accepted OEM originals`() {
+        val prior = "sec_deep_idle_to=300000,sec_flag_2=true"
+        val device = FakeDozeDevice(raw = prior)
+        val applied = dozeExecutor(device).applyDozeProfile(DozeProfile.BALANCED.code, prior)
+        assertEquals(ToolkitStatus.DONE, applied.status)
+        val external = "inactive_to=999"
+        device.raw = external
+        device.writes.clear()
+        val freshExecutor = dozeExecutor(device)
+
+        val restored = freshExecutor.restoreDozeRaw(prior, applied.afterRaw)
+        val reapplied = freshExecutor.applyDozeProfile(DozeProfile.STANDARD.code, applied.afterRaw)
+
+        assertEquals(ToolkitResult.refused(ToolkitCode.STALE, before = external), restored)
+        assertEquals(ToolkitResult.refused(ToolkitCode.STALE, before = external), reapplied)
+        assertEquals(external, device.raw)
+        assertTrue("neither put nor delete is allowed", device.writes.isEmpty())
+    }
+
+    @Test
+    fun `unsupported originals from older releases remain refused after executor recreation`() {
+        // Existing stored originals cannot gain trust just because an older executor accepted them.
+        for (prior in listOf("inactive_to=600000,inactive_to=1800000", "oem_key=5.5.5")) {
+            val device = FakeDozeDevice(raw = DozeProfile.BALANCED.constants)
+            runner.calls.clear()
+
+            val result = dozeExecutor(device).restoreDozeRaw(prior, DozeProfile.BALANCED.constants)
+
+            assertEquals(ToolkitResult.refused(ToolkitCode.ARG_VALUE), result)
+            assertEquals(DozeProfile.BALANCED.constants, device.raw)
+            assertTrue(device.writes.isEmpty())
+            assertTrue("unsupported replay is refused before even a read", runner.calls.isEmpty())
+        }
+    }
+
+    @Test
     fun `restoreDozeRaw replays the stored prior value when current matches the recorded after`() {
         val device = FakeDozeDevice(raw = DozeProfile.BALANCED.constants)
 
@@ -544,32 +684,33 @@ class ToolkitExecutorTest {
     fun `restoreDozeRaw refuses malformed keys non numeric values duplicates and over long strings`() {
         val device = FakeDozeDevice(raw = "a=1")
         val executor = dozeExecutor(device)
-        val rejected = listOf(
-            "Foo=1",
-            "1foo=1",
-            "foo-bar=1",
-            "inactive_to=1000,Foo=1",
-            "${"k".repeat(65)}=1",
-            "inactive_to=abc",
-            "inactive_to=-1",
-            "inactive_to=",
-            "inactive_to=1.",
-            "inactive_to=.5",
-            "inactive_to=1.5.2",
-            "inactive_to=TRUE",
-            "inactive_to=1234567890123456789",
-            "inactive_to",
-            "x".repeat(1024),
-            "inactive_to=1,,sensing_to=0",
-            "inactive_to=1,inactive_to=2",
-            "inactive_to=1;sensing_to=0",
-            "inactive_to=1,sensing_to=\$(id)",
-            "inactive_to=1\nsensing_to=0",
-            "inactive_to=1,sensing_to=0\n",
-            "-inactive_to=1",
-            "--user=1",
-            overLongButWellFormed(),
-        )
+        val rejected =
+            listOf(
+                "Foo=1",
+                "1foo=1",
+                "foo-bar=1",
+                "inactive_to=1000,Foo=1",
+                "${"k".repeat(65)}=1",
+                "inactive_to=abc",
+                "inactive_to=-1",
+                "inactive_to=",
+                "inactive_to=1.",
+                "inactive_to=.5",
+                "inactive_to=1.5.2",
+                "inactive_to=TRUE",
+                "inactive_to=1234567890123456789",
+                "inactive_to",
+                "x".repeat(1024),
+                "inactive_to=1,,sensing_to=0",
+                "inactive_to=1,inactive_to=2",
+                "inactive_to=1;sensing_to=0",
+                "inactive_to=1,sensing_to=\$(id)",
+                "inactive_to=1\nsensing_to=0",
+                "inactive_to=1,sensing_to=0\n",
+                "-inactive_to=1",
+                "--user=1",
+                overLongButWellFormed(),
+            )
 
         for (value in rejected) {
             assertEquals(value, ToolkitCode.ARG_VALUE, executor.restoreDozeRaw(value, "a=1").code)
@@ -580,24 +721,26 @@ class ToolkitExecutorTest {
     /** Every pair is individually valid and no key repeats, so only the 1024 length cap can refuse it. */
     private fun overLongButWellFormed(): String {
         val pairs = DozeRaw.AOSP_KEYS.map { "$it=123456789012345678" }
-        val ok = pairs.fold("") { acc, pair ->
-            val next = if (acc.isEmpty()) pair else "$acc,$pair"
-            if (next.length <= 1024) next else acc
-        }
+        val ok =
+            pairs.fold("") { acc, pair ->
+                val next = if (acc.isEmpty()) pair else "$acc,$pair"
+                if (next.length <= 1024) next else acc
+            }
         assertTrue(DozeRaw.isRestorable(ok))
         return pairs.joinToString(",").also { assertTrue(it.length > 1024) }
     }
 
     @Test
     fun `restoreDozeRaw replays a realistic OEM prior whose keys are not profile keys`() {
-        val oemPrior = "light_after_inactive_to=30000,light_idle_to=60000,light_idle_factor=2.0," +
-            "light_max_idle_to=900000,min_light_maintenance_time=5000,min_deep_maintenance_time=30000," +
-            "inactive_to=1800000,sensing_to=240000,locating_to=30000,location_accuracy=20.0," +
-            "motion_inactive_to=600000,idle_after_inactive_to=1800000,idle_pending_to=300000," +
-            "max_idle_pending_to=600000,idle_pending_factor=2.0,quick_doze_delay_to=60000," +
-            "idle_to=3600000,max_idle_to=21600000,idle_factor=2.0,min_time_to_alarm=3600000," +
-            "notification_allowlist_duration_ms=30000,pre_idle_factor_long=1.67,pre_idle_factor_short=1.33," +
-            "wait_for_unlock=true,use_window_alarms=false"
+        val oemPrior =
+            "light_after_inactive_to=30000,light_idle_to=60000,light_idle_factor=2.0," +
+                "light_max_idle_to=900000,min_light_maintenance_time=5000,min_deep_maintenance_time=30000," +
+                "inactive_to=1800000,sensing_to=240000,locating_to=30000,location_accuracy=20.0," +
+                "motion_inactive_to=600000,idle_after_inactive_to=1800000,idle_pending_to=300000," +
+                "max_idle_pending_to=600000,idle_pending_factor=2.0,quick_doze_delay_to=60000," +
+                "idle_to=3600000,max_idle_to=21600000,idle_factor=2.0,min_time_to_alarm=3600000," +
+                "notification_allowlist_duration_ms=30000,pre_idle_factor_long=1.67,pre_idle_factor_short=1.33," +
+                "wait_for_unlock=true,use_window_alarms=false"
         assertTrue(DozeRaw.isRestorable(oemPrior))
         val device = FakeDozeDevice(raw = DozeProfile.BALANCED.constants)
 
@@ -642,16 +785,19 @@ class ToolkitExecutorTest {
     }
 
     @Test
-    fun `restoreDozeRaw accepts a value the executor itself read even when it is not well formed`() {
+    fun `restoreDozeRaw retains same-executor replay of an observed legacy value only`() {
         // Safe characters but not a key=number pair list, so only the read-back memory admits it.
         val odd = "oem_key=5.5.5"
-        val device = FakeDozeDevice(raw = odd)
+        val device = FakeDozeDevice(raw = odd, honorsConstants = false)
         val executor = dozeExecutor(device)
 
         assertEquals(ToolkitCode.ARG_VALUE, executor.restoreDozeRaw(odd, odd).code)
+        assertEquals(odd, executor.getDozeState().afterRaw)
+        assertEquals(ToolkitCode.ARG_VALUE, executor.applyDozeProfile(DozeProfile.BALANCED.code, odd).code)
+        assertTrue(device.writes.isEmpty())
 
-        // Applying a profile reads the prior raw value, which makes it replayable.
-        executor.applyDozeProfile(DozeProfile.BALANCED.code, odd)
+        // Model a legacy override; reading an opaque original never makes a new apply reversible.
+        device.raw = DozeProfile.BALANCED.constants
         val restored = executor.restoreDozeRaw(odd, DozeProfile.BALANCED.constants)
 
         assertEquals(ToolkitStatus.DONE, restored.status)
@@ -682,13 +828,14 @@ class ToolkitExecutorTest {
     fun `a slow plugged probe in startBgDexopt does not block a cancel on the write lock`() {
         lateinit var executor: ToolkitExecutor
         var cancelResult: ToolkitResult? = null
-        val probe = PluggedProbe {
-            // While the probe is "running", another binder thread cancels; it must not wait for us.
-            val other = Thread { cancelResult = executor.cancelBgDexopt() }
-            other.start()
-            other.join(2_000L)
-            true
-        }
+        val probe =
+            PluggedProbe {
+                // While the probe is "running", another binder thread cancels; it must not wait for us.
+                val other = Thread { cancelResult = executor.cancelBgDexopt() }
+                other.start()
+                other.join(2_000L)
+                true
+            }
         runner.handler = { ok() }
         executor = ToolkitExecutor(runner, inspector, BgDexoptController(runner, probe, { 0L }, { }), OWN) { }
 
@@ -722,11 +869,15 @@ class ToolkitExecutorTest {
         assertEquals(listOf(CMD, "package", "bg-dexopt-job", "--cancel"), runner.calls.single())
     }
 
-    private fun everyPackageAction(executor: ToolkitExecutor, pkg: String): List<ToolkitResult> = listOf(
-        executor.setAppOp(pkg, AppOp.WAKE_LOCK.code, AppOpMode.IGNORE.code),
-        executor.getAppOps(pkg),
-        executor.setStandbyBucket(pkg, StandbyBucket.RESTRICTED.code),
-        executor.getStandbyBucket(pkg),
-        executor.forceStop(pkg),
-    )
+    private fun everyPackageAction(
+        executor: ToolkitExecutor,
+        pkg: String,
+    ): List<ToolkitResult> =
+        listOf(
+            executor.setAppOp(pkg, AppOp.WAKE_LOCK.code, AppOpMode.IGNORE.code),
+            executor.getAppOps(pkg),
+            executor.setStandbyBucket(pkg, StandbyBucket.RESTRICTED.code),
+            executor.getStandbyBucket(pkg),
+            executor.forceStop(pkg),
+        )
 }

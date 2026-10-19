@@ -49,132 +49,168 @@ internal class ToolkitExecutor(
     private var protectedCache: ProtectedPackages? = null
     private var protectedReadAtMs = 0L
 
-    fun setAppOp(pkg: String?, opCode: Int, modeCode: Int): ToolkitResult = synchronized(writeLock) {
-        protectedCache = null
-        val op = AppOp.fromCode(opCode) ?: return ToolkitResult.refused(ToolkitCode.ARG_VALUE)
-        val mode = AppOpMode.fromCode(modeCode) ?: return ToolkitResult.refused(ToolkitCode.ARG_VALUE)
-        val target = when (val gate = gate(pkg)) {
-            is Gate.Denied -> return gate.result
-            is Gate.Allowed -> gate
+    fun setAppOp(
+        pkg: String?,
+        opCode: Int,
+        modeCode: Int,
+    ): ToolkitResult =
+        synchronized(writeLock) {
+            protectedCache = null
+            val op = AppOp.fromCode(opCode) ?: return ToolkitResult.refused(ToolkitCode.ARG_VALUE)
+            val mode = AppOpMode.fromCode(modeCode) ?: return ToolkitResult.refused(ToolkitCode.ARG_VALUE)
+            val target =
+                when (val gate = gate(pkg)) {
+                    is Gate.Denied -> return gate.result
+                    is Gate.Allowed -> gate
+                }
+            val beforeState = readAppOpState(pkg.orEmpty(), op) ?: return ToolkitResult.refused(ToolkitCode.PARSE)
+            val before = beforeState.effectiveMode
+            // Package writes cannot change a UID override, and changing the UID would affect shared-UID apps.
+            if (beforeState.uidMode != null) return ToolkitResult.refused(ToolkitCode.NOT_EFFECTIVE, before = before)
+            val write = runner.run(listOf(CMD, "appops", "set", "--user", USER, pkg.orEmpty(), op.argv, mode.argv))
+            if (!write.ok) return writeFailed(write, before)
+            val after = readAppOp(pkg.orEmpty(), op) ?: return unverified(before)
+            if (after != mode.argv) return ToolkitResult.failed(ToolkitCode.NOT_EFFECTIVE, before, after)
+            ToolkitResult.done(target.warnCode, before, after)
         }
-        val beforeState = readAppOpState(pkg.orEmpty(), op) ?: return ToolkitResult.refused(ToolkitCode.PARSE)
-        val before = beforeState.effectiveMode
-        // Package writes cannot change a UID override, and changing the UID would affect shared-UID apps.
-        if (beforeState.uidMode != null) return ToolkitResult.refused(ToolkitCode.NOT_EFFECTIVE, before = before)
-        val write = runner.run(listOf(CMD, "appops", "set", "--user", USER, pkg.orEmpty(), op.argv, mode.argv))
-        if (!write.ok) return writeFailed(write, before)
-        val after = readAppOp(pkg.orEmpty(), op) ?: return unverified(before)
-        if (after != mode.argv) return ToolkitResult.failed(ToolkitCode.NOT_EFFECTIVE, before, after)
-        ToolkitResult.done(target.warnCode, before, after)
-    }
 
-    fun getAppOps(pkg: String?): ToolkitResult = synchronized(writeLock) {
-        val target = when (val gate = gate(pkg)) {
-            is Gate.Denied -> return gate.result
-            is Gate.Allowed -> gate
+    fun getAppOps(pkg: String?): ToolkitResult =
+        synchronized(writeLock) {
+            val target =
+                when (val gate = gate(pkg)) {
+                    is Gate.Denied -> return gate.result
+                    is Gate.Allowed -> gate
+                }
+            val modes =
+                AppOp.entries.map { op ->
+                    op to (readAppOp(pkg.orEmpty(), op) ?: return ToolkitResult.refused(ToolkitCode.PARSE))
+                }
+            ToolkitResult.done(target.warnCode, after = modes.joinToString(",") { (op, mode) -> "${op.argv}=$mode" })
         }
-        val modes = AppOp.entries.map { op ->
-            op to (readAppOp(pkg.orEmpty(), op) ?: return ToolkitResult.refused(ToolkitCode.PARSE))
-        }
-        ToolkitResult.done(target.warnCode, after = modes.joinToString(",") { (op, mode) -> "${op.argv}=$mode" })
-    }
 
-    fun setStandbyBucket(pkg: String?, bucketCode: Int): ToolkitResult = synchronized(writeLock) {
-        protectedCache = null
-        val bucket = StandbyBucket.fromCode(bucketCode) ?: return ToolkitResult.refused(ToolkitCode.ARG_VALUE)
-        val target = when (val gate = gate(pkg)) {
-            is Gate.Denied -> return gate.result
-            is Gate.Allowed -> gate
+    fun setStandbyBucket(
+        pkg: String?,
+        bucketCode: Int,
+    ): ToolkitResult =
+        synchronized(writeLock) {
+            protectedCache = null
+            val bucket = StandbyBucket.fromCode(bucketCode) ?: return ToolkitResult.refused(ToolkitCode.ARG_VALUE)
+            val target =
+                when (val gate = gate(pkg)) {
+                    is Gate.Denied -> return gate.result
+                    is Gate.Allowed -> gate
+                }
+            val before = readBucket(pkg.orEmpty()) ?: return ToolkitResult.refused(ToolkitCode.PARSE)
+            val write =
+                runner.run(
+                    listOf(CMD, "activity", "set-standby-bucket", "--user", USER, pkg.orEmpty(), bucket.argv),
+                )
+            if (!write.ok) return writeFailed(write, before)
+            val after = readBucket(pkg.orEmpty()) ?: return unverified(before)
+            if (after != bucket.rawValue.toString()) return ToolkitResult.failed(ToolkitCode.NOT_EFFECTIVE, before, after)
+            ToolkitResult.done(target.warnCode, before, after)
         }
-        val before = readBucket(pkg.orEmpty()) ?: return ToolkitResult.refused(ToolkitCode.PARSE)
-        val write = runner.run(
-            listOf(CMD, "activity", "set-standby-bucket", "--user", USER, pkg.orEmpty(), bucket.argv),
-        )
-        if (!write.ok) return writeFailed(write, before)
-        val after = readBucket(pkg.orEmpty()) ?: return unverified(before)
-        if (after != bucket.rawValue.toString()) return ToolkitResult.failed(ToolkitCode.NOT_EFFECTIVE, before, after)
-        ToolkitResult.done(target.warnCode, before, after)
-    }
 
-    fun getStandbyBucket(pkg: String?): ToolkitResult = synchronized(writeLock) {
-        val target = when (val gate = gate(pkg)) {
-            is Gate.Denied -> return gate.result
-            is Gate.Allowed -> gate
+    fun getStandbyBucket(pkg: String?): ToolkitResult =
+        synchronized(writeLock) {
+            val target =
+                when (val gate = gate(pkg)) {
+                    is Gate.Denied -> return gate.result
+                    is Gate.Allowed -> gate
+                }
+            val bucket = readBucket(pkg.orEmpty()) ?: return ToolkitResult.refused(ToolkitCode.PARSE)
+            ToolkitResult.done(target.warnCode, after = bucket)
         }
-        val bucket = readBucket(pkg.orEmpty()) ?: return ToolkitResult.refused(ToolkitCode.PARSE)
-        ToolkitResult.done(target.warnCode, after = bucket)
-    }
 
-    fun forceStop(pkg: String?): ToolkitResult = synchronized(writeLock) {
-        protectedCache = null
-        val target = when (val gate = gate(pkg)) {
-            is Gate.Denied -> return gate.result
-            is Gate.Allowed -> gate
+    fun forceStop(pkg: String?): ToolkitResult =
+        synchronized(writeLock) {
+            protectedCache = null
+            val target =
+                when (val gate = gate(pkg)) {
+                    is Gate.Denied -> return gate.result
+                    is Gate.Allowed -> gate
+                }
+            val before = "stopped=${target.facts.stopped}"
+            val write = runner.run(listOf(CMD, "activity", "force-stop", "--user", USER, pkg.orEmpty()))
+            if (!write.ok) return ToolkitResult.failed(execCode(write), before = before)
+            val after =
+                when (val now = inspector.lookup(pkg.orEmpty())) {
+                    is PackageLookup.Found -> "stopped=${now.stopped}"
+                    else -> return ToolkitResult.failed(ToolkitCode.PARSE, before = before)
+                }
+            ToolkitResult.done(target.warnCode, before, after)
         }
-        val before = "stopped=${target.facts.stopped}"
-        val write = runner.run(listOf(CMD, "activity", "force-stop", "--user", USER, pkg.orEmpty()))
-        if (!write.ok) return ToolkitResult.failed(execCode(write), before = before)
-        val after = when (val now = inspector.lookup(pkg.orEmpty())) {
-            is PackageLookup.Found -> "stopped=${now.stopped}"
-            else -> return ToolkitResult.failed(ToolkitCode.PARSE, before = before)
-        }
-        ToolkitResult.done(target.warnCode, before, after)
-    }
 
-    fun applyDozeProfile(profileCode: Int, expectedBeforeRaw: String?): ToolkitResult = synchronized(writeLock) {
-        protectedCache = null
-        val profile = DozeProfile.fromCode(profileCode) ?: return ToolkitResult.refused(ToolkitCode.ARG_VALUE)
-        val current = readDozeRaw() ?: return ToolkitResult.refused(ToolkitCode.PARSE)
-        if (current.value != expectedBeforeRaw) return ToolkitResult.refused(ToolkitCode.STALE, before = current.value)
-        // The prior value is replayed on rollback, so it must be one we would accept to write.
-        if (current.value != null && !DozeRaw.isSafe(current.value)) {
-            return ToolkitResult.refused(ToolkitCode.ARG_VALUE, before = current.value)
+    fun applyDozeProfile(
+        profileCode: Int,
+        expectedBeforeRaw: String?,
+    ): ToolkitResult =
+        synchronized(writeLock) {
+            protectedCache = null
+            val profile = DozeProfile.fromCode(profileCode) ?: return ToolkitResult.refused(ToolkitCode.ARG_VALUE)
+            val current = readDozeRaw() ?: return ToolkitResult.refused(ToolkitCode.PARSE)
+            if (current.value != expectedBeforeRaw) return ToolkitResult.refused(ToolkitCode.STALE, before = current.value)
+            // Undo must survive service recreation, not just an immediate rollback: read-back memory is
+            // process-local, so the original must pass a fresh executor's replay validation.
+            if (current.value != null && !DozeRaw.isRestorable(current.value)) {
+                return ToolkitResult.refused(ToolkitCode.ARG_VALUE, before = current.value)
+            }
+            remember(current.value)
+            val write = writeDozeRaw(profile.constants)
+            val after = readDozeRaw()
+            val effective =
+                write.ok && after != null && after.value == profile.constants &&
+                    (profile == DozeProfile.STANDARD || dozeEffective(profile))
+            if (effective) return ToolkitResult.done(before = current.value, after = after?.value)
+            writeDozeRaw(current.value)
+            val rolledBack = readDozeRaw()
+            // A rollback that did not read back as the prior value may have left the profile applied.
+            if (rolledBack == null || rolledBack.value != current.value) return unverified(current.value, rolledBack?.value)
+            ToolkitResult.unavailable(ToolkitCode.NOT_EFFECTIVE, before = current.value, after = rolledBack.value)
         }
-        remember(current.value)
-        val write = writeDozeRaw(profile.constants)
-        val after = readDozeRaw()
-        val effective = write.ok && after != null && after.value == profile.constants &&
-            (profile == DozeProfile.STANDARD || dozeEffective(profile))
-        if (effective) return ToolkitResult.done(before = current.value, after = after?.value)
-        writeDozeRaw(current.value)
-        val rolledBack = readDozeRaw()
-        // A rollback that did not read back as the prior value may have left the profile applied.
-        if (rolledBack == null || rolledBack.value != current.value) return unverified(current.value, rolledBack?.value)
-        ToolkitResult.unavailable(ToolkitCode.NOT_EFFECTIVE, before = current.value, after = rolledBack.value)
-    }
 
-    fun getDozeState(): ToolkitResult = synchronized(writeLock) {
-        val raw = readDozeRaw() ?: return ToolkitResult.failed(ToolkitCode.PARSE)
-        remember(raw.value)
-        val matched = DozeProfile.entries.firstOrNull { it.constants == raw.value }
-        val settings = runner.run(listOf(DUMPSYS, "deviceidle")).takeIf { it.ok }
-            ?.let { ToolkitParsers.dozeSettings(it.text) }
-        val message = settings?.let { values ->
-            DozeProfile.controlledKeys.mapNotNull { key -> values[key]?.let { "$key=$it" } }.joinToString(",")
+    fun getDozeState(): ToolkitResult =
+        synchronized(writeLock) {
+            val raw = readDozeRaw() ?: return ToolkitResult.failed(ToolkitCode.PARSE)
+            remember(raw.value)
+            val matched = DozeProfile.entries.firstOrNull { it.constants == raw.value }
+            val settings =
+                runner
+                    .run(listOf(DUMPSYS, "deviceidle"))
+                    .takeIf { it.ok }
+                    ?.let { ToolkitParsers.dozeSettings(it.text) }
+            val message =
+                settings?.let { values ->
+                    DozeProfile.controlledKeys.mapNotNull { key -> values[key]?.let { "$key=$it" } }.joinToString(",")
+                }
+            ToolkitResult.done(matched?.code ?: ToolkitCode.DOZE_CUSTOM, after = raw.value, message = message)
         }
-        ToolkitResult.done(matched?.code ?: ToolkitCode.DOZE_CUSTOM, after = raw.value, message = message)
-    }
 
-    fun restoreDozeRaw(rawOrNull: String?, expectedCurrentRaw: String?): ToolkitResult = synchronized(writeLock) {
-        protectedCache = null
-        val target = rawOrNull?.takeIf { it.isNotEmpty() }
-        // Only a well-formed `key=value` list (any `[a-z][a-z0-9_]{0,63}` key, OEM keys included; see
-        // DozeRaw.isRestorable) or a value this executor itself read may be replayed.
-        if (target != null && !(DozeRaw.isRestorable(target) || target in seenDozeRaws)) {
-            return ToolkitResult.refused(ToolkitCode.ARG_VALUE)
+    fun restoreDozeRaw(
+        rawOrNull: String?,
+        expectedCurrentRaw: String?,
+    ): ToolkitResult =
+        synchronized(writeLock) {
+            protectedCache = null
+            val target = rawOrNull?.takeIf { it.isNotEmpty() }
+            // Only a well-formed `key=value` list (any `[a-z][a-z0-9_]{0,63}` key, OEM keys included; see
+            // DozeRaw.isRestorable) or a value this executor itself read may be replayed. Unsupported
+            // originals from older releases cannot be restored after recreation; do not bypass validation.
+            if (target != null && !(DozeRaw.isRestorable(target) || target in seenDozeRaws)) {
+                return ToolkitResult.refused(ToolkitCode.ARG_VALUE)
+            }
+            val current = readDozeRaw() ?: return ToolkitResult.refused(ToolkitCode.PARSE)
+            if (current.value != expectedCurrentRaw?.takeIf { it.isNotEmpty() }) {
+                return ToolkitResult.refused(ToolkitCode.STALE, before = current.value)
+            }
+            val write = writeDozeRaw(target)
+            val after = readDozeRaw()
+            if (write.timedOut || (write.ok && after == null)) return unverified(current.value, after?.value)
+            if (!write.ok || after == null || after.value != target) {
+                return ToolkitResult.failed(ToolkitCode.NOT_EFFECTIVE, before = current.value, after = after?.value)
+            }
+            ToolkitResult.done(before = current.value, after = after.value)
         }
-        val current = readDozeRaw() ?: return ToolkitResult.refused(ToolkitCode.PARSE)
-        if (current.value != expectedCurrentRaw?.takeIf { it.isNotEmpty() }) {
-            return ToolkitResult.refused(ToolkitCode.STALE, before = current.value)
-        }
-        val write = writeDozeRaw(target)
-        val after = readDozeRaw()
-        if (write.timedOut || (write.ok && after == null)) return unverified(current.value, after?.value)
-        if (!write.ok || after == null || after.value != target) {
-            return ToolkitResult.failed(ToolkitCode.NOT_EFFECTIVE, before = current.value, after = after?.value)
-        }
-        ToolkitResult.done(before = current.value, after = after.value)
-    }
 
     /**
      * Deliberately outside [writeLock]: the plugged probe can take seconds, and holding the global
@@ -184,18 +220,19 @@ internal class ToolkitExecutor(
 
     fun bgDexoptStatus(): BgDexoptStatus = dexopt.status()
 
-    fun cancelBgDexopt(): ToolkitResult = synchronized(writeLock) {
-        protectedCache = null
-        dexopt.beginUserCancel()
-        var confirmed = false
-        try {
-            val out = runner.run(BG_DEXOPT_CANCEL_ARGV)
-            confirmed = out.ok
-            if (out.ok) ToolkitResult.done() else ToolkitResult.failed(execCode(out))
-        } finally {
-            dexopt.endUserCancel(confirmed)
+    fun cancelBgDexopt(): ToolkitResult =
+        synchronized(writeLock) {
+            protectedCache = null
+            dexopt.beginUserCancel()
+            var confirmed = false
+            try {
+                val out = runner.run(BG_DEXOPT_CANCEL_ARGV)
+                confirmed = out.ok
+                if (out.ok) ToolkitResult.done() else ToolkitResult.failed(execCode(out))
+            } finally {
+                dexopt.endUserCancel(confirmed)
+            }
         }
-    }
 
     /** Called by the service's destroy() before the process exits; never throws. */
     fun cancelOnShutdown() {
@@ -207,35 +244,59 @@ internal class ToolkitExecutor(
     }
 
     private sealed interface Gate {
-        class Denied(val result: ToolkitResult) : Gate
+        class Denied(
+            val result: ToolkitResult,
+        ) : Gate
 
-        class Allowed(val facts: PackageLookup.Found, val warnCode: Int) : Gate
+        class Allowed(
+            val facts: PackageLookup.Found,
+            val warnCode: Int,
+        ) : Gate
     }
 
     private fun gate(pkg: String?): Gate {
         if (!PackageNames.isValid(pkg)) return deny(ToolkitCode.ARG_PACKAGE)
         val name = pkg.orEmpty()
-        val facts = when (val found = inspector.lookup(name)) {
-            PackageLookup.NotInstalled -> return deny(ToolkitCode.NOT_INSTALLED)
-            PackageLookup.Unknown -> return deny(ToolkitCode.PROTECTION_UNKNOWN)
-            is PackageLookup.Found -> found
-        }
+        val facts =
+            when (val found = inspector.lookup(name)) {
+                PackageLookup.NotInstalled -> return deny(ToolkitCode.NOT_INSTALLED)
+                PackageLookup.Unknown -> return deny(ToolkitCode.PROTECTION_UNKNOWN)
+                is PackageLookup.Found -> found
+            }
         val denial = hardDeny(name, facts)
         if (denial != null) return deny(denial)
         val updatedSystem = facts.flags and FLAG_UPDATED_SYSTEM_APP != 0 && facts.flags and FLAG_SYSTEM != 0
         return Gate.Allowed(facts, if (updatedSystem) ToolkitCode.WARN_UPDATED_SYSTEM else ToolkitCode.OK)
     }
 
-    private fun hardDeny(pkg: String, facts: PackageLookup.Found): Int? = when {
-        pkg == ownPackage || pkg == SHIZUKU_PACKAGE -> ToolkitCode.DENY_OWN
-        facts.appId < FIRST_APPLICATION_UID -> ToolkitCode.DENY_APP_ID
-        facts.flags and FLAG_PERSISTENT != 0 -> ToolkitCode.DENY_PERSISTENT
-        facts.flags and FLAG_SYSTEM != 0 && facts.flags and FLAG_UPDATED_SYSTEM_APP == 0 -> ToolkitCode.DENY_SYSTEM
-        else -> when (val protected = protectedPackages()) {
-            null -> ToolkitCode.PROTECTION_UNKNOWN
-            else -> if (protected.contains(pkg)) ToolkitCode.DENY_PROTECTED else null
+    private fun hardDeny(
+        pkg: String,
+        facts: PackageLookup.Found,
+    ): Int? =
+        when {
+            pkg == ownPackage || pkg == SHIZUKU_PACKAGE -> {
+                ToolkitCode.DENY_OWN
+            }
+
+            facts.appId < FIRST_APPLICATION_UID -> {
+                ToolkitCode.DENY_APP_ID
+            }
+
+            facts.flags and FLAG_PERSISTENT != 0 -> {
+                ToolkitCode.DENY_PERSISTENT
+            }
+
+            facts.flags and FLAG_SYSTEM != 0 && facts.flags and FLAG_UPDATED_SYSTEM_APP == 0 -> {
+                ToolkitCode.DENY_SYSTEM
+            }
+
+            else -> {
+                when (val protected = protectedPackages()) {
+                    null -> ToolkitCode.PROTECTION_UNKNOWN
+                    else -> if (protected.contains(pkg)) ToolkitCode.DENY_PROTECTED else null
+                }
+            }
         }
-    }
 
     /**
      * The protected-package set, read again once [PROTECTED_TTL_MS] has passed or a write dropped it. An override
@@ -253,9 +314,15 @@ internal class ToolkitExecutor(
 
     private fun deny(code: Int): Gate = Gate.Denied(ToolkitResult.refused(code))
 
-    private fun readAppOp(pkg: String, op: AppOp): String? = readAppOpState(pkg, op)?.effectiveMode
+    private fun readAppOp(
+        pkg: String,
+        op: AppOp,
+    ): String? = readAppOpState(pkg, op)?.effectiveMode
 
-    private fun readAppOpState(pkg: String, op: AppOp): ToolkitParsers.AppOpState? {
+    private fun readAppOpState(
+        pkg: String,
+        op: AppOp,
+    ): ToolkitParsers.AppOpState? {
         val out = runner.run(listOf(CMD, "appops", "get", "--user", USER, pkg, op.argv))
         return if (out.ok && !out.truncated) ToolkitParsers.appOpState(op, out.text) else null
     }
@@ -266,20 +333,23 @@ internal class ToolkitExecutor(
     }
 
     /** Wraps the nullable value so that "unset" (a valid read) differs from "read failed" (null). */
-    private class DozeRead(val value: String?)
+    private class DozeRead(
+        val value: String?,
+    )
 
     private fun readDozeRaw(): DozeRead? {
         val out = runner.run(listOf(CMD, "settings", "get", "--user", USER, "global", IDLE_KEY))
         return if (out.ok) DozeRead(ToolkitParsers.settingValue(out.text)) else null
     }
 
-    private fun writeDozeRaw(value: String?): CommandOutput = runner.run(
-        if (value == null) {
-            listOf(CMD, "settings", "delete", "--user", USER, "global", IDLE_KEY)
-        } else {
-            listOf(CMD, "settings", "put", "--user", USER, "global", IDLE_KEY, value)
-        },
-    )
+    private fun writeDozeRaw(value: String?): CommandOutput =
+        runner.run(
+            if (value == null) {
+                listOf(CMD, "settings", "delete", "--user", USER, "global", IDLE_KEY)
+            } else {
+                listOf(CMD, "settings", "put", "--user", USER, "global", IDLE_KEY, value)
+            },
+        )
 
     /** Remembers a value this executor read (and found safe) so a later restore may replay it. */
     private fun remember(raw: String?) {
@@ -302,11 +372,15 @@ internal class ToolkitExecutor(
     private fun execCode(out: CommandOutput): Int = if (out.timedOut) ToolkitCode.TIMEOUT else ToolkitCode.EXEC
 
     /** A timed-out write was killed after it may have committed, so its outcome is unknown, not failed. */
-    private fun writeFailed(write: CommandOutput, before: String?): ToolkitResult =
-        if (write.timedOut) unverified(before) else ToolkitResult.failed(execCode(write), before = before)
+    private fun writeFailed(
+        write: CommandOutput,
+        before: String?,
+    ): ToolkitResult = if (write.timedOut) unverified(before) else ToolkitResult.failed(execCode(write), before = before)
 
-    private fun unverified(before: String?, after: String? = null): ToolkitResult =
-        ToolkitResult.unavailable(ToolkitCode.UNVERIFIED, before = before, after = after)
+    private fun unverified(
+        before: String?,
+        after: String? = null,
+    ): ToolkitResult = ToolkitResult.unavailable(ToolkitCode.UNVERIFIED, before = before, after = after)
 
     private companion object {
         const val IDLE_KEY = "device_idle_constants"
