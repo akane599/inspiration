@@ -281,22 +281,27 @@ object SnapshotDiffer {
         }
     }
 
+    // The per-UID name diffs group each side once (linear) instead of filtering both lists per name.
     private fun diffUidWakelocks(
         ref: List<UidWakelock>,
         now: List<UidWakelock>,
         uid: Int,
         problems: MutableList<String>,
-    ): List<UidWakelock> = (ref.map(UidWakelock::name) + now.map(UidWakelock::name)).distinct().sorted().map { name ->
-        val previous = ref.filter { it.name == name }
-        val current = now.filter { it.name == name }
-        UidWakelock(
-            name = name,
-            durationMs = current.sumOf(UidWakelock::durationMs) - previous.sumOf(UidWakelock::durationMs),
-            bgDurationMs = current.sumOf(UidWakelock::bgDurationMs) - previous.sumOf(UidWakelock::bgDurationMs),
-            count = current.sumOf(UidWakelock::count) - previous.sumOf(UidWakelock::count),
-        ).also { delta ->
-            if (delta.durationMs < 0 || delta.bgDurationMs < 0 || delta.count < 0) {
-                problems += "negative_uid_wakelock:$uid:$name"
+    ): List<UidWakelock> {
+        val refByName = ref.groupBy(UidWakelock::name)
+        val nowByName = now.groupBy(UidWakelock::name)
+        return (refByName.keys + nowByName.keys).sorted().map { name ->
+            val previous = refByName[name].orEmpty()
+            val current = nowByName[name].orEmpty()
+            UidWakelock(
+                name = name,
+                durationMs = current.sumOf(UidWakelock::durationMs) - previous.sumOf(UidWakelock::durationMs),
+                bgDurationMs = current.sumOf(UidWakelock::bgDurationMs) - previous.sumOf(UidWakelock::bgDurationMs),
+                count = current.sumOf(UidWakelock::count) - previous.sumOf(UidWakelock::count),
+            ).also { delta ->
+                if (delta.durationMs < 0 || delta.bgDurationMs < 0 || delta.count < 0) {
+                    problems += "negative_uid_wakelock:$uid:$name"
+                }
             }
         }
     }
@@ -307,10 +312,14 @@ object SnapshotDiffer {
         uid: Int,
         problems: MutableList<String>,
         negativeProblem: String,
-    ): List<UidAlarm> = (ref.map(UidAlarm::tag) + now.map(UidAlarm::tag)).distinct().sorted().map { tag ->
-        val count = now.filter { it.tag == tag }.sumOf(UidAlarm::count) - ref.filter { it.tag == tag }.sumOf(UidAlarm::count)
-        UidAlarm(tag, count).also { delta ->
-            if (delta.count < 0) problems += "$negativeProblem:$uid:$tag"
+    ): List<UidAlarm> {
+        val refByTag = ref.groupBy(UidAlarm::tag)
+        val nowByTag = now.groupBy(UidAlarm::tag)
+        return (refByTag.keys + nowByTag.keys).sorted().map { tag ->
+            val count = nowByTag[tag].orEmpty().sumOf(UidAlarm::count) - refByTag[tag].orEmpty().sumOf(UidAlarm::count)
+            UidAlarm(tag, count).also { delta ->
+                if (delta.count < 0) problems += "$negativeProblem:$uid:$tag"
+            }
         }
     }
 
@@ -319,17 +328,21 @@ object SnapshotDiffer {
         now: List<UidSensor>,
         uid: Int,
         problems: MutableList<String>,
-    ): List<UidSensor> = (ref.map(UidSensor::handle) + now.map(UidSensor::handle)).distinct().sorted().map { handle ->
-        val previous = ref.filter { it.handle == handle }
-        val current = now.filter { it.handle == handle }
-        UidSensor(
-            handle = handle,
-            totalMs = current.sumOf(UidSensor::totalMs) - previous.sumOf(UidSensor::totalMs),
-            bgMs = current.sumOf(UidSensor::bgMs) - previous.sumOf(UidSensor::bgMs),
-            count = current.sumOf(UidSensor::count) - previous.sumOf(UidSensor::count),
-        ).also { delta ->
-            if (delta.totalMs < 0 || delta.bgMs < 0 || delta.count < 0) {
-                problems += "negative_uid_sensor:$uid:$handle"
+    ): List<UidSensor> {
+        val refByHandle = ref.groupBy(UidSensor::handle)
+        val nowByHandle = now.groupBy(UidSensor::handle)
+        return (refByHandle.keys + nowByHandle.keys).sorted().map { handle ->
+            val previous = refByHandle[handle].orEmpty()
+            val current = nowByHandle[handle].orEmpty()
+            UidSensor(
+                handle = handle,
+                totalMs = current.sumOf(UidSensor::totalMs) - previous.sumOf(UidSensor::totalMs),
+                bgMs = current.sumOf(UidSensor::bgMs) - previous.sumOf(UidSensor::bgMs),
+                count = current.sumOf(UidSensor::count) - previous.sumOf(UidSensor::count),
+            ).also { delta ->
+                if (delta.totalMs < 0 || delta.bgMs < 0 || delta.count < 0) {
+                    problems += "negative_uid_sensor:$uid:$handle"
+                }
             }
         }
     }

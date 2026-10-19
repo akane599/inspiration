@@ -7,6 +7,7 @@ import com.akane.inspiration.telemetry.capacity.SegmentVerdict
 import com.akane.inspiration.telemetry.dump.KernelWakelock
 import com.akane.inspiration.telemetry.dump.UidAlarm
 import com.akane.inspiration.telemetry.dump.UidSensor
+import com.akane.inspiration.telemetry.dump.UidWakelock
 import com.akane.inspiration.telemetry.snapshot.BatterySnapshot
 import com.akane.inspiration.telemetry.snapshot.BatteryState
 import com.akane.inspiration.telemetry.snapshot.CaptureTrigger
@@ -378,6 +379,60 @@ class SnapshotDifferTest {
         assertFalse(diff.uids.single().valid)
         assertEquals(-3L, diff.uids.single().alarmDumpWakeups.single().count)
         assertTrue(diff.validity.problems.contains("negative_uid_alarm_dump:10001:sync"))
+    }
+
+    @Test
+    fun `per uid name deltas merge duplicates sort by name and report negatives in order`() {
+        val diff = SnapshotDiffer.diff(
+            snapshot(
+                elapsed = 1_000,
+                uids = listOf(
+                    uid(totalMah = 1.0).copy(
+                        partialWakelocks = listOf(UidWakelock("b", 100, 10, 1), UidWakelock("a", 50, 5, 1), UidWakelock("b", 20, 2, 1)),
+                        wakeupAlarms = listOf(UidAlarm("z", 2), UidAlarm("w", 2), UidAlarm("y", 1), UidAlarm("z", 3)),
+                        sensors = listOf(UidSensor(7, 100, 10, 2), UidSensor(-10_000, 1_000, 400, 2), UidSensor(7, 50, 0, 1)),
+                        alarmDumpWakeups = listOf(UidAlarm("s", 1), UidAlarm("s", 1)),
+                    ),
+                ),
+            ),
+            snapshot(
+                elapsed = 2_000,
+                duration = 2_000,
+                uids = listOf(
+                    uid(totalMah = 1.0).copy(
+                        partialWakelocks = listOf(UidWakelock("c", 7, 0, 1), UidWakelock("b", 200, 30, 3), UidWakelock("a", 40, 5, 1)),
+                        wakeupAlarms = listOf(UidAlarm("y", 4), UidAlarm("z", 9), UidAlarm("x", 1)),
+                        sensors = listOf(UidSensor(7, 200, 20, 4), UidSensor(3, 5, 0, 1), UidSensor(-10_000, 900, 400, 2)),
+                        alarmDumpWakeups = listOf(UidAlarm("s", 5), UidAlarm("r", 1)),
+                    ),
+                ),
+            ),
+        )
+
+        val delta = diff.uids.single()
+        assertEquals(
+            listOf(UidWakelock("a", -10, 0, 0), UidWakelock("b", 80, 18, 1), UidWakelock("c", 7, 0, 1)),
+            delta.partialWakelocks,
+        )
+        assertEquals(
+            listOf(UidAlarm("w", -2), UidAlarm("x", 1), UidAlarm("y", 3), UidAlarm("z", 4)),
+            delta.wakeupAlarms,
+        )
+        assertEquals(
+            listOf(UidSensor(-10_000, -100, 0, 0), UidSensor(3, 5, 0, 1), UidSensor(7, 50, 10, 1)),
+            delta.sensors,
+        )
+        assertEquals(listOf(UidAlarm("r", 1), UidAlarm("s", 3)), delta.alarmDumpWakeups)
+        assertFalse(delta.valid)
+        assertEquals(
+            listOf(
+                "negative_uid_wakelock:10001:a",
+                "negative_uid_alarm:10001:w",
+                "negative_uid_sensor:10001:-10000",
+                "negative_uid:10001",
+            ),
+            diff.validity.problems.filter { it.startsWith("negative_uid") },
+        )
     }
 
     @Test
