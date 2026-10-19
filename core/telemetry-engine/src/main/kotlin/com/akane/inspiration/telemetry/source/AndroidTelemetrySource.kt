@@ -112,10 +112,7 @@ class AndroidTelemetrySource(
                 statsStartMs = null,
                 statsDurationMs = null,
             )
-        val currentUa =
-            batteryManager
-                ?.getIntProperty(BatteryManager.BATTERY_PROPERTY_CURRENT_NOW)
-                ?.takeUnless { it == Int.MIN_VALUE }
+        val currentUa = batteryManagerCurrentNowUa()
         val charge =
             batteryManager
                 ?.getLongProperty(BatteryManager.BATTERY_PROPERTY_CHARGE_COUNTER)
@@ -140,6 +137,12 @@ class AndroidTelemetrySource(
         )
     }
 
+    /** BATTERY_PROPERTY_CURRENT_NOW exactly as reported (µA by contract), or null when the platform has none. */
+    private fun batteryManagerCurrentNowUa(): Int? =
+        batteryManager
+            ?.getIntProperty(BatteryManager.BATTERY_PROPERTY_CURRENT_NOW)
+            ?.takeUnless { it == Int.MIN_VALUE }
+
     // Available at minSdk 31; a missing manager or service failure reads as unknown, never as "none".
     private fun thermalStatus(): Int? = runCatching { powerManager?.currentThermalStatus }.getOrNull()
 
@@ -160,13 +163,17 @@ class AndroidTelemetrySource(
         withContext(ioDispatcher) {
             val light = light()
             val kernel = kernelBatterySnapshot() ?: return@withContext null
+            // The calibrator compares this current with the sysfs one, so it is taken raw (not cut to whole mA) right
+            // after the kernel read returns: the one in light(), read before the service round trip, can be a
+            // different load.
+            val bmCurrentNowUa = batteryManagerCurrentNowUa()
             // sysfs values come only from this kernel read, never the reader's process-start cache; a missing
             // one makes PowerCalibrator fall back to the fresh BatteryManager current/voltage below.
             val calibration =
                 calibrationInputReader.read().copy(
                     sysfsCurrentRaw = kernel.currentNowRaw,
                     sysfsVoltageRaw = kernel.voltageNowRaw,
-                    bmCurrentNowUa = light.currentMa?.times(1_000),
+                    bmCurrentNowUa = bmCurrentNowUa,
                     bmVoltageMv = light.voltageMv,
                     isCharging = light.status == "charging" || light.status == "full",
                     plugged = light.plugged == true,

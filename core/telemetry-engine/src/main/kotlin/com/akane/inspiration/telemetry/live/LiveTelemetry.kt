@@ -1,6 +1,7 @@
 package com.akane.inspiration.telemetry.live
 
 import com.akane.inspiration.telemetry.app.attempt
+import com.akane.inspiration.telemetry.calibration.CalibrationEvidence
 import com.akane.inspiration.telemetry.calibration.PowerCalibrator
 import com.akane.inspiration.telemetry.common.Clocks
 import com.akane.inspiration.telemetry.snapshot.LiveReading
@@ -40,10 +41,21 @@ class LiveTelemetry(
             }
         }.flowOn(ioDispatcher)
 
+    /**
+     * Unit, sign convention and cell layout are device constants: they are learned across every reading of this
+     * process, so one near-zero or skewed sample never re-decides them. Collectors may run concurrently.
+     */
+    private val evidence = CalibrationEvidence()
+
     private fun KernelRead.toReading(): LiveReading {
         val power =
             calibrationInput?.let { input ->
-                calibrator.toReading(input, calibrator.calibrate(listOf(input)))
+                val calibration =
+                    synchronized(evidence) {
+                        evidence.add(input)
+                        evidence.calibration()
+                    }
+                calibrator.toReading(input, calibration)
             }
         return LiveReading(
             wallMs = light.clock.wallMs,

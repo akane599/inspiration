@@ -77,6 +77,33 @@ class AndroidTelemetrySourceKernelReadingTest {
             assertEquals(-1_200_000, input.bmCurrentNowUa)
         }
 
+    @Test
+    fun `the battery manager current is read raw right after the sysfs read`() =
+        runBlocking {
+            val batteryManager = shadowOf(context.getSystemService(BatteryManager::class.java))
+            batteryManager.setIntProperty(BatteryManager.BATTERY_PROPERTY_CURRENT_NOW, -1_200_000)
+            // The load changes while the service reads sysfs: BatteryManager now reports 1.5 mA, with µA detail.
+            val service =
+                object : ITelemetryUserService.Default() {
+                    override fun readKernelBattery(): KernelBatterySnapshot {
+                        batteryManager.setIntProperty(BatteryManager.BATTERY_PROPERTY_CURRENT_NOW, 1_537)
+                        return kernel(currentNowRaw = 1_540L, voltageNowRaw = 4_350_000L)
+                    }
+                }
+            val source =
+                AndroidTelemetrySource(
+                    context = context,
+                    shizuku = DirectShizuku(service),
+                    clocks = FixedClocks,
+                    calibrationInputReader = CalibrationInputReader { cachedAtStart },
+                )
+
+            val input = checkNotNull(source.kernelReading()?.calibrationInput)
+
+            assertEquals("the same moment as sysfs, not cut to whole mA", 1_537, input.bmCurrentNowUa)
+            assertEquals(1_540L, input.sysfsCurrentRaw)
+        }
+
     private fun kernel(
         currentNowRaw: Long?,
         voltageNowRaw: Long?,

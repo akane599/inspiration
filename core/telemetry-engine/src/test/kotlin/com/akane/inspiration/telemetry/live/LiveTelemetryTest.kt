@@ -1,6 +1,7 @@
 package com.akane.inspiration.telemetry.live
 
 import com.akane.inspiration.ipc.model.HistoryEvent
+import com.akane.inspiration.telemetry.calibration.CalibrationInput
 import com.akane.inspiration.telemetry.calibration.PowerCalibrator
 import com.akane.inspiration.telemetry.capacity.ChargeSegment
 import com.akane.inspiration.telemetry.capacity.SegmentVerdict
@@ -86,6 +87,36 @@ class LiveTelemetryTest {
             assertEquals(900, reading.currentMa)
             assertEquals(3_000_000L, reading.chargeCounterUah)
             assertEquals(2, reading.thermalStatus)
+        }
+
+    @Test
+    fun `live calibration persists across ticks so near zero and skewed currents keep their unit`() =
+        runTest {
+            val unplugged = lightRead()
+            val held = lightRead().copy(plugged = true, status = "full")
+            val ticks =
+                listOf(
+                    // Unplugged at a real load: settles µA and the sign convention.
+                    tick(unplugged, sysfsCurrent = -300_000, bmCurrent = -300_000),
+                    tick(unplugged, sysfsCurrent = -310_000, bmCurrent = -310_000),
+                    tick(unplugged, sysfsCurrent = -290_000, bmCurrent = -290_000),
+                    // Held at a charge limit: a few mA, BatteryManager skewed or reading zero.
+                    tick(held, sysfsCurrent = 1_500, bmCurrent = 1_000),
+                    tick(held, sysfsCurrent = 15_000, bmCurrent = 11_000),
+                    tick(held, sysfsCurrent = 700, bmCurrent = 0),
+                    // A load that doubled between the sysfs and BatteryManager reads.
+                    tick(unplugged, sysfsCurrent = -400_000, bmCurrent = -800_000),
+                )
+            val source = ScriptedSource(ticks)
+
+            val currents =
+                LiveTelemetry(source, PowerCalibrator(), TestClocks())
+                    .readings(periodMs = 1)
+                    .take(ticks.size)
+                    .toList()
+                    .map { it.currentMa }
+
+            assertEquals(listOf(-300, -310, -290, 2, 15, 1, -400), currents)
         }
 
     @Test
@@ -283,6 +314,40 @@ class LiveTelemetryTest {
             currentMa = -100,
             chargeCounterUah = null,
         )
+
+    private fun tick(
+        light: LightRead,
+        sysfsCurrent: Long,
+        bmCurrent: Int,
+    ) = KernelRead(
+        kernel = null,
+        calibrationInput =
+            CalibrationInput(
+                sysfsCurrentRaw = sysfsCurrent,
+                sysfsVoltageRaw = 4_000_000L,
+                bmCurrentNowUa = bmCurrent,
+                bmVoltageMv = 4_000,
+                isCharging = light.status == "charging" || light.status == "full",
+                plugged = light.plugged == true,
+            ),
+        light = light,
+    )
+
+    /** Returns [ticks] in order, one per kernel read, then repeats the last (the flow may read ahead of `take`). */
+    private inner class ScriptedSource(
+        private val ticks: List<KernelRead>,
+    ) : TelemetrySource {
+        private var next = 0
+
+        override suspend fun full(
+            trigger: CaptureTrigger,
+            historyCursor: Pair<Long, Long>?,
+        ): FullRead? = null
+
+        override fun light(): LightRead = ticks[next.coerceAtMost(ticks.lastIndex)].light
+
+        override suspend fun kernelReading(): KernelRead = ticks[(next++).coerceAtMost(ticks.lastIndex)]
+    }
 
     private inner class CountingSource(
         private val light: LightRead = lightRead(),
