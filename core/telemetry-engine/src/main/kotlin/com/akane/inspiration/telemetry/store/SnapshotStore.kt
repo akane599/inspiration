@@ -73,9 +73,15 @@ interface SnapshotStore {
         toWallMs: Long,
     ): List<HistoryEvent>
 
-    /** Retain epoch provenance for analysis whose clocks restart with battery statistics. */
-    suspend fun historySessions(): Map<Long, List<HistoryEvent>> =
-        mapOf((historyCursor()?.first ?: 0L) to historyBetween(0L, Long.MAX_VALUE))
+    /**
+     * The stored history (known wall times only) with its stats-session provenance, for analysis whose clocks
+     * restart with battery statistics: runs of consecutive events stored under one `statsStartMs` label, oldest
+     * run first in ingestion order. The label orders nothing: `BatteryStatsImpl` shifts the reported start on
+     * every wall-clock step, so a backward step gives the continuing session a smaller label, and a label may
+     * recur. Consumers order events within a run by history time.
+     */
+    suspend fun historySessions(): List<Pair<Long, List<HistoryEvent>>> =
+        listOf((historyCursor()?.first ?: 0L) to historyBetween(0L, Long.MAX_VALUE))
 
     /**
      * The newest event of each kind strictly before [wallMs], oldest first: at most one per kind, so the cost

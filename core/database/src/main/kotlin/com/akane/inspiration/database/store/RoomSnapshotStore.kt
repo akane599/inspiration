@@ -156,12 +156,17 @@ class RoomSnapshotStore(
         toWallMs: Long,
     ): List<HistoryEvent> = database.historyDao().between(fromWallMs, toWallMs).map { it.toDomain() }
 
-    override suspend fun historySessions(): Map<Long, List<HistoryEvent>> =
-        database
-            .historyDao()
-            .between(0L, Long.MAX_VALUE)
-            .groupBy { it.statsStartMs }
-            .mapValues { (_, events) -> events.map { it.toDomain() } }
+    override suspend fun historySessions(): List<Pair<Long, List<HistoryEvent>>> {
+        // The autoincrement id is the (serialized) ingest order, which no wall-clock step can reorder; the label
+        // only splits runs. Grouping by label would order runs by a value the platform shifts and merge a label
+        // that recurs (audit N-13).
+        val runs = ArrayList<Pair<Long, MutableList<HistoryEvent>>>()
+        for (row in database.historyDao().between(0L, Long.MAX_VALUE).sortedBy { it.id }) {
+            val run = runs.lastOrNull()?.takeIf { it.first == row.statsStartMs }
+            if (run != null) run.second += row.toDomain() else runs += row.statsStartMs to mutableListOf(row.toDomain())
+        }
+        return runs
+    }
 
     override suspend fun lastHistoryOfEachKindBefore(wallMs: Long): List<HistoryEvent> =
         database.historyDao().lastOfEachKindBefore(wallMs).map { it.toDomain() }

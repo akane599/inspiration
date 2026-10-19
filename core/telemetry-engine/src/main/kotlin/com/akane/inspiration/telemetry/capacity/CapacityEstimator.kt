@@ -48,14 +48,16 @@ object ChargeSegmentExtractor {
 
     /**
      * Segments over every stats session as one stream, each tagged with the `statsStartMs` its PLUGGED
-     * event was stored under. Android resets battery stats on unplug after a deep charge, so the charge's
-     * start lands in the old session and its end (the RESET, then maybe UNPLUGGED) in the new one; walking
-     * the sessions separately would lose every such charge. History clocks may restart per session, so
-     * sessions are ordered by their start and each by history time; START/SHUTDOWN still split boots.
+     * event was stored under. [sessions] are runs of one label, oldest first in ingestion order (see
+     * `SnapshotStore.historySessions`). Android resets battery stats on unplug after a deep charge, so the
+     * charge's start lands in the old session and its end (the RESET, then maybe UNPLUGGED) in the new one;
+     * a wall-clock step relabels the continuing session, possibly with a smaller start. Walking the runs
+     * separately, or by label value, would lose such charges. History clocks may restart per session, so the
+     * runs keep their given order and each is ordered by history time; START/SHUTDOWN still split boots.
      */
-    fun fromSessions(sessions: Map<Long, List<HistoryEvent>>): List<Pair<Long, ChargeSegment>> =
+    fun fromSessions(sessions: List<Pair<Long, List<HistoryEvent>>>): List<Pair<Long, ChargeSegment>> =
         walk(
-            sessions.entries.sortedBy { it.key }.flatMap { (statsStartMs, events) ->
+            sessions.flatMap { (statsStartMs, events) ->
                 events.sortedBy(HistoryEvent::historyTimeMs).map { statsStartMs to it }
             },
         )
@@ -80,29 +82,44 @@ object ChargeSegmentExtractor {
 
         for ((epoch, event) in stream) {
             when (event.kind) {
-                HistoryKind.START, HistoryKind.SHUTDOWN -> discard()
-                HistoryKind.RESET -> when {
-                    active.isEmpty() -> Unit
-                    // The reset record already carries the unplug: the charge ended here.
-                    event.plugType == UNPLUGGED_PLUG_TYPE -> close(event)
-                    else -> resetWhilePluggedAtWallMs = event.wallMs
+                HistoryKind.START, HistoryKind.SHUTDOWN -> {
+                    discard()
                 }
+
+                HistoryKind.RESET -> {
+                    when {
+                        active.isEmpty() -> Unit
+
+                        // The reset record already carries the unplug: the charge ended here.
+                        event.plugType == UNPLUGGED_PLUG_TYPE -> close(event)
+
+                        else -> resetWhilePluggedAtWallMs = event.wallMs
+                    }
+                }
+
                 HistoryKind.PLUGGED -> {
                     discard()
                     active += event
                     activeEpoch = epoch
                 }
+
                 HistoryKind.UNPLUGGED -> {
                     val resetAt = resetWhilePluggedAtWallMs
                     if (active.isNotEmpty() && (resetAt == null || resetAt == event.wallMs)) close(event) else discard()
                 }
-                else -> when {
-                    active.isEmpty() -> Unit
-                    resetWhilePluggedAtWallMs == null -> active += event
-                    // Other transitions of the reset instant are not evidence that charging went on.
-                    event.wallMs == resetWhilePluggedAtWallMs -> Unit
-                    // Charging went on after a mid-charge reset, which still discards the segment.
-                    else -> discard()
+
+                else -> {
+                    when {
+                        active.isEmpty() -> Unit
+
+                        resetWhilePluggedAtWallMs == null -> active += event
+
+                        // Other transitions of the reset instant are not evidence that charging went on.
+                        event.wallMs == resetWhilePluggedAtWallMs -> Unit
+
+                        // Charging went on after a mid-charge reset, which still discards the segment.
+                        else -> discard()
+                    }
                 }
             }
         }
@@ -121,8 +138,10 @@ object ChargeSegmentExtractor {
             endWallMs = end.wallMs,
             startPct = start.levelPct,
             endPct = end.levelPct,
-            deltaChargeUah = start.chargeUah.takeIf { it > 0L }
-                ?.let { startCharge -> end.chargeUah.takeIf { it > 0L }?.minus(startCharge) },
+            deltaChargeUah =
+                start.chargeUah
+                    .takeIf { it > 0L }
+                    ?.let { startCharge -> end.chargeUah.takeIf { it > 0L }?.minus(startCharge) },
             integratedMah = null,
             maxTemperatureDeciC = maxOfOrNull(HistoryEvent::temperatureDeciC),
         )
@@ -211,9 +230,10 @@ object CapacityEstimator {
     private fun ChargeSegment.capacityMah(): Double? {
         val deltaPct = endPct - startPct
         if (deltaPct <= 0) return null
-        val chargeMah = deltaChargeUah?.let { it / MICROAMP_HOURS_PER_MILLIAMP_HOUR }
-            ?: integratedMah?.takeIf(Double::isFinite)
-            ?: return null
+        val chargeMah =
+            deltaChargeUah?.let { it / MICROAMP_HOURS_PER_MILLIAMP_HOUR }
+                ?: integratedMah?.takeIf(Double::isFinite)
+                ?: return null
         return chargeMah / (deltaPct / PERCENT)
     }
 
@@ -235,18 +255,20 @@ object CapacityEstimator {
     private fun List<Double>.ema(): Double? =
         firstOrNull()?.let { first -> drop(1).fold(first) { ema, value -> EMA_ALPHA * value + (1 - EMA_ALPHA) * ema } }
 
-    private fun List<Double>.confidence(): Confidence = when (size) {
-        0 -> Confidence.UNCALIBRATED
-        in 1 until MINIMUM_MEDIAN_SAMPLES -> Confidence.LOW
-        else -> Confidence.HIGH
-    }
+    private fun List<Double>.confidence(): Confidence =
+        when (size) {
+            0 -> Confidence.UNCALIBRATED
+            in 1 until MINIMUM_MEDIAN_SAMPLES -> Confidence.LOW
+            else -> Confidence.HIGH
+        }
 
-    private fun rejected(reason: String) = SegmentVerdict(
-        estimateMah = null,
-        independent = false,
-        accepted = false,
-        rejectReason = reason,
-    )
+    private fun rejected(reason: String) =
+        SegmentVerdict(
+            estimateMah = null,
+            independent = false,
+            accepted = false,
+            rejectReason = reason,
+        )
 
     private const val MAX_TEMPERATURE_DECI_C = 450
     private const val MINIMUM_DESIGN_RATIO = 0.5

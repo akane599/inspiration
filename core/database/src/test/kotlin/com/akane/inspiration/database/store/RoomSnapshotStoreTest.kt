@@ -9,6 +9,7 @@ import com.akane.inspiration.ipc.model.HistoryEvent
 import com.akane.inspiration.ipc.model.HistoryKind
 import com.akane.inspiration.ipc.model.UidUsage
 import com.akane.inspiration.telemetry.capacity.ChargeSegment
+import com.akane.inspiration.telemetry.capacity.ChargeSegmentExtractor
 import com.akane.inspiration.telemetry.capacity.SegmentVerdict
 import com.akane.inspiration.telemetry.capture.SnapshotCapturer
 import com.akane.inspiration.telemetry.common.Clocks
@@ -579,6 +580,78 @@ class RoomSnapshotStoreTest {
                     .statsStartMs,
             )
             assertEquals(8L to 10L, store.historyCursor())
+        }
+
+    @Test
+    fun `a backward clock step mid charge keeps the charge segment across the relabelled session`() =
+        runBlocking {
+            fun event(
+                historyTimeMs: Long,
+                wallMs: Long,
+                kind: Int,
+                levelPct: Int,
+                chargeUah: Long,
+            ) = HistoryEvent(
+                historyTimeMs = historyTimeMs,
+                wallMs = wallMs,
+                kind = kind,
+                levelPct = levelPct,
+                chargeUah = chargeUah,
+                temperatureDeciC = 300,
+                voltageMv = 4_000,
+                plugType = if (kind == HistoryKind.UNPLUGGED) 0 else 1,
+            )
+            val label = 5_000_000L
+            val stepMs = 60_000L
+            val beforeStep =
+                listOf(
+                    event(0L, 10_000L, HistoryKind.PLUGGED, 30, 1_000_000L),
+                    event(1_800_000L, 1_810_000L, HistoryKind.LEVEL, 60, 2_200_000L),
+                )
+            store.insertHistory(beforeStep, statsStartMs = label)
+            store.setHistoryCursor(statsStartMs = label, lastHistoryTimeMs = 1_800_000L)
+            // BatteryStatsImpl shifts its start back by the step: the service re-pages from 0 under the smaller
+            // label, the stored events are ignored and only the new ones (a step behind on the wall) are inserted.
+            val afterStep =
+                listOf(
+                    event(3_000_000L, 3_010_000L - stepMs, HistoryKind.LEVEL, 90, 3_400_000L),
+                    event(3_600_000L, 3_610_000L - stepMs, HistoryKind.UNPLUGGED, 95, 3_600_000L),
+                )
+            store.insertHistory(beforeStep + afterStep, statsStartMs = label - stepMs)
+
+            val (statsStartMs, segment) = ChargeSegmentExtractor.fromSessions(store.historySessions()).single()
+
+            assertEquals(label, statsStartMs)
+            assertEquals(10_000L to 3_610_000L - stepMs, segment.startWallMs to segment.endWallMs)
+            assertEquals(2_600_000L, segment.deltaChargeUah)
+        }
+
+    @Test
+    fun `historySessions returns label runs in ingestion order whatever the label values`() =
+        runBlocking {
+            fun event(
+                historyTimeMs: Long,
+                wallMs: Long = historyTimeMs,
+            ) = HistoryEvent(
+                historyTimeMs = historyTimeMs,
+                wallMs = wallMs,
+                kind = HistoryKind.LEVEL,
+                levelPct = 50,
+                chargeUah = -1L,
+                temperatureDeciC = 300,
+                voltageMv = 4_000,
+                plugType = 0,
+            )
+            val label = 5_000_000L
+            // A backward step relabels the session with a smaller start; a later forward step can restore the label.
+            store.insertHistory(listOf(event(10L, wallMs = -1L), event(20L), event(30L)), statsStartMs = label)
+            store.insertHistory(listOf(event(40L)), statsStartMs = label - 60_000L)
+            store.insertHistory(listOf(event(50L)), statsStartMs = label)
+
+            assertEquals(
+                listOf(label to listOf(20L, 30L), label - 60_000L to listOf(40L), label to listOf(50L)),
+                store.historySessions().map { (statsStartMs, events) -> statsStartMs to events.map { it.historyTimeMs } },
+            )
         }
 
     @Test

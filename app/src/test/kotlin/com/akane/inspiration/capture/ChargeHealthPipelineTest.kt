@@ -34,7 +34,7 @@ class ChargeHealthPipelineTest {
         runTest {
             store.cursor = 2L to 100L
             store.epochs =
-                mapOf(
+                listOf(
                     1L to charge(0L),
                     2L to charge(10_000L).map { it.copy(historyTimeMs = it.historyTimeMs - 10_000L) },
                 )
@@ -44,12 +44,28 @@ class ChargeHealthPipelineTest {
         }
 
     @Test
+    fun `a charge relabelled by a backward clock step is stored under the label it started in`() =
+        runTest {
+            // The step shifts the reported stats start back; the run after it is newer but has the smaller label.
+            val (beforeStep, afterStep) = charge(0L).partition { it.kind != HistoryKind.UNPLUGGED }
+            store.cursor = 940L to 2_000L
+            store.epochs = listOf(1_000L to beforeStep, 940L to afterStep)
+
+            pipeline().run(100_000L)
+
+            val session = store.sessions.single()
+            assertEquals(1_000L to 0L, session.statsStartMs to session.startHistoryTimeMs)
+            assertEquals(0L to 2_000L, session.startWallMs to session.endWallMs)
+            assertEquals(2_500.0, session.estimateMah!!, 1e-6)
+        }
+
+    @Test
     fun `a charge ending in a stats reset is stored once under the epoch it started in`() =
         runTest {
             // Battery stats reset at unplug: PLUGGED/LEVEL stay under epoch 1, the RESET (already unplugged) opens 2.
             store.cursor = 2L to 50L
             store.epochs =
-                mapOf(
+                listOf(
                     1L to charge(0L).dropLast(1),
                     2L to listOf(event(2_000L, HistoryKind.RESET, 80, 2_000_000L).copy(historyTimeMs = 0L)),
                 )
@@ -139,7 +155,7 @@ class ChargeHealthPipelineTest {
             store.upsertChargeSession(77L, segment, rejected("missing_design_capacity"))
             val persisted = store.sessions.single()
             // The same wall range was re-ingested under another stats/history epoch with different counters.
-            store.epochs = mapOf(88L to charge(0L).map { it.copy(chargeUah = it.chargeUah * 2) })
+            store.epochs = listOf(88L to charge(0L).map { it.copy(chargeUah = it.chargeUah * 2) })
 
             pipeline().run(100_000L)
             pipeline().run(200_000L)
@@ -158,7 +174,7 @@ class ChargeHealthPipelineTest {
             store.upsertChargeSession(77L, segment, rejected("missing_design_capacity"))
             val persisted = store.sessions.single()
             store.epochs =
-                mapOf(
+                listOf(
                     77L to
                         charge(0L).map {
                             it.copy(historyTimeMs = it.historyTimeMs + 123L, wallMs = it.wallMs + 10_000L)
@@ -194,7 +210,7 @@ class ChargeHealthPipelineTest {
             val persisted = store.chargeSessions()
 
             pipeline().run(100_000L)
-            store.epochs = mapOf(77L to store.history.map { it.copy(wallMs = it.wallMs + 1_000L) })
+            store.epochs = listOf(77L to store.history.map { it.copy(wallMs = it.wallMs + 1_000L) })
             pipeline().run(200_000L)
 
             assertEquals(persisted, store.chargeSessions())
@@ -477,7 +493,7 @@ class ChargeHealthPipelineTest {
 
     private class FakeStore : SnapshotStore {
         var cursor: Pair<Long, Long>? = null
-        var epochs: Map<Long, List<HistoryEvent>>? = null
+        var epochs: List<Pair<Long, List<HistoryEvent>>>? = null
         val history = mutableListOf<HistoryEvent>()
         val samples = mutableListOf<TelemetrySample>()
         val sessions = mutableListOf<ChargeSessionRecord>()
@@ -493,7 +509,7 @@ class ChargeHealthPipelineTest {
 
         override suspend fun historyCursor(): Pair<Long, Long>? = cursor
 
-        override suspend fun historySessions(): Map<Long, List<HistoryEvent>> = epochs ?: mapOf((cursor?.first ?: 0L) to history)
+        override suspend fun historySessions(): List<Pair<Long, List<HistoryEvent>>> = epochs ?: listOf((cursor?.first ?: 0L) to history)
 
         override suspend fun upsertChargeSession(
             statsStartMs: Long,
