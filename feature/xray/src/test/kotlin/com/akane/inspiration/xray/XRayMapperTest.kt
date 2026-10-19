@@ -56,7 +56,7 @@ class XRayMapperTest {
         assertEquals(10.0, complete.single().totalMah, 0.0)
         for (unknown in listOf(
             now.copy(uidIdentityScope = null),
-            now.copy(uidIdentityScope = now.uidIdentityScope!!.copy(readerEpoch = "new-reader")),
+            now.copy(uidIdentityScope = now.uidIdentityScope!!.copy(userSerial = 8)),
             now.copy(uids = listOf(previousUid.copy(totalMah = 50.0, ownerInstallFingerprint = null))),
         )) {
             val withheld = SnapshotDiffer.diff(ref, unknown)
@@ -83,6 +83,57 @@ class XRayMapperTest {
                 )
             assertTrue(XRayMapper.components(incompleteAggregate).isEmpty())
         }
+    }
+
+    @Test
+    fun `app rows survive a service restart and package change between captures`() {
+        fun row(
+            uid: Int,
+            totalMah: Double,
+            owner: String?,
+        ) = UidSnapshot(
+            uid = uid,
+            packageName = owner,
+            totalMah = totalMah,
+            fgMah = null,
+            bgMah = null,
+            fgsMah = null,
+            cachedMah = null,
+            componentsMah = emptyMap(),
+            cpuUserMs = 0,
+            cpuSystemMs = 0,
+            fgActivityMs = 0,
+            fgServiceMs = 0,
+            partialWakelocks = emptyList(),
+            wakeupAlarms = emptyList(),
+            ownerInstallFingerprint = owner?.let { UidOwnerFingerprint.create(uid, 7, listOf(UidOwnerInstall(it, uid, 123))) },
+        )
+        val ref =
+            snapshotAt(1_000).let { snapshot ->
+                snapshot.copy(
+                    kind = SnapshotKind.FULL,
+                    clock = snapshot.clock.copy(statsStartMs = 100_000, statsDurationMs = 1_000),
+                    uids = listOf(row(1_000, 5.0, null), row(10_001, 40.0, MAPS)),
+                    uidIdentityScope = UidIdentityScope(0, 7, "service-process-a", 39),
+                )
+            }
+        // A new Shizuku service process (fresh reader epoch) after a Play Store update (sequence bump).
+        val now =
+            ref.copy(
+                clock = ref.clock.copy(wallMs = 2_000, elapsedRealtimeMs = 2_000, statsDurationMs = 2_000),
+                uids = listOf(row(1_000, 6.0, null), row(10_001, 52.5, MAPS)),
+                uidIdentityScope = UidIdentityScope(0, 7, "service-process-b", 41),
+            )
+
+        val apps = XRayMapper.apps(SnapshotDiffer.diff(ref, now), perUidAvailable = true)
+
+        val app = apps.single { it.uid == 10_001 }
+        assertEquals(MAPS, app.packageName)
+        assertEquals(12.5, app.totalMah, 0.0)
+        assertTrue(apps.any { it.uid == 1_000 })
+        // Legacy rows without capture-time proof stay withheld.
+        val legacy = XRayMapper.apps(SnapshotDiffer.diff(ref.copy(uidIdentityScope = null), now), perUidAvailable = true)
+        assertTrue(legacy.none { it.uid == 10_001 })
     }
 
     @Test

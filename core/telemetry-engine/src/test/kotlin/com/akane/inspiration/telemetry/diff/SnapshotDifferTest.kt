@@ -774,8 +774,8 @@ class SnapshotDifferTest {
                 now.copy(uidIdentityScope = null),
                 now.copy(uidIdentityScope = scope.copy(userSerial = 8)),
                 now.copy(uidIdentityScope = scope.copy(userId = 1)),
-                now.copy(uidIdentityScope = scope.copy(readerEpoch = "new-reader")),
-                now.copy(uidIdentityScope = scope.copy(packageChangeSequence = 1)),
+                now.copy(uidIdentityScope = scope.copy(readerEpoch = "")),
+                now.copy(uidIdentityScope = scope.copy(packageChangeSequence = -1)),
                 now.copy(clock = now.clock.copy(bootCount = 2)),
                 now.copy(uids = listOf(now.uids.single().copy(ownerInstallFingerprint = null))),
                 now.copy(uids = listOf(now.uids.single().copy(ownerInstallFingerprint = "v2:" + "a".repeat(64)))),
@@ -804,6 +804,39 @@ class SnapshotDifferTest {
                 .single()
                 .valid,
         )
+    }
+
+    @Test
+    fun `cross-process scopes in one user and boot compare app uids by owner fingerprint`() {
+        val ref = snapshot(elapsed = 1_000, uids = listOf(uid(totalMah = 30.0)))
+        val now = snapshot(elapsed = 2_000, duration = 2_000, uids = listOf(uid(totalMah = 50.0)))
+        val scope = requireNotNull(ref.uidIdentityScope)
+        val laterProcess = scope.copy(readerEpoch = "new-reader", packageChangeSequence = 42)
+
+        val valid = SnapshotDiffer.diff(ref, now.copy(uidIdentityScope = laterProcess))
+        assertTrue(valid.uids.single().valid)
+        assertFalse(valid.uids.single().packageChanged)
+        assertEquals(20.0, valid.uids.single().totalMah, 0.0)
+        assertTrue(valid.validity.problems.none { it.startsWith("uid_identity") })
+
+        val reinstalled =
+            uid(totalMah = 50.0).copy(
+                ownerInstallFingerprint = UidOwnerFingerprint.create(10_001, 7, listOf(UidOwnerInstall("test.owner", 10_001, 456))),
+            )
+        val changed = SnapshotDiffer.diff(ref, now.copy(uidIdentityScope = laterProcess, uids = listOf(reinstalled)))
+        assertFalse(changed.uids.single().valid)
+        assertTrue(changed.uids.single().packageChanged)
+        assertTrue(changed.validity.problems.contains("uid_identity_changed:10001"))
+
+        for (unknown in listOf(
+            now.copy(uidIdentityScope = null),
+            now.copy(uidIdentityScope = laterProcess.copy(userSerial = 8)),
+        )) {
+            val result = SnapshotDiffer.diff(ref, unknown)
+            assertFalse(result.uids.single().valid)
+            assertFalse(result.uids.single().packageChanged)
+            assertTrue(result.validity.problems.contains("uid_identity_unknown:10001"))
+        }
     }
 
     @Test

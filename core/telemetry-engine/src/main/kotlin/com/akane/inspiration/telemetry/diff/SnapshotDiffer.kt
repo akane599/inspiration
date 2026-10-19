@@ -188,6 +188,24 @@ object SnapshotDiffer {
         now: BatterySnapshot,
     ): Boolean = ref.clock.bootCount == now.clock.bootCount && now.clock.elapsedRealtimeMs > ref.clock.elapsedRealtimeMs
 
+    /**
+     * Each scope's reader epoch and package-change sequence prove that one capture's opening and
+     * closing reads bracket a consistent package state; they are not compared across snapshots.
+     * Across snapshots only the user namespace and boot must match: per-UID owner/install
+     * fingerprints then decide whether an application UID is still the same incarnation.
+     */
+    private fun sameUidNamespace(
+        ref: BatterySnapshot,
+        now: BatterySnapshot,
+    ): Boolean {
+        val refScope = ref.uidIdentityScope?.takeIf { it.isKnown() } ?: return false
+        val nowScope = now.uidIdentityScope?.takeIf { it.isKnown() } ?: return false
+        return refScope.userId == nowScope.userId &&
+            refScope.userSerial == nowScope.userSerial &&
+            ref.clock.bootCount >= 0 &&
+            sameBootWithIncreasingElapsed(ref, now)
+    }
+
     private fun hasSessionSkew(snapshot: BatterySnapshot): Boolean {
         val statsStart = snapshot.clock.statsStartMs ?: return false
         val dumpStart = snapshot.system?.startClockTimeMs ?: return false
@@ -216,14 +234,13 @@ object SnapshotDiffer {
             )
         val refByUid = ref.uids.map { it.comparable() }.associateBy(UidSnapshot::uid)
         val nowByUid = now.uids.map { it.comparable() }.associateBy(UidSnapshot::uid)
+        val sameNamespace = sameUidNamespace(ref, now)
         return (refByUid.keys + nowByUid.keys).sorted().map { uid ->
             val previous = refByUid[uid]
             val current = nowByUid[uid]
             val applicationUid = isApplicationUid(uid)
-            val scope = ref.uidIdentityScope
             val comparableScope =
-                scope != null && scope.isKnown() && scope == now.uidIdentityScope &&
-                    scope.covers(uid) && ref.clock.bootCount >= 0 && sameBootWithIncreasingElapsed(ref, now)
+                sameNamespace && ref.uidIdentityScope?.covers(uid) == true && now.uidIdentityScope?.covers(uid) == true
             val previousFingerprint = UidOwnerFingerprint.known(previous?.ownerInstallFingerprint)
             val currentFingerprint = UidOwnerFingerprint.known(current?.ownerInstallFingerprint)
             val knownOwners = comparableScope && previousFingerprint != null && currentFingerprint != null

@@ -4,7 +4,11 @@ import java.io.ByteArrayOutputStream
 import java.io.DataOutputStream
 import java.security.MessageDigest
 
-/** Evidence is comparable only within one retained reader, user incarnation and package sequence. */
+/**
+ * Capture-time scope of UID ownership evidence. [readerEpoch] and [packageChangeSequence] prove
+ * one capture's opening and closing reads are consistent; across snapshots only [userId] and
+ * [userSerial] identify the namespace, and per-UID fingerprints decide continuity.
+ */
 data class UidIdentityScope(
     val userId: Int,
     val userSerial: Long,

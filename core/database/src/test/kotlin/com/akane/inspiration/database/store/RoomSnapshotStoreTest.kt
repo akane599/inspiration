@@ -277,7 +277,12 @@ class RoomSnapshotStoreTest {
             assertTrue(good.uids.single().valid)
             assertFalse(good.uids.single().packageChanged)
             assertEquals(20.0, good.uids.single().totalMah, 0.0)
-            for (badProof in listOf(null, UidIdentityProof(scope.copy(packageChangeSequence = 1), mapOf(10_001 to fingerprint)))) {
+            // A restarted service process after a package update: new reader epoch and sequence, same owners.
+            proof = UidIdentityProof(scope.copy(readerEpoch = "restarted-reader", packageChangeSequence = 39), mapOf(10_001 to fingerprint))
+            val restarted = SnapshotDiffer.diff(ref, capture())
+            assertTrue(restarted.uids.single().valid)
+            assertEquals(20.0, restarted.uids.single().totalMah, 0.0)
+            for (badProof in listOf(null, UidIdentityProof(scope.copy(userSerial = 8), mapOf(10_001 to fingerprint)))) {
                 proof = badProof
                 val withheld = SnapshotDiffer.diff(ref, capture())
                 assertFalse(withheld.uids.single().valid)
