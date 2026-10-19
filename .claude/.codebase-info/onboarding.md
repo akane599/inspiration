@@ -32,7 +32,7 @@ Diagnostics tests run under Robolectric (org.json and resources are needed by th
 The documented AVDs are `batstats-api36`, `screenoff-api37`, and `pixel-api35`. The normal launch flow is:
 
 ```sh
-./gradlew --stop   # free daemon memory first: 15 GiB RAM, only 512 MiB swap
+./gradlew --stop   # free daemon memory first: 15 GiB RAM + zram/swapfile; Gradle limits are in the android-build live rule
 emulator -avd batstats-api36 -memory 2048 -no-window -no-audio &
 adb wait-for-device shell 'while [[ -z $(getprop sys.boot_completed) ]]; do sleep 1; done'
 ./gradlew :app:installDebug -q
