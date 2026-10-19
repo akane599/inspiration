@@ -1343,6 +1343,38 @@ class HealthViewModelTest {
     // ---- the live buffer holds only what storage has not given back --------------------------------
 
     @Test
+    fun `a failed samples read after the live points were stored draws the charge as before`() =
+        runTest(dispatcher) {
+            deps.refreshResult = RefreshResult.Debounced(0L)
+            // The start of this charge, stored before the screen opened.
+            val earlier = (0 until 3).map { sample(NOW_MS - 10 * MIN_MS + it * MIN_MS, level = 30 + it) }
+            deps.samples = earlier
+            val readings = MutableSharedFlow<LiveReading>()
+            val vm = viewModel(readings)
+            vm.onIntent(HealthIntent.Visible)
+            vm.onIntent(HealthIntent.PlugChanged(true))
+            runCurrent()
+            val times = (0 until 5).map { NOW_MS - (4 - it) * CURVE_PERIOD_MS }
+            for ((i, at) in times.withIndex()) {
+                readings.emit(liveReading(at, levelPct = 41 + i))
+                runCurrent()
+            }
+            deps.samples = earlier + times.mapIndexed { i, at -> sample(at, level = 41 + i) }
+            deps.lastRefreshWallMs.value = NOW_MS
+            runCurrent()
+            assertEquals(0, vm.heldLivePoints)
+            val before = vm.state.value
+            assertEquals(30, (before.curve as CurveUi.Ready).startLevelPct)
+
+            deps.samples = null
+            deps.lastRefreshWallMs.value = NOW_MS + 1
+            runCurrent()
+
+            assertEquals("the stored start and the points the buffer let go are still drawn", before, vm.state.value)
+            vm.onIntent(HealthIntent.Hidden)
+        }
+
+    @Test
     fun `a load that read the live points back stops holding them`() =
         runTest(dispatcher) {
             deps.refreshResult = RefreshResult.Debounced(0L)

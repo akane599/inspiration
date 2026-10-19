@@ -47,17 +47,24 @@ private class HealthInputs(
     val history: List<HistoryEvent>?,
     val samples: List<TelemetrySample>?,
     val loadedAtMs: Long,
+    /** The previous load's [persistedPoints], drawn again when this load's samples read failed. */
+    previousPoints: List<CurvePoint>,
 ) {
     val everyReadFailed: Boolean
         get() = kernel == null && healthSamples == null && sessions == null && history == null && samples == null
 
-    /** The persisted charging points in time order, one per time (the first stored wins). */
+    /**
+     * The persisted charging points in time order, one per time (the first stored wins). When the samples read failed
+     * they are the previous load's: the live points that load read back are no longer held (see [LiveBuffer]), so no
+     * points at all would cut them, and the stored part of the charge, out of the curve. [everyReadFailed] still sees
+     * the failed read.
+     */
     val persistedPoints: List<CurvePoint> =
         samples
-            .orEmpty()
-            .mapNotNull { it.toCurvePoint() }
-            .distinctBy { it.wallMs }
-            .sortedBy { it.wallMs }
+            ?.mapNotNull { it.toCurvePoint() }
+            ?.distinctBy { it.wallMs }
+            ?.sortedBy { it.wallMs }
+            ?: previousPoints
     val historyPoints: List<CurvePoint> = history.orEmpty().mapNotNull { it.toCurvePoint() }
     val historySpan: ChargeSpan? = history?.let(::lastChargeSpan)
     val card: HealthCardUi = healthCard(kernel, healthSamples.orEmpty(), sessions.orEmpty())
@@ -67,7 +74,8 @@ private class HealthInputs(
 /**
  * This visit's live points that storage has not given back yet. Every live tick copies them on the main thread, so a
  * load drops each one its stored day holds at the same time: the merge drops such a point from every frame of that
- * load anyway (a stored point wins a tie), and later loads read it from storage. What is held is then bounded by the
+ * load anyway (a stored point wins a tie), and later loads read it from storage (a load whose samples read fails keeps
+ * the previous load's points, see [HealthInputs.persistedPoints]). What is held is then bounded by the
  * readings since the last load, not by the length of the visit. The facts a frame needs about the whole visit
  * outlive that trim: whether any live point arrived (it still re-derives a charge the history has not caught up with)
  * and the newest one's time (an older or repeated reading is still rejected).
@@ -368,6 +376,7 @@ class HealthViewModel(
         val sessions = attempt { deps.chargeSessions() }
         val history = attempt { deps.historyBetween(from, to) }
         val samples = attempt { deps.samplesBetween(from, to) }
+        val previousPoints = inputs?.persistedPoints.orEmpty()
         inputs =
             withContext(shapingDispatcher) {
                 HealthInputs(
@@ -377,6 +386,7 @@ class HealthViewModel(
                     history = history,
                     samples = samples,
                     loadedAtMs = to,
+                    previousPoints = previousPoints,
                 )
             }.also { live.dropStored(it.persistedPoints) }
         render()
