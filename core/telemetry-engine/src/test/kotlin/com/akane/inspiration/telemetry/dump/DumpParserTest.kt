@@ -3,7 +3,6 @@ package com.akane.inspiration.telemetry.dump
 import com.akane.inspiration.telemetry.proto.AlarmManagerServiceDumpProto
 import com.akane.inspiration.telemetry.proto.BatteryStatsProto
 import com.akane.inspiration.telemetry.proto.BatteryStatsServiceDumpProto
-import com.akane.inspiration.telemetry.proto.PowerManagerServiceDumpProto
 import com.akane.inspiration.telemetry.proto.SystemProto
 import com.akane.inspiration.telemetry.proto.TimerProto
 import com.akane.inspiration.telemetry.proto.UidProto
@@ -30,17 +29,6 @@ class DumpParserTest {
             assertEquals(counts.kernelWakelocks, stats.system.kernelWakelockCount)
             assertEquals(counts.uidWakelocks, stats.uidsList.sumOf { it.wakelocksCount })
             assertEquals(counts.wakeupAlarms, stats.uidsList.sumOf { it.wakeupAlarmCount })
-        }
-    }
-
-    @Test
-    fun powerFixturesExposeWakeLocksAndSuspendBlockers() {
-        val expectedWakeLocks = listOf(2, 0, 1)
-        (35..37).forEachIndexed { index, api ->
-            val bytes = fixture("power-api$api.pb")
-            val dump = PowerManagerServiceDumpProto.parseFrom(bytes)
-            assertEquals(expectedWakeLocks[index], dump.wakeLocksCount)
-            assertEquals(5, dump.suspendBlockersCount)
         }
     }
 

@@ -22,7 +22,13 @@ import com.akane.inspiration.diagnostics.story.AndroidStoryWriter
 import com.akane.inspiration.diagnostics.story.BatteryStoryBuilder
 import com.akane.inspiration.ipc.ShizukuState
 import com.akane.inspiration.ipc.client.BatteryStatsClient
+import com.akane.inspiration.ipc.client.DeviceIdleClient
+import com.akane.inspiration.ipc.client.DeviceIdleReader
+import com.akane.inspiration.ipc.client.PowerManagerClient
+import com.akane.inspiration.ipc.client.PowerStatsClient
+import com.akane.inspiration.ipc.model.DeviceIdleSnapshot
 import com.akane.inspiration.ipc.model.DumpTarget
+import com.akane.inspiration.ipc.model.PowerMonitorSnapshot
 import com.akane.inspiration.telemetry.calibration.CalibrationInput
 import com.akane.inspiration.telemetry.calibration.PowerCalibrator
 import com.akane.inspiration.telemetry.capture.CaptureResult
@@ -190,7 +196,7 @@ class ProbeReceiver : BroadcastReceiver() {
                 ),
             )
 
-            val power = service.readPowerMonitors()
+            val power = readPowerMonitorsInProcess()
             log(
                 JSONObject().put(
                     "power",
@@ -215,7 +221,7 @@ class ProbeReceiver : BroadcastReceiver() {
                 ),
             )
 
-            val idle = service.readDeviceIdle()
+            val idle = readDeviceIdleInProcess()
             log(
                 JSONObject().put(
                     "idle",
@@ -538,10 +544,36 @@ class ProbeReceiver : BroadcastReceiver() {
         log(JSONObject().put("permission", manager.state.value.label()))
     }
 
-    private fun readInProcess(): JSONObject {
-        // The app process exempts only Sensor.getHandle() (N-26). This D1 comparison path links the
-        // BatteryStatsClient hidden surface in-process, so it exempts exactly that, only when it runs.
+    /**
+     * The app process exempts only Sensor.getHandle() (N-26). The probe's in-process reads link hidden framework
+     * interfaces directly, so it exempts exactly those, and only when a probe runs. Exemptions accumulate, so
+     * calling this before each read is harmless.
+     */
+    private fun exemptInProcessHiddenApis() {
         HiddenApiBypass.addHiddenApiExemptions(*IN_PROCESS_HIDDEN_API_PREFIXES)
+    }
+
+    /**
+     * Power monitors through Shizuku's binder wrapper. The user service no longer has a transaction for this
+     * (txn 4 is reserved): only this probe reads them.
+     */
+    private fun readPowerMonitorsInProcess(): PowerMonitorSnapshot {
+        exemptInProcessHiddenApis()
+        return PowerStatsClient(binderSource = { shizukuSystemService(POWER_STATS_SERVICE) }).read()
+    }
+
+    /** Idle flags and the power-save whitelist through Shizuku's binder wrapper (txn 5 is reserved). */
+    private fun readDeviceIdleInProcess(): DeviceIdleSnapshot {
+        exemptInProcessHiddenApis()
+        return DeviceIdleReader(
+            deviceIdle = DeviceIdleClient { shizukuSystemService(DEVICE_IDLE_SERVICE) },
+            powerManager = PowerManagerClient { shizukuSystemService(POWER_SERVICE) },
+        ).read()
+    }
+
+    private fun readInProcess(): JSONObject {
+        // D1 comparison: the BatteryStatsClient read in-process instead of through the user service.
+        exemptInProcessHiddenApis()
         val startedAt = SystemClock.elapsedRealtime()
         val usage = BatteryStatsClient(binderSource = { shizukuSystemService(BATTERY_STATS_SERVICE) }).readUsage(0L)
         return JSONObject()
@@ -647,6 +679,9 @@ class ProbeReceiver : BroadcastReceiver() {
         const val TOP_LOOKUPS = 3
         const val EXTRA_REFERENCE_KIND = "reference_kind"
         const val BATTERY_STATS_SERVICE = "batterystats"
+        const val POWER_STATS_SERVICE = "powerstats"
+        const val DEVICE_IDLE_SERVICE = "deviceidle"
+        const val POWER_SERVICE = "power"
         const val DATABASE_NAME = "inspiration.db"
         const val MAX_DUMP_BYTES = 4 * 1024 * 1024
         const val MAX_HISTORY_EVENTS = 4096
@@ -654,7 +689,11 @@ class ProbeReceiver : BroadcastReceiver() {
         const val TAG = "InspirationProbe"
         const val UNKNOWN_STATUS = -1
 
-        /** The hidden classes BatteryStatsClient links (the `:core:hidden-api-stub` battery surface). */
+        /**
+         * The hidden classes the in-process reads link: BatteryStatsClient's `:core:hidden-api-stub` battery
+         * surface, then the power-stats, device-idle and power-manager binder interfaces (each prefix also covers
+         * the interface's `$Stub`). `android.os.PowerMonitor` is public API 35 and needs no exemption.
+         */
         val IN_PROCESS_HIDDEN_API_PREFIXES =
             arrayOf(
                 "Lcom/android/internal/app/IBatteryStats",
@@ -664,6 +703,9 @@ class ProbeReceiver : BroadcastReceiver() {
                 "Landroid/os/BatteryConsumer",
                 "Landroid/os/UidBatteryConsumer",
                 "Landroid/os/AggregateBatteryConsumer",
+                "Landroid/os/IPowerStatsService",
+                "Landroid/os/IDeviceIdleController",
+                "Landroid/os/IPowerManager",
             )
     }
 }

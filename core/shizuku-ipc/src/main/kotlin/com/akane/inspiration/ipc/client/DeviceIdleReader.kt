@@ -17,7 +17,10 @@ internal interface PowerManagerCalls {
     fun isLightDeviceIdleMode(): Boolean
 }
 
-data class IdleFlags(val deepIdle: Boolean, val lightIdle: Boolean)
+data class IdleFlags(
+    val deepIdle: Boolean,
+    val lightIdle: Boolean,
+)
 
 /** Reads the power-save whitelist from binder "deviceidle". Never throws. */
 class DeviceIdleClient internal constructor(
@@ -32,9 +35,10 @@ class DeviceIdleClient internal constructor(
         },
     )
 
-    fun readWhitelist(): BinderResult<List<String>> = withBinder(binderSource, { BinderResult.Failed(it) }) { binder ->
-        BinderResult.Ok(callsFactory(binder).getFullPowerWhitelist()?.toList().orEmpty())
-    }
+    fun readWhitelist(): BinderResult<List<String>> =
+        withBinder(binderSource, { BinderResult.Failed(it) }) { binder ->
+            BinderResult.Ok(callsFactory(binder).getFullPowerWhitelist()?.toList().orEmpty())
+        }
 }
 
 /** Reads deep/light idle flags from binder "power". Never throws. */
@@ -54,26 +58,32 @@ class PowerManagerClient internal constructor(
         },
     )
 
-    fun readIdleFlags(): BinderResult<IdleFlags> = withBinder(binderSource, { BinderResult.Failed(it) }) { binder ->
-        val calls = callsFactory(binder)
-        BinderResult.Ok(IdleFlags(deepIdle = calls.isDeviceIdleMode(), lightIdle = calls.isLightDeviceIdleMode()))
-    }
+    fun readIdleFlags(): BinderResult<IdleFlags> =
+        withBinder(binderSource, { BinderResult.Failed(it) }) { binder ->
+            val calls = callsFactory(binder)
+            BinderResult.Ok(IdleFlags(deepIdle = calls.isDeviceIdleMode(), lightIdle = calls.isLightDeviceIdleMode()))
+        }
 }
 
-/** Combines both reads into one [DeviceIdleSnapshot]; the idle-flag failure reason wins. */
+/**
+ * Combines both reads into one [DeviceIdleSnapshot]; the idle-flag failure reason wins. Only the debug probe
+ * calls it, in-process through Shizuku (the user-service txn 5 was removed), so R8 drops it from release.
+ */
 class DeviceIdleReader(
     private val deviceIdle: DeviceIdleClient,
     private val powerManager: PowerManagerClient,
 ) {
     fun read(): DeviceIdleSnapshot {
-        val flags = when (val result = powerManager.readIdleFlags()) {
-            is BinderResult.Failed -> return DeviceIdleSnapshot.unavailable(result.reason)
-            is BinderResult.Ok -> result.value
-        }
-        val whitelist = when (val result = deviceIdle.readWhitelist()) {
-            is BinderResult.Failed -> return DeviceIdleSnapshot.unavailable(result.reason)
-            is BinderResult.Ok -> result.value
-        }
+        val flags =
+            when (val result = powerManager.readIdleFlags()) {
+                is BinderResult.Failed -> return DeviceIdleSnapshot.unavailable(result.reason)
+                is BinderResult.Ok -> result.value
+            }
+        val whitelist =
+            when (val result = deviceIdle.readWhitelist()) {
+                is BinderResult.Failed -> return DeviceIdleSnapshot.unavailable(result.reason)
+                is BinderResult.Ok -> result.value
+            }
         return DeviceIdleSnapshot(
             available = true,
             reason = null,

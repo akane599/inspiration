@@ -15,9 +15,15 @@ import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicReference
 
-internal data class PowerMonitorInfo(val name: String, val type: Int)
+internal data class PowerMonitorInfo(
+    val name: String,
+    val type: Int,
+)
 
-internal class PowerMonitorValues(val energyUws: LongArray, val timestampsMs: LongArray)
+internal class PowerMonitorValues(
+    val energyUws: LongArray,
+    val timestampsMs: LongArray,
+)
 
 /**
  * The oneway `IPowerStatsService` calls; faked in JVM tests. Each delivers exactly one callback,
@@ -26,13 +32,19 @@ internal class PowerMonitorValues(val energyUws: LongArray, val timestampsMs: Lo
 internal interface PowerStatsCalls {
     fun getSupportedPowerMonitors(onResult: (List<PowerMonitorInfo>?) -> Unit)
 
-    fun getPowerMonitorReadings(indices: IntArray, onResult: (PowerMonitorValues?) -> Unit)
+    fun getPowerMonitorReadings(
+        indices: IntArray,
+        onResult: (PowerMonitorValues?) -> Unit,
+    )
 }
 
 internal const val API_POWER_MONITORS = 35
 private const val POWER_STATS_TIMEOUT_MS = 2_000L
 
-/** Reads framework power monitors (binder "powerstats"), gated to API 35+ per D3. Never throws. */
+/**
+ * Reads framework power monitors (binder "powerstats"), gated to API 35+ per D3. Never throws. Only the debug
+ * probe calls it, in-process through Shizuku (the user-service txn 4 was removed), so R8 drops it from release.
+ */
 class PowerStatsClient internal constructor(
     private val binderSource: () -> IBinder?,
     private val sdkInt: Int,
@@ -54,33 +66,36 @@ class PowerStatsClient internal constructor(
     }
 
     private fun readFrom(calls: PowerStatsCalls): PowerMonitorSnapshot {
-        val monitors = when (val result = await<List<PowerMonitorInfo>> { calls.getSupportedPowerMonitors(it) }) {
-            is BinderResult.Failed -> return PowerMonitorSnapshot.unavailable(result.reason)
-            is BinderResult.Ok -> result.value
-        }
+        val monitors =
+            when (val result = await<List<PowerMonitorInfo>> { calls.getSupportedPowerMonitors(it) }) {
+                is BinderResult.Failed -> return PowerMonitorSnapshot.unavailable(result.reason)
+                is BinderResult.Ok -> result.value
+            }
         if (monitors.isEmpty()) return PowerMonitorSnapshot(available = true, reason = null, monitors = emptyList())
 
         // PowerMonitor indices are positional: PowerStatsService.ensurePowerMonitors assigns
         // index++ in array order (android-16.0.0_r4 PowerStatsService.java:619,629).
         val indices = IntArray(monitors.size) { it }
-        val values = when (val result = await<PowerMonitorValues> { calls.getPowerMonitorReadings(indices, it) }) {
-            is BinderResult.Failed -> return PowerMonitorSnapshot.unavailable(result.reason)
-            is BinderResult.Ok -> result.value
-        }
+        val values =
+            when (val result = await<PowerMonitorValues> { calls.getPowerMonitorReadings(indices, it) }) {
+                is BinderResult.Failed -> return PowerMonitorSnapshot.unavailable(result.reason)
+                is BinderResult.Ok -> result.value
+            }
         if (values.energyUws.size != monitors.size || values.timestampsMs.size != monitors.size) {
             return PowerMonitorSnapshot.unavailable(Reasons.REMOTE)
         }
         return PowerMonitorSnapshot(
             available = true,
             reason = null,
-            monitors = monitors.mapIndexed { i, monitor ->
-                PowerMonitorReading(
-                    name = monitor.name,
-                    type = monitor.type,
-                    energyUws = values.energyUws[i],
-                    timestampMs = values.timestampsMs[i],
-                )
-            },
+            monitors =
+                monitors.mapIndexed { i, monitor ->
+                    PowerMonitorReading(
+                        name = monitor.name,
+                        type = monitor.type,
+                        energyUws = values.energyUws[i],
+                        timestampMs = values.timestampsMs[i],
+                    )
+                },
         )
     }
 
@@ -91,18 +106,21 @@ class PowerStatsClient internal constructor(
         start { value ->
             if (delivered.compareAndSet(null, Delivery(value))) latch.countDown()
         }
-        val completed = try {
-            latch.await(timeoutMs, TimeUnit.MILLISECONDS)
-        } catch (e: InterruptedException) {
-            Thread.currentThread().interrupt()
-            false
-        }
+        val completed =
+            try {
+                latch.await(timeoutMs, TimeUnit.MILLISECONDS)
+            } catch (e: InterruptedException) {
+                Thread.currentThread().interrupt()
+                false
+            }
         if (!completed) return BinderResult.Failed(Reasons.TIMEOUT)
         val value = delivered.get()?.value ?: return BinderResult.Failed(Reasons.REMOTE)
         return BinderResult.Ok(value)
     }
 
-    private class Delivery<T>(val value: T?)
+    private class Delivery<T>(
+        val value: T?,
+    )
 }
 
 /**
@@ -117,19 +135,25 @@ private const val KEY_TIMESTAMPS = "timestamps"
 private const val RESULT_SUCCESS = 0
 
 @RequiresApi(API_POWER_MONITORS)
-private class FrameworkPowerStatsCalls(binder: IBinder) : PowerStatsCalls {
+private class FrameworkPowerStatsCalls(
+    binder: IBinder,
+) : PowerStatsCalls {
     private val service: IPowerStatsService = IPowerStatsService.Stub.asInterface(binder)
 
     override fun getSupportedPowerMonitors(onResult: (List<PowerMonitorInfo>?) -> Unit) {
         service.getSupportedPowerMonitors(
             receiver(onResult) { data ->
-                data.getParcelableArray(KEY_MONITORS, PowerMonitor::class.java)
+                data
+                    .getParcelableArray(KEY_MONITORS, PowerMonitor::class.java)
                     ?.map { PowerMonitorInfo(name = it.name, type = it.type) }
             },
         )
     }
 
-    override fun getPowerMonitorReadings(indices: IntArray, onResult: (PowerMonitorValues?) -> Unit) {
+    override fun getPowerMonitorReadings(
+        indices: IntArray,
+        onResult: (PowerMonitorValues?) -> Unit,
+    ) {
         service.getPowerMonitorReadings(
             indices,
             receiver(onResult) { data ->
@@ -144,18 +168,25 @@ private class FrameworkPowerStatsCalls(binder: IBinder) : PowerStatsCalls {
      * A [ResultReceiver] with no handler, so the result is parsed on the binder thread that
      * delivers it. A malformed or failed result reports null instead of throwing there.
      */
-    private fun <T> receiver(onResult: (T?) -> Unit, parse: (Bundle) -> T?): ResultReceiver =
+    private fun <T> receiver(
+        onResult: (T?) -> Unit,
+        parse: (Bundle) -> T?,
+    ): ResultReceiver =
         object : ResultReceiver(null) {
-            override fun onReceiveResult(resultCode: Int, resultData: Bundle?) {
-                val parsed = if (resultCode == RESULT_SUCCESS && resultData != null) {
-                    try {
-                        parse(resultData)
-                    } catch (e: RuntimeException) {
+            override fun onReceiveResult(
+                resultCode: Int,
+                resultData: Bundle?,
+            ) {
+                val parsed =
+                    if (resultCode == RESULT_SUCCESS && resultData != null) {
+                        try {
+                            parse(resultData)
+                        } catch (e: RuntimeException) {
+                            null
+                        }
+                    } else {
                         null
                     }
-                } else {
-                    null
-                }
                 onResult(parsed)
             }
         }

@@ -12,10 +12,6 @@ import android.os.SystemClock
 import androidx.annotation.Keep
 import com.akane.inspiration.ipc.ITelemetryUserService
 import com.akane.inspiration.ipc.client.BatteryStatsClient
-import com.akane.inspiration.ipc.client.DeviceIdleClient
-import com.akane.inspiration.ipc.client.DeviceIdleReader
-import com.akane.inspiration.ipc.client.PowerManagerClient
-import com.akane.inspiration.ipc.client.PowerStatsClient
 import com.akane.inspiration.ipc.model.BatteryHistorySnapshot
 import com.akane.inspiration.ipc.model.BatteryUsageSnapshot
 import com.akane.inspiration.ipc.model.BgDexoptReason
@@ -23,11 +19,9 @@ import com.akane.inspiration.ipc.model.BgDexoptState
 import com.akane.inspiration.ipc.model.BgDexoptStatus
 import com.akane.inspiration.ipc.model.ClusterFreqTime
 import com.akane.inspiration.ipc.model.CpuTimeSnapshot
-import com.akane.inspiration.ipc.model.DeviceIdleSnapshot
 import com.akane.inspiration.ipc.model.DumpResult
 import com.akane.inspiration.ipc.model.DumpTarget
 import com.akane.inspiration.ipc.model.KernelBatterySnapshot
-import com.akane.inspiration.ipc.model.PowerMonitorSnapshot
 import com.akane.inspiration.ipc.model.Reasons
 import com.akane.inspiration.ipc.model.ToolkitApi
 import com.akane.inspiration.ipc.model.ToolkitCode
@@ -232,19 +226,6 @@ class TelemetryUserService private constructor(
             .readHistory(statsStartMs, afterHistoryTimeMs, maxEvents)
     }
 
-    override fun readPowerMonitors(): PowerMonitorSnapshot {
-        if (!isCallerAllowed()) return PowerMonitorSnapshot.unavailable(Reasons.CALLER)
-        return PowerStatsClient(binderSource = { serviceBinder(POWER_STATS_SERVICE) }).read()
-    }
-
-    override fun readDeviceIdle(): DeviceIdleSnapshot {
-        if (!isCallerAllowed()) return DeviceIdleSnapshot.unavailable(Reasons.CALLER)
-        return DeviceIdleReader(
-            deviceIdle = DeviceIdleClient { serviceBinder(DEVICE_IDLE_SERVICE) },
-            powerManager = PowerManagerClient { serviceBinder(POWER_SERVICE) },
-        ).read()
-    }
-
     override fun openDump(target: Int): DumpResult {
         if (!isCallerAllowed()) return DumpResult.unavailable(Reasons.CALLER)
         if (!DumpTarget.isValid(target)) return DumpResult.unavailable(Reasons.TARGET)
@@ -408,9 +389,6 @@ class TelemetryUserService private constructor(
         val WHITESPACE = Regex("\\s+")
 
         const val BATTERY_STATS_SERVICE = "batterystats"
-        const val POWER_STATS_SERVICE = "powerstats"
-        const val DEVICE_IDLE_SERVICE = "deviceidle"
-        const val POWER_SERVICE = "power"
 
         fun failClosedToolkit(): ToolkitExecutor {
             val runner = CommandRunner { throw IOException("toolkit unavailable without a Context") }
@@ -464,9 +442,7 @@ class TelemetryUserService private constructor(
         fun dumpRequest(target: Int): DumpRequest? =
             when (target) {
                 DumpTarget.BATTERYSTATS_PROTO -> DumpRequest(BATTERY_STATS_SERVICE, arrayOf("--proto"))
-                DumpTarget.POWER_PROTO -> DumpRequest(POWER_SERVICE, arrayOf("--proto"))
                 DumpTarget.ALARM_PROTO -> DumpRequest("alarm", arrayOf("--proto"))
-                DumpTarget.DEVICEIDLE_TEXT -> DumpRequest(DEVICE_IDLE_SERVICE, emptyArray())
                 else -> null
             }
     }

@@ -2,11 +2,12 @@ package com.akane.inspiration.ipc.model
 
 object DumpTarget {
     const val BATTERYSTATS_PROTO = 1
-    const val POWER_PROTO = 2
-    const val ALARM_PROTO = 3
-    const val DEVICEIDLE_TEXT = 4
 
-    fun isValid(target: Int): Boolean = target in BATTERYSTATS_PROTO..DEVICEIDLE_TEXT
+    // 2 (`power --proto`) and 4 (`deviceidle` text) are reserved: removed with no client; never reuse them.
+    const val ALARM_PROTO = 3
+
+    /** An explicit allowlist, not a range: removed codes stay rejected. */
+    fun isValid(target: Int): Boolean = target == BATTERYSTATS_PROTO || target == ALARM_PROTO
 }
 
 object Reasons {

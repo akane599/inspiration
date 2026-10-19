@@ -7,174 +7,212 @@ import android.os.RemoteException
 import com.akane.inspiration.ipc.model.ClusterFreqTime
 import com.akane.inspiration.ipc.model.DumpTarget
 import com.akane.inspiration.ipc.model.Reasons
-import java.io.File
-import java.io.FileDescriptor
-import java.nio.file.Files
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import java.io.File
+import java.io.FileDescriptor
+import java.nio.file.Files
 
 class TelemetryUserServiceTest {
     @Test
-    fun `single battery supply reads supported nodes and preserves raw values`() = withFixture { root ->
-        battery(root, "battery") {
-            node("current_now", "-234000")
-            node("voltage_now", "4012000")
-            node("charge_counter", "3100000")
-            node("charge_full", "5000000")
-            node("charge_full_design", "5200000")
-            node("cycle_count", "117")
-            node("temp", "295")
-            node("status", "Charging")
-            node("capacity", "62")
+    fun `single battery supply reads supported nodes and preserves raw values`() =
+        withFixture { root ->
+            battery(root, "battery") {
+                node("current_now", "-234000")
+                node("voltage_now", "4012000")
+                node("charge_counter", "3100000")
+                node("charge_full", "5000000")
+                node("charge_full_design", "5200000")
+                node("cycle_count", "117")
+                node("temp", "295")
+                node("status", "Charging")
+                node("capacity", "62")
+            }
+
+            val snapshot = service(root).readKernelBattery()
+
+            assertTrue(snapshot.available)
+            assertNull(snapshot.reason)
+            assertEquals(-234000L, snapshot.currentNowRaw)
+            assertEquals(4012000L, snapshot.voltageNowRaw)
+            assertEquals(3100000L, snapshot.chargeCounterRaw)
+            assertEquals(5000000L, snapshot.chargeFullRaw)
+            assertEquals(5200000L, snapshot.chargeFullDesignRaw)
+            assertEquals(117, snapshot.cycleCount)
+            assertEquals(295, snapshot.temperatureDeciC)
+            assertEquals("Charging", snapshot.status)
+            assertEquals(62, snapshot.capacityPercent)
+            assertEquals("${root.path}/sys/class/power_supply/battery", snapshot.sourcePath)
+            assertEquals(42L, snapshot.readAtElapsedMs)
         }
 
-        val snapshot = service(root).readKernelBattery()
-
-        assertTrue(snapshot.available)
-        assertNull(snapshot.reason)
-        assertEquals(-234000L, snapshot.currentNowRaw)
-        assertEquals(4012000L, snapshot.voltageNowRaw)
-        assertEquals(3100000L, snapshot.chargeCounterRaw)
-        assertEquals(5000000L, snapshot.chargeFullRaw)
-        assertEquals(5200000L, snapshot.chargeFullDesignRaw)
-        assertEquals(117, snapshot.cycleCount)
-        assertEquals(295, snapshot.temperatureDeciC)
-        assertEquals("Charging", snapshot.status)
-        assertEquals(62, snapshot.capacityPercent)
-        assertEquals("${root.path}/sys/class/power_supply/battery", snapshot.sourcePath)
-        assertEquals(42L, snapshot.readAtElapsedMs)
-    }
-
     @Test
-    fun `missing battery nodes remain null rather than becoming zero`() = withFixture { root ->
-        battery(root, "battery") {
-            node("status", "Discharging")
+    fun `missing battery nodes remain null rather than becoming zero`() =
+        withFixture { root ->
+            battery(root, "battery") {
+                node("status", "Discharging")
+            }
+
+            val snapshot = service(root).readKernelBattery()
+
+            assertTrue(snapshot.available)
+            assertEquals("Discharging", snapshot.status)
+            assertNull(snapshot.currentNowRaw)
+            assertNull(snapshot.chargeFullRaw)
+            assertNull(snapshot.capacityPercent)
         }
 
-        val snapshot = service(root).readKernelBattery()
+    @Test
+    fun `named battery supply wins over other Battery entries`() =
+        withFixture { root ->
+            battery(root, "BAT0") { node("capacity", "1") }
+            battery(root, "battery") { node("capacity", "88") }
 
-        assertTrue(snapshot.available)
-        assertEquals("Discharging", snapshot.status)
-        assertNull(snapshot.currentNowRaw)
-        assertNull(snapshot.chargeFullRaw)
-        assertNull(snapshot.capacityPercent)
-    }
+            val snapshot = service(root).readKernelBattery()
+
+            assertTrue(snapshot.available)
+            assertEquals(88, snapshot.capacityPercent)
+            assertEquals("${root.path}/sys/class/power_supply/battery", snapshot.sourcePath)
+        }
 
     @Test
-    fun `named battery supply wins over other Battery entries`() = withFixture { root ->
-        battery(root, "BAT0") { node("capacity", "1") }
-        battery(root, "battery") { node("capacity", "88") }
+    fun `time in state converts ten millisecond ticks for every policy`() =
+        withFixture { root ->
+            timeInState(root, "policy0", "300000 4\n600000 9\n")
+            timeInState(root, "policy4", "1000000 2\n")
 
-        val snapshot = service(root).readKernelBattery()
+            val snapshot = service(root).readCpuTimeInState()
 
-        assertTrue(snapshot.available)
-        assertEquals(88, snapshot.capacityPercent)
-        assertEquals("${root.path}/sys/class/power_supply/battery", snapshot.sourcePath)
-    }
-
-    @Test
-    fun `time in state converts ten millisecond ticks for every policy`() = withFixture { root ->
-        timeInState(root, "policy0", "300000 4\n600000 9\n")
-        timeInState(root, "policy4", "1000000 2\n")
-
-        val snapshot = service(root).readCpuTimeInState()
-
-        assertTrue(snapshot.available)
-        assertEquals(
-            listOf(
-                ClusterFreqTime(policy = 0, freqKhz = 300000L, timeMs = 40L),
-                ClusterFreqTime(policy = 0, freqKhz = 600000L, timeMs = 90L),
-                ClusterFreqTime(policy = 4, freqKhz = 1000000L, timeMs = 20L),
-            ),
-            snapshot.entries,
-        )
-    }
+            assertTrue(snapshot.available)
+            assertEquals(
+                listOf(
+                    ClusterFreqTime(policy = 0, freqKhz = 300000L, timeMs = 40L),
+                    ClusterFreqTime(policy = 0, freqKhz = 600000L, timeMs = 90L),
+                    ClusterFreqTime(policy = 4, freqKhz = 1000000L, timeMs = 20L),
+                ),
+                snapshot.entries,
+            )
+        }
 
     @Test
-    fun `wrong caller is rejected before any telemetry or dump work`() = withFixture { root ->
-        battery(root, "battery") { node("capacity", "88") }
-        val service = service(root, callingUid = { APP_UID + 1 })
+    fun `wrong caller is rejected before any telemetry or dump work`() =
+        withFixture { root ->
+            battery(root, "battery") { node("capacity", "88") }
+            val service = service(root, callingUid = { APP_UID + 1 })
 
-        val battery = service.readKernelBattery()
-        val cpu = service.readCpuTimeInState()
-        val dump = service.openDump(DumpTarget.BATTERYSTATS_PROTO)
+            val battery = service.readKernelBattery()
+            val cpu = service.readCpuTimeInState()
+            val dump = service.openDump(DumpTarget.BATTERYSTATS_PROTO)
 
-        assertFalse(battery.available)
-        assertEquals(Reasons.CALLER, battery.reason)
-        assertFalse(cpu.available)
-        assertEquals(Reasons.CALLER, cpu.reason)
-        assertFalse(dump.available)
-        assertEquals(Reasons.CALLER, dump.reason)
-    }
-
-    @Test
-    fun `wrong caller is rejected before battery history touches any binder`() = withFixture { root ->
-        val requested = mutableListOf<String>()
-        val service = service(root, callingUid = { APP_UID + 1 }, serviceBinder = { name -> requested += name; null })
-
-        val history = service.readBatteryHistory(1_000L, 0L, 4096)
-
-        assertFalse(history.available)
-        assertEquals(Reasons.CALLER, history.reason)
-        assertEquals(emptyList<String>(), requested)
-    }
+            assertFalse(battery.available)
+            assertEquals(Reasons.CALLER, battery.reason)
+            assertFalse(cpu.available)
+            assertEquals(Reasons.CALLER, cpu.reason)
+            assertFalse(dump.available)
+            assertEquals(Reasons.CALLER, dump.reason)
+        }
 
     @Test
-    fun `authorized battery history reaches the batterystats binder`() = withFixture { root ->
-        val requested = mutableListOf<String>()
-        val service = service(root, serviceBinder = { name -> requested += name; null })
+    fun `wrong caller is rejected before battery history touches any binder`() =
+        withFixture { root ->
+            val requested = mutableListOf<String>()
+            val service =
+                service(root, callingUid = { APP_UID + 1 }, serviceBinder = { name ->
+                    requested += name
+                    null
+                })
 
-        val history = service.readBatteryHistory(1_000L, 0L, 4096)
+            val history = service.readBatteryHistory(1_000L, 0L, 4096)
 
-        assertEquals(listOf("batterystats"), requested)
-        assertFalse(history.available)
-        assertEquals(Reasons.REMOTE, history.reason)
-    }
-
-    @Test
-    fun `unknown dump target is rejected for an authorized caller`()= withFixture { root ->
-        val dump = service(root).openDump(99)
-
-        assertFalse(dump.available)
-        assertEquals(Reasons.TARGET, dump.reason)
-        assertNull(dump.fd)
-    }
+            assertFalse(history.available)
+            assertEquals(Reasons.CALLER, history.reason)
+            assertEquals(emptyList<String>(), requested)
+        }
 
     @Test
-    fun `thread start failure closes both pipe ends and reports IO`() = withFixture { root ->
-        val pipe = FakeDumpPipe()
+    fun `authorized battery history reaches the batterystats binder`() =
+        withFixture { root ->
+            val requested = mutableListOf<String>()
+            val service =
+                service(root, serviceBinder = { name ->
+                    requested += name
+                    null
+                })
 
-        val result = service(
-            root = root,
-            serviceBinder = { ThrowingDumpBinder },
-            pipeFactory = { pipe },
-            startThread = { throw OutOfMemoryError("pthread_create failed") },
-        ).openDump(DumpTarget.BATTERYSTATS_PROTO)
+            val history = service.readBatteryHistory(1_000L, 0L, 4096)
 
-        assertFalse(result.available)
-        assertEquals(Reasons.IO, result.reason)
-        assertNull(result.fd)
-        assertTrue(pipe.readClosed)
-        assertTrue(pipe.writeClosed)
-    }
+            assertEquals(listOf("batterystats"), requested)
+            assertFalse(history.available)
+            assertEquals(Reasons.REMOTE, history.reason)
+        }
 
     @Test
-    fun `dump exception is contained and closes the write pipe end`() = withFixture { root ->
-        val pipe = FakeDumpPipe()
+    fun `unknown dump target is rejected for an authorized caller`() =
+        withFixture { root ->
+            val dump = service(root).openDump(99)
 
-        val result = service(
-            root = root,
-            serviceBinder = { ThrowingDumpBinder },
-            pipeFactory = { pipe },
-            startThread = Runnable::run,
-        ).openDump(DumpTarget.BATTERYSTATS_PROTO)
+            assertFalse(dump.available)
+            assertEquals(Reasons.TARGET, dump.reason)
+            assertNull(dump.fd)
+        }
 
-        assertTrue(result.available)
-        assertTrue(pipe.writeClosed)
-    }
+    @Test
+    fun `removed power and deviceidle dump targets are rejected before any binder lookup`() =
+        withFixture { root ->
+            val requested = mutableListOf<String>()
+            val service =
+                service(root, serviceBinder = { name ->
+                    requested += name
+                    null
+                })
+
+            for (target in listOf(2, 4)) {
+                val dump = service.openDump(target)
+                assertFalse(dump.available)
+                assertEquals(Reasons.TARGET, dump.reason)
+            }
+            assertEquals(emptyList<String>(), requested)
+        }
+
+    @Test
+    fun `thread start failure closes both pipe ends and reports IO`() =
+        withFixture { root ->
+            val pipe = FakeDumpPipe()
+
+            val result =
+                service(
+                    root = root,
+                    serviceBinder = { ThrowingDumpBinder },
+                    pipeFactory = { pipe },
+                    startThread = { throw OutOfMemoryError("pthread_create failed") },
+                ).openDump(DumpTarget.BATTERYSTATS_PROTO)
+
+            assertFalse(result.available)
+            assertEquals(Reasons.IO, result.reason)
+            assertNull(result.fd)
+            assertTrue(pipe.readClosed)
+            assertTrue(pipe.writeClosed)
+        }
+
+    @Test
+    fun `dump exception is contained and closes the write pipe end`() =
+        withFixture { root ->
+            val pipe = FakeDumpPipe()
+
+            val result =
+                service(
+                    root = root,
+                    serviceBinder = { ThrowingDumpBinder },
+                    pipeFactory = { pipe },
+                    startThread = Runnable::run,
+                ).openDump(DumpTarget.BATTERYSTATS_PROTO)
+
+            assertTrue(result.available)
+            assertTrue(pipe.writeClosed)
+        }
 
     private fun service(
         root: File,
@@ -209,35 +247,58 @@ class TelemetryUserServiceTest {
     }
 
     private object ThrowingDumpBinder : IBinder {
-        override fun dump(fd: FileDescriptor, args: Array<out String>?) {
-            throw RemoteException()
-        }
+        override fun dump(
+            fd: FileDescriptor,
+            args: Array<out String>?,
+        ): Unit = throw RemoteException()
 
-        override fun dumpAsync(fd: FileDescriptor, args: Array<out String>?) = Unit
+        override fun dumpAsync(
+            fd: FileDescriptor,
+            args: Array<out String>?,
+        ) = Unit
 
         override fun getInterfaceDescriptor(): String = ""
 
         override fun isBinderAlive(): Boolean = true
 
-        override fun linkToDeath(recipient: IBinder.DeathRecipient, flags: Int) = Unit
+        override fun linkToDeath(
+            recipient: IBinder.DeathRecipient,
+            flags: Int,
+        ) = Unit
 
         override fun pingBinder(): Boolean = true
 
         override fun queryLocalInterface(descriptor: String): IInterface? = null
 
-        override fun transact(code: Int, data: Parcel, reply: Parcel?, flags: Int): Boolean = false
+        override fun transact(
+            code: Int,
+            data: Parcel,
+            reply: Parcel?,
+            flags: Int,
+        ): Boolean = false
 
-        override fun unlinkToDeath(recipient: IBinder.DeathRecipient, flags: Int): Boolean = true
+        override fun unlinkToDeath(
+            recipient: IBinder.DeathRecipient,
+            flags: Int,
+        ): Boolean = true
     }
 
-    private fun battery(root: File, name: String, configure: FixtureDirectory.() -> Unit) {
+    private fun battery(
+        root: File,
+        name: String,
+        configure: FixtureDirectory.() -> Unit,
+    ) {
         FixtureDirectory(File(root, "sys/class/power_supply/$name")).apply {
             node("type", "Battery")
             configure()
         }
     }
 
-    private fun timeInState(root: File, policy: String, content: String) {
+    private fun timeInState(
+        root: File,
+        policy: String,
+        content: String,
+    ) {
         FixtureDirectory(File(root, "sys/devices/system/cpu/cpufreq/$policy/stats")).node("time_in_state", content)
     }
 
@@ -250,8 +311,13 @@ class TelemetryUserServiceTest {
         }
     }
 
-    private class FixtureDirectory(private val directory: File) {
-        fun node(name: String, content: String) {
+    private class FixtureDirectory(
+        private val directory: File,
+    ) {
+        fun node(
+            name: String,
+            content: String,
+        ) {
             directory.mkdirs()
             File(directory, name).writeText(content)
         }
