@@ -31,6 +31,7 @@ import com.akane.inspiration.designsystem.component.LegendItem
 import com.akane.inspiration.designsystem.component.LegendRow
 import com.akane.inspiration.designsystem.component.ScreenHeader
 import com.akane.inspiration.designsystem.component.TimeSliceBanner
+import com.akane.inspiration.designsystem.component.format.rememberSystemZoneId
 import com.akane.inspiration.designsystem.component.format.rememberTelemetryFormat
 import com.akane.inspiration.designsystem.theme.spacing
 import com.akane.inspiration.designsystem.theme.telemetryColors
@@ -52,7 +53,7 @@ internal fun SleepLabScreen(
     onIntent: (SleepLabIntent) -> Unit,
     explain: (EntryKind, String) -> Explanation?,
     modifier: Modifier = Modifier,
-    zone: ZoneId = ZoneId.systemDefault(),
+    zone: ZoneId = rememberSystemZoneId(),
 ) {
     val spacing = MaterialTheme.spacing
     PullToRefreshBox(
@@ -69,7 +70,10 @@ internal fun SleepLabScreen(
                 ScreenHeader(title = stringResource(R.string.sleeplab_title))
                 state.slice?.let { slice -> SliceBanner(slice = slice, onClear = { onIntent(SleepLabIntent.ClearSlice) }, zone = zone) }
                 when (val analysis = state.analysis) {
-                    AnalysisUi.Loading, AnalysisUi.Empty, AnalysisUi.Error -> StatusCard(analysis, onIntent)
+                    AnalysisUi.Loading, AnalysisUi.Empty, AnalysisUi.Error -> {
+                        StatusCard(analysis, onIntent)
+                    }
+
                     is AnalysisUi.Ready -> {
                         HypnogramCard(hypnogram = state.hypnogram, zone = zone, onIntent = onIntent)
                         if (wide) {
@@ -90,7 +94,12 @@ internal fun SleepLabScreen(
 
 /** The banner that tells the user every figure below describes a slice, with how well the data covers it. */
 @Composable
-private fun SliceBanner(slice: SliceUi, onClear: () -> Unit, zone: ZoneId, modifier: Modifier = Modifier) {
+private fun SliceBanner(
+    slice: SliceUi,
+    onClear: () -> Unit,
+    zone: ZoneId,
+    modifier: Modifier = Modifier,
+) {
     TimeSliceBanner(
         requested = slice.requested,
         covered = slice.covered,
@@ -102,26 +111,40 @@ private fun SliceBanner(slice: SliceUi, onClear: () -> Unit, zone: ZoneId, modif
 
 /** The designed loading, empty and error state that stands in for the screen while there is nothing to show. */
 @Composable
-private fun StatusCard(analysis: AnalysisUi, onIntent: (SleepLabIntent) -> Unit) {
+private fun StatusCard(
+    analysis: AnalysisUi,
+    onIntent: (SleepLabIntent) -> Unit,
+) {
     InspirationCard(modifier = Modifier.fillMaxWidth()) {
         when (analysis) {
-            AnalysisUi.Empty -> EmptyState(
-                title = stringResource(R.string.sleeplab_empty_title),
-                body = stringResource(R.string.sleeplab_empty_body),
-                action = EmptyStateAction(stringResource(R.string.sleeplab_empty_refresh)) { onIntent(SleepLabIntent.Refresh) },
-            )
-            AnalysisUi.Error -> EmptyState(
-                title = stringResource(R.string.sleeplab_error_title),
-                body = stringResource(R.string.sleeplab_error_body),
-                action = EmptyStateAction(stringResource(R.string.sleeplab_error_retry)) { onIntent(SleepLabIntent.Refresh) },
-            )
-            else -> LoadingRow(stringResource(R.string.sleeplab_loading))
+            AnalysisUi.Empty -> {
+                EmptyState(
+                    title = stringResource(R.string.sleeplab_empty_title),
+                    body = stringResource(R.string.sleeplab_empty_body),
+                    action = EmptyStateAction(stringResource(R.string.sleeplab_empty_refresh)) { onIntent(SleepLabIntent.Refresh) },
+                )
+            }
+
+            AnalysisUi.Error -> {
+                EmptyState(
+                    title = stringResource(R.string.sleeplab_error_title),
+                    body = stringResource(R.string.sleeplab_error_body),
+                    action = EmptyStateAction(stringResource(R.string.sleeplab_error_retry)) { onIntent(SleepLabIntent.Refresh) },
+                )
+            }
+
+            else -> {
+                LoadingRow(stringResource(R.string.sleeplab_loading))
+            }
         }
     }
 }
 
 @Composable
-internal fun LoadingRow(text: String, modifier: Modifier = Modifier) {
+internal fun LoadingRow(
+    text: String,
+    modifier: Modifier = Modifier,
+) {
     Row(
         modifier = modifier.padding(vertical = MaterialTheme.spacing.sm),
         verticalAlignment = Alignment.CenterVertically,
@@ -137,7 +160,11 @@ internal fun LoadingRow(text: String, modifier: Modifier = Modifier) {
 
 /** A card heading, in the shared card-title style, with the one line that says what the card shows. */
 @Composable
-internal fun CardHeader(title: String, subtitle: String?, modifier: Modifier = Modifier) {
+internal fun CardHeader(
+    title: String,
+    subtitle: String?,
+    modifier: Modifier = Modifier,
+) {
     Column(modifier = modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(MaterialTheme.spacing.xs)) {
         CardTitle(text = title)
         if (subtitle != null) {
@@ -148,7 +175,11 @@ internal fun CardHeader(title: String, subtitle: String?, modifier: Modifier = M
 
 /** The screen-off hypnogram with its wake-up legend, or the designed loading, failed and empty state. */
 @Composable
-private fun HypnogramCard(hypnogram: HypnogramUi, zone: ZoneId, onIntent: (SleepLabIntent) -> Unit) {
+private fun HypnogramCard(
+    hypnogram: HypnogramUi,
+    zone: ZoneId,
+    onIntent: (SleepLabIntent) -> Unit,
+) {
     val spacing = MaterialTheme.spacing
     InspirationCard(modifier = Modifier.fillMaxWidth()) {
         CardHeader(
@@ -156,38 +187,47 @@ private fun HypnogramCard(hypnogram: HypnogramUi, zone: ZoneId, onIntent: (Sleep
             subtitle = stringResource(R.string.sleeplab_hypnogram_subtitle),
         )
         when (hypnogram) {
-            HypnogramUi.Loading -> LoadingRow(stringResource(R.string.sleeplab_hypnogram_loading))
-            HypnogramUi.Failed -> EmptyState(
-                title = stringResource(R.string.sleeplab_hypnogram_failed_title),
-                body = stringResource(R.string.sleeplab_hypnogram_failed_body),
-                action = EmptyStateAction(stringResource(R.string.sleeplab_error_retry)) { onIntent(SleepLabIntent.Refresh) },
-            )
-            is HypnogramUi.Ready -> if (hypnogram.data.segments.isEmpty()) {
+            HypnogramUi.Loading -> {
+                LoadingRow(stringResource(R.string.sleeplab_hypnogram_loading))
+            }
+
+            HypnogramUi.Failed -> {
                 EmptyState(
-                    title = stringResource(R.string.sleeplab_hypnogram_empty_title),
-                    body = stringResource(R.string.sleeplab_hypnogram_empty_body),
-                    action = null,
+                    title = stringResource(R.string.sleeplab_hypnogram_failed_title),
+                    body = stringResource(R.string.sleeplab_hypnogram_failed_body),
+                    action = EmptyStateAction(stringResource(R.string.sleeplab_error_retry)) { onIntent(SleepLabIntent.Refresh) },
                 )
-            } else {
-                val format = rememberTelemetryFormat()
-                val wakeUps = hypnogram.data.wakePulsesMs.size
-                val hatched = remember(hypnogram.data) { hasHatchedGaps(hypnogram.data) }
-                SleepHypnogram(data = hypnogram.data, zone = zone, modifier = Modifier.padding(top = spacing.sm))
-                LegendRow(
-                    items = persistentListOf(
-                        LegendItem(
-                            color = MaterialTheme.telemetryColors.critical,
-                            label = pluralStringResource(R.plurals.sleeplab_wakeups, wakeUps, format.number(wakeUps.toDouble())),
-                        ),
-                    ),
-                    modifier = Modifier.padding(top = spacing.sm),
-                )
-                Text(
-                    text = stringResource(if (hatched) R.string.sleeplab_hypnogram_note else R.string.sleeplab_hypnogram_note_wakeups),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.padding(top = spacing.sm),
-                )
+            }
+
+            is HypnogramUi.Ready -> {
+                if (hypnogram.data.segments.isEmpty()) {
+                    EmptyState(
+                        title = stringResource(R.string.sleeplab_hypnogram_empty_title),
+                        body = stringResource(R.string.sleeplab_hypnogram_empty_body),
+                        action = null,
+                    )
+                } else {
+                    val format = rememberTelemetryFormat()
+                    val wakeUps = hypnogram.data.wakePulsesMs.size
+                    val hatched = remember(hypnogram.data) { hasHatchedGaps(hypnogram.data) }
+                    SleepHypnogram(data = hypnogram.data, zone = zone, modifier = Modifier.padding(top = spacing.sm))
+                    LegendRow(
+                        items =
+                            persistentListOf(
+                                LegendItem(
+                                    color = MaterialTheme.telemetryColors.critical,
+                                    label = pluralStringResource(R.plurals.sleeplab_wakeups, wakeUps, format.number(wakeUps.toDouble())),
+                                ),
+                            ),
+                        modifier = Modifier.padding(top = spacing.sm),
+                    )
+                    Text(
+                        text = stringResource(if (hatched) R.string.sleeplab_hypnogram_note else R.string.sleeplab_hypnogram_note_wakeups),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(top = spacing.sm),
+                    )
+                }
             }
         }
     }

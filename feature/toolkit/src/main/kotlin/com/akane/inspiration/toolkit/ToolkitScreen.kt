@@ -37,6 +37,7 @@ import com.akane.inspiration.designsystem.component.EmptyState
 import com.akane.inspiration.designsystem.component.EmptyStateAction
 import com.akane.inspiration.designsystem.component.ScreenHeader
 import com.akane.inspiration.designsystem.component.SemanticDot
+import com.akane.inspiration.designsystem.component.format.rememberSystemTimeZone
 import com.akane.inspiration.designsystem.theme.spacing
 import com.akane.inspiration.designsystem.theme.statusColors
 import com.akane.inspiration.designsystem.theme.telemetryColors
@@ -57,7 +58,7 @@ fun ToolkitScreen(
     loadIcon: AppIconLoader,
     modifier: Modifier = Modifier,
     snackbarHostState: SnackbarHostState? = null,
-    timeZone: TimeZone = TimeZone.getDefault(),
+    timeZone: TimeZone = rememberSystemTimeZone(),
 ) {
     CompositionLocalProvider(LocalObscuredTouchNotice provides rememberObscuredTouchNotice(snackbarHostState)) {
         Box(modifier = modifier.fillMaxSize()) {
@@ -86,7 +87,12 @@ fun ToolkitScreen(
 }
 
 @Composable
-private fun ToolkitBody(state: ToolkitState, onIntent: (ToolkitIntent) -> Unit, loadIcon: AppIconLoader, timeZone: TimeZone) {
+private fun ToolkitBody(
+    state: ToolkitState,
+    onIntent: (ToolkitIntent) -> Unit,
+    loadIcon: AppIconLoader,
+    timeZone: TimeZone,
+) {
     val spacing = MaterialTheme.spacing
     LazyVerticalGrid(
         columns = GridCells.Adaptive(minSize = spacing.xxl * ADAPTIVE_COLUMN_UNITS),
@@ -115,7 +121,12 @@ internal fun LazyGridScope.fullWidth(content: @Composable () -> Unit) {
     item(span = { GridItemSpan(maxLineSpan) }) { content() }
 }
 
-private fun LazyGridScope.ready(state: ToolkitState, onIntent: (ToolkitIntent) -> Unit, loadIcon: AppIconLoader, timeZone: TimeZone) {
+private fun LazyGridScope.ready(
+    state: ToolkitState,
+    onIntent: (ToolkitIntent) -> Unit,
+    loadIcon: AppIconLoader,
+    timeZone: TimeZone,
+) {
     state.resetReport?.let { report -> fullWidth { ResetReportCard(report, onIntent) } }
     item { DozeCard(section = state.doze, busy = state.busy, onIntent = onIntent) }
     item { DexoptCard(section = state.dexopt, onIntent = onIntent, timeZone = timeZone) }
@@ -180,16 +191,20 @@ private fun ErrorBlock(onIntent: (ToolkitIntent) -> Unit) {
 
 /** Shizuku is not Ready: the reason in words and, while the permission is undecided, the Grant action. */
 @Composable
-internal fun BlockedCard(reason: BlockedReason?, onIntent: (ToolkitIntent) -> Unit) {
+internal fun BlockedCard(
+    reason: BlockedReason?,
+    onIntent: (ToolkitIntent) -> Unit,
+) {
     if (reason == null) return
     EmptyState(
         title = stringResource(R.string.toolkit_blocked_title),
         body = stringResource(blockedBodyRes(reason)),
-        action = if (reason.canGrant) {
-            EmptyStateAction(stringResource(R.string.toolkit_blocked_grant)) { onIntent(ToolkitIntent.Grant) }
-        } else {
-            null
-        },
+        action =
+            if (reason.canGrant) {
+                EmptyStateAction(stringResource(R.string.toolkit_blocked_grant)) { onIntent(ToolkitIntent.Grant) }
+            } else {
+                null
+            },
         modifier = Modifier.padding(top = MaterialTheme.spacing.md),
     )
 }
@@ -198,7 +213,10 @@ internal fun BlockedCard(reason: BlockedReason?, onIntent: (ToolkitIntent) -> Un
 
 /** The title of the app sheet; the cards use the shared `CardTitle`. */
 @Composable
-internal fun SectionHeading(text: String, modifier: Modifier = Modifier) {
+internal fun SectionHeading(
+    text: String,
+    modifier: Modifier = Modifier,
+) {
     Text(
         text = text,
         style = MaterialTheme.typography.titleMedium,
@@ -208,13 +226,20 @@ internal fun SectionHeading(text: String, modifier: Modifier = Modifier) {
 }
 
 @Composable
-internal fun InfoText(text: String, modifier: Modifier = Modifier, small: Boolean = false) {
+internal fun InfoText(
+    text: String,
+    modifier: Modifier = Modifier,
+    small: Boolean = false,
+) {
     val style = if (small) MaterialTheme.typography.bodySmall else MaterialTheme.typography.bodyMedium
     Text(text = text, style = style, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = modifier)
 }
 
 @Composable
-internal fun LoadingLine(text: String, modifier: Modifier = Modifier) {
+internal fun LoadingLine(
+    text: String,
+    modifier: Modifier = Modifier,
+) {
     Column(modifier = modifier, verticalArrangement = Arrangement.spacedBy(MaterialTheme.spacing.xs)) {
         InfoText(text)
         LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
@@ -226,7 +251,11 @@ internal fun LoadingLine(text: String, modifier: Modifier = Modifier) {
  * font scale. [style] is the style of that text.
  */
 @Composable
-internal fun LineDot(color: Color, modifier: Modifier = Modifier, style: TextStyle = MaterialTheme.typography.bodyMedium) {
+internal fun LineDot(
+    color: Color,
+    modifier: Modifier = Modifier,
+    style: TextStyle = MaterialTheme.typography.bodyMedium,
+) {
     val lineHeight = with(LocalDensity.current) { style.lineHeight.toDp() }
     Box(modifier = modifier.height(lineHeight), contentAlignment = Alignment.Center) {
         SemanticDot(color = color)
@@ -235,7 +264,10 @@ internal fun LineDot(color: Color, modifier: Modifier = Modifier, style: TextSty
 
 /** The result line of the last action: green dot for done, red for refused. A polite live region for TalkBack. */
 @Composable
-internal fun NoticeLine(notice: ToolkitNotice, modifier: Modifier = Modifier) {
+internal fun NoticeLine(
+    notice: ToolkitNotice,
+    modifier: Modifier = Modifier,
+) {
     val color = if (notice is ToolkitNotice.Applied) MaterialTheme.statusColors.ok else MaterialTheme.telemetryColors.critical
     Row(
         modifier = modifier.fillMaxWidth().semantics { liveRegion = LiveRegionMode.Polite },
@@ -252,7 +284,11 @@ internal fun NoticeLine(notice: ToolkitNotice, modifier: Modifier = Modifier) {
 }
 
 @Composable
-internal fun RetryButton(label: String, onClick: () -> Unit, modifier: Modifier = Modifier) {
+internal fun RetryButton(
+    label: String,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
     FilledTonalButton(onClick = onClick, modifier = modifier) { Text(label) }
 }
 

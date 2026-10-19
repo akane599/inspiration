@@ -51,15 +51,16 @@ import com.akane.inspiration.designsystem.component.SegmentedToggle
 import com.akane.inspiration.designsystem.component.StackedBar
 import com.akane.inspiration.designsystem.component.TimeSliceBanner
 import com.akane.inspiration.designsystem.component.color
+import com.akane.inspiration.designsystem.component.format.rememberSystemTimeZone
 import com.akane.inspiration.designsystem.theme.numericTypography
 import com.akane.inspiration.designsystem.theme.spacing
 import com.akane.inspiration.diagnostics.dictionary.EntryKind
 import com.akane.inspiration.diagnostics.dictionary.Explanation
-import java.util.Locale
-import java.util.TimeZone
 import kotlinx.collections.immutable.ImmutableList
 import kotlinx.collections.immutable.persistentListOf
 import kotlinx.collections.immutable.toImmutableList
+import java.util.Locale
+import java.util.TimeZone
 
 /** Looks a name up in the diagnostic dictionary for the current locale. Null when nothing matches. */
 typealias Explainer = (EntryKind, String) -> Explanation?
@@ -83,7 +84,7 @@ fun XRayScreen(
     modifier: Modifier = Modifier,
     loadIcon: AppIconLoader = NoAppIcons,
     snackbarHostState: SnackbarHostState? = null,
-    timeZone: TimeZone = TimeZone.getDefault(),
+    timeZone: TimeZone = rememberSystemTimeZone(),
 ) {
     CompositionLocalProvider(LocalObscuredTouchNotice provides rememberObscuredTouchNotice(snackbarHostState)) {
         Box(modifier = modifier.fillMaxSize()) {
@@ -115,7 +116,12 @@ fun XRayScreen(
 }
 
 @Composable
-private fun XRayBody(state: XRayState, onIntent: (XRayIntent) -> Unit, loadIcon: AppIconLoader, timeZone: TimeZone) {
+private fun XRayBody(
+    state: XRayState,
+    onIntent: (XRayIntent) -> Unit,
+    loadIcon: AppIconLoader,
+    timeZone: TimeZone,
+) {
     val spacing = MaterialTheme.spacing
     LazyVerticalGrid(
         columns = GridCells.Adaptive(minSize = spacing.xxl * ADAPTIVE_COLUMN_UNITS),
@@ -140,7 +146,11 @@ private fun LazyGridScope.fullWidth(content: @Composable () -> Unit) {
     item(span = { GridItemSpan(maxLineSpan) }) { content() }
 }
 
-private fun LazyGridScope.ready(state: XRayState, onIntent: (XRayIntent) -> Unit, loadIcon: AppIconLoader) {
+private fun LazyGridScope.ready(
+    state: XRayState,
+    onIntent: (XRayIntent) -> Unit,
+    loadIcon: AppIconLoader,
+) {
     fullWidth {
         SegmentedToggle(
             options = rememberTabLabels(),
@@ -171,18 +181,24 @@ private fun Header() {
 }
 
 @Composable
-private fun SliceBanner(slice: SliceInfo, onIntent: (XRayIntent) -> Unit, timeZone: TimeZone) {
-    val covered = if (slice.coveredFromMs != null && slice.coveredToMs != null) {
-        TimeRange.of(slice.coveredFromMs, slice.coveredToMs)
-    } else {
-        null
-    }
+private fun SliceBanner(
+    slice: SliceInfo,
+    onIntent: (XRayIntent) -> Unit,
+    timeZone: TimeZone,
+) {
+    val covered =
+        if (slice.coveredFromMs != null && slice.coveredToMs != null) {
+            TimeRange.of(slice.coveredFromMs, slice.coveredToMs)
+        } else {
+            null
+        }
     TimeSliceBanner(
         requested = TimeRange.of(slice.requestedFromMs, slice.requestedToMs),
         covered = covered,
         onClear = { onIntent(XRayIntent.ClearSlice) },
         modifier = Modifier.fillMaxWidth(),
-        zone = timeZone.toZoneId(),
+        // toZoneId() builds a new instance each call, and the banner compares its zone by identity.
+        zone = remember(timeZone) { timeZone.toZoneId() },
     )
 }
 
@@ -242,7 +258,10 @@ private fun LazyGridScope.componentsTab(state: XRayState) {
 
 /** An explanation that stands in for a list: it sits in a card like every other state of the screen. */
 @Composable
-private fun UnavailableCard(title: String, body: String) {
+private fun UnavailableCard(
+    title: String,
+    body: String,
+) {
     InspirationCard(modifier = Modifier.fillMaxWidth()) {
         EmptyState(title = title, body = body, action = null)
     }
@@ -260,7 +279,10 @@ private fun ComponentsCard(components: ImmutableList<ComponentRow>) {
 }
 
 @Composable
-private fun ComponentItem(row: ComponentRow, total: Double) {
+private fun ComponentItem(
+    row: ComponentRow,
+    total: Double,
+) {
     val label = componentLabel(row.key)
     val mah = mahText(row.mah)
     // One dash for a missing figure, not two.
@@ -290,47 +312,65 @@ private fun ComponentItem(row: ComponentRow, total: Double) {
                 modifier = Modifier.widthIn(min = MaterialTheme.spacing.xxl),
             )
         }
-        val segments = remember(row, label, mah) {
-            persistentListOf(
-                BarSegment(
-                    value = (row.mah ?: 0.0).toFloat(),
-                    // The same colour per kind of consumer as the per-app bars and their legend.
-                    role = XRayMapper.groupOf(row.key).role(),
-                    label = label,
-                    valueText = mah,
-                ),
-            )
-        }
+        val segments =
+            remember(row, label, mah) {
+                persistentListOf(
+                    BarSegment(
+                        value = (row.mah ?: 0.0).toFloat(),
+                        // The same colour per kind of consumer as the per-app bars and their legend.
+                        role = XRayMapper.groupOf(row.key).role(),
+                        label = label,
+                        valueText = mah,
+                    ),
+                )
+            }
         StackedBar(segments = segments, total = total.toFloat())
     }
 }
 
 // ---- apps tab -------------------------------------------------------------------------------
 
-private fun LazyGridScope.appsTab(state: XRayState, onIntent: (XRayIntent) -> Unit, loadIcon: AppIconLoader) {
+private fun LazyGridScope.appsTab(
+    state: XRayState,
+    onIntent: (XRayIntent) -> Unit,
+    loadIcon: AppIconLoader,
+) {
     when {
-        !state.perUidAvailable -> fullWidth {
-            UnavailableCard(
-                title = stringResource(R.string.xray_apps_needs_snapshots_title),
-                body = stringResource(R.string.xray_apps_needs_snapshots_body),
-            )
+        !state.perUidAvailable -> {
+            fullWidth {
+                UnavailableCard(
+                    title = stringResource(R.string.xray_apps_needs_snapshots_title),
+                    body = stringResource(R.string.xray_apps_needs_snapshots_body),
+                )
+            }
         }
-        !state.breakdownAvailable -> fullWidth {
-            UnavailableCard(
-                title = stringResource(R.string.xray_apps_unavailable_title),
-                body = stringResource(R.string.xray_apps_unavailable_body),
-            )
+
+        !state.breakdownAvailable -> {
+            fullWidth {
+                UnavailableCard(
+                    title = stringResource(R.string.xray_apps_unavailable_title),
+                    body = stringResource(R.string.xray_apps_unavailable_body),
+                )
+            }
         }
-        state.apps.isEmpty() -> fullWidth {
-            UnavailableCard(
-                title = stringResource(R.string.xray_apps_none_title),
-                body = stringResource(R.string.xray_apps_none_body),
-            )
+
+        state.apps.isEmpty() -> {
+            fullWidth {
+                UnavailableCard(
+                    title = stringResource(R.string.xray_apps_none_title),
+                    body = stringResource(R.string.xray_apps_none_body),
+                )
+            }
         }
+
         else -> {
             fullWidth { CardTitle(stringResource(R.string.xray_apps_heading)) }
             fullWidth { GroupLegend() }
-            val top = state.apps.first().totalMah.toFloat()
+            val top =
+                state.apps
+                    .first()
+                    .totalMah
+                    .toFloat()
             items(items = state.apps, key = { it.uid }) { app ->
                 AppCard(app = app, top = top, loadIcon = loadIcon, onClick = { onIntent(XRayIntent.OpenApp(app.uid)) })
             }
@@ -340,14 +380,20 @@ private fun LazyGridScope.appsTab(state: XRayState, onIntent: (XRayIntent) -> Un
 
 @Composable
 private fun GroupLegend() {
-    val items = ComponentGroup.entries.map { group ->
-        LegendItem(color = group.role().color(), label = stringResource(groupLabelRes(group)))
-    }
+    val items =
+        ComponentGroup.entries.map { group ->
+            LegendItem(color = group.role().color(), label = stringResource(groupLabelRes(group)))
+        }
     LegendRow(items = items.toImmutableList())
 }
 
 @Composable
-private fun AppCard(app: AppRow, top: Float, loadIcon: AppIconLoader, onClick: () -> Unit) {
+private fun AppCard(
+    app: AppRow,
+    top: Float,
+    loadIcon: AppIconLoader,
+    onClick: () -> Unit,
+) {
     val name = displayName(app)
     val mah = mahText(app.totalMah)
     val share = shareText(app.sharePct)
@@ -387,20 +433,26 @@ internal fun GroupBar(
 ) {
     val labels = ComponentGroup.entries.associateWith { stringResource(groupLabelRes(it)) }
     val roles = ComponentGroup.entries.associateWith { it.role() }
-    val segments = slices.map { slice ->
-        BarSegment(
-            value = slice.mah.toFloat(),
-            role = roles.getValue(slice.group),
-            label = labels.getValue(slice.group),
-            valueText = mahText(slice.mah),
-        )
-    }
+    val segments =
+        slices.map { slice ->
+            BarSegment(
+                value = slice.mah.toFloat(),
+                role = roles.getValue(slice.group),
+                label = labels.getValue(slice.group),
+                valueText = mahText(slice.mah),
+            )
+        }
     StackedBar(segments = segments.toImmutableList(), total = total, modifier = modifier)
 }
 
 /** The icon is loaded when the row is composed (lazily), with the name's initial until then or when there is none. */
 @Composable
-internal fun AppIcon(app: AppRow, name: String, loadIcon: AppIconLoader, modifier: Modifier = Modifier) {
+internal fun AppIcon(
+    app: AppRow,
+    name: String,
+    loadIcon: AppIconLoader,
+    modifier: Modifier = Modifier,
+) {
     val shape = MaterialTheme.shapes.small
     val size = MaterialTheme.spacing.xl
     val icon by produceState<ImageBitmap?>(initialValue = null, app.packageName, loadIcon) {
@@ -430,12 +482,17 @@ internal fun AppIcon(app: AppRow, name: String, loadIcon: AppIconLoader, modifie
 }
 
 /** The tile's letter: the first letter or digit of [name], upper-cased by [locale]'s rules (Turkish `i` becomes `İ`). */
-internal fun monogram(name: String, locale: Locale): String =
-    name.firstOrNull { it.isLetterOrDigit() }?.uppercase(locale).orEmpty()
+internal fun monogram(
+    name: String,
+    locale: Locale,
+): String = name.firstOrNull { it.isLetterOrDigit() }?.uppercase(locale).orEmpty()
 
 /** The name of the thing a sheet or card is about: a heading in the strongest title style (see [CardTitle] for sections). */
 @Composable
-internal fun SectionHeading(text: String, modifier: Modifier = Modifier) {
+internal fun SectionHeading(
+    text: String,
+    modifier: Modifier = Modifier,
+) {
     Text(
         text = text,
         style = MaterialTheme.typography.titleMedium,
@@ -444,12 +501,13 @@ internal fun SectionHeading(text: String, modifier: Modifier = Modifier) {
     )
 }
 
-internal fun ComponentGroup.role(): BarRole = when (this) {
-    ComponentGroup.SCREEN -> BarRole.SCREEN_ON
-    ComponentGroup.CPU -> BarRole.AWAKE
-    ComponentGroup.RADIOS -> BarRole.RADIOS
-    ComponentGroup.OTHER -> BarRole.NEUTRAL
-}
+internal fun ComponentGroup.role(): BarRole =
+    when (this) {
+        ComponentGroup.SCREEN -> BarRole.SCREEN_ON
+        ComponentGroup.CPU -> BarRole.AWAKE
+        ComponentGroup.RADIOS -> BarRole.RADIOS
+        ComponentGroup.OTHER -> BarRole.NEUTRAL
+    }
 
 /** A grid column is at least this many `xxl` spacing units wide, so a phone gets one column and a tablet two. */
 private const val ADAPTIVE_COLUMN_UNITS = 7

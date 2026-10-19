@@ -45,6 +45,7 @@ import com.akane.inspiration.designsystem.chart.model.TimeRange
 import com.akane.inspiration.designsystem.chart.model.labelRes
 import com.akane.inspiration.designsystem.component.LegendItem
 import com.akane.inspiration.designsystem.component.LegendRow
+import com.akane.inspiration.designsystem.component.format.rememberSystemZoneId
 import com.akane.inspiration.designsystem.component.format.rememberTelemetryFormat
 import com.akane.inspiration.designsystem.theme.spacing
 import com.akane.inspiration.designsystem.theme.telemetryColors
@@ -72,7 +73,7 @@ fun SynchronizedScrubbingChart(
     onScrub: (Long?) -> Unit = {},
     cursorMs: () -> Long? = { null },
     minSelectionMs: Long = 5 * 60_000L,
-    zone: ZoneId = ZoneId.systemDefault(),
+    zone: ZoneId = rememberSystemZoneId(),
 ) {
     SynchronizedScrubbingChart(
         data = data,
@@ -98,7 +99,7 @@ internal fun SynchronizedScrubbingChart(
     onScrub: (Long?) -> Unit = {},
     cursorMs: () -> Long? = { null },
     minSelectionMs: Long = 5 * 60_000L,
-    zone: ZoneId = ZoneId.systemDefault(),
+    zone: ZoneId = rememberSystemZoneId(),
 ) {
     val interaction = remember { ScrubInteractionState(initialDim = if (selection != null) 1f else 0f) }
     val selectionState = rememberUpdatedState(selection)

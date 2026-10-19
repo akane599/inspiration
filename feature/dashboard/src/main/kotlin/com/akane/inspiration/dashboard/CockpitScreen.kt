@@ -13,6 +13,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
+import com.akane.inspiration.designsystem.component.format.rememberSystemZoneId
 import com.akane.inspiration.designsystem.theme.spacing
 import java.time.ZoneId
 
@@ -27,7 +28,7 @@ internal fun CockpitScreen(
     state: CockpitState,
     onIntent: (CockpitIntent) -> Unit,
     modifier: Modifier = Modifier,
-    zone: ZoneId = ZoneId.systemDefault(),
+    zone: ZoneId = rememberSystemZoneId(),
 ) {
     val spacing = MaterialTheme.spacing
     PullToRefreshBox(

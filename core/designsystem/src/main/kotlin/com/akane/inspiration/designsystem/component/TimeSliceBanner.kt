@@ -23,6 +23,7 @@ import androidx.compose.ui.unit.dp
 import com.akane.inspiration.designsystem.R
 import com.akane.inspiration.designsystem.chart.model.TimeRange
 import com.akane.inspiration.designsystem.component.format.NO_VALUE
+import com.akane.inspiration.designsystem.component.format.rememberSystemZoneId
 import com.akane.inspiration.designsystem.component.format.rememberTelemetryFormat
 import com.akane.inspiration.designsystem.theme.spacing
 import com.akane.inspiration.designsystem.theme.statusColors
@@ -41,16 +42,20 @@ private const val MIN_GAP_MS = 60_000L
  * The parts of [requested] that [covered] does not reach: before it starts and after it ends, ignoring gaps under a
  * minute. A null [covered] (no data at all) leaves the whole request as one gap.
  */
-internal fun sliceGaps(requested: TimeRange, covered: TimeRange?): List<TimeRange> {
+internal fun sliceGaps(
+    requested: TimeRange,
+    covered: TimeRange?,
+): List<TimeRange> {
     val disjoint = covered == null || covered.endMs <= requested.startMs || covered.startMs >= requested.endMs
-    val gaps = if (covered == null || disjoint) {
-        listOf(requested)
-    } else {
-        listOf(
-            TimeRange.of(requested.startMs, covered.startMs.coerceAtLeast(requested.startMs)),
-            TimeRange.of(covered.endMs.coerceAtMost(requested.endMs), requested.endMs),
-        )
-    }
+    val gaps =
+        if (covered == null || disjoint) {
+            listOf(requested)
+        } else {
+            listOf(
+                TimeRange.of(requested.startMs, covered.startMs.coerceAtLeast(requested.startMs)),
+                TimeRange.of(covered.endMs.coerceAtMost(requested.endMs), requested.endMs),
+            )
+        }
     return gaps.filter { it.durationMs >= MIN_GAP_MS }
 }
 
@@ -59,7 +64,10 @@ internal fun sliceGaps(requested: TimeRange, covered: TimeRange?): List<TimeRang
  * arasında 25 dk veri yok"). Screens with their own gap data use this instead of phrasing it themselves.
  */
 @Composable
-fun sliceGapText(gap: TimeRange, zone: ZoneId = ZoneId.systemDefault()): String {
+fun sliceGapText(
+    gap: TimeRange,
+    zone: ZoneId = rememberSystemZoneId(),
+): String {
     val format = rememberTelemetryFormat()
     return stringResource(
         R.string.slice_gap,
@@ -79,7 +87,7 @@ fun TimeSliceBanner(
     covered: TimeRange?,
     onClear: () -> Unit,
     modifier: Modifier = Modifier,
-    zone: ZoneId = ZoneId.systemDefault(),
+    zone: ZoneId = rememberSystemZoneId(),
 ) {
     val format = rememberTelemetryFormat()
     val gaps = sliceGaps(requested, covered).map { sliceGapText(it, zone) }
@@ -168,7 +176,11 @@ private fun TimeSliceBannerContent(
  * own column rather than under the label.
  */
 @Composable
-private fun RangeLine(label: String, labelWidth: Dp, value: String) {
+private fun RangeLine(
+    label: String,
+    labelWidth: Dp,
+    value: String,
+) {
     Row(horizontalArrangement = Arrangement.spacedBy(MaterialTheme.spacing.sm)) {
         Text(
             text = label,

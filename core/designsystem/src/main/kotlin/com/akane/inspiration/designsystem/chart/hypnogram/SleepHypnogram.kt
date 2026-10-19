@@ -57,6 +57,7 @@ import com.akane.inspiration.designsystem.chart.model.HypnogramData
 import com.akane.inspiration.designsystem.chart.model.HypnogramStage
 import com.akane.inspiration.designsystem.chart.model.TimeRange
 import com.akane.inspiration.designsystem.chart.model.labelRes
+import com.akane.inspiration.designsystem.component.format.rememberSystemZoneId
 import com.akane.inspiration.designsystem.component.format.rememberTelemetryFormat
 import com.akane.inspiration.designsystem.theme.telemetryColors
 import com.akane.inspiration.designsystem.theme.withTabularFigures
@@ -118,7 +119,7 @@ fun SleepHypnogram(
     modifier: Modifier = Modifier,
     selection: TimeRange? = null,
     cursorMs: () -> Long? = { null },
-    zone: ZoneId = ZoneId.systemDefault(),
+    zone: ZoneId = rememberSystemZoneId(),
 ) {
     val density = LocalDensity.current
     val textDensity = remember(density) { Density(density.density, minOf(density.fontScale, MAX_CHART_FONT_SCALE)) }

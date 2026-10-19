@@ -19,6 +19,7 @@ import com.akane.inspiration.designsystem.component.EmptyState
 import com.akane.inspiration.designsystem.component.EmptyStateAction
 import com.akane.inspiration.designsystem.component.InspirationCard
 import com.akane.inspiration.designsystem.component.ScreenHeader
+import com.akane.inspiration.designsystem.component.format.rememberSystemZoneId
 import com.akane.inspiration.designsystem.theme.spacing
 import java.time.ZoneId
 
@@ -33,7 +34,7 @@ internal fun HealthScreen(
     state: HealthState,
     onIntent: (HealthIntent) -> Unit,
     modifier: Modifier = Modifier,
-    zone: ZoneId = ZoneId.systemDefault(),
+    zone: ZoneId = rememberSystemZoneId(),
 ) {
     val spacing = MaterialTheme.spacing
     PullToRefreshBox(
@@ -49,35 +50,46 @@ internal fun HealthScreen(
             ) {
                 ScreenHeader(title = stringResource(R.string.health_screen_title))
                 when (state.phase) {
-                    HealthPhase.Loading -> LoadingCard()
-                    HealthPhase.Empty -> MessageCard(
-                        titleRes = R.string.health_empty_title,
-                        bodyRes = R.string.health_empty_body,
-                        actionRes = R.string.health_empty_refresh,
-                        onAction = { onIntent(HealthIntent.Refresh) },
-                    )
-                    HealthPhase.Error -> MessageCard(
-                        titleRes = R.string.health_error_title,
-                        bodyRes = R.string.health_error_body,
-                        actionRes = R.string.health_error_retry,
-                        onAction = { onIntent(HealthIntent.Refresh) },
-                    )
-                    HealthPhase.Ready -> if (wide) {
-                        Row(horizontalArrangement = Arrangement.spacedBy(spacing.md)) {
-                            Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(spacing.md)) {
-                                CurveCard(curve = state.curve, charging = state.charging)
-                                AnalysisCard(analysis = state.analysis)
+                    HealthPhase.Loading -> {
+                        LoadingCard()
+                    }
+
+                    HealthPhase.Empty -> {
+                        MessageCard(
+                            titleRes = R.string.health_empty_title,
+                            bodyRes = R.string.health_empty_body,
+                            actionRes = R.string.health_empty_refresh,
+                            onAction = { onIntent(HealthIntent.Refresh) },
+                        )
+                    }
+
+                    HealthPhase.Error -> {
+                        MessageCard(
+                            titleRes = R.string.health_error_title,
+                            bodyRes = R.string.health_error_body,
+                            actionRes = R.string.health_error_retry,
+                            onAction = { onIntent(HealthIntent.Refresh) },
+                        )
+                    }
+
+                    HealthPhase.Ready -> {
+                        if (wide) {
+                            Row(horizontalArrangement = Arrangement.spacedBy(spacing.md)) {
+                                Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(spacing.md)) {
+                                    CurveCard(curve = state.curve, charging = state.charging)
+                                    AnalysisCard(analysis = state.analysis)
+                                }
+                                Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(spacing.md)) {
+                                    state.card?.let { HealthCard(card = it) }
+                                    WearCard(wear = state.wear, zone = zone)
+                                }
                             }
-                            Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(spacing.md)) {
-                                state.card?.let { HealthCard(card = it) }
-                                WearCard(wear = state.wear, zone = zone)
-                            }
+                        } else {
+                            CurveCard(curve = state.curve, charging = state.charging)
+                            state.card?.let { HealthCard(card = it) }
+                            WearCard(wear = state.wear, zone = zone)
+                            AnalysisCard(analysis = state.analysis)
                         }
-                    } else {
-                        CurveCard(curve = state.curve, charging = state.charging)
-                        state.card?.let { HealthCard(card = it) }
-                        WearCard(wear = state.wear, zone = zone)
-                        AnalysisCard(analysis = state.analysis)
                     }
                 }
             }
