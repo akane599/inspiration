@@ -46,9 +46,10 @@ internal fun hypnogramData(timeline: Timeline): HypnogramData {
     if (segments.isEmpty()) return HypnogramData.of(TimeRange.of(timeline.from, timeline.to), emptyList(), emptyList())
 
     val window = TimeRange.of(segments.minOf { it.startMs }, segments.maxOf { it.endMs })
-    val pulses = timeline.wakePulsesMs.filter { t ->
-        t >= window.startMs && t <= window.endMs && screenOff.any { t >= it.startMs && t <= it.endMs }
-    }
+    val pulses =
+        timeline.wakePulsesMs.filter { t ->
+            t >= window.startMs && t <= window.endMs && screenOff.any { t >= it.startMs && t <= it.endMs }
+        }
     return HypnogramData.of(window, segments, pulses)
 }
 
@@ -88,13 +89,14 @@ private fun screenOffSpans(timeline: Timeline): List<TimeRange> {
 }
 
 /** "Deep idle" is Doze, never the CPU-suspend "deep sleep" metric. */
-private fun SegmentKind.stage(): HypnogramStage? = when (this) {
-    SegmentKind.DEEP_IDLE -> HypnogramStage.DEEP_IDLE
-    SegmentKind.LIGHT_IDLE -> HypnogramStage.LIGHT_IDLE
-    SegmentKind.MAINTENANCE -> HypnogramStage.MAINTENANCE
-    SegmentKind.AWAKE -> HypnogramStage.AWAKE
-    SegmentKind.SCREEN_ON, SegmentKind.CHARGING -> null
-}
+private fun SegmentKind.stage(): HypnogramStage? =
+    when (this) {
+        SegmentKind.DEEP_IDLE -> HypnogramStage.DEEP_IDLE
+        SegmentKind.LIGHT_IDLE -> HypnogramStage.LIGHT_IDLE
+        SegmentKind.MAINTENANCE -> HypnogramStage.MAINTENANCE
+        SegmentKind.AWAKE -> HypnogramStage.AWAKE
+        SegmentKind.SCREEN_ON, SegmentKind.CHARGING -> null
+    }
 
 // --- Time slice ---
 
@@ -102,7 +104,10 @@ private fun SegmentKind.stage(): HypnogramStage? = when (this) {
  * The banner data for a committed brush, or null outside time-slice mode. The covered range comes from the
  * analysis only when it answers this exact slice; while a new slice is still loading it stays unknown.
  */
-internal fun sliceUi(kind: ReferenceKind, analysis: AnalysisState): SliceUi? {
+internal fun sliceUi(
+    kind: ReferenceKind,
+    analysis: AnalysisState,
+): SliceUi? {
     if (kind !is ReferenceKind.TimeSlice) return null
     val resolved = (analysis.forSelection(kind) as? AnalysisState.Ready)?.analysis?.resolved
     return SliceUi(
@@ -113,37 +118,46 @@ internal fun sliceUi(kind: ReferenceKind, analysis: AnalysisState): SliceUi? {
 
 // --- Tab lists ---
 
-private fun <T> ranked(items: List<T>, comparator: Comparator<T>): ListUi.Rows<T> {
+private fun <T> ranked(
+    items: List<T>,
+    comparator: Comparator<T>,
+): ListUi.Rows<T> {
     val sorted = items.sortedWith(comparator)
     return ListUi.Rows(sorted.take(MAX_ROWS).toImmutableList(), hidden = (sorted.size - MAX_ROWS).coerceAtLeast(0))
 }
 
-private fun SnapshotDiff.perUidState(perUidAvailable: Boolean): ListUi<Nothing>? = when {
-    !perUidAvailable -> ListUi.NeedsFullSnapshots
-    !validity.batteryStats -> ListUi.Unavailable
-    else -> null
-}
+private fun SnapshotDiff.perUidState(perUidAvailable: Boolean): ListUi<Nothing>? =
+    when {
+        !perUidAvailable -> ListUi.NeedsFullSnapshots
+        !validity.batteryStats -> ListUi.Unavailable
+        else -> null
+    }
 
 /**
  * Partial wakelocks per app, longest first. A uid whose deltas went negative (counters reset under it) is left
  * out rather than shown as a wrong number. [labels] maps package names to app labels; a package missing from it
  * is shown by its package name.
  */
-internal fun appWakelockRows(diff: SnapshotDiff, perUidAvailable: Boolean, labels: Map<String, String>): ListUi<AppWakelockRow> {
+internal fun appWakelockRows(
+    diff: SnapshotDiff,
+    perUidAvailable: Boolean,
+    labels: Map<String, String>,
+): ListUi<AppWakelockRow> {
     diff.perUidState(perUidAvailable)?.let { return it }
     if (!diff.validity.dumpCounters) return ListUi.Unavailable
-    val rows = diff.uids.filter { it.valid && !it.packageChanged }.flatMap { uid ->
-        uid.partialWakelocks.filter { it.durationMs > 0 || it.count > 0 }.map {
-            AppWakelockRow(
-                uid = uid.uid,
-                packageName = uid.packageName,
-                appLabel = uid.packageName?.let { pkg -> labels[pkg] ?: pkg },
-                name = it.name,
-                durationMs = it.durationMs,
-                count = it.count,
-            )
+    val rows =
+        diff.uids.filter { it.valid && !it.packageChanged }.flatMap { uid ->
+            uid.partialWakelocks.filter { it.durationMs > 0 || it.count > 0 }.map {
+                AppWakelockRow(
+                    uid = uid.uid,
+                    packageName = uid.packageName,
+                    appLabel = uid.packageName?.let { pkg -> labels[pkg] ?: pkg },
+                    name = it.name,
+                    durationMs = it.durationMs,
+                    count = it.count,
+                )
+            }
         }
-    }
     return ranked(
         rows,
         compareByDescending<AppWakelockRow> { it.durationMs }
@@ -159,9 +173,10 @@ internal fun appWakelockRows(diff: SnapshotDiff, perUidAvailable: Boolean, label
  */
 internal fun kernelWakelockRows(diff: SnapshotDiff): ListUi<KernelWakelockRow> {
     if (!diff.validity.kernelWakelocks) return ListUi.Unavailable
-    val rows = diff.kernelWakelocks
-        .filter { it.name !in diff.validity.invalidKernelWakelocks && (it.durationMs > 0 || it.count > 0) }
-        .map { KernelWakelockRow(it.name, it.durationMs, it.count) }
+    val rows =
+        diff.kernelWakelocks
+            .filter { it.name !in diff.validity.invalidKernelWakelocks && (it.durationMs > 0 || it.count > 0) }
+            .map { KernelWakelockRow(it.name, it.durationMs, it.count) }
     return ranked(rows, compareByDescending<KernelWakelockRow> { it.durationMs }.thenByDescending { it.count }.thenBy { it.name })
 }
 
@@ -169,23 +184,28 @@ internal fun kernelWakelockRows(diff: SnapshotDiff): ListUi<KernelWakelockRow> {
  * Wake-up alarms per app, most wake-ups first, each with its busiest tags. The counts come from batterystats;
  * only when a uid has none is the alarm dump's own counter used instead. The two overlap, so they are never added.
  */
-internal fun alarmRows(diff: SnapshotDiff, perUidAvailable: Boolean, labels: Map<String, String>): ListUi<AlarmRow> {
+internal fun alarmRows(
+    diff: SnapshotDiff,
+    perUidAvailable: Boolean,
+    labels: Map<String, String>,
+): ListUi<AlarmRow> {
     diff.perUidState(perUidAvailable)?.let { return it }
     if (!diff.validity.dumpCounters && !diff.validity.alarmDumpCounters) return ListUi.Unavailable
-    val rows = diff.uids.filter { it.valid && !it.packageChanged }.mapNotNull { uid ->
-        val tags = uid.wakeupAlarms.positive().ifEmpty { uid.alarmDumpWakeups.positive() }
-        if (tags.isEmpty()) {
-            null
-        } else {
-            AlarmRow(
-                uid = uid.uid,
-                packageName = uid.packageName,
-                appLabel = uid.packageName?.let { pkg -> labels[pkg] ?: pkg },
-                wakeups = tags.sumOf { it.count },
-                tags = tags.map { AlarmTagRow(it.tag, it.count) }.toImmutableList(),
-            )
+    val rows =
+        diff.uids.filter { it.valid && !it.packageChanged }.mapNotNull { uid ->
+            val tags = uid.wakeupAlarms.positive().ifEmpty { uid.alarmDumpWakeups.positive() }
+            if (tags.isEmpty()) {
+                null
+            } else {
+                AlarmRow(
+                    uid = uid.uid,
+                    packageName = uid.packageName,
+                    appLabel = uid.packageName?.let { pkg -> labels[pkg] ?: pkg },
+                    wakeups = tags.sumOf { it.count },
+                    tags = tags.map { AlarmTagRow(it.tag, it.count) }.toImmutableList(),
+                )
+            }
         }
-    }
     return ranked(rows, compareByDescending<AlarmRow> { it.wakeups }.thenBy { it.packageName.orEmpty() }.thenBy { it.uid })
 }
 
@@ -213,48 +233,59 @@ internal fun <T> ListUi<T>.rowsOrEmpty(): List<T> = if (this is ListUi.Rows<T>) 
  */
 internal fun cpuUi(diff: SnapshotDiff): CpuUi {
     if (!diff.validity.cpuFreq) return CpuUi.Unavailable
-    val byPolicy = diff.cpuFreqDelta.filter { it.timeMs > 0 }.groupBy { it.policy }.toSortedMap()
+    val byPolicy =
+        diff.cpuFreqDelta
+            .filter { it.timeMs > 0 }
+            .groupBy { it.policy }
+            .toSortedMap()
     if (byPolicy.isEmpty()) return CpuUi.NoData
     val roles = clusterRoles(byPolicy.size)
-    val clusters = byPolicy.entries.mapIndexed { index, (policy, deltas) ->
-        val byFreq = deltas.groupBy { it.freqKhz }.mapValues { (_, same) -> same.sumOf { it.timeMs } }
-        val total = byFreq.values.sum()
-        val shown = byFreq.entries.sortedByDescending { it.value }.take(MAX_FREQ_ROWS).sortedBy { it.key }
-        ClusterUi(
-            policy = policy,
-            role = roles[index],
-            totalMs = total,
-            rows = shown.map { FreqRow(it.key, it.value, it.value.toFloat() / total) }.toImmutableList(),
-            otherShare = (total - shown.sumOf { it.value }).toFloat() / total,
-        )
-    }
+    val clusters =
+        byPolicy.entries.mapIndexed { index, (policy, deltas) ->
+            val byFreq = deltas.groupBy { it.freqKhz }.mapValues { (_, same) -> same.sumOf { it.timeMs } }
+            val total = byFreq.values.sum()
+            val shown =
+                byFreq.entries
+                    .sortedByDescending { it.value }
+                    .take(MAX_FREQ_ROWS)
+                    .sortedBy { it.key }
+            ClusterUi(
+                policy = policy,
+                role = roles[index],
+                totalMs = total,
+                rows = shown.map { FreqRow(it.key, it.value, it.value.toFloat() / total) }.toImmutableList(),
+                otherShare = (total - shown.sumOf { it.value }).toFloat() / total,
+            )
+        }
     return CpuUi.Ready(clusters.toImmutableList())
 }
 
-private fun clusterRoles(count: Int): List<ClusterRole> = when (count) {
-    2 -> listOf(ClusterRole.Little, ClusterRole.Big)
-    3 -> listOf(ClusterRole.Little, ClusterRole.Mid, ClusterRole.Prime)
-    else -> List(count) { ClusterRole.Generic }
-}
+private fun clusterRoles(count: Int): List<ClusterRole> =
+    when (count) {
+        2 -> listOf(ClusterRole.Little, ClusterRole.Big)
+        3 -> listOf(ClusterRole.Little, ClusterRole.Mid, ClusterRole.Prime)
+        else -> List(count) { ClusterRole.Generic }
+    }
 
 // --- Whole analysis ---
 
 /**
- * The CPU-suspend share of the interval; both fields stay null when the interval cannot measure it. The share is
- * the screen-off time the device spent suspended (realtime minus uptime), so it is only a measurement of one boot:
- * when the device restarted inside the interval (the kernel counters cannot be compared) the clocks restart with
- * it and the figure would mix two sessions, so it is withheld like the frequency residency beside it. Under 15
- * minutes of screen-off the share is noise and is withheld too, as in the Battery Story and the Cockpit.
+ * The CPU-suspend share of screen-off time; both fields stay null when the interval cannot measure it. Accumulated
+ * BatteryStats timers can remain comparable across boots in the same stats epoch, unlike raw kernel clocks and
+ * CPU-frequency residency. SnapshotDiffer gates the raw-clock fallback itself. Under 15 minutes of screen-off the
+ * share is noise and is withheld, as in the Battery Story and the Cockpit.
  */
 internal fun deepSleepUi(diff: SnapshotDiff): DeepSleepUi {
-    if (!diff.validity.kernelCounters) return DeepSleepUi(null, null)
     val sleep = diff.sleep
     val ratio = sleep?.reportableDeepSleepRatio()
     return DeepSleepUi(ratio, sleep?.deepSleepMs?.takeIf { ratio != null })
 }
 
 /** Everything the three tabs and the CPU card show for one analysed interval. */
-internal fun sleepLabAnalysis(analysis: IntervalAnalysis, labels: Map<String, String>): AnalysisUi.Ready {
+internal fun sleepLabAnalysis(
+    analysis: IntervalAnalysis,
+    labels: Map<String, String>,
+): AnalysisUi.Ready {
     val diff = analysis.diff
     val perUid = analysis.resolved.perUidAvailable
     return AnalysisUi.Ready(
