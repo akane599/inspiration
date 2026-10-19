@@ -20,6 +20,7 @@ import com.akane.inspiration.telemetry.app.AppLabels
 import com.akane.inspiration.telemetry.app.RefreshResult
 import com.akane.inspiration.telemetry.capacity.ChargeSegment
 import com.akane.inspiration.telemetry.capacity.SegmentVerdict
+import com.akane.inspiration.telemetry.diff.ReferenceKind
 import com.akane.inspiration.telemetry.diff.ResolvedReference
 import com.akane.inspiration.telemetry.dump.UidAlarm
 import com.akane.inspiration.telemetry.dump.UidWakelock
@@ -135,7 +136,12 @@ internal fun resolvedOf(
     perUidAvailable = perUidAvailable,
 )
 
-internal fun readyOf(diff: SnapshotDiff, resolved: ResolvedReference = resolvedOf()): AnalysisState.Ready =
+/** An analysis of [diff] computed for [kind]; the default is the default selection. */
+internal fun readyOf(
+    diff: SnapshotDiff,
+    resolved: ResolvedReference = resolvedOf(),
+    kind: ReferenceKind = ReferenceKind.SinceUnplugged,
+): AnalysisState.Ready =
     AnalysisState.Ready(
         IntervalAnalysis(
             resolved = resolved,
@@ -144,6 +150,7 @@ internal fun readyOf(diff: SnapshotDiff, resolved: ResolvedReference = resolvedO
             report = DiagnosticReport(emptyList(), emptyMap(), 0),
             story = BatteryStory(emptyList()),
         ),
+        kind,
     )
 
 /** Two apps and a handful of components: enough for ranking, shares and the detail sheet. */

@@ -6,6 +6,7 @@ import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
 import com.akane.inspiration.diagnostics.analysis.AnalysisState
+import com.akane.inspiration.diagnostics.analysis.forSelection
 import com.akane.inspiration.ipc.toolkit.AppOp
 import com.akane.inspiration.ipc.toolkit.AppOpMode
 import com.akane.inspiration.ipc.toolkit.StandbyBucket
@@ -141,23 +142,17 @@ class XRayViewModel(private val deps: XRayDependencies) : ViewModel() {
     // ---- analysis --------------------------------------------------------------------------
 
     private suspend fun show(analysis: AnalysisState, selected: ReferenceKind) {
-        when (analysis) {
+        // Until the session has recomputed after a selection change, its result belongs to the old selection.
+        when (val current = analysis.forSelection(selected)) {
             AnalysisState.Loading -> _state.update { it.copy(status = XRayStatus.LOADING, slice = XRayMapper.slice(selected, null)) }
             AnalysisState.Empty -> _state.update { it.copy(status = XRayStatus.EMPTY, slice = XRayMapper.slice(selected, null)) }
             is AnalysisState.Failed -> _state.update { it.copy(status = XRayStatus.FAILED, slice = XRayMapper.slice(selected, null)) }
-            is AnalysisState.Ready -> showReady(analysis, selected)
+            is AnalysisState.Ready -> showReady(current, selected)
         }
     }
 
     private suspend fun showReady(ready: AnalysisState.Ready, selected: ReferenceKind) {
         val resolved = ready.analysis.resolved
-        // The session recomputes after a selection change; until it has, its result belongs to the old selection.
-        if (selected is ReferenceKind.TimeSlice &&
-            (resolved.boundaryFromWallMs != selected.fromWallMs || resolved.boundaryToWallMs != selected.toWallMs)
-        ) {
-            _state.update { it.copy(status = XRayStatus.LOADING, slice = XRayMapper.slice(selected, null)) }
-            return
-        }
         val diff = ready.analysis.diff
         val components = XRayMapper.components(diff).toImmutableList()
         val apps = withIdentities(XRayMapper.apps(diff, resolved.perUidAvailable)).toImmutableList()

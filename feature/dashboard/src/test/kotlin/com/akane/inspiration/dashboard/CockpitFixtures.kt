@@ -10,6 +10,7 @@ import com.akane.inspiration.diagnostics.story.StorySentence
 import com.akane.inspiration.ipc.ShizukuState
 import com.akane.inspiration.telemetry.app.RefreshResult
 import com.akane.inspiration.telemetry.common.Clocks
+import com.akane.inspiration.telemetry.diff.ReferenceKind
 import com.akane.inspiration.telemetry.diff.ResolvedReference
 import com.akane.inspiration.telemetry.dump.SystemTimers
 import com.akane.inspiration.telemetry.interval.IntervalMetrics
@@ -217,3 +218,9 @@ internal fun intervalAnalysis(
     diff: SnapshotDiff = snapshotDiff(),
     metrics: IntervalMetrics = intervalMetrics(),
 ) = IntervalAnalysis(resolved, diff, metrics, DiagnosticReport(emptyList(), emptyMap(), 0), TestStory)
+
+/** [analysis] as the session publishes it for [kind]; the default is the default selection. */
+internal fun ready(
+    analysis: IntervalAnalysis = intervalAnalysis(),
+    kind: ReferenceKind = ReferenceKind.SinceUnplugged,
+) = AnalysisState.Ready(analysis, kind)

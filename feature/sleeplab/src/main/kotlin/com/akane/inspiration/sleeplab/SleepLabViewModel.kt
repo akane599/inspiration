@@ -7,6 +7,7 @@ import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
 import com.akane.inspiration.diagnostics.analysis.AnalysisState
 import com.akane.inspiration.diagnostics.analysis.IntervalAnalysis
+import com.akane.inspiration.diagnostics.analysis.forSelection
 import com.akane.inspiration.telemetry.app.RefreshResult
 import com.akane.inspiration.telemetry.app.attempt
 import com.akane.inspiration.telemetry.app.packageForUid
@@ -51,12 +52,14 @@ class SleepLabViewModel(private val deps: SleepLabDependencies) : ViewModel() {
             }.collectLatest { (analysis, kind, isVisible) ->
                 // collectLatest cancels the previous shaping (label lookups, the timeline read) on a new value.
                 if (isVisible) {
-                    val slice = sliceUi(kind, analysis)
-                    when (analysis) {
+                    // Until the session has recomputed after a selection change, its result belongs to the old one.
+                    val current = analysis.forSelection(kind)
+                    val slice = sliceUi(kind, current)
+                    when (current) {
                         AnalysisState.Loading -> showNotReady(AnalysisUi.Loading, slice)
                         AnalysisState.Empty -> showNotReady(AnalysisUi.Empty, slice)
                         is AnalysisState.Failed -> showNotReady(AnalysisUi.Error, slice)
-                        is AnalysisState.Ready -> showReady(analysis.analysis, slice)
+                        is AnalysisState.Ready -> showReady(current.analysis, slice)
                     }
                 }
             }

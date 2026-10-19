@@ -8,6 +8,7 @@ import com.akane.inspiration.diagnostics.analysis.AnalysisState
 import com.akane.inspiration.diagnostics.analysis.IntervalAnalysis
 import com.akane.inspiration.diagnostics.analysis.SegmentKind
 import com.akane.inspiration.diagnostics.analysis.Timeline
+import com.akane.inspiration.diagnostics.analysis.forSelection
 import com.akane.inspiration.diagnostics.story.reportableDeepSleepRatio
 import com.akane.inspiration.telemetry.diff.ReferenceKind
 import com.akane.inspiration.telemetry.dump.UidAlarm
@@ -103,8 +104,7 @@ private fun SegmentKind.stage(): HypnogramStage? = when (this) {
  */
 internal fun sliceUi(kind: ReferenceKind, analysis: AnalysisState): SliceUi? {
     if (kind !is ReferenceKind.TimeSlice) return null
-    val resolved = (analysis as? AnalysisState.Ready)?.analysis?.resolved
-        ?.takeIf { it.boundaryFromWallMs == kind.fromWallMs && it.boundaryToWallMs == kind.toWallMs }
+    val resolved = (analysis.forSelection(kind) as? AnalysisState.Ready)?.analysis?.resolved
     return SliceUi(
         requested = TimeRange.of(kind.fromWallMs, kind.toWallMs),
         covered = resolved?.let { TimeRange.of(it.coveredFromWallMs, it.coveredToWallMs) },

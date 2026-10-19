@@ -74,7 +74,7 @@ class SleepLabViewModelTest {
 
     @Test
     fun `nothing is shaped and nothing is read before the screen is visible`() = runTest(dispatcher) {
-        deps.analysis.value = AnalysisState.Ready(withWakelocks)
+        deps.analysis.value = ready(withWakelocks)
         val vm = viewModel()
         runCurrent()
 
@@ -88,7 +88,7 @@ class SleepLabViewModelTest {
     fun `rows without a reported package resolve the owner from the uid's packages`() = runTest(dispatcher) {
         deps.appLabels.uidPackages[10_003] = listOf("com.news")
         deps.appLabels.labels["com.news"] = "News"
-        deps.analysis.value = AnalysisState.Ready(
+        deps.analysis.value = ready(
             intervalAnalysis(
                 diff = snapshotDiff(
                     uids = listOf(
@@ -123,7 +123,7 @@ class SleepLabViewModelTest {
     fun `a uid reported under a process name is shown and labelled as its package`() = runTest(dispatcher) {
         deps.appLabels.uidPackages[10_003] = listOf("com.news")
         deps.appLabels.labels["com.news"] = "News"
-        deps.analysis.value = AnalysisState.Ready(newsAnalysis(reported = "com.news:sync"))
+        deps.analysis.value = ready(newsAnalysis(reported = "com.news:sync"))
         val vm = viewModel()
 
         visible(vm)
@@ -138,7 +138,7 @@ class SleepLabViewModelTest {
 
     @Test
     fun `a uid no installed package runs as is shown by its uid, whatever was reported`() = runTest(dispatcher) {
-        deps.analysis.value = AnalysisState.Ready(newsAnalysis(reported = "com.news:sync"))
+        deps.analysis.value = ready(newsAnalysis(reported = "com.news:sync"))
         val vm = viewModel()
 
         visible(vm)
@@ -152,7 +152,7 @@ class SleepLabViewModelTest {
     @Test
     fun `a uid lookup that failed is asked again on the next analysis instead of being remembered`() = runTest(dispatcher) {
         deps.appLabels.uidFailure = IllegalStateException("package manager died")
-        deps.analysis.value = AnalysisState.Ready(newsAnalysis(reported = null))
+        deps.analysis.value = ready(newsAnalysis(reported = null))
         val vm = viewModel()
         visible(vm)
         val first = ((vm.state.value.analysis as AnalysisUi.Ready).appWakelocks as ListUi.Rows).rows.single()
@@ -162,7 +162,7 @@ class SleepLabViewModelTest {
         deps.appLabels.uidPackages[10_003] = listOf("com.news")
         deps.appLabels.labels["com.news"] = "News"
         // A refresh produced a newer analysis (a different object; an equal one would be conflated away).
-        deps.analysis.value = AnalysisState.Ready(newsAnalysis(reported = null, coveredTo = NOW_MS - MIN_MS))
+        deps.analysis.value = ready(newsAnalysis(reported = null, coveredTo = NOW_MS - MIN_MS))
         runCurrent()
 
         val second = ((vm.state.value.analysis as AnalysisUi.Ready).appWakelocks as ListUi.Rows).rows.single()
@@ -173,7 +173,7 @@ class SleepLabViewModelTest {
     @Test
     fun `visible refreshes once and shapes the ready analysis with owner labels`() = runTest(dispatcher) {
         deps.appLabels.labels["com.chat"] = "Chat"
-        deps.analysis.value = AnalysisState.Ready(withWakelocks)
+        deps.analysis.value = ready(withWakelocks)
         val vm = viewModel()
 
         visible(vm)
@@ -191,7 +191,7 @@ class SleepLabViewModelTest {
     fun `the hypnogram is read for the covered range of the interval and mapped to screen-off stages`() = runTest(dispatcher) {
         deps.timelineResult = night
         val covered = resolved(boundaryFrom = NOW_MS - 12 * HOUR_MS, coveredFrom = NOW_MS - 10 * HOUR_MS, coveredTo = NOW_MS)
-        deps.analysis.value = AnalysisState.Ready(intervalAnalysis(resolved = covered))
+        deps.analysis.value = ready(intervalAnalysis(resolved = covered))
         val vm = viewModel()
 
         visible(vm)
@@ -205,7 +205,7 @@ class SleepLabViewModelTest {
     @Test
     fun `an unavailable timeline leaves the hypnogram failed, and a later one recovers it`() = runTest(dispatcher) {
         deps.timelineResult = null
-        deps.analysis.value = AnalysisState.Ready(intervalAnalysis())
+        deps.analysis.value = ready(intervalAnalysis())
         val vm = viewModel()
         visible(vm)
         assertEquals(HypnogramUi.Failed, vm.state.value.hypnogram)
@@ -213,7 +213,7 @@ class SleepLabViewModelTest {
 
         deps.timelineResult = night
         // A refresh produced a newer analysis (a different object; an equal one would be conflated away).
-        deps.analysis.value = AnalysisState.Ready(intervalAnalysis(resolved = resolved(coveredTo = NOW_MS - MIN_MS)))
+        deps.analysis.value = ready(intervalAnalysis(resolved = resolved(coveredTo = NOW_MS - MIN_MS)))
         runCurrent()
 
         assertTrue(vm.state.value.hypnogram is HypnogramUi.Ready)
@@ -222,14 +222,14 @@ class SleepLabViewModelTest {
     @Test
     fun `a refresh whose timeline read fails keeps the hypnogram already shown`() = runTest(dispatcher) {
         deps.timelineResult = night
-        deps.analysis.value = AnalysisState.Ready(intervalAnalysis())
+        deps.analysis.value = ready(intervalAnalysis())
         val vm = viewModel()
         visible(vm)
         val shown = vm.state.value.hypnogram
         assertTrue(shown is HypnogramUi.Ready)
 
         deps.timelineResult = null
-        deps.analysis.value = AnalysisState.Ready(withWakelocks)
+        deps.analysis.value = ready(withWakelocks)
         runCurrent()
 
         assertEquals(shown, vm.state.value.hypnogram)
@@ -239,7 +239,7 @@ class SleepLabViewModelTest {
     @Test
     fun `loading empty and failed analyses become designed states and clear the hypnogram`() = runTest(dispatcher) {
         deps.timelineResult = night
-        deps.analysis.value = AnalysisState.Ready(intervalAnalysis())
+        deps.analysis.value = ready(intervalAnalysis())
         val vm = viewModel()
         visible(vm)
         assertTrue(vm.state.value.hypnogram is HypnogramUi.Ready)
@@ -260,7 +260,7 @@ class SleepLabViewModelTest {
 
     @Test
     fun `without per-app snapshots the state carries the needs-full-snapshots lists`() = runTest(dispatcher) {
-        deps.analysis.value = AnalysisState.Ready(intervalAnalysis(resolved = resolved(perUidAvailable = false), diff = withWakelocks.diff))
+        deps.analysis.value = ready(intervalAnalysis(resolved = resolved(perUidAvailable = false), diff = withWakelocks.diff))
         val vm = viewModel()
 
         visible(vm)
@@ -273,14 +273,14 @@ class SleepLabViewModelTest {
 
     @Test
     fun `hidden stops shaping, and visible again shows the newest analysis`() = runTest(dispatcher) {
-        deps.analysis.value = AnalysisState.Ready(intervalAnalysis())
+        deps.analysis.value = ready(intervalAnalysis())
         val vm = viewModel()
         visible(vm)
         val calls = deps.timelineCalls.size
 
         vm.onIntent(SleepLabIntent.Hidden)
         runCurrent()
-        deps.analysis.value = AnalysisState.Ready(withWakelocks)
+        deps.analysis.value = ready(withWakelocks)
         runCurrent()
 
         assertEquals("no timeline read while hidden", calls, deps.timelineCalls.size)
@@ -297,8 +297,9 @@ class SleepLabViewModelTest {
         val from = NOW_MS - 6 * HOUR_MS
         val to = NOW_MS - 2 * HOUR_MS
         deps.selection.select(ReferenceKind.TimeSlice(from, to))
-        deps.analysis.value = AnalysisState.Ready(
+        deps.analysis.value = ready(
             intervalAnalysis(resolved(boundaryFrom = from, boundaryTo = to, coveredFrom = from + 9 * MIN_MS, coveredTo = to)),
+            kind = ReferenceKind.TimeSlice(from, to),
         )
         val vm = viewModel()
 
@@ -314,6 +315,28 @@ class SleepLabViewModelTest {
 
         assertEquals(ReferenceKind.SinceUnplugged, deps.selection.selected.value)
         assertNull("the banner leaves with the slice", vm.state.value.slice)
+    }
+
+    @Test
+    fun `a new selection shows loading, not the previous interval's lists or hypnogram, until its analysis arrives`() = runTest(dispatcher) {
+        deps.timelineResult = night
+        deps.analysis.value = ready(withWakelocks)
+        val vm = viewModel()
+        visible(vm)
+        assertTrue(vm.state.value.analysis is AnalysisUi.Ready)
+        val reads = deps.timelineCalls.size
+
+        // The session has not emitted Loading for the new selection yet: its state still answers the old one.
+        deps.selection.select(ReferenceKind.Last24h)
+        runCurrent()
+        assertEquals(AnalysisUi.Loading, vm.state.value.analysis)
+        assertEquals(HypnogramUi.Loading, vm.state.value.hypnogram)
+        assertEquals("nothing is read for the old interval", reads, deps.timelineCalls.size)
+
+        deps.analysis.value = ready(intervalAnalysis(), kind = ReferenceKind.Last24h)
+        runCurrent()
+        assertTrue(vm.state.value.analysis is AnalysisUi.Ready)
+        assertTrue(vm.state.value.hypnogram is HypnogramUi.Ready)
     }
 
     @Test

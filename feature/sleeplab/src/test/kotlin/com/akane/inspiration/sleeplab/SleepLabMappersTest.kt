@@ -212,8 +212,9 @@ class SleepLabMappersTest {
     @Test
     fun `slice banner appears only for a time slice and keeps requested and covered apart`() {
         val kind = ReferenceKind.TimeSlice(10 * HOUR_MS, 20 * HOUR_MS)
-        val analysis = AnalysisState.Ready(
+        val analysis = ready(
             intervalAnalysis(resolved(boundaryFrom = 10 * HOUR_MS, boundaryTo = 20 * HOUR_MS, coveredFrom = 10 * HOUR_MS + 8 * MIN_MS, coveredTo = 20 * HOUR_MS)),
+            kind = kind,
         )
 
         assertNull(sliceUi(ReferenceKind.SinceUnplugged, analysis))
@@ -225,7 +226,10 @@ class SleepLabMappersTest {
     @Test
     fun `a stale analysis leaves coverage unknown`() {
         val kind = ReferenceKind.TimeSlice(10 * HOUR_MS, 20 * HOUR_MS)
-        val other = AnalysisState.Ready(intervalAnalysis(resolved(boundaryFrom = 1 * HOUR_MS, boundaryTo = 2 * HOUR_MS)))
+        val other = ready(
+            intervalAnalysis(resolved(boundaryFrom = 1 * HOUR_MS, boundaryTo = 2 * HOUR_MS)),
+            kind = ReferenceKind.TimeSlice(1 * HOUR_MS, 2 * HOUR_MS),
+        )
 
         assertNull("a different interval's analysis must not supply coverage", sliceUi(kind, other)!!.covered)
         assertNull(sliceUi(kind, AnalysisState.Loading)!!.covered)

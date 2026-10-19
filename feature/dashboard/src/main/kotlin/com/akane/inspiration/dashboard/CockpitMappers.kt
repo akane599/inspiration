@@ -14,6 +14,7 @@ import com.akane.inspiration.diagnostics.analysis.IntervalAnalysis
 import com.akane.inspiration.diagnostics.analysis.SegmentKind
 import com.akane.inspiration.diagnostics.analysis.Timeline
 import com.akane.inspiration.diagnostics.analysis.TimelinePoint
+import com.akane.inspiration.diagnostics.analysis.forSelection
 import com.akane.inspiration.diagnostics.story.reportableDeepSleepRatio
 import com.akane.inspiration.ipc.ShizukuState
 import com.akane.inspiration.telemetry.diff.ReferenceKind
@@ -106,8 +107,7 @@ private fun mahPerHour(mah: Double?, windowMs: Long): Double? =
  */
 internal fun sliceUi(kind: ReferenceKind, analysis: AnalysisState): SliceUi? {
     if (kind !is ReferenceKind.TimeSlice) return null
-    val resolved = (analysis as? AnalysisState.Ready)?.analysis?.resolved
-        ?.takeIf { it.boundaryFromWallMs == kind.fromWallMs && it.boundaryToWallMs == kind.toWallMs }
+    val resolved = (analysis.forSelection(kind) as? AnalysisState.Ready)?.analysis?.resolved
     return SliceUi(
         requested = TimeRange.of(kind.fromWallMs, kind.toWallMs),
         covered = resolved?.let { TimeRange.of(it.coveredFromWallMs, it.coveredToWallMs) },

@@ -7,6 +7,7 @@ import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
 import com.akane.inspiration.designsystem.chart.model.TimeRange
 import com.akane.inspiration.diagnostics.analysis.AnalysisState
+import com.akane.inspiration.diagnostics.analysis.forSelection
 import com.akane.inspiration.telemetry.app.RefreshResult
 import com.akane.inspiration.telemetry.app.attempt
 import com.akane.inspiration.telemetry.diff.ReferenceKind
@@ -61,7 +62,9 @@ class CockpitViewModel(private val deps: CockpitDependencies) : ViewModel() {
         viewModelScope.launch {
             combine(deps.analysis, deps.selection.selected, deps.shizukuState) { analysis, kind, shizuku ->
                 Triple(analysis, kind, shizuku)
-            }.collect { (analysis, kind, shizuku) ->
+            }.collect { (state, kind, shizuku) ->
+                // Until the session has recomputed after a selection change, its result belongs to the old selection.
+                val analysis = state.forSelection(kind)
                 systemEstimate = (analysis as? AnalysisState.Ready)?.analysis?.resolved?.now?.let { snapshot ->
                     snapshot.system?.dischargeTimeRemainingMs?.let { SystemEstimate(snapshot.clock.wallMs, it) }
                 }

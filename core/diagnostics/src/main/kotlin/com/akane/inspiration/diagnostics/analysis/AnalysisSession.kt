@@ -27,10 +27,19 @@ sealed interface AnalysisState {
     /** The selected interval has no resolvable snapshot pair. */
     data object Empty : AnalysisState
 
-    data class Ready(val analysis: IntervalAnalysis) : AnalysisState
+    /** [analysis] answers [kind], the selection it was computed for. */
+    data class Ready(val analysis: IntervalAnalysis, val kind: ReferenceKind) : AnalysisState
 
     data class Failed(val message: String) : AnalysisState
 }
+
+/**
+ * This state as a screen showing [selected] must treat it. A new selection is visible at once, but the session's
+ * Loading for it arrives a dispatcher hop later; until then the state is still the previous selection's result,
+ * which describes another interval. A [AnalysisState.Ready] for any other selection is therefore Loading.
+ */
+fun AnalysisState.forSelection(selected: ReferenceKind): AnalysisState =
+    if (this is AnalysisState.Ready && kind != selected) AnalysisState.Loading else this
 
 /**
  * Keeps one [AnalysisState] for the shared [selection]. Recomputes when the selection or [refreshTicks]
@@ -76,7 +85,7 @@ class AnalysisSession(
 
     private suspend fun compute(kind: ReferenceKind): AnalysisState = try {
         val analysis = withContext(dispatcher) { analyzer.analyze(kind, nowWallMs()) }
-        if (analysis == null) AnalysisState.Empty else AnalysisState.Ready(analysis)
+        if (analysis == null) AnalysisState.Empty else AnalysisState.Ready(analysis, kind)
     } catch (cancelled: CancellationException) {
         throw cancelled
     } catch (error: Exception) {

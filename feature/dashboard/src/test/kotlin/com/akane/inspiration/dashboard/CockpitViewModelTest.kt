@@ -2,6 +2,8 @@ package com.akane.inspiration.dashboard
 
 import com.akane.inspiration.designsystem.component.PulseStatus
 import com.akane.inspiration.diagnostics.analysis.AnalysisState
+import com.akane.inspiration.diagnostics.story.BatteryStory
+import com.akane.inspiration.diagnostics.story.StorySentence
 import com.akane.inspiration.ipc.ShizukuState
 import com.akane.inspiration.telemetry.app.RefreshResult
 import com.akane.inspiration.telemetry.diff.ReferenceKind
@@ -243,8 +245,9 @@ class CockpitViewModelTest {
         val from = NOW_MS - 5 * HOUR_MS
         val to = NOW_MS - 3 * HOUR_MS
         vm.onIntent(CockpitIntent.CommitBrush(from, to))
-        deps.analysis.value = AnalysisState.Ready(
+        deps.analysis.value = ready(
             intervalAnalysis(resolved(boundaryFrom = from, boundaryTo = to, coveredFrom = from + 12 * MIN_MS, coveredTo = to)),
+            kind = ReferenceKind.TimeSlice(from, to),
         )
         runCurrent()
 
@@ -254,16 +257,59 @@ class CockpitViewModelTest {
     }
 
     @Test
-    fun `an analysis for another range is ignored by the banner`() = runTest(dispatcher) {
+    fun `an analysis of the previous selection is neither shown nor used by the banner`() = runTest(dispatcher) {
         val vm = viewModel()
         val from = NOW_MS - 5 * HOUR_MS
         val to = NOW_MS - 3 * HOUR_MS
         vm.onIntent(CockpitIntent.CommitBrush(from, to))
         runCurrent()
 
-        deps.analysis.value = AnalysisState.Ready(intervalAnalysis(resolved(boundaryFrom = from - HOUR_MS, boundaryTo = to)))
+        val previous = ReferenceKind.TimeSlice(from - HOUR_MS, to)
+        deps.analysis.value = ready(intervalAnalysis(resolved(boundaryFrom = from - HOUR_MS, boundaryTo = to)), kind = previous)
         runCurrent()
         assertNull("analysis of a previous selection", vm.state.value.slice?.covered)
+        assertEquals(AnalysisUi.Loading, vm.state.value.analysis)
+    }
+
+    @Test
+    fun `a new brush shows loading, not the previous slice's story, until its analysis arrives`() = runTest(dispatcher) {
+        val vm = viewModel()
+        val sliceA = ReferenceKind.TimeSlice(NOW_MS - 8 * HOUR_MS, NOW_MS - 6 * HOUR_MS)
+        val storyA = BatteryStory(listOf(StorySentence.Summary(hours = 2.0, levelUsedPct = 9)))
+        vm.onIntent(CockpitIntent.CommitBrush(sliceA.fromWallMs, sliceA.toWallMs))
+        deps.analysis.value = ready(
+            intervalAnalysis(resolved(boundaryFrom = sliceA.fromWallMs, boundaryTo = sliceA.toWallMs)).copy(story = storyA),
+            kind = sliceA,
+        )
+        runCurrent()
+        assertEquals(storyA, (vm.state.value.analysis as? AnalysisUi.Ready)?.story)
+
+        // The user brushes slice B. The session has not emitted Loading yet: its state still answers slice A.
+        val sliceB = ReferenceKind.TimeSlice(NOW_MS - 3 * HOUR_MS, NOW_MS - HOUR_MS)
+        vm.onIntent(CockpitIntent.CommitBrush(sliceB.fromWallMs, sliceB.toWallMs))
+        runCurrent()
+        assertEquals(sliceB, deps.selection.selected.value)
+        assertEquals(AnalysisUi.Loading, vm.state.value.analysis)
+
+        deps.analysis.value = ready(intervalAnalysis(resolved(boundaryFrom = sliceB.fromWallMs, boundaryTo = sliceB.toWallMs)), kind = sliceB)
+        runCurrent()
+        assertEquals(TestStory, (vm.state.value.analysis as? AnalysisUi.Ready)?.story)
+    }
+
+    @Test
+    fun `a new reference shows loading, not the previous interval's story, until its analysis arrives`() = runTest(dispatcher) {
+        deps.analysis.value = ready()
+        val vm = viewModel()
+        assertTrue(vm.state.value.analysis is AnalysisUi.Ready)
+
+        vm.onIntent(CockpitIntent.SelectReference(ReferenceChoice.Last24h))
+        runCurrent()
+        assertEquals(ReferenceUi.Last24h, vm.state.value.reference)
+        assertEquals(AnalysisUi.Loading, vm.state.value.analysis)
+
+        deps.analysis.value = ready(kind = ReferenceKind.Last24h)
+        runCurrent()
+        assertTrue(vm.state.value.analysis is AnalysisUi.Ready)
     }
 
     @Test
@@ -375,7 +421,7 @@ class CockpitViewModelTest {
         runCurrent()
         assertEquals(AnalysisUi.Error, vm.state.value.analysis)
 
-        deps.analysis.value = AnalysisState.Ready(intervalAnalysis())
+        deps.analysis.value = ready()
         runCurrent()
         val ready = vm.state.value.analysis as AnalysisUi.Ready
         assertEquals(TestStory, ready.story)
@@ -385,7 +431,7 @@ class CockpitViewModelTest {
     @Test
     fun `time left falls back to a fresh system estimate`() = runTest(dispatcher) {
         // The fake readings carry a negative current but no charge counter, so only the system estimate can answer.
-        deps.analysis.value = AnalysisState.Ready(
+        deps.analysis.value = ready(
             intervalAnalysis(resolved(coveredTo = NOW_MS - 2 * MIN_MS, nowSystem = systemTimers(5 * HOUR_MS))),
         )
         val vm = viewModel()
@@ -399,7 +445,7 @@ class CockpitViewModelTest {
 
     @Test
     fun `time left ignores a system estimate older than ten minutes`() = runTest(dispatcher) {
-        deps.analysis.value = AnalysisState.Ready(
+        deps.analysis.value = ready(
             intervalAnalysis(resolved(coveredTo = NOW_MS - 20 * MIN_MS, nowSystem = systemTimers(5 * HOUR_MS))),
         )
         val vm = viewModel()

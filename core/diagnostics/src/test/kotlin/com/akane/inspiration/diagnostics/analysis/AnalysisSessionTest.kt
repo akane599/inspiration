@@ -75,6 +75,25 @@ class AnalysisSessionTest {
     }
 
     @Test
+    fun `a ready state names the selection it answers, and is loading for any other`() = runTest {
+        val h = harness()
+        runCurrent()
+        val first = h.session.state.value as AnalysisState.Ready
+        assertEquals(ReferenceKind.SinceUnplugged, first.kind)
+        assertSame(first, first.forSelection(ReferenceKind.SinceUnplugged))
+        assertEquals(AnalysisState.Loading, first.forSelection(ReferenceKind.Last24h))
+        assertEquals(AnalysisState.Empty, AnalysisState.Empty.forSelection(ReferenceKind.Last24h))
+
+        val slice = ReferenceKind.TimeSlice(fromWallMs = 1 * hour, toWallMs = 5 * hour)
+        h.selection.select(slice)
+        runCurrent()
+
+        val second = h.session.state.value as AnalysisState.Ready
+        assertEquals(slice, second.kind)
+        assertEquals(AnalysisState.Loading, second.forSelection(ReferenceKind.TimeSlice(fromWallMs = 2 * hour, toWallMs = 5 * hour)))
+    }
+
+    @Test
     fun `becomes Empty when the selected interval has no snapshot pair`() = runTest {
         val h = harness(FakeSnapshotStore())
 

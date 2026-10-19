@@ -110,12 +110,25 @@ class XRayViewModelTest {
         assertEquals(XRayStatus.LOADING, state.status)
         assertEquals(1_000L, state.slice?.requestedFromMs)
 
-        deps.analysis.value = readyOf(sampleDiff(), resolvedOf(1_000L, 2_000L))
+        deps.analysis.value = readyOf(sampleDiff(), resolvedOf(1_000L, 2_000L), kind = slice)
         assertEquals(XRayStatus.READY, state.status)
         assertEquals(2_000L, state.slice?.coveredToMs)
 
         vm.onIntent(XRayIntent.ClearSlice)
         assertNull(state.slice)
+    }
+
+    @Test
+    fun `a new selection shows loading, not the previous interval's apps, until its analysis arrives`() {
+        assertEquals(XRayStatus.READY, state.status)
+
+        // The session has not emitted Loading for the new selection yet: its state still answers the old one.
+        deps.selection.select(ReferenceKind.Last24h)
+        assertEquals(XRayStatus.LOADING, state.status)
+
+        deps.analysis.value = readyOf(diffOf(uids = listOf(uidDelta(MAPS_UID, MAPS, 5.0))), kind = ReferenceKind.Last24h)
+        assertEquals(XRayStatus.READY, state.status)
+        assertEquals(listOf(MAPS_UID), state.apps.map { it.uid })
     }
 
     @Test

@@ -13,6 +13,7 @@ import com.akane.inspiration.diagnostics.story.BatteryStory
 import com.akane.inspiration.diagnostics.story.StorySentence
 import com.akane.inspiration.telemetry.app.AppLabels
 import com.akane.inspiration.telemetry.app.RefreshResult
+import com.akane.inspiration.telemetry.diff.ReferenceKind
 import com.akane.inspiration.telemetry.diff.ResolvedReference
 import com.akane.inspiration.telemetry.dump.KernelWakelock
 import com.akane.inspiration.telemetry.dump.UidAlarm
@@ -192,3 +193,9 @@ internal fun intervalAnalysis(
     resolved: ResolvedReference = resolved(),
     diff: SnapshotDiff = snapshotDiff(),
 ) = IntervalAnalysis(resolved, diff, intervalMetrics(), DiagnosticReport(emptyList(), emptyMap(), 0), TestStory)
+
+/** [analysis] as the session publishes it for [kind]; the default is the default selection. */
+internal fun ready(
+    analysis: IntervalAnalysis = intervalAnalysis(),
+    kind: ReferenceKind = ReferenceKind.SinceUnplugged,
+) = AnalysisState.Ready(analysis, kind)
