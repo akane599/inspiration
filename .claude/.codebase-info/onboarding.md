@@ -21,9 +21,15 @@ From the repository root:
 ./gradlew :app:lintDebug --console=plain -q
 ```
 
-The documented helper form is `bash .claude/kit/gradle-check.sh :app:assembleDebug :app:testDebugUnitTest`. Screenshot references are validated with `:app:validateDebugScreenshotTest`; update references only for an intentional UI ticket with `:app:updateDebugScreenshotTest`. The design-system module has its own references: `:core:designsystem:validateDebugScreenshotTest` and, for an intentional change, `:core:designsystem:updateDebugScreenshotTest` (every preview needs an explicit `heightDp`).
+The documented helper form is `bash .claude/kit/gradle-check.sh :app:assembleDebug :app:testDebugUnitTest`. When other sessions or worktrees may build too, run it through [`bash .claude/scripts/gradle-slot.sh <tasks>`](../scripts/gradle-slot.sh). That script holds one of the host-wide Gradle slots (`GRADLE_SLOTS`, default 2) and then calls `gradle-check.sh`. Screenshot references are validated with `:app:validateDebugScreenshotTest`; update references only for an intentional UI ticket with `:app:updateDebugScreenshotTest`. The design-system module has its own references: `:core:designsystem:validateDebugScreenshotTest` and, for an intentional change, `:core:designsystem:updateDebugScreenshotTest` (every preview needs an explicit `heightDp`).
 
-Release: `bash .claude/kit/gradle-check.sh :app:assembleRelease`. It is signed only when `~/.gradle/gradle.properties` has the `INSPIRATION_RELEASE_*` entries (otherwise unsigned); check with `apksigner verify --print-certs` (certificate SHA-256 `1d344dd2…3de60`).
+Release: `bash .claude/kit/gradle-check.sh :app:assembleRelease`. It is signed only when `~/.gradle/gradle.properties` has the `INSPIRATION_RELEASE_*` entries (otherwise unsigned); check with `apksigner verify --print-certs` (certificate SHA-256 `1d344dd2…3de60`). The [`release`](../skills/release/SKILL.md) skill holds the whole delivery procedure:
+- version bump and full gate;
+- certificate pin check;
+- same-key in-place upgrade check from the previous GitHub release on redroid;
+- the GitHub release and download verification.
+
+Its `scripts/upgrade-check.sh` and `scripts/gate-summary.sh` also run on their own. Their first run passed the v0.2.3→v0.2.4 upgrade.
 
 Diagnostics tests run under Robolectric (org.json and resources are needed by the dictionary loader and story writer). Room tests use Robolectric and cover WAL, cascades, history deduplication, snapshot round trips, and 30-day maintenance behavior. Schema v5 adds nullable UID identity proof through `MIGRATION_4_5`; existing v4 data must migrate without a clear or inferred historical proof. Run the focused database gate with `bash .claude/kit/gradle-check.sh :core:database:testDebugUnitTest --tests '*InspirationDatabaseTest' --tests '*RoomSnapshotStoreTest'`. The current audit's same-key v0.2.1→v0.2.2 redroid upgrade evidence is recorded in [`AUDIT_REPORT.md`](../../AUDIT_REPORT.md) under "Current-build Mobile MCP/redroid verification". Protobuf tests use committed API 35/36/37 fixtures under [`core/telemetry-engine/src/test/resources/proto`](../../core/telemetry-engine/src/test/resources/proto).
 
@@ -31,7 +37,7 @@ Diagnostics tests run under Robolectric (org.json and resources are needed by th
 
 The always-on redroid device is Android 15 + Shizuku 13.6.0 at `ANDROID_SERIAL=localhost:5555`; select it explicitly when other devices are connected. Root shell/SQLite checks use `adb shell su 0`. Debug and release APKs use different signing keys, so switching variants requires uninstalling the app and loses its data; do not use that switch or `pm clear` to claim an in-place migration test. Use a same-key upgrade when checking preservation. The container has no physical battery, so it proves wiring and persistence, not hardware accuracy.
 
-The documented AVDs are `batstats-api36`, `screenoff-api37`, and `pixel-api35`. The normal launch flow is:
+The documented AVDs are `batstats-api36`, `screenoff-api37`, and `pixel-api35`. `batstats-api31` (Android 12) and `batstats-api33` (Android 13) cover the bottom of the minSdk range, for example bg-dexopt below API 33. Both are rootable `google_apis` images. Never pass `-port 5554`: that emulator's adb port is 5555, which redroid holds, so adb never sees it. Leave `-port` out or use 5556 or above. The normal launch flow is:
 
 ```sh
 ./gradlew --stop   # free daemon memory first: 15 GiB RAM + zram/swapfile; Gradle limits are in the android-build live rule

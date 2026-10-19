@@ -31,7 +31,7 @@ The second independent audit's remediation (N-01–N-28, release 0.2.4) adds:
 | [tech-landscape.md](tech-landscape.md) | Toolchain, dependency catalog, protobuf, Room, Inter fonts, and test/screenshot infrastructure |
 | [directory-structure.md](directory-structure.md) | Source tree, excluding generated output |
 | [database.md](database.md) | Room schema v5 and migrations (incl. nullable UID ownership proof, signal columns, `snapshot_uid_sensor`, `toolkit_action`, the trigger index), boot/elapsed trigger ordering, DAOs, WAL setup, retention, and snapshot-store mapping |
-| [onboarding.md](onboarding.md) | Build, test, emulator, probes (incl. `PROBE_INSIGHTS`), design gallery launch, the `device-probe` skill, and Shizuku workflow |
+| [onboarding.md](onboarding.md) | Build, test, emulator, probes (incl. `PROBE_INSIGHTS`), design gallery launch, the `device-probe` and `release` skills, the Gradle slot script, and Shizuku workflow |
 
 ## Map maintenance
 
