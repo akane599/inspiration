@@ -12,8 +12,8 @@ android {
         applicationId = "com.akane.inspiration"
         minSdk = 31
         targetSdk = 36
-        versionCode = 2
-        versionName = "0.2.0"
+        versionCode = 3
+        versionName = "0.2.1"
     }
 
     // Release signing comes from user-level Gradle properties (~/.gradle/gradle.properties);
