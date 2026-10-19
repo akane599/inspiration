@@ -38,7 +38,7 @@ internal const val LIVE_STALE_MS = 3 * CURVE_PERIOD_MS + 5_000L
 /**
  * What the last load read, and everything derived from it alone. A null read failed; an empty list is a real "nothing
  * recorded". The derived values are computed on construction, which happens once per load and off the main thread, so
- * a live tick never maps, sorts or summarises the stored day again.
+ * a live tick never maps, de-duplicates or summarises the stored day again; it only merges the live points in.
  */
 private class HealthInputs(
     val kernel: KernelCapacitySnapshot?,
@@ -65,12 +65,56 @@ private class HealthInputs(
 }
 
 /**
+ * This visit's live points that storage has not given back yet. Every live tick copies them on the main thread, so a
+ * load drops each one its stored day holds at the same time: the merge drops such a point from every frame of that
+ * load anyway (a stored point wins a tie), and later loads read it from storage. What is held is then bounded by the
+ * readings since the last load, not by the length of the visit. The facts a frame needs about the whole visit
+ * outlive that trim: whether any live point arrived (it still re-derives a charge the history has not caught up with)
+ * and the newest one's time (an older or repeated reading is still rejected).
+ */
+private class LiveBuffer {
+    private val unstored = ArrayList<CurvePoint>()
+    private var newestMs = Long.MIN_VALUE
+
+    /** A live point arrived since the last [clear], whether or not it is still held. */
+    var any = false
+        private set
+
+    val size: Int get() = unstored.size
+
+    /** Adds [point] if it is newer than every point since the last [clear]; false when it was rejected. */
+    fun add(point: CurvePoint): Boolean {
+        if (any && point.wallMs <= newestMs) return false
+        unstored += point
+        newestMs = point.wallMs
+        any = true
+        return true
+    }
+
+    /** Drops each held point [stored] (in time order, one point per time) has a point for at the same time. */
+    fun dropStored(stored: List<CurvePoint>) {
+        if (stored.isEmpty()) return
+        unstored.removeAll { point -> stored.binarySearchBy(point.wallMs) { it.wallMs } >= 0 }
+    }
+
+    fun snapshot(): List<CurvePoint> = unstored.toList()
+
+    fun clear() {
+        unstored.clear()
+        newestMs = Long.MIN_VALUE
+        any = false
+    }
+}
+
+/**
  * One frame from the last load and a snapshot of the screen's own state (taken on the main thread). It reads nothing
- * mutable, so it runs on the shaping dispatcher.
+ * mutable, so it runs on the shaping dispatcher. [live] holds only the points the load had not read back from storage;
+ * [hasLive] says whether this visit had any live point at all.
  */
 private fun shapeFrame(
     loaded: HealthInputs,
     live: List<CurvePoint>,
+    hasLive: Boolean,
     charging: Boolean,
     observedPlugMs: Long?,
     observedUnplugMs: Long?,
@@ -78,7 +122,7 @@ private fun shapeFrame(
     nowMs: Long,
 ): (HealthState) -> HealthState {
     val sampled = mergeByTime(loaded.persistedPoints, live)
-    val inferredSpan = effectiveChargeSpan(loaded.historySpan, sampled, hasLive = live.isNotEmpty())
+    val inferredSpan = effectiveChargeSpan(loaded.historySpan, sampled, hasLive)
     // Observed edges outrank stale history and gap heuristics, for persisted points as well as live ones.
     val observedSpan =
         observedPlugMs?.let { start ->
@@ -87,7 +131,7 @@ private fun shapeFrame(
             inferredSpan?.let { ChargeSpan(minOf(it.startMs, end), end) }
         }
     val span = observedSpan ?: inferredSpan
-    val session = chargeSession(span, sampled, loaded.historyPoints, hasLive = observedSpan == null && live.isNotEmpty())
+    val session = chargeSession(span, sampled, loaded.historyPoints, hasLive = observedSpan == null && hasLive)
     val curve = curveUi(session, liveActive)
     val analysis = if (curve is CurveUi.Ready) wearAnalysis(session, span, nowMs, liveActive) else null
     val nothing =
@@ -95,7 +139,7 @@ private fun shapeFrame(
             loaded.sessions.orEmpty().isEmpty() && curve is CurveUi.None && !charging
     val phase =
         when {
-            loaded.everyReadFailed && live.isEmpty() -> HealthPhase.Error
+            loaded.everyReadFailed && !hasLive -> HealthPhase.Error
             nothing -> HealthPhase.Empty
             else -> HealthPhase.Ready
         }
@@ -156,7 +200,10 @@ class HealthViewModel(
     private var inputs: HealthInputs? = null
 
     /** Readings for the current or just-completed observed charge. Persisted by the source as well. */
-    private val live = ArrayList<CurvePoint>()
+    private val live = LiveBuffer()
+
+    /** The live points a frame copies on the main thread: only those no load has read back from storage yet. */
+    internal val heldLivePoints: Int get() = live.size
 
     fun onIntent(intent: HealthIntent) {
         when (intent) {
@@ -273,8 +320,7 @@ class HealthViewModel(
 
     private fun onReading(reading: LiveReading) {
         val point = reading.toCurvePoint() ?: return
-        if (live.lastOrNull()?.let { it.wallMs >= point.wallMs } == true) return
-        live += point
+        if (!live.add(point)) return
         markLive()
         render()
     }
@@ -332,7 +378,7 @@ class HealthViewModel(
                     samples = samples,
                     loadedAtMs = to,
                 )
-            }
+            }.also { live.dropStored(it.persistedPoints) }
         render()
     }
 
@@ -343,7 +389,8 @@ class HealthViewModel(
             return
         }
         // The screen's own state is read here, on the main thread; only immutable snapshots go to the shaping.
-        val live = live.toList()
+        val heldLive = live.snapshot()
+        val hasLive = live.any
         val charging = charging
         val observedPlugMs = observedPlugMs
         val observedUnplugMs = observedUnplugMs
@@ -354,7 +401,7 @@ class HealthViewModel(
             viewModelScope.launch {
                 val frame =
                     withContext(shapingDispatcher) {
-                        shapeFrame(loaded, live, charging, observedPlugMs, observedUnplugMs, liveActive, nowMs)
+                        shapeFrame(loaded, heldLive, hasLive, charging, observedPlugMs, observedUnplugMs, liveActive, nowMs)
                     }
                 _state.update(frame)
             }

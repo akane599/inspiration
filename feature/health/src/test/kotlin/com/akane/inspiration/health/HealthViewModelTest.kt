@@ -1230,6 +1230,185 @@ class HealthViewModelTest {
             }
         }
 
+    @Test
+    fun `a newer frame replaces one still being shaped, so the older frame never lands`() =
+        runTest(dispatcher) {
+            deps.refreshResult = RefreshResult.Debounced(0L)
+            val shaping = HeldDispatcher()
+            val readings = MutableSharedFlow<LiveReading>()
+            val vm =
+                HealthViewModel(
+                    object : HealthDependencies by deps {
+                        override fun liveReadings(periodMs: Long): Flow<LiveReading> = readings
+                    },
+                    shapingDispatcher = shaping,
+                ).also { runCurrent() }
+            try {
+                vm.onIntent(HealthIntent.Visible)
+                vm.onIntent(HealthIntent.PlugChanged(true))
+                settle(shaping)
+                readings.emit(liveReading(NOW_MS - CURVE_PERIOD_MS, levelPct = 40))
+                settle(shaping)
+
+                readings.emit(liveReading(NOW_MS, levelPct = 41))
+                runCurrent()
+                readings.emit(liveReading(NOW_MS + CURVE_PERIOD_MS, levelPct = 42))
+                runCurrent()
+                // The 42 % frame finishes shaping before the 41 % one.
+                shaping.drainNewestFirst()
+                settle(shaping)
+
+                assertEquals(42, (vm.state.value.curve as CurveUi.Ready).endLevelPct)
+            } finally {
+                vm.onIntent(HealthIntent.Hidden)
+                settle(shaping)
+            }
+        }
+
+    // ---- reads: one per tick, newest wins ---------------------------------------------------------
+
+    @Test
+    fun `a newer load replaces one still reading, so the older read never lands`() =
+        runTest(dispatcher) {
+            deps.refreshResult = RefreshResult.Debounced(0L)
+            deps.kernel = kernelSnapshot(chargeFullMah = 4_300.0)
+            val firstHistoryRead = CompletableDeferred<Unit>()
+            var stalled = false
+            val vm =
+                HealthViewModel(
+                    object : HealthDependencies by deps {
+                        override suspend fun historyBetween(
+                            from: Long,
+                            to: Long,
+                        ): List<HistoryEvent> {
+                            if (!stalled) {
+                                stalled = true
+                                firstHistoryRead.await()
+                            }
+                            return deps.historyBetween(from, to)
+                        }
+                    },
+                    shapingDispatcher = dispatcher,
+                ).also { runCurrent() }
+            try {
+                vm.onIntent(HealthIntent.Visible)
+                // The first load has read the 4,300 mAh kernel and waits on the history.
+                runCurrent()
+
+                deps.kernel = kernelSnapshot(chargeFullMah = 3_900.0)
+                deps.lastRefreshWallMs.value = NOW_MS
+                runCurrent()
+                assertEquals(
+                    3_900.0,
+                    vm.state.value.card
+                        ?.reported
+                        ?.mah ?: 0.0,
+                    0.0,
+                )
+
+                firstHistoryRead.complete(Unit)
+                runCurrent()
+                assertEquals(
+                    "the older load was cancelled",
+                    3_900.0,
+                    vm.state.value.card
+                        ?.reported
+                        ?.mah ?: 0.0,
+                    0.0,
+                )
+            } finally {
+                vm.onIntent(HealthIntent.Hidden)
+            }
+        }
+
+    @Test
+    fun `returning after a tick missed while hidden reads the store exactly once`() =
+        runTest(dispatcher) {
+            deps.refreshResult = RefreshResult.Debounced(0L)
+            val vm = viewModel()
+            vm.onIntent(HealthIntent.Visible)
+            runCurrent()
+            vm.onIntent(HealthIntent.Hidden)
+            deps.lastRefreshWallMs.value = NOW_MS
+            runCurrent()
+            val reads = deps.historyReads
+
+            vm.onIntent(HealthIntent.Visible)
+            runCurrent()
+
+            assertEquals("one read on return, the missed tick included", reads + 1, deps.historyReads)
+            vm.onIntent(HealthIntent.Hidden)
+        }
+
+    // ---- the live buffer holds only what storage has not given back --------------------------------
+
+    @Test
+    fun `a load that read the live points back stops holding them`() =
+        runTest(dispatcher) {
+            deps.refreshResult = RefreshResult.Debounced(0L)
+            val readings = MutableSharedFlow<LiveReading>()
+            val vm = viewModel(readings)
+            vm.onIntent(HealthIntent.Visible)
+            vm.onIntent(HealthIntent.PlugChanged(true))
+            runCurrent()
+            val times = (0 until 5).map { NOW_MS - (4 - it) * CURVE_PERIOD_MS }
+            for ((i, at) in times.withIndex()) {
+                readings.emit(liveReading(at, levelPct = 41 + i))
+                runCurrent()
+            }
+            assertEquals(5, vm.heldLivePoints)
+
+            // The source has stored all but the newest reading, and a store tick reloads.
+            deps.samples = times.dropLast(1).mapIndexed { i, at -> sample(at, level = 41 + i) }
+            deps.lastRefreshWallMs.value = NOW_MS
+            runCurrent()
+            assertEquals("only the reading storage did not return", 1, vm.heldLivePoints)
+
+            readings.emit(liveReading(NOW_MS + CURVE_PERIOD_MS, levelPct = 46))
+            runCurrent()
+            assertEquals(2, vm.heldLivePoints)
+            assertEquals(46, (vm.state.value.curve as CurveUi.Ready).endLevelPct)
+            vm.onIntent(HealthIntent.Hidden)
+        }
+
+    @Test
+    fun `the load that stores the live points draws the same charge and still rejects an older reading`() =
+        runTest(dispatcher) {
+            // The history still ends at the previous charge: only the live points say this one is going on.
+            deps.history =
+                listOf(
+                    event(NOW_MS - 5 * HOUR_MS, HistoryKind.PLUGGED),
+                    event(NOW_MS - 4 * HOUR_MS, HistoryKind.UNPLUGGED),
+                )
+            deps.refreshResult = RefreshResult.Debounced(0L)
+            val readings = MutableSharedFlow<LiveReading>()
+            val vm = viewModel(readings)
+            vm.onIntent(HealthIntent.Visible)
+            vm.onIntent(HealthIntent.PlugChanged(true))
+            runCurrent()
+            val times = (0 until 5).map { NOW_MS - (4 - it) * CURVE_PERIOD_MS }
+            for ((i, at) in times.withIndex()) {
+                readings.emit(liveReading(at, levelPct = 41 + i))
+                runCurrent()
+            }
+            val before = vm.state.value
+            assertEquals(CurveSource.Live, (before.curve as CurveUi.Ready).source)
+            assertNotNull(before.analysis)
+
+            deps.samples = times.mapIndexed { i, at -> sample(at, level = 41 + i) }
+            deps.lastRefreshWallMs.value = NOW_MS
+            runCurrent()
+            assertEquals(0, vm.heldLivePoints)
+            assertEquals("the stored twins draw exactly what the live points drew", before, vm.state.value)
+
+            // Older than the newest reading and never stored: rejected, as it was before the load.
+            readings.emit(liveReading(times[1] + SEC_MS, levelPct = 90))
+            runCurrent()
+            assertEquals(0, vm.heldLivePoints)
+            assertEquals(before, vm.state.value)
+            vm.onIntent(HealthIntent.Hidden)
+        }
+
     private fun TestScope.settle(shaping: HeldDispatcher) {
         runCurrent()
         while (shaping.pending > 0) {
@@ -1253,6 +1432,11 @@ private class HeldDispatcher : CoroutineDispatcher() {
 
     fun drain() {
         while (held.isNotEmpty()) held.removeFirst().run()
+    }
+
+    /** Runs what is held, the most recently dispatched first, as a busy pool may finish later work sooner. */
+    fun drainNewestFirst() {
+        while (held.isNotEmpty()) held.removeLast().run()
     }
 }
 

@@ -188,8 +188,9 @@ internal fun lastRun(points: List<CurvePoint>): List<CurvePoint> {
 /**
  * [persisted] (in time order, one point per time) and [live] (strictly increasing times) as one list in time order,
  * where a persisted point wins over a live point at the same time. It is
- * `(persisted + live).distinctBy { it.wallMs }.sortedBy { it.wallMs }` in one linear pass, so a live tick never
- * re-sorts the stored day.
+ * `(persisted + live).distinctBy { it.wallMs }.sortedBy { it.wallMs }` in one linear pass. A live tick still sorts
+ * afterwards ([lastRun], [chargeSession]), but only points already in time order, or two such runs back to back (the
+ * history's and the samples'), which the JVM's object sort (TimSort) handles in linear time.
  */
 internal fun mergeByTime(
     persisted: List<CurvePoint>,
