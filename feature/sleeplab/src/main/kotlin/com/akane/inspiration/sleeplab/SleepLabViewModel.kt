@@ -12,6 +12,8 @@ import com.akane.inspiration.telemetry.app.RefreshResult
 import com.akane.inspiration.telemetry.app.attempt
 import com.akane.inspiration.telemetry.app.packageForUid
 import com.akane.inspiration.telemetry.diff.ResolvedReference
+import kotlinx.coroutines.CoroutineDispatcher
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.Flow
@@ -23,15 +25,20 @@ import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 /**
  * Sleep Lab state holder (H5). It is Activity-scoped, so it outlives the tab. It reads nothing from the device:
  * the only device-touching call is `refresh()`, which the container debounces, and it is sent when the screen
  * becomes visible or the user asks. The analysis arrives through the shared [SleepLabDependencies.analysis]; this
  * class only shapes it, and does that work only while the screen is visible, so a refresh made from another
- * tab costs nothing here until this tab is shown again.
+ * tab costs nothing here until this tab is shown again. The hypnogram's timeline, which spans the whole interval,
+ * is read and shaped on [shapingDispatcher], never on the main thread.
  */
-class SleepLabViewModel(private val deps: SleepLabDependencies) : ViewModel() {
+class SleepLabViewModel(
+    private val deps: SleepLabDependencies,
+    private val shapingDispatcher: CoroutineDispatcher = Dispatchers.Default,
+) : ViewModel() {
 
     private val _state = MutableStateFlow(SleepLabState.Initial)
     val state: StateFlow<SleepLabState> = _state.asStateFlow()
@@ -109,10 +116,12 @@ class SleepLabViewModel(private val deps: SleepLabDependencies) : ViewModel() {
         visiblePackages(analysis).mapNotNull { pkg -> attempt { deps.appLabels.label(pkg) }?.let { pkg to it } }.toMap()
 
     private suspend fun loadHypnogram(resolved: ResolvedReference) {
-        val timeline = attempt { deps.timeline(resolved.coveredFromWallMs, resolved.coveredToWallMs) }
+        val hypnogram = withContext(shapingDispatcher) {
+            attempt { deps.timeline(resolved.coveredFromWallMs, resolved.coveredToWallMs) }?.let(::hypnogramData)
+        }
         _state.update {
             when {
-                timeline != null -> it.copy(hypnogram = HypnogramUi.Ready(hypnogramData(timeline)))
+                hypnogram != null -> it.copy(hypnogram = HypnogramUi.Ready(hypnogram))
                 // A refresh that could not re-read keeps what is already on screen.
                 it.hypnogram is HypnogramUi.Ready -> it
                 else -> it.copy(hypnogram = HypnogramUi.Failed)

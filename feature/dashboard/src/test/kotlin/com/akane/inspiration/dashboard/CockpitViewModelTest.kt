@@ -24,6 +24,7 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertSame
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
@@ -44,7 +45,7 @@ class CockpitViewModelTest {
         Dispatchers.resetMain()
     }
 
-    private fun TestScope.viewModel(): CockpitViewModel = CockpitViewModel(deps).also { runCurrent() }
+    private fun TestScope.viewModel(): CockpitViewModel = CockpitViewModel(deps, shapingDispatcher = dispatcher).also { runCurrent() }
 
     @Test
     fun `visible starts the live gauge at 1500 ms and holds one binding`() = runTest(dispatcher) {
@@ -191,6 +192,18 @@ class CockpitViewModelTest {
         deps.timelineResult = emptyTimeline()
         vm.onIntent(CockpitIntent.Refresh)
         runCurrent()
+        assertTrue(vm.state.value.chart is ChartUi.Ready)
+    }
+
+    @Test
+    fun `the chart's timeline is built and shaped on the shaping dispatcher, not the main thread`() = runTest(dispatcher) {
+        val shaping = StandardTestDispatcher(testScheduler, name = "shaping")
+        val vm = CockpitViewModel(deps, shapingDispatcher = shaping).also { runCurrent() }
+
+        vm.onIntent(CockpitIntent.Refresh)
+        runCurrent()
+
+        assertSame(shaping, deps.timelineDispatcher)
         assertTrue(vm.state.value.chart is ChartUi.Ready)
     }
 

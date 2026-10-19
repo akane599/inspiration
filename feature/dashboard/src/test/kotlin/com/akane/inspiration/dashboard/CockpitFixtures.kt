@@ -24,7 +24,9 @@ import com.akane.inspiration.telemetry.snapshot.SnapshotClock
 import com.akane.inspiration.telemetry.snapshot.SnapshotDiff
 import com.akane.inspiration.telemetry.snapshot.SnapshotKind
 import com.akane.inspiration.telemetry.store.Marker
+import kotlin.coroutines.ContinuationInterceptor
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -64,6 +66,9 @@ internal class FakeCockpitDeps(
     var bindingsClosed = 0
     var timelineCalls = mutableListOf<Pair<Long, Long>>()
     var timelineResult: Timeline? = emptyTimeline()
+
+    /** The dispatcher the last timeline read ran on. */
+    var timelineDispatcher: ContinuationInterceptor? = null
     var markerList: List<Marker> = emptyList()
     var createMarkerResult: Long? = 1L
     val createdLabels = mutableListOf<String>()
@@ -95,6 +100,7 @@ internal class FakeCockpitDeps(
 
     override suspend fun timeline(from: Long, to: Long): Timeline {
         timelineCalls += from to to
+        timelineDispatcher = currentCoroutineContext()[ContinuationInterceptor]
         return timelineResult ?: error("timeline unavailable")
     }
 

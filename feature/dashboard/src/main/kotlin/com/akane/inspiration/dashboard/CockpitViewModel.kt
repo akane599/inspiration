@@ -13,6 +13,8 @@ import com.akane.inspiration.telemetry.app.attempt
 import com.akane.inspiration.telemetry.diff.ReferenceKind
 import com.akane.inspiration.telemetry.snapshot.LiveReading
 import kotlinx.collections.immutable.toImmutableList
+import kotlinx.coroutines.CoroutineDispatcher
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.Flow
@@ -24,6 +26,7 @@ import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 /** Period of the live gauge while the Cockpit is on screen (spec: every 1.5 s, never otherwise). */
 internal const val LIVE_PERIOD_MS = 1_500L
@@ -35,9 +38,13 @@ internal const val CHART_WINDOW_MS = 24L * 3_600_000
  * Cockpit state holder (H5). It is Activity-scoped, so it outlives the tab; everything that reads from the device
  * is therefore tied to [CockpitIntent.Visible] / [CockpitIntent.Hidden] and never to the ViewModel's lifetime (H13):
  * the live readings job and the Shizuku binding exist only between the two. The in-process flows (analysis,
- * selection, Shizuku state) are passive and are collected for the ViewModel's whole life.
+ * selection, Shizuku state) are passive and are collected for the ViewModel's whole life. The chart's timeline is
+ * read and shaped on [shapingDispatcher], never on the main thread.
  */
-class CockpitViewModel(private val deps: CockpitDependencies) : ViewModel() {
+class CockpitViewModel(
+    private val deps: CockpitDependencies,
+    private val shapingDispatcher: CoroutineDispatcher = Dispatchers.Default,
+) : ViewModel() {
 
     private val _state = MutableStateFlow(CockpitState.Initial)
     val state: StateFlow<CockpitState> = _state.asStateFlow()
@@ -159,10 +166,12 @@ class CockpitViewModel(private val deps: CockpitDependencies) : ViewModel() {
 
     private suspend fun loadTimeline() {
         val to = deps.clocks.wallMs()
-        val timeline = attempt { deps.timeline(to - CHART_WINDOW_MS, to) }
+        val chart = withContext(shapingDispatcher) {
+            attempt { deps.timeline(to - CHART_WINDOW_MS, to) }?.let(::scrubChartData)
+        }
         _state.update {
             when {
-                timeline != null -> it.copy(chart = ChartUi.Ready(scrubChartData(timeline)))
+                chart != null -> it.copy(chart = ChartUi.Ready(chart))
                 it.chart is ChartUi.Ready -> it
                 else -> it.copy(chart = ChartUi.Failed)
             }

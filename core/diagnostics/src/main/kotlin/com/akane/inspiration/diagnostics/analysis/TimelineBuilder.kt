@@ -32,7 +32,8 @@ object TimelineBuilder {
         if (to < from) return Timeline(emptyList(), emptyList(), emptyList(), emptyList(), from, to)
         val ordered = events.filter { it.wallMs in 0..to }.sortedBy { it.wallMs }
         val spans = Spans.scan(ordered, to)
-        val maintenance = spans.gaps.filter { it.isMaintenance(spans) }
+        // A set, so sorting the remaining gaps into AWAKE is one lookup per gap; it keeps the gaps' time order.
+        val maintenance = spans.gaps.filterTo(LinkedHashSet()) { it.isMaintenance(spans) }
         return Timeline(
             segments = segments(spans, maintenance, from, to),
             levelPoints = points(ordered, from, to) { it.levelPct.toFloat() },
@@ -47,9 +48,9 @@ object TimelineBuilder {
         endMs - startMs <= MAINTENANCE_MAX_GAP_MS &&
             spans.screen.none { overlaps(it) } && spans.charging.none { overlaps(it) }
 
-    private fun segments(spans: Spans, maintenance: List<Span>, from: Long, to: Long): List<TimelineSegment> {
+    private fun segments(spans: Spans, maintenance: Set<Span>, from: Long, to: Long): List<TimelineSegment> {
         val all = ArrayList<TimelineSegment>()
-        fun add(kind: SegmentKind, list: List<Span>) {
+        fun add(kind: SegmentKind, list: Collection<Span>) {
             list.forEach { span ->
                 val start = maxOf(span.startMs, from)
                 val end = minOf(span.endMs, to)
@@ -74,7 +75,7 @@ object TimelineBuilder {
         .filter { it.kind == HistoryKind.LEVEL && it.wallMs in from..to }
         .map { TimelinePoint(it.wallMs, value(it)) }
 
-    private fun wakePulses(ordered: List<HistoryEvent>, maintenance: List<Span>, from: Long, to: Long): List<Long> {
+    private fun wakePulses(ordered: List<HistoryEvent>, maintenance: Set<Span>, from: Long, to: Long): List<Long> {
         val idleOns = ordered.filter { it.kind == HistoryKind.DEEP_IDLE_ON || it.kind == HistoryKind.LIGHT_IDLE_ON }
             .map { it.wallMs }
         var next = 0

@@ -152,14 +152,15 @@ class AppContainer(context: Context) :
 
     /**
      * The window's events plus the last of each state track before [from], so a window that opens mid screen-on,
-     * mid charge or mid Doze still shows that state (see [TimelineEvents]).
+     * mid charge or mid Doze still shows that state (see [TimelineEvents]). Building walks every event of the
+     * window, which for a multi-day interval is far too much for the main thread the screens call from.
      */
-    override suspend fun timeline(from: Long, to: Long): Timeline {
+    override suspend fun timeline(from: Long, to: Long): Timeline = withContext(Dispatchers.Default) {
         val events = TimelineEvents.withSeeds(
             before = store.lastHistoryOfEachKindBefore(from),
             inWindow = store.historyBetween(from, to),
         )
-        return TimelineBuilder.build(events, from, to)
+        TimelineBuilder.build(events, from, to)
     }
 
     override suspend fun historyBetween(from: Long, to: Long): List<HistoryEvent> = store.historyBetween(from, to)

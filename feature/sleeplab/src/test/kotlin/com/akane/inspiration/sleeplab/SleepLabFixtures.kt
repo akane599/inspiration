@@ -29,7 +29,9 @@ import com.akane.inspiration.telemetry.snapshot.SnapshotClock
 import com.akane.inspiration.telemetry.snapshot.SnapshotDiff
 import com.akane.inspiration.telemetry.snapshot.SnapshotKind
 import com.akane.inspiration.telemetry.snapshot.UidDelta
+import kotlin.coroutines.ContinuationInterceptor
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.flow.MutableStateFlow
 
 internal const val HOUR_MS = 3_600_000L
@@ -49,6 +51,9 @@ internal class FakeSleepLabDeps : SleepLabDependencies {
     var refreshGate: CompletableDeferred<Unit>? = null
     val timelineCalls = mutableListOf<Pair<Long, Long>>()
     var timelineResult: Timeline? = emptyTimeline()
+
+    /** The dispatcher the last timeline read ran on. */
+    var timelineDispatcher: ContinuationInterceptor? = null
     var dictionary = DiagnosticDictionary(emptyList())
 
     override suspend fun refresh(): RefreshResult {
@@ -59,6 +64,7 @@ internal class FakeSleepLabDeps : SleepLabDependencies {
 
     override suspend fun timeline(from: Long, to: Long): Timeline {
         timelineCalls += from to to
+        timelineDispatcher = currentCoroutineContext()[ContinuationInterceptor]
         return timelineResult ?: error("timeline unavailable")
     }
 

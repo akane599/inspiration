@@ -22,6 +22,7 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertSame
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
@@ -43,7 +44,7 @@ class SleepLabViewModelTest {
         Dispatchers.resetMain()
     }
 
-    private fun TestScope.viewModel(): SleepLabViewModel = SleepLabViewModel(deps).also { runCurrent() }
+    private fun TestScope.viewModel(): SleepLabViewModel = SleepLabViewModel(deps, shapingDispatcher = dispatcher).also { runCurrent() }
 
     private fun TestScope.visible(vm: SleepLabViewModel) {
         vm.onIntent(SleepLabIntent.Visible)
@@ -200,6 +201,19 @@ class SleepLabViewModelTest {
         val hypnogram = vm.state.value.hypnogram as HypnogramUi.Ready
         assertEquals(listOf(HypnogramStage.LIGHT_IDLE, HypnogramStage.DEEP_IDLE), hypnogram.data.segments.map { it.stage })
         assertEquals(listOf(NOW_MS - 4 * HOUR_MS), hypnogram.data.wakePulsesMs.toList())
+    }
+
+    @Test
+    fun `the hypnogram's timeline is built and shaped on the shaping dispatcher, not the main thread`() = runTest(dispatcher) {
+        deps.timelineResult = night
+        deps.analysis.value = ready(intervalAnalysis())
+        val shaping = StandardTestDispatcher(testScheduler, name = "shaping")
+        val vm = SleepLabViewModel(deps, shapingDispatcher = shaping).also { runCurrent() }
+
+        visible(vm)
+
+        assertSame(shaping, deps.timelineDispatcher)
+        assertTrue(vm.state.value.hypnogram is HypnogramUi.Ready)
     }
 
     @Test
