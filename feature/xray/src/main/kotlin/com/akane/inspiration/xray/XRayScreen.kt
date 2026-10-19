@@ -55,6 +55,7 @@ import com.akane.inspiration.designsystem.theme.numericTypography
 import com.akane.inspiration.designsystem.theme.spacing
 import com.akane.inspiration.diagnostics.dictionary.EntryKind
 import com.akane.inspiration.diagnostics.dictionary.Explanation
+import java.util.Locale
 import java.util.TimeZone
 import kotlinx.collections.immutable.ImmutableList
 import kotlinx.collections.immutable.persistentListOf
@@ -420,13 +421,17 @@ internal fun AppIcon(app: AppRow, name: String, loadIcon: AppIconLoader, modifie
             contentAlignment = Alignment.Center,
         ) {
             Text(
-                text = name.firstOrNull { it.isLetterOrDigit() }?.uppercaseChar()?.toString().orEmpty(),
+                text = monogram(name, currentLocale()),
                 style = MaterialTheme.typography.labelLarge,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
     }
 }
+
+/** The tile's letter: the first letter or digit of [name], upper-cased by [locale]'s rules (Turkish `i` becomes `İ`). */
+internal fun monogram(name: String, locale: Locale): String =
+    name.firstOrNull { it.isLetterOrDigit() }?.uppercase(locale).orEmpty()
 
 /** The name of the thing a sheet or card is about: a heading in the strongest title style (see [CardTitle] for sections). */
 @Composable

@@ -62,6 +62,7 @@ import com.akane.inspiration.designsystem.theme.statusColors
 import com.akane.inspiration.ipc.toolkit.AppOp
 import com.akane.inspiration.ipc.toolkit.StandbyBucket
 import com.akane.inspiration.telemetry.toolkit.ToolkitWarning
+import java.util.Locale
 
 // ---- picker --------------------------------------------------------------------------------------
 
@@ -177,13 +178,17 @@ internal fun AppIcon(app: AppItem, loadIcon: AppIconLoader, modifier: Modifier =
             contentAlignment = Alignment.Center,
         ) {
             Text(
-                text = app.label.firstOrNull { it.isLetterOrDigit() }?.uppercaseChar()?.toString().orEmpty(),
+                text = monogram(app.label, currentLocale()),
                 style = MaterialTheme.typography.labelLarge,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
     }
 }
+
+/** The tile's letter: the first letter or digit of [label], upper-cased by [locale]'s rules (Turkish `i` becomes `İ`). */
+internal fun monogram(label: String, locale: Locale): String =
+    label.firstOrNull { it.isLetterOrDigit() }?.uppercase(locale).orEmpty()
 
 // ---- detail sheet --------------------------------------------------------------------------------
 
