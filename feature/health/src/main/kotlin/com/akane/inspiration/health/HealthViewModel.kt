@@ -45,8 +45,9 @@ private class HealthInputs(
  * lifetime (H13): the live readings job and the Shizuku binding exist only while the screen is visible *and* the
  * phone is charging. Background charging is not recorded here; it shows up as battery-history events (H9).
  */
-class HealthViewModel(private val deps: HealthDependencies) : ViewModel() {
-
+class HealthViewModel(
+    private val deps: HealthDependencies,
+) : ViewModel() {
     private val _state = MutableStateFlow(HealthState.Initial)
     val state: StateFlow<HealthState> = _state.asStateFlow()
 
@@ -55,6 +56,9 @@ class HealthViewModel(private val deps: HealthDependencies) : ViewModel() {
 
     private var visible = false
     private var charging = false
+    private var plugStateKnown = false
+    private var observedPlugMs: Long? = null
+    private var observedUnplugMs: Long? = null
     private var liveJob: Job? = null
     private var refreshJob: Job? = null
 
@@ -63,7 +67,7 @@ class HealthViewModel(private val deps: HealthDependencies) : ViewModel() {
     private var binding: AutoCloseable? = null
     private var inputs: HealthInputs? = null
 
-    /** Readings collected since the screen became visible, newest last. Persisted by the source as well. */
+    /** Readings for the current or just-completed observed charge. Persisted by the source as well. */
     private val live = ArrayList<CurvePoint>()
 
     fun onIntent(intent: HealthIntent) {
@@ -89,11 +93,27 @@ class HealthViewModel(private val deps: HealthDependencies) : ViewModel() {
         charging = false
         syncLive()
         live.clear()
+        plugStateKnown = false
+        observedPlugMs = null
+        observedUnplugMs = null
         render()
     }
 
     private fun onPlugChanged(nowCharging: Boolean) {
+        val hadPlugState = plugStateKnown
+        plugStateKnown = true
         if (charging == nowCharging) return
+        // The first sticky state can arrive mid-charge; only an observed transition is a boundary.
+        if (hadPlugState) {
+            val at = deps.clocks.wallMs()
+            if (nowCharging) {
+                observedPlugMs = at
+                observedUnplugMs = null
+                live.clear()
+            } else {
+                observedUnplugMs = at
+            }
+        }
         charging = nowCharging
         syncLive()
         // The charge that just ended is in storage now; pick it up without waiting for a pull.
@@ -106,11 +126,13 @@ class HealthViewModel(private val deps: HealthDependencies) : ViewModel() {
         val wanted = visible && charging
         if (wanted && liveJob == null) {
             binding = deps.holdBinding()
-            liveJob = viewModelScope.launch {
-                deps.liveReadings(CURVE_PERIOD_MS)
-                    .catch { /* A failed live read leaves the curve as it was; it must not take the screen down. */ }
-                    .collect { reading -> if (visible && charging) onReading(reading) }
-            }
+            liveJob =
+                viewModelScope.launch {
+                    deps
+                        .liveReadings(CURVE_PERIOD_MS)
+                        .catch { /* A failed live read leaves the curve as it was; it must not take the screen down. */ }
+                        .collect { reading -> if (visible && charging) onReading(reading) }
+                }
         } else if (!wanted && liveJob != null) {
             liveJob?.cancel()
             liveJob = null
@@ -139,42 +161,45 @@ class HealthViewModel(private val deps: HealthDependencies) : ViewModel() {
             _state.update { it.copy(refreshing = true) }
         }
         if (refreshJob?.isActive == true) return
-        refreshJob = viewModelScope.launch {
-            try {
-                load()
-                when (attempt { deps.refresh() }) {
-                    is RefreshResult.Refreshed -> load()
-                    is RefreshResult.Debounced -> Unit
-                    is RefreshResult.Failed, null -> if (userWaiting) effectChannel.trySend(HealthEffect.RefreshFailed)
+        refreshJob =
+            viewModelScope.launch {
+                try {
+                    load()
+                    when (attempt { deps.refresh() }) {
+                        is RefreshResult.Refreshed -> load()
+                        is RefreshResult.Debounced -> Unit
+                        is RefreshResult.Failed, null -> if (userWaiting) effectChannel.trySend(HealthEffect.RefreshFailed)
+                    }
+                } finally {
+                    userWaiting = false
+                    _state.update { it.copy(refreshing = false) }
                 }
-            } finally {
-                userWaiting = false
-                _state.update { it.copy(refreshing = false) }
             }
-        }
     }
 
     private suspend fun load() {
         val to = deps.clocks.wallMs()
         val from = to - DATA_WINDOW_MS
         var kernelFailed = false
-        val kernel = try {
-            deps.kernelBattery()
-        } catch (e: CancellationException) {
-            throw e
-        } catch (_: Exception) {
-            kernelFailed = true
-            null
-        }
-        inputs = HealthInputs(
-            kernel = kernel,
-            kernelFailed = kernelFailed,
-            healthSamples = attempt { deps.healthSamples() },
-            sessions = attempt { deps.chargeSessions() },
-            history = attempt { deps.historyBetween(from, to) },
-            samples = attempt { deps.samplesBetween(from, to) },
-            loadedAtMs = to,
-        )
+        val kernel =
+            try {
+                deps.kernelBattery()
+            } catch (e: CancellationException) {
+                throw e
+            } catch (_: Exception) {
+                kernelFailed = true
+                null
+            }
+        inputs =
+            HealthInputs(
+                kernel = kernel,
+                kernelFailed = kernelFailed,
+                healthSamples = attempt { deps.healthSamples() },
+                sessions = attempt { deps.chargeSessions() },
+                history = attempt { deps.historyBetween(from, to) },
+                samples = attempt { deps.samplesBetween(from, to) },
+                loadedAtMs = to,
+            )
         render()
     }
 
@@ -186,25 +211,36 @@ class HealthViewModel(private val deps: HealthDependencies) : ViewModel() {
         }
         val nowMs = deps.clocks.wallMs()
         val liveActive = liveJob != null
-        val sampled = (loaded.samples.orEmpty().mapNotNull { it.toCurvePoint() } + live)
-            .distinctBy { it.wallMs }
-            .sortedBy { it.wallMs }
+        val sampled =
+            (loaded.samples.orEmpty().mapNotNull { it.toCurvePoint() } + live)
+                .distinctBy { it.wallMs }
+                .sortedBy { it.wallMs }
         val historyPoints = loaded.history.orEmpty().mapNotNull { it.toCurvePoint() }
-        val span = effectiveChargeSpan(loaded.history?.let(::lastChargeSpan), sampled, hasLive = live.isNotEmpty())
-        val session = chargeSession(span, sampled, historyPoints, hasLive = live.isNotEmpty())
+        val inferredSpan = effectiveChargeSpan(loaded.history?.let(::lastChargeSpan), sampled, hasLive = live.isNotEmpty())
+        // Observed edges outrank stale history and gap heuristics, for persisted points as well as live ones.
+        val observedSpan =
+            observedPlugMs?.let { start ->
+                ChargeSpan(start, observedUnplugMs?.coerceAtLeast(start))
+            } ?: observedUnplugMs?.let { end ->
+                inferredSpan?.let { ChargeSpan(minOf(it.startMs, end), end) }
+            }
+        val span = observedSpan ?: inferredSpan
+        val session = chargeSession(span, sampled, historyPoints, hasLive = observedSpan == null && live.isNotEmpty())
         val curve = curveUi(session, liveActive)
         val card = healthCard(loaded.kernel, loaded.healthSamples.orEmpty(), loaded.sessions.orEmpty())
         val wear = wearUi(loaded.healthSamples.orEmpty())
         val analysis = if (curve is CurveUi.Ready) wearAnalysis(session, span, nowMs, liveActive) else null
-        val nothing = loaded.kernel == null && loaded.healthSamples.orEmpty().isEmpty() &&
-            loaded.sessions.orEmpty().isEmpty() && curve is CurveUi.None && !charging
+        val nothing =
+            loaded.kernel == null && loaded.healthSamples.orEmpty().isEmpty() &&
+                loaded.sessions.orEmpty().isEmpty() && curve is CurveUi.None && !charging
         _state.update {
             it.copy(
-                phase = when {
-                    loaded.everyReadFailed -> HealthPhase.Error
-                    nothing -> HealthPhase.Empty
-                    else -> HealthPhase.Ready
-                },
+                phase =
+                    when {
+                        loaded.everyReadFailed -> HealthPhase.Error
+                        nothing -> HealthPhase.Empty
+                        else -> HealthPhase.Ready
+                    },
                 charging = charging,
                 curve = curve,
                 card = card,
@@ -222,8 +258,9 @@ class HealthViewModel(private val deps: HealthDependencies) : ViewModel() {
     }
 
     companion object {
-        fun factory(deps: HealthDependencies): ViewModelProvider.Factory = viewModelFactory {
-            initializer { HealthViewModel(deps) }
-        }
+        fun factory(deps: HealthDependencies): ViewModelProvider.Factory =
+            viewModelFactory {
+                initializer { HealthViewModel(deps) }
+            }
     }
 }
