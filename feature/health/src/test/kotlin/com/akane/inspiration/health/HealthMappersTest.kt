@@ -145,6 +145,41 @@ class HealthMappersTest {
     }
 
     @Test
+    fun `an unplug reset still ends a charge whose plug-in is before the window`() {
+        // Plugged at 23:10, unplugged with a reset at 07:05, Health opened at 23:30 the next day: the 24 h window
+        // begins mid-charge, so the PLUGGED is outside it and only the charging levels, the RESET and its UNPLUGGED remain.
+        val events =
+            listOf(
+                event(30 * MIN_MS, level = 80),
+                event(2 * HOUR_MS, level = 95),
+                event(8 * HOUR_MS, HistoryKind.RESET).copy(plugType = 0),
+                event(8 * HOUR_MS, HistoryKind.SCREEN_ON).copy(plugType = 0),
+                event(8 * HOUR_MS, HistoryKind.UNPLUGGED).copy(plugType = 0),
+                event(9 * HOUR_MS, level = 99).copy(plugType = 0),
+            )
+
+        assertEquals(ChargeSpan(30 * MIN_MS, 8 * HOUR_MS), lastChargeSpan(events))
+    }
+
+    @Test
+    fun `a reset on battery with no unplug after it invents no charge`() {
+        // A manual reset on battery: plugType 0 and no plugged flag, so no UNPLUGGED follows it.
+        val events =
+            listOf(
+                event(HOUR_MS, level = 60).copy(plugType = 0),
+                event(2 * HOUR_MS, HistoryKind.RESET).copy(plugType = 0),
+                event(2 * HOUR_MS, HistoryKind.SCREEN_OFF).copy(plugType = 0),
+                event(3 * HOUR_MS, level = 59).copy(plugType = 0),
+            )
+
+        assertNull(lastChargeSpan(events))
+        // A later charge in the window is still found.
+        val charged =
+            events + event(4 * HOUR_MS, HistoryKind.PLUGGED) + event(5 * HOUR_MS, HistoryKind.UNPLUGGED).copy(plugType = 0)
+        assertEquals(ChargeSpan(4 * HOUR_MS, 5 * HOUR_MS), lastChargeSpan(charged))
+    }
+
+    @Test
     fun `retained live buffer does not reopen a completed charge`() {
         val span = ChargeSpan(0, 60 * MIN_MS)
         val buffered = listOf(point(55 * MIN_MS), point(59 * MIN_MS))

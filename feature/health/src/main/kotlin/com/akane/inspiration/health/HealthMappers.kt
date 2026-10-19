@@ -122,21 +122,24 @@ internal data class ChargeSpan(
 )
 
 /**
- * The most recent plug-in span in [events]. A window that opens mid-charge (first plug event is an unplug) starts the
- * span at the window's first event.
+ * The most recent plug-in span in [events]. A window that opens mid-charge (first plug event is an unplug, also one
+ * right after an unplug reset) starts the span at the window's first event.
  */
 internal fun lastChargeSpan(events: List<HistoryEvent>): ChargeSpan? {
     val sorted = events.sortedBy { it.wallMs }
     var open: Long? = null
     var last: ChargeSpan? = null
     var baselineKnown = false
+    // An unplug RESET met before any plug event: the window may have opened mid-charge.
+    var firstUnplugResetAt: Long? = null
     for (event in sorted) {
         when (event.kind) {
             HistoryKind.RESET -> {
                 // An unplug after a deep charge resets battery stats: that RESET carries plugType 0 and is the end of
-                // the charge (the UNPLUGGED that follows it finds nothing open).
+                // the charge. Its plugged flag is still set, so an UNPLUGGED follows at the same instant.
                 val start = open
                 if (start != null && event.plugType == 0 && event.wallMs > start) last = ChargeSpan(start, event.wallMs)
+                if (start == null && event.plugType == 0 && !baselineKnown) firstUnplugResetAt = event.wallMs
                 open = event.wallMs.takeIf { event.plugType != 0 }
                 baselineKnown = true
             }
@@ -160,7 +163,10 @@ internal fun lastChargeSpan(events: List<HistoryEvent>): ChargeSpan? {
             }
 
             HistoryKind.UNPLUGGED -> {
-                val start = open ?: sorted.firstOrNull()?.wallMs?.takeIf { !baselineKnown }
+                // Only the UNPLUGGED of that reset's own instant may still fall back; a later one follows a known
+                // unplugged baseline (a reset on battery has no UNPLUGGED of its own).
+                val midCharge = !baselineKnown || event.wallMs == firstUnplugResetAt
+                val start = open ?: sorted.firstOrNull()?.wallMs?.takeIf { midCharge }
                 if (start != null && event.wallMs > start) last = ChargeSpan(start, event.wallMs)
                 open = null
                 baselineKnown = true
