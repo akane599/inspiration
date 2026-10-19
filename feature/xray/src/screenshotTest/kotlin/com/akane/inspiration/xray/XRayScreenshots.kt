@@ -107,6 +107,23 @@ fun XRayAppsNeedSnapshots() = InspirationTheme(darkTheme = false) { Screen(XRayP
 fun XRayAppsTurkish() = InspirationTheme(darkTheme = false) { Screen(Apps) }
 
 @PreviewTest
+@Preview(name = "apps-no-readings-small", showBackground = true, widthDp = 360, heightDp = 560)
+@Composable
+fun XRayAppsNoReadingsSmall() = InspirationTheme(darkTheme = false) { Screen(XRayPreviewData.noAppReadings) }
+
+@PreviewTest
+@Preview(
+    name = "apps-no-readings-turkish-large-font",
+    showBackground = true,
+    widthDp = 360,
+    heightDp = 820,
+    locale = "tr",
+    fontScale = 1.5f,
+)
+@Composable
+fun XRayAppsNoReadingsTurkishLargeFont() = InspirationTheme(darkTheme = false) { Screen(XRayPreviewData.noAppReadings) }
+
+@PreviewTest
 @Preview(name = "components-turkish", showBackground = true, widthDp = 360, heightDp = 720, locale = "tr")
 @Composable
 fun XRayComponentsTurkish() = InspirationTheme(darkTheme = false) { Screen(Components) }

@@ -105,6 +105,15 @@ internal object XRayPreviewData {
 
     val needsSnapshots = ready.copy(tab = XRayTab.APPS, perUidAvailable = false, apps = persistentListOf(), slice = slice)
 
+    /** Full measurements can have no reportable app rows without invalidating independent component totals. */
+    val noAppReadings =
+        ready.copy(
+            tab = XRayTab.APPS,
+            apps = persistentListOf(),
+            perUidAvailable = true,
+            breakdownAvailable = true,
+        )
+
     val loaded =
         ActionsState.Loaded(
             AppControls(restricted = false, restrictionEditable = true, bucket = StandbyBucket.WORKING_SET, bucketRaw = 20),

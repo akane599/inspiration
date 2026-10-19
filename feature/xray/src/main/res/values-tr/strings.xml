@@ -71,8 +71,8 @@
     <string name="xray_apps_needs_snapshots_body">Uygulama başına değerler için aralığın başında ve sonunda tam pil kaydı gerekir. Bu aralığın bir ucunda yalnızca hafif kayıt var, bu yüzden uygulamalar sıralanamıyor. Bileşen toplamları yine de gösteriliyor.</string>
     <string name="xray_apps_unavailable_title">Uygulama dökümü yok</string>
     <string name="xray_apps_unavailable_body">Bu aralığın pil istatistiklerine, örneğin istatistik sıfırlamasından sonra, uygulama başına güvenilemiyor.</string>
-    <string name="xray_apps_none_title">Ölçülebilir enerji kullanan uygulama yok</string>
-    <string name="xray_apps_none_body">Bu aralıkta hiçbir uygulama listeye girecek kadar güç çekmedi.</string>
+    <string name="xray_apps_none_title">Raporlanabilir uygulama verisi yok</string>
+    <string name="xray_apps_none_body">Bu aralık için raporlanabilir uygulama enerji verisi yok. Bu, uygulamaların hiç enerji kullanmadığı anlamına gelmez.</string>
     <string name="xray_app_icon_placeholder">Uygulama simgesi yok</string>
 
     <!-- App detail sheet -->

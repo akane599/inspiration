@@ -71,8 +71,8 @@
     <string name="xray_apps_needs_snapshots_body">Per-app figures need a full battery snapshot at the start and at the end of the interval. One end of this interval only has a light snapshot, so apps can\'t be ranked. The component totals are still shown.</string>
     <string name="xray_apps_unavailable_title">No per-app breakdown</string>
     <string name="xray_apps_unavailable_body">The battery statistics of this interval can\'t be trusted per app, for example after a statistics reset.</string>
-    <string name="xray_apps_none_title">No app used measurable energy</string>
-    <string name="xray_apps_none_body">In this interval no app drew enough power to show up.</string>
+    <string name="xray_apps_none_title">No app readings to report</string>
+    <string name="xray_apps_none_body">There are no per-app energy figures to show for this interval. This does not mean apps used no energy.</string>
     <string name="xray_app_icon_placeholder">App icon unavailable</string>
 
     <!-- App detail sheet -->
