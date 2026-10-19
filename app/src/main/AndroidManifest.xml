@@ -29,6 +29,10 @@
         android:roundIcon="@mipmap/ic_launcher_round"
         android:supportsRtl="true"
         android:theme="@style/Theme.Inspiration">
+        <!--
+            Receives the Shizuku binder. Its onCreate also initialises Sui (root Shizuku without the manager
+            app); Sui is supported, so ShizukuManagerImpl trusts a live binder over the manager app's presence.
+        -->
         <provider
             android:name="rikka.shizuku.ShizukuProvider"
             android:authorities="${applicationId}.shizuku"

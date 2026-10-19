@@ -88,14 +88,15 @@ class ShizukuManagerReadyWaitTest {
         runTest {
             val terminal =
                 listOf(
-                    ShizukuState.NotInstalled to LateBinderFacade(binderAlive = true),
+                    // No binder and no manager app: nothing will push one (a Sui binder would already be here).
+                    ShizukuState.NotInstalled to LateBinderFacade(binderAlive = false),
                     ShizukuState.PermissionRequired to
                         LateBinderFacade(binderAlive = true, permission = PackageManager.PERMISSION_DENIED),
                     ShizukuState.PermissionDenied to
                         LateBinderFacade(binderAlive = true, permission = PackageManager.PERMISSION_DENIED, rationale = true),
                 )
             terminal.forEach { (expected, facade) ->
-                val manager = manager(facade, installed = expected != ShizukuState.NotInstalled)
+                val manager = manager(facade, managerInstalled = expected != ShizukuState.NotInstalled)
                 manager.start()
                 assertSame(expected, manager.state.value)
 
@@ -121,12 +122,13 @@ class ShizukuManagerReadyWaitTest {
 
     private fun TestScope.manager(
         facade: LateBinderFacade,
-        installed: Boolean = true,
+        managerInstalled: Boolean = true,
     ) = ShizukuManagerImpl(
         context = TestContext(),
         facade = facade,
         scope = this,
-        applicationInfoProvider = ShizukuApplicationInfoProvider { if (installed) ShizukuApplicationInfo(42, true) else null },
+        applicationInfoProvider = ShizukuApplicationInfoProvider { ShizukuApplicationInfo(42, true) },
+        managerApp = ShizukuManagerAppProbe { managerInstalled },
         ioDispatcher = StandardTestDispatcher(testScheduler),
     )
 

@@ -108,14 +108,62 @@ class ShizukuManagerImplTest {
         }
 
     @Test
-    fun start_reportsNotInstalledWhenManagerPackageIsAbsent() =
+    fun start_reportsNotInstalledWithoutABinderOrTheManagerApp() =
         runTest {
-            val fixture = Fixture(this, applicationInfo = null)
+            val fixture = Fixture(this, managerInstalled = false).apply { facade.binderAlive = false }
 
             fixture.manager.start()
 
             assertSame(ShizukuState.NotInstalled, fixture.manager.state.value)
             assertEquals(1, fixture.facade.addedBinderReceivedListeners)
+        }
+
+    // N-08: Sui (root, no manager app) hands ShizukuProvider its binder through Sui.init. A live binder is Shizuku.
+    @Test
+    fun aSuiBinderWithoutTheManagerAppIsReadyAndServesCalls() =
+        runTest {
+            val fixture = Fixture(this, managerInstalled = false).apply { facade.serverUid = 0 } // Sui runs as root
+
+            fixture.manager.start()
+
+            assertEquals(ShizukuState.Ready(0, 13), fixture.manager.state.value)
+            val result = async { fixture.manager.withTelemetryService(1_000L) { "read" } }
+            runCurrent()
+            assertEquals(1, fixture.facade.bindCalls)
+            fixture.facade.deliverServiceConnected()
+            assertEquals("read", result.await())
+        }
+
+    @Test
+    fun suiAsksForPermissionThroughTheShizukuApiWithoutTheManagerApp() =
+        runTest {
+            val fixture =
+                Fixture(this, managerInstalled = false).apply {
+                    facade.serverUid = 0
+                    facade.permissionResult = PackageManager.PERMISSION_DENIED
+                }
+            fixture.manager.start()
+            assertSame(ShizukuState.PermissionRequired, fixture.manager.state.value)
+
+            fixture.manager.requestPermission()
+            assertEquals("Sui shows its own dialog for Shizuku.requestPermission", 1, fixture.facade.permissionRequests)
+            fixture.facade.permissionResult = PackageManager.PERMISSION_GRANTED
+            fixture.facade.deliverPermissionResult(PackageManager.PERMISSION_GRANTED)
+
+            assertEquals(ShizukuState.Ready(0, 13), fixture.manager.state.value)
+        }
+
+    @Test
+    fun aBinderArrivingAfterNotInstalledIsPickedUp() =
+        runTest {
+            val fixture = Fixture(this, managerInstalled = false).apply { facade.binderAlive = false }
+            fixture.manager.start()
+            assertSame(ShizukuState.NotInstalled, fixture.manager.state.value)
+
+            fixture.facade.binderAlive = true
+            fixture.facade.deliverBinderReceived()
+
+            assertEquals(ShizukuState.Ready(2000, 13), fixture.manager.state.value)
         }
 
     @Test
@@ -497,6 +545,7 @@ class ShizukuManagerImplTest {
                         facade = facade,
                         scope = this,
                         applicationInfoProvider = ShizukuApplicationInfoProvider { ShizukuApplicationInfo(42, true) },
+                        managerApp = ShizukuManagerAppProbe { true },
                         ioDispatcher = StandardTestDispatcher(testScheduler),
                     )
                 manager.start()
@@ -818,6 +867,7 @@ class ShizukuManagerImplTest {
                         facade = facade,
                         scope = this,
                         applicationInfoProvider = ShizukuApplicationInfoProvider { ShizukuApplicationInfo(42, true) },
+                        managerApp = ShizukuManagerAppProbe { true },
                         ioDispatcher = StandardTestDispatcher(testScheduler),
                     )
                 manager.start()
@@ -1015,6 +1065,7 @@ class ShizukuManagerImplTest {
                     facade = facade,
                     scope = CoroutineScope(main),
                     applicationInfoProvider = ShizukuApplicationInfoProvider { ShizukuApplicationInfo(42, true) },
+                    managerApp = ShizukuManagerAppProbe { true },
                 )
             manager.start()
             val holder = manager.holdBinding()
@@ -1043,7 +1094,7 @@ class ShizukuManagerImplTest {
 
     private class Fixture(
         scope: TestScope,
-        applicationInfo: ShizukuApplicationInfo? = ShizukuApplicationInfo(42, true),
+        managerInstalled: Boolean = true,
     ) {
         val facade = FakeShizukuFacade()
         val manager =
@@ -1051,7 +1102,8 @@ class ShizukuManagerImplTest {
                 context = TestContext(),
                 facade = facade,
                 scope = scope,
-                applicationInfoProvider = ShizukuApplicationInfoProvider { applicationInfo },
+                applicationInfoProvider = ShizukuApplicationInfoProvider { ShizukuApplicationInfo(42, true) },
+                managerApp = ShizukuManagerAppProbe { managerInstalled },
                 ioDispatcher = StandardTestDispatcher(scope.testScheduler),
             )
 
@@ -1268,6 +1320,7 @@ class ShizukuManagerImplTest {
 
     private class FakeShizukuFacade : ShizukuFacade {
         var binderAlive = true
+        var serverUid = 2000
         var preV11 = false
         var serverVersion = 13
         var permissionResult = PackageManager.PERMISSION_GRANTED
@@ -1307,7 +1360,7 @@ class ShizukuManagerImplTest {
 
         override fun pingBinder(): Boolean = binderAlive
 
-        override fun getUid(): Int = 2000
+        override fun getUid(): Int = serverUid
 
         override fun getVersion(): Int = serverVersion
 
@@ -1384,6 +1437,10 @@ class ShizukuManagerImplTest {
 
         fun deliverBinderDeath() {
             binderDeadListener?.onBinderDead()
+        }
+
+        fun deliverBinderReceived() {
+            binderReceivedListener?.onBinderReceived()
         }
 
         fun deliverServiceConnected(binder: IBinder = Binder()) {

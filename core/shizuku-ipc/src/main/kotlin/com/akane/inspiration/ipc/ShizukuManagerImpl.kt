@@ -29,6 +29,7 @@ class ShizukuManagerImpl private constructor(
     private val facade: ShizukuFacade,
     private val scope: CoroutineScope,
     private val applicationInfoProvider: ShizukuApplicationInfoProvider,
+    private val managerApp: ShizukuManagerAppProbe,
     private val ioDispatcher: CoroutineDispatcher,
     @Suppress("unused") ignored: Unit,
 ) : ShizukuManager {
@@ -37,15 +38,24 @@ class ShizukuManagerImpl private constructor(
         facade: ShizukuFacade = RealShizukuFacade,
         scope: CoroutineScope,
         ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
-    ) : this(context, facade, scope, androidApplicationInfoProvider(context), ioDispatcher, Unit)
+    ) : this(
+        context,
+        facade,
+        scope,
+        androidApplicationInfoProvider(context),
+        androidManagerAppProbe(context),
+        ioDispatcher,
+        Unit,
+    )
 
     internal constructor(
         context: Context,
         facade: ShizukuFacade,
         scope: CoroutineScope,
         applicationInfoProvider: ShizukuApplicationInfoProvider,
+        managerApp: ShizukuManagerAppProbe,
         ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
-    ) : this(context, facade, scope, applicationInfoProvider, ioDispatcher, Unit)
+    ) : this(context, facade, scope, applicationInfoProvider, managerApp, ioDispatcher, Unit)
 
     private val mutableState = MutableStateFlow<ShizukuState>(ShizukuState.NotRunning)
     private val mutableTelemetryService = MutableStateFlow<ITelemetryUserService?>(null)
@@ -386,16 +396,14 @@ class ShizukuManagerImpl private constructor(
     }
 
     private fun refreshState() {
-        val info = applicationInfoProvider.load()
-        if (info == null) {
-            setUnavailableState(ShizukuState.NotInstalled)
+        // The binder decides, not the manager app: Sui (root) hands ShizukuProvider a binder with no manager app
+        // installed (N-08). The manager app only tells NotInstalled from NotRunning while no binder has come.
+        if (!facade.pingBinder()) {
+            setUnavailableState(if (managerApp.isInstalled()) ShizukuState.NotRunning else ShizukuState.NotInstalled)
             return
         }
-        val isPreV11 = facade.isPreV11()
-        if (!facade.pingBinder() || isPreV11) {
-            if (isPreV11) {
-                logUnsupportedVersion("Shizuku versions before v11 are unsupported")
-            }
+        if (facade.isPreV11()) {
+            logUnsupportedVersion("Shizuku versions before v11 are unsupported")
             setUnavailableState(ShizukuState.NotRunning)
             return
         }
@@ -410,6 +418,7 @@ class ShizukuManagerImpl private constructor(
 
         when (facade.checkSelfPermission()) {
             PackageManager.PERMISSION_GRANTED -> {
+                val info = applicationInfoProvider.load()
                 synchronized(bindingLock) {
                     applicationInfo = info
                     mutableState.value = ShizukuState.Ready(facade.getUid(), serverVersion)
@@ -556,17 +565,27 @@ class ShizukuManagerImpl private constructor(
 
 private fun androidApplicationInfoProvider(context: Context): ShizukuApplicationInfoProvider =
     ShizukuApplicationInfoProvider {
-        try {
-            // Null means the Shizuku manager is absent (visible via <queries> in the app manifest).
-            context.packageManager.getPackageInfo(SHIZUKU_MANAGER_PACKAGE, 0)
-            context.packageManager.getPackageInfo(context.packageName, 0).let { packageInfo ->
-                ShizukuApplicationInfo(
-                    versionCode = packageInfo.longVersionCode,
-                    debuggable = (packageInfo.applicationInfo?.flags ?: 0) and ApplicationInfo.FLAG_DEBUGGABLE != 0,
-                )
+        val packageInfo =
+            try {
+                context.packageManager.getPackageInfo(context.packageName, 0)
+            } catch (e: PackageManager.NameNotFoundException) {
+                // Not expected for the running app; refreshState's caller reports a failed read as NotRunning.
+                throw IllegalStateException("own package ${context.packageName} is not readable", e)
             }
+        ShizukuApplicationInfo(
+            versionCode = packageInfo.longVersionCode,
+            debuggable = (packageInfo.applicationInfo?.flags ?: 0) and ApplicationInfo.FLAG_DEBUGGABLE != 0,
+        )
+    }
+
+private fun androidManagerAppProbe(context: Context): ShizukuManagerAppProbe =
+    ShizukuManagerAppProbe {
+        try {
+            // Visible through <queries> in the app manifest.
+            context.packageManager.getPackageInfo(SHIZUKU_MANAGER_PACKAGE, 0)
+            true
         } catch (_: PackageManager.NameNotFoundException) {
-            null
+            false
         }
     }
 

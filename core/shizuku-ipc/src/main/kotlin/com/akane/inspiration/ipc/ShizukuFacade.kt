@@ -31,9 +31,16 @@ interface ShizukuFacade {
 
     fun removeRequestPermissionResultListener(listener: Shizuku.OnRequestPermissionResultListener)
 
-    fun bindUserService(args: Shizuku.UserServiceArgs, connection: ServiceConnection)
+    fun bindUserService(
+        args: Shizuku.UserServiceArgs,
+        connection: ServiceConnection,
+    )
 
-    fun unbindUserService(args: Shizuku.UserServiceArgs, connection: ServiceConnection, remove: Boolean)
+    fun unbindUserService(
+        args: Shizuku.UserServiceArgs,
+        connection: ServiceConnection,
+        remove: Boolean,
+    )
 }
 
 object RealShizukuFacade : ShizukuFacade {
@@ -77,7 +84,10 @@ object RealShizukuFacade : ShizukuFacade {
         Shizuku.removeRequestPermissionResultListener(listener)
     }
 
-    override fun bindUserService(args: Shizuku.UserServiceArgs, connection: ServiceConnection) {
+    override fun bindUserService(
+        args: Shizuku.UserServiceArgs,
+        connection: ServiceConnection,
+    ) {
         Shizuku.bindUserService(args, connection)
     }
 
@@ -95,15 +105,25 @@ internal data class ShizukuApplicationInfo(
     val debuggable: Boolean,
 )
 
+/** This app's own package details, which the user-service args carry. */
 internal fun interface ShizukuApplicationInfoProvider {
-    fun load(): ShizukuApplicationInfo?
+    fun load(): ShizukuApplicationInfo
+}
+
+/**
+ * Whether the Shizuku manager app is installed. Only asked when no Shizuku binder is available: Sui (root)
+ * hands ShizukuProvider a binder without any manager app, so a live binder never means "not installed" (N-08).
+ */
+internal fun interface ShizukuManagerAppProbe {
+    fun isInstalled(): Boolean
 }
 
 internal fun shizukuUserServiceArgs(
     componentName: ComponentName,
     applicationInfo: ShizukuApplicationInfo,
 ): Shizuku.UserServiceArgs =
-    Shizuku.UserServiceArgs(componentName)
+    Shizuku
+        .UserServiceArgs(componentName)
         .processNameSuffix("telemetry")
         .daemon(false)
         .version(applicationInfo.versionCode.toInt())
