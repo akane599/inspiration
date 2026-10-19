@@ -158,7 +158,9 @@ class XRayViewModel(
         selected: ReferenceKind,
     ) {
         // Until the session has recomputed after a selection change, its result belongs to the old selection.
-        when (val current = analysis.forSelection(selected)) {
+        val current = analysis.forSelection(selected)
+        if (current !is AnalysisState.Ready) closeApp()
+        when (current) {
             AnalysisState.Loading -> _state.update { it.copy(status = XRayStatus.LOADING, slice = XRayMapper.slice(selected, null)) }
             AnalysisState.Empty -> _state.update { it.copy(status = XRayStatus.EMPTY, slice = XRayMapper.slice(selected, null)) }
             is AnalysisState.Failed -> _state.update { it.copy(status = XRayStatus.FAILED, slice = XRayMapper.slice(selected, null)) }
@@ -174,6 +176,11 @@ class XRayViewModel(
         val diff = ready.analysis.diff
         val components = XRayMapper.components(diff).toImmutableList()
         val apps = withIdentities(XRayMapper.apps(diff, resolved.perUidAvailable)).toImmutableList()
+        val detail = _state.value.detail
+        if (detail != null && apps.none { it.uid == detail.app.uid && it.packageName == detail.app.packageName }) {
+            // Close through the lifecycle boundary too: stale controls, plans and confirmations must not survive.
+            closeApp()
+        }
         val slice = XRayMapper.slice(selected, resolved)
         _state.update { current ->
             current.copy(
@@ -185,13 +192,12 @@ class XRayViewModel(
                 slice = slice,
                 detail =
                     current.detail?.let { detail ->
-                        // An open sheet keeps its package: a newer row of its UID refreshes it only while it names the same one.
+                        // Only a row with the same full UID and package may refresh the open sheet.
                         apps.firstOrNull { it.uid == detail.app.uid && it.packageName == detail.app.packageName }?.let {
                             detail.copy(
                                 app = it,
                             )
                         }
-                            ?: detail
                     },
             )
         }
@@ -209,6 +215,7 @@ class XRayViewModel(
     // ---- detail sheet ----------------------------------------------------------------------
 
     private fun openApp(uid: Int) {
+        if (_state.value.status != XRayStatus.READY) return
         val app = _state.value.apps.firstOrNull { it.uid == uid } ?: return
         cancelPlanning()
         pending = null

@@ -20,8 +20,8 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
@@ -39,7 +39,6 @@ class SleepLabViewModel(
     private val deps: SleepLabDependencies,
     private val shapingDispatcher: CoroutineDispatcher = Dispatchers.Default,
 ) : ViewModel() {
-
     private val _state = MutableStateFlow(SleepLabState.Initial)
     val state: StateFlow<SleepLabState> = _state.asStateFlow()
 
@@ -48,6 +47,9 @@ class SleepLabViewModel(
 
     private val visible = MutableStateFlow(false)
     private var refreshJob: Job? = null
+
+    /** Covered measurement endpoints of the retained chart, independent of the selected reference kind. */
+    private var hypnogramWindow: Pair<Long, Long>? = null
 
     /** The user asked for the running refresh (main thread only, like every intent). */
     private var userWaiting = false
@@ -79,22 +81,50 @@ class SleepLabViewModel(
                 visible.value = true
                 startRefresh(userInitiated = false)
             }
-            SleepLabIntent.Hidden -> visible.value = false
-            SleepLabIntent.Refresh -> startRefresh(userInitiated = true)
-            is SleepLabIntent.SelectTab -> _state.update { it.copy(tab = intent.tab) }
-            SleepLabIntent.ClearSlice -> deps.selection.clearSlice()
+
+            SleepLabIntent.Hidden -> {
+                visible.value = false
+            }
+
+            SleepLabIntent.Refresh -> {
+                startRefresh(userInitiated = true)
+            }
+
+            is SleepLabIntent.SelectTab -> {
+                _state.update { it.copy(tab = intent.tab) }
+            }
+
+            SleepLabIntent.ClearSlice -> {
+                deps.selection.clearSlice()
+            }
         }
     }
 
     /** A different interval is being (re)computed, or has none: the old hypnogram would describe another period. */
-    private fun showNotReady(analysis: AnalysisUi, slice: SliceUi?) {
+    private fun showNotReady(
+        analysis: AnalysisUi,
+        slice: SliceUi?,
+    ) {
+        hypnogramWindow = null
         _state.update { it.copy(analysis = analysis, hypnogram = HypnogramUi.Loading, slice = slice) }
     }
 
-    private suspend fun showReady(analysis: IntervalAnalysis, slice: SliceUi?) {
+    private suspend fun showReady(
+        analysis: IntervalAnalysis,
+        slice: SliceUi?,
+    ) {
         val named = withOwnerPackages(analysis)
         val labels = labelsFor(named)
-        _state.update { it.copy(analysis = sleepLabAnalysis(named, labels), slice = slice) }
+        val window = analysis.resolved.coveredFromWallMs to analysis.resolved.coveredToWallMs
+        val sameWindow = hypnogramWindow == window
+        hypnogramWindow = window
+        _state.update {
+            it.copy(
+                analysis = sleepLabAnalysis(named, labels),
+                slice = slice,
+                hypnogram = if (sameWindow) it.hypnogram else HypnogramUi.Loading,
+            )
+        }
         loadHypnogram(analysis.resolved)
     }
 
@@ -104,10 +134,11 @@ class SleepLabViewModel(
      * Nothing is cached here: [SleepLabDependencies.appLabels] keeps the bounded cache, and a later emission asks again.
      */
     private suspend fun withOwnerPackages(analysis: IntervalAnalysis): IntervalAnalysis {
-        val uids = analysis.diff.uids.map { uid ->
-            val pkg = attempt { deps.appLabels.packageForUid(uid.uid, reported = uid.packageName) }
-            if (pkg == uid.packageName) uid else uid.copy(packageName = pkg)
-        }
+        val uids =
+            analysis.diff.uids.map { uid ->
+                val pkg = attempt { deps.appLabels.packageForUid(uid.uid, reported = uid.packageName) }
+                if (pkg == uid.packageName) uid else uid.copy(packageName = pkg)
+            }
         return analysis.copy(diff = analysis.diff.copy(uids = uids))
     }
 
@@ -116,14 +147,17 @@ class SleepLabViewModel(
         visiblePackages(analysis).mapNotNull { pkg -> attempt { deps.appLabels.label(pkg) }?.let { pkg to it } }.toMap()
 
     private suspend fun loadHypnogram(resolved: ResolvedReference) {
-        val hypnogram = withContext(shapingDispatcher) {
-            attempt { deps.timeline(resolved.coveredFromWallMs, resolved.coveredToWallMs) }?.let(::hypnogramData)
-        }
+        val hypnogram =
+            withContext(shapingDispatcher) {
+                attempt { deps.timeline(resolved.coveredFromWallMs, resolved.coveredToWallMs) }?.let(::hypnogramData)
+            }
         _state.update {
             when {
                 hypnogram != null -> it.copy(hypnogram = HypnogramUi.Ready(hypnogram))
-                // A refresh that could not re-read keeps what is already on screen.
+
+                // Only a failed refresh of these exact covered endpoints may retain its ready chart.
                 it.hypnogram is HypnogramUi.Ready -> it
+
                 else -> it.copy(hypnogram = HypnogramUi.Failed)
             }
         }
@@ -137,22 +171,24 @@ class SleepLabViewModel(
             _state.update { it.copy(refreshing = true) }
         }
         if (refreshJob?.isActive == true) return
-        refreshJob = viewModelScope.launch {
-            try {
-                when (attempt { deps.refresh() }) {
-                    is RefreshResult.Refreshed, is RefreshResult.Debounced -> Unit
-                    is RefreshResult.Failed, null -> if (userWaiting) effectChannel.trySend(SleepLabEffect.RefreshFailed)
+        refreshJob =
+            viewModelScope.launch {
+                try {
+                    when (attempt { deps.refresh() }) {
+                        is RefreshResult.Refreshed, is RefreshResult.Debounced -> Unit
+                        is RefreshResult.Failed, null -> if (userWaiting) effectChannel.trySend(SleepLabEffect.RefreshFailed)
+                    }
+                } finally {
+                    userWaiting = false
+                    _state.update { it.copy(refreshing = false) }
                 }
-            } finally {
-                userWaiting = false
-                _state.update { it.copy(refreshing = false) }
             }
-        }
     }
 
     companion object {
-        fun factory(deps: SleepLabDependencies): ViewModelProvider.Factory = viewModelFactory {
-            initializer { SleepLabViewModel(deps) }
-        }
+        fun factory(deps: SleepLabDependencies): ViewModelProvider.Factory =
+            viewModelFactory {
+                initializer { SleepLabViewModel(deps) }
+            }
     }
 }

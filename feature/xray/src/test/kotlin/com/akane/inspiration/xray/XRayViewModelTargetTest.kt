@@ -1,7 +1,9 @@
 package com.akane.inspiration.xray
 
+import com.akane.inspiration.diagnostics.analysis.AnalysisState
 import com.akane.inspiration.ipc.ShizukuState
 import com.akane.inspiration.ipc.toolkit.StandbyBucket
+import com.akane.inspiration.telemetry.diff.ReferenceKind
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -35,8 +37,8 @@ private const val SUITE_B = "com.example.suite.b"
 /**
  * One UID can change package between analyses: batterystats first reports a shared UID without a package, so
  * the PackageManager fallback names [SUITE_A], and a later capture names [SUITE_B] (`packageChanged` stays false
- * because one side is null). A privileged write must still go to the app the user opened and the dialog named:
- * the confirmation is pinned to its target when it is planned, and an open sheet never changes package.
+ * because one side is null). A privileged write must never be retargeted: a missing UID/package closes the
+ * sheet and its confirmation; a write already running still finishes against the package it was pinned to.
  */
 @OptIn(ExperimentalCoroutinesApi::class)
 class XRayViewModelTargetTest {
@@ -288,7 +290,7 @@ class XRayViewModelTargetTest {
     }
 
     @Test
-    fun `a confirmed force stop hits only the package the dialog named, even after a new analysis renames the uid`() {
+    fun `a missing pinned package cancels its confirmation without retargeting to the uid's sibling`() {
         openSuite()
         vm.onIntent(XRayIntent.Act(ActionRequest.ForceStop))
         val confirmation = state.confirmation
@@ -298,37 +300,199 @@ class XRayViewModelTargetTest {
         renameToSibling() // while the dialog is open
         vm.onIntent(XRayIntent.ConfirmPending)
 
-        assertTrue("a confirmed write went to a package the dialog never named: $rows", rows.none { it.pkg == SUITE_B })
-        assertEquals("the confirmed force stop ran against $SUITE_A", listOf(SUITE_A), rows.map { it.pkg })
-        assertEquals(ActionNotice.Applied(Change.ForceStopped), detail.notice)
+        assertNull("the new measured list no longer contains the dialog's target", state.detail)
+        assertNull(state.confirmation)
+        assertTrue("neither the removed package nor its sibling may be written", rows.isEmpty())
     }
 
     @Test
-    fun `an open sheet keeps its package when a new analysis renames its uid, so a tap writes to that package`() {
+    fun `a changed package closes the sheet and only explicitly reopening can act on the new package`() {
         openSuite()
 
         renameToSibling()
 
         assertEquals("the list follows the analysis", SUITE_B, state.apps.single().packageName)
-        assertEquals("the open sheet keeps the app it was opened for", SUITE_A, detail.app.packageName)
-        assertEquals("Label of $SUITE_A", detail.app.label)
-        assertTrue(detail.actions is ActionsState.Loaded)
+        assertNull("no old package or energy survives on the detail sheet", state.detail)
+        vm.onIntent(XRayIntent.Act(ActionRequest.SetBucket(StandbyBucket.WORKING_SET)))
+        assertTrue(rows.isEmpty())
 
-        vm.onIntent(XRayIntent.Act(ActionRequest.SetBucket(StandbyBucket.WORKING_SET))) // needs no confirmation
+        vm.onIntent(XRayIntent.OpenApp(SUITE_UID))
+        assertEquals(SUITE_B, detail.app.packageName)
+        assertEquals("Label of $SUITE_B", detail.app.label)
+        assertTrue(detail.actions is ActionsState.Loaded)
+        vm.onIntent(XRayIntent.Act(ActionRequest.SetBucket(StandbyBucket.WORKING_SET)))
 
         assertEquals(ActionNotice.Applied(Change.BucketSet(StandbyBucket.WORKING_SET)), detail.notice)
-        assertTrue("the controls were read for $SUITE_A, but the write went elsewhere: $rows", rows.none { it.pkg == SUITE_B })
-        assertEquals(listOf(SUITE_A), rows.map { it.pkg })
+        assertEquals(listOf(SUITE_B), rows.map { it.pkg })
     }
 
     @Test
-    fun `a newer analysis that names the same package still refreshes the open sheet's numbers`() {
+    fun `non-ready analyses close detail and confirmation and reject stale open and action intents`() {
+        val states =
+            listOf(
+                AnalysisState.Loading to XRayStatus.LOADING,
+                AnalysisState.Empty to XRayStatus.EMPTY,
+                AnalysisState.Failed("read failed") to XRayStatus.FAILED,
+            )
+        for ((analysis, expectedStatus) in states) {
+            deps.analysis.value = suiteAnalysis(packageName = SUITE_A, totalMah = 30.0)
+            openSuite()
+            vm.onIntent(XRayIntent.Act(ActionRequest.ForceStop))
+            assertNotNull(state.confirmation)
+
+            deps.analysis.value = analysis
+
+            assertEquals(expectedStatus, state.status)
+            assertNull(state.detail)
+            assertNull(state.confirmation)
+            assertTrue("the old list deliberately remains cached but is not actionable", state.apps.isNotEmpty())
+            clearToolkitCalls()
+            vm.onIntent(XRayIntent.OpenApp(SUITE_UID))
+            vm.onIntent(XRayIntent.Act(ActionRequest.ForceStop))
+            vm.onIntent(XRayIntent.ConfirmPending)
+            vm.onIntent(XRayIntent.ReloadActions)
+            assertNull(state.detail)
+            assertTrue(rows.isEmpty())
+            assertNoToolkitCalls()
+        }
+    }
+
+    @Test
+    fun `a selection awaiting its tagged analysis closes the old sheet and pending confirmation`() {
         openSuite()
+        vm.onIntent(XRayIntent.Act(ActionRequest.ForceStop))
+
+        deps.selection.select(ReferenceKind.Last24h)
+        vm.onIntent(XRayIntent.ConfirmPending)
+        vm.onIntent(XRayIntent.OpenApp(SUITE_UID))
+
+        assertEquals(XRayStatus.LOADING, state.status)
+        assertNull(state.detail)
+        assertNull(state.confirmation)
+        assertTrue(rows.isEmpty())
+    }
+
+    @Test
+    fun `same-kind automatic power-boundary refresh closes detail when no measured UID package row survives`() {
+        val absentRows =
+            listOf(
+                diffOf(),
+                diffOf(uids = listOf(uidDelta(SUITE_UID, SUITE_A, 0.0))),
+                diffOf(uids = listOf(uidDelta(SUITE_UID, SUITE_A, 30.0, valid = false))),
+                diffOf(uids = listOf(uidDelta(SUITE_UID, SUITE_A, 30.0, packageChanged = true))),
+                diffOf(uids = listOf(uidDelta(SUITE_UID, SUITE_A, 30.0)), batteryStats = false),
+                diffOf(uids = listOf(uidDelta(10_001, MAPS, 20.0))),
+            ).map { readyOf(it, resolved = resolvedOf(HOUR_MS, 2 * HOUR_MS)) } +
+                readyOf(
+                    diffOf(uids = listOf(uidDelta(SUITE_UID, SUITE_A, 30.0))),
+                    resolved = resolvedOf(HOUR_MS, 2 * HOUR_MS, perUidAvailable = false),
+                )
+        for (refreshed in absentRows) {
+            deps.analysis.value = suiteAnalysis(packageName = SUITE_A, totalMah = 30.0)
+            openSuite()
+            vm.onIntent(XRayIntent.Act(ActionRequest.ForceStop))
+
+            deps.analysis.value = refreshed
+
+            assertEquals(XRayStatus.READY, state.status)
+            assertNull(state.detail)
+            assertNull(state.confirmation)
+            assertFalse(state.apps.any { it.uid == SUITE_UID })
+            clearToolkitCalls()
+            vm.onIntent(XRayIntent.OpenApp(SUITE_UID))
+            vm.onIntent(XRayIntent.ConfirmPending)
+            assertNull(state.detail)
+            assertTrue(rows.isEmpty())
+            assertNoToolkitCalls()
+        }
+    }
+
+    @Test
+    fun `a failed analysis received while hidden closes the retained detail when visible again`() {
+        openSuite()
+        vm.onIntent(XRayIntent.Hidden)
+        deps.analysis.value = AnalysisState.Failed("new interval unavailable")
+
+        vm.onIntent(XRayIntent.Visible)
+        vm.onIntent(XRayIntent.OpenApp(SUITE_UID))
+
+        assertEquals(XRayStatus.FAILED, state.status)
+        assertNull(state.detail)
+        assertNull(state.confirmation)
+    }
+
+    @Test
+    fun `a package lookup that no longer resolves closes the old actionable sheet`() {
+        openSuite()
+        vm.onIntent(XRayIntent.Act(ActionRequest.ForceStop))
+        deps.packagesByUid[SUITE_UID] = emptyList()
+
+        deps.analysis.value = suiteAnalysis(packageName = SUITE_A, totalMah = 31.0)
+        vm.onIntent(XRayIntent.ConfirmPending)
+
+        assertNull(state.detail)
+        assertNull(state.confirmation)
+        assertNull(state.apps.single().packageName)
+        assertTrue(rows.isEmpty())
+        vm.onIntent(XRayIntent.OpenApp(SUITE_UID))
+        assertEquals(ActionsState.NoPackage, detail.actions)
+    }
+
+    @Test
+    fun `an invalidated measurement cancels in-flight planning before a confirmation or write can appear`() {
+        for (next in listOf(AnalysisState.Loading, readyOf(diffOf()))) {
+            deps.analysis.value = suiteAnalysis(packageName = SUITE_A, totalMah = 30.0)
+            openSuite()
+            val gate = CompletableDeferred<Unit>()
+            deps.device.gate = gate
+            vm.onIntent(XRayIntent.Act(ActionRequest.ForceStop))
+            assertTrue(detail.busy)
+
+            deps.analysis.value = next
+            gate.complete(Unit)
+            deps.device.gate = null
+            vm.onIntent(XRayIntent.ConfirmPending)
+
+            assertNull(state.detail)
+            assertNull(state.confirmation)
+            assertTrue(rows.isEmpty())
+            assertTrue(deps.device.writes.isEmpty())
+        }
+    }
+
+    @Test
+    fun `a write already running may finish after a measurement disappears but cannot reopen detail`() {
+        openSuite()
+        vm.onIntent(XRayIntent.Act(ActionRequest.ForceStop))
+        val gate = CompletableDeferred<Unit>()
+        deps.device.gate = gate
+        vm.onIntent(XRayIntent.ConfirmPending)
+        assertTrue(detail.busy)
+
+        deps.analysis.value = readyOf(diffOf(), resolved = resolvedOf(HOUR_MS, 2 * HOUR_MS))
+        assertNull(state.detail)
+        gate.complete(Unit)
+
+        assertEquals(listOf(SUITE_A), rows.map { it.pkg })
+        assertEquals(listOf("forceStop"), deps.device.writes)
+        assertNull(state.detail)
+        assertNull(state.confirmation)
+    }
+
+    @Test
+    fun `a newer matching row refreshes numbers and preserves the confirmation's pinned target`() {
+        openSuite()
+        vm.onIntent(XRayIntent.Act(ActionRequest.ForceStop))
+        val confirmation = state.confirmation
 
         deps.analysis.value = suiteAnalysis(packageName = SUITE_A, totalMah = 45.0)
 
         assertEquals(SUITE_A, detail.app.packageName)
         assertEquals(45.0, detail.app.totalMah, 0.0)
+        assertEquals(confirmation, state.confirmation)
+        vm.onIntent(XRayIntent.ConfirmPending)
+        assertEquals(listOf(SUITE_A), rows.map { it.pkg })
+        assertEquals(ActionNotice.Applied(Change.ForceStopped), detail.notice)
     }
 
     @Test
@@ -338,9 +502,9 @@ class XRayViewModelTargetTest {
         val binder = CompletableDeferred<Unit>()
         deps.device.gate = binder // the write's Binder round trip is slow
         vm.onIntent(XRayIntent.ConfirmPending)
-        vm.onIntent(XRayIntent.CloseApp)
 
         renameToSibling()
+        assertNull("the automatic refresh closes the missing UID/package", state.detail)
         vm.onIntent(XRayIntent.OpenApp(SUITE_UID))
         assertEquals("precondition: the reopened sheet is for the new package", SUITE_B, detail.app.packageName)
         binder.complete(Unit)

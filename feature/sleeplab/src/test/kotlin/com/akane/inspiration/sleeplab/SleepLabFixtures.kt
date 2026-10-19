@@ -29,10 +29,10 @@ import com.akane.inspiration.telemetry.snapshot.SnapshotClock
 import com.akane.inspiration.telemetry.snapshot.SnapshotDiff
 import com.akane.inspiration.telemetry.snapshot.SnapshotKind
 import com.akane.inspiration.telemetry.snapshot.UidDelta
-import kotlin.coroutines.ContinuationInterceptor
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlin.coroutines.ContinuationInterceptor
 
 internal const val HOUR_MS = 3_600_000L
 internal const val MIN_MS = 60_000L
@@ -52,6 +52,9 @@ internal class FakeSleepLabDeps : SleepLabDependencies {
     val timelineCalls = mutableListOf<Pair<Long, Long>>()
     var timelineResult: Timeline? = emptyTimeline()
 
+    /** While set, a timeline read suspends so tests can inspect the independently published analysis. */
+    var timelineGate: CompletableDeferred<Unit>? = null
+
     /** The dispatcher the last timeline read ran on. */
     var timelineDispatcher: ContinuationInterceptor? = null
     var dictionary = DiagnosticDictionary(emptyList())
@@ -62,16 +65,22 @@ internal class FakeSleepLabDeps : SleepLabDependencies {
         return refreshResult
     }
 
-    override suspend fun timeline(from: Long, to: Long): Timeline {
+    override suspend fun timeline(
+        from: Long,
+        to: Long,
+    ): Timeline {
         timelineCalls += from to to
         timelineDispatcher = currentCoroutineContext()[ContinuationInterceptor]
+        timelineGate?.await()
         return timelineResult ?: error("timeline unavailable")
     }
 
     override fun dictionary(): DiagnosticDictionary = dictionary
 }
 
-internal class FakeAppLabels(val labels: MutableMap<String, String> = mutableMapOf()) : AppLabels {
+internal class FakeAppLabels(
+    val labels: MutableMap<String, String> = mutableMapOf(),
+) : AppLabels {
     val looked = mutableListOf<String>()
 
     override suspend fun label(packageName: String): String {
@@ -95,28 +104,35 @@ internal class FakeAppLabels(val labels: MutableMap<String, String> = mutableMap
     }
 }
 
-internal fun emptyTimeline(from: Long = NOW_MS - 10 * HOUR_MS, to: Long = NOW_MS) =
-    Timeline(emptyList(), emptyList(), emptyList(), emptyList(), from, to)
+internal fun emptyTimeline(
+    from: Long = NOW_MS - 10 * HOUR_MS,
+    to: Long = NOW_MS,
+) = Timeline(emptyList(), emptyList(), emptyList(), emptyList(), from, to)
 
-internal fun segment(kind: SegmentKind, from: Long, to: Long) = TimelineSegment(kind, from, to)
+internal fun segment(
+    kind: SegmentKind,
+    from: Long,
+    to: Long,
+) = TimelineSegment(kind, from, to)
 
 internal fun snapshotClock(wallMs: Long) = SnapshotClock(wallMs, wallMs, wallMs, 1, statsStartMs = 0, statsDurationMs = wallMs)
 
-internal fun snapshot(wallMs: Long) = BatterySnapshot(
-    id = wallMs,
-    kind = SnapshotKind.FULL,
-    trigger = CaptureTrigger.APP_OPEN,
-    clock = snapshotClock(wallMs),
-    battery = BatteryState(80, false, null, 300, 4_000, -300, null, null),
-    system = null,
-    uids = emptyList(),
-    deviceComponentsMah = emptyMap(),
-    kernelWakelocks = emptyList(),
-    wakeupReasons = emptyList(),
-    cpuFreq = emptyList(),
-    availability = emptyMap(),
-    truncatedUids = 0,
-)
+internal fun snapshot(wallMs: Long) =
+    BatterySnapshot(
+        id = wallMs,
+        kind = SnapshotKind.FULL,
+        trigger = CaptureTrigger.APP_OPEN,
+        clock = snapshotClock(wallMs),
+        battery = BatteryState(80, false, null, 300, 4_000, -300, null, null),
+        system = null,
+        uids = emptyList(),
+        deviceComponentsMah = emptyMap(),
+        kernelWakelocks = emptyList(),
+        wakeupReasons = emptyList(),
+        cpuFreq = emptyList(),
+        availability = emptyMap(),
+        truncatedUids = 0,
+    )
 
 internal fun resolved(
     boundaryFrom: Long = NOW_MS - 10 * HOUR_MS,
@@ -135,13 +151,29 @@ internal fun resolved(
     perUidAvailable = perUidAvailable,
 )
 
-internal fun intervalMetrics() = IntervalMetrics(
-    fromWallMs = NOW_MS - 10 * HOUR_MS, toWallMs = NOW_MS, screenOnMs = 2 * HOUR_MS, screenOffMs = 8 * HOUR_MS,
-    unknownMs = 0, chargingMs = 0, startLevel = 90, endLevel = 60, levelUsedPct = 30, levelDropScreenOn = 16,
-    levelDropScreenOff = 4, screenOnPctPerHour = 8.2, screenOffPctPerHour = 0.5, discontinuities = emptyList(),
-)
+internal fun intervalMetrics() =
+    IntervalMetrics(
+        fromWallMs = NOW_MS - 10 * HOUR_MS,
+        toWallMs = NOW_MS,
+        screenOnMs = 2 * HOUR_MS,
+        screenOffMs = 8 * HOUR_MS,
+        unknownMs = 0,
+        chargingMs = 0,
+        startLevel = 90,
+        endLevel = 60,
+        levelUsedPct = 30,
+        levelDropScreenOn = 16,
+        levelDropScreenOff = 4,
+        screenOnPctPerHour = 8.2,
+        screenOffPctPerHour = 0.5,
+        discontinuities = emptyList(),
+    )
 
-internal fun wakelock(name: String, durationMs: Long, count: Long) = UidWakelock(name, durationMs, bgDurationMs = 0, count = count)
+internal fun wakelock(
+    name: String,
+    durationMs: Long,
+    count: Long,
+) = UidWakelock(name, durationMs, bgDurationMs = 0, count = count)
 
 internal fun uidDelta(
     uid: Int,
@@ -151,9 +183,24 @@ internal fun uidDelta(
     alarms: List<UidAlarm> = emptyList(),
     alarmDump: List<UidAlarm> = emptyList(),
 ) = UidDelta(
-    uid = uid, packageName = packageName, packageChanged = false, valid = valid, totalMah = 1.0, fgMah = null, bgMah = null,
-    fgsMah = null, cachedMah = null, componentsMah = emptyMap(), cpuUserMs = 0, cpuSystemMs = 0, fgActivityMs = 0,
-    fgServiceMs = 0, partialWakelocks = wakelocks, wakeupAlarms = alarms, sensors = emptyList(), alarmDumpWakeups = alarmDump,
+    uid = uid,
+    packageName = packageName,
+    packageChanged = false,
+    valid = valid,
+    totalMah = 1.0,
+    fgMah = null,
+    bgMah = null,
+    fgsMah = null,
+    cachedMah = null,
+    componentsMah = emptyMap(),
+    cpuUserMs = 0,
+    cpuSystemMs = 0,
+    fgActivityMs = 0,
+    fgServiceMs = 0,
+    partialWakelocks = wakelocks,
+    wakeupAlarms = alarms,
+    sensors = emptyList(),
+    alarmDumpWakeups = alarmDump,
 )
 
 internal fun snapshotDiff(
@@ -163,23 +210,25 @@ internal fun snapshotDiff(
     batteryStatsValid: Boolean = true,
     kernelCountersValid: Boolean = true,
     invalidKernel: Set<String> = emptySet(),
-    sleep: SleepStats? = SleepStats(
-        deepSleepMs = 7 * HOUR_MS,
-        screenOffDeepSleepMs = 7 * HOUR_MS,
-        screenOffAwakeMs = 40 * MIN_MS,
-        screenOffMs = 8 * HOUR_MS,
-        screenOnMs = 2 * HOUR_MS,
-        deepSleepRatio = 0.7,
-    ),
+    sleep: SleepStats? =
+        SleepStats(
+            deepSleepMs = 7 * HOUR_MS,
+            screenOffDeepSleepMs = 7 * HOUR_MS,
+            screenOffAwakeMs = 40 * MIN_MS,
+            screenOffMs = 8 * HOUR_MS,
+            screenOnMs = 2 * HOUR_MS,
+            deepSleepRatio = 0.7,
+        ),
 ) = SnapshotDiff(
     ref = snapshotClock(NOW_MS - 10 * HOUR_MS),
     now = snapshotClock(NOW_MS),
-    validity = DiffValidity(
-        batteryStats = batteryStatsValid,
-        kernelCounters = kernelCountersValid,
-        problems = emptyList(),
-        invalidKernelWakelocks = invalidKernel,
-    ),
+    validity =
+        DiffValidity(
+            batteryStats = batteryStatsValid,
+            kernelCounters = kernelCountersValid,
+            problems = emptyList(),
+            invalidKernelWakelocks = invalidKernel,
+        ),
     durationMs = 10 * HOUR_MS,
     uids = uids,
     deviceComponentsMah = emptyMap(),
