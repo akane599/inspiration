@@ -39,6 +39,7 @@ import com.akane.inspiration.telemetry.app.AppLabels
 import com.akane.inspiration.telemetry.app.KernelCapacitySnapshot
 import com.akane.inspiration.telemetry.app.RefreshResult
 import com.akane.inspiration.telemetry.calibration.PowerCalibrator
+import com.akane.inspiration.telemetry.calibration.SharedPreferencesCalibrationStore
 import com.akane.inspiration.telemetry.capture.CaptureResult
 import com.akane.inspiration.telemetry.capture.SnapshotCapturer
 import com.akane.inspiration.telemetry.common.Clocks
@@ -98,7 +99,14 @@ class AppContainer(
             store = store,
             clocks = clocks,
         )
-    private val liveTelemetry = LiveTelemetry(telemetrySource, PowerCalibrator(), clocks, store)
+    private val liveTelemetry =
+        LiveTelemetry(
+            telemetrySource,
+            PowerCalibrator(),
+            clocks,
+            store,
+            calibrationStore = SharedPreferencesCalibrationStore.from(appContext),
+        )
 
     // The bundled dictionary (a disk read plus a parse) loads on IO from construction; see [Preloaded].
     private val dictionaryLoad =

@@ -2,6 +2,10 @@ package com.akane.inspiration.telemetry.live
 
 import com.akane.inspiration.telemetry.app.attempt
 import com.akane.inspiration.telemetry.calibration.CalibrationEvidence
+import com.akane.inspiration.telemetry.calibration.CalibrationInput
+import com.akane.inspiration.telemetry.calibration.CalibrationLocks
+import com.akane.inspiration.telemetry.calibration.CalibrationStore
+import com.akane.inspiration.telemetry.calibration.PowerCalibration
 import com.akane.inspiration.telemetry.calibration.PowerCalibrator
 import com.akane.inspiration.telemetry.common.Clocks
 import com.akane.inspiration.telemetry.snapshot.LiveReading
@@ -25,6 +29,7 @@ class LiveTelemetry(
     private val clocks: Clocks,
     private val store: SnapshotStore? = null,
     private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
+    private val calibrationStore: CalibrationStore? = null,
 ) {
     /** Cold; each tick reads sysfs and the Shizuku service, so the whole loop runs on [ioDispatcher], never main. */
     fun readings(periodMs: Long = DEFAULT_PERIOD_MS): Flow<LiveReading> =
@@ -42,21 +47,36 @@ class LiveTelemetry(
         }.flowOn(ioDispatcher)
 
     /**
-     * Unit, sign convention and cell layout are device constants: they are learned across every reading of this
-     * process, so one near-zero or skewed sample never re-decides them. Collectors may run concurrently.
+     * Unit, sign convention and cell layout are device constants: they are learned across every reading, so one
+     * near-zero or skewed sample never re-decides them, and what is settled goes to [calibrationStore] for the next
+     * process. The store is first read on the first tick (on [ioDispatcher]); a store failure only costs the head
+     * start. Collectors may run concurrently, so all of it is guarded by [evidenceLock].
      */
-    private val evidence = CalibrationEvidence()
+    private val evidenceLock = Any()
+    private var evidence: CalibrationEvidence? = null
+    private var savedLocks: CalibrationLocks? = null
+
+    private fun calibrate(input: CalibrationInput): PowerCalibration =
+        synchronized(evidenceLock) {
+            val current =
+                evidence ?: run {
+                    val restored = calibrationStore?.let { runCatching { it.load() }.getOrNull() } ?: CalibrationLocks()
+                    savedLocks = restored
+                    CalibrationEvidence(restored).also { evidence = it }
+                }
+            current.add(input)
+            val locks = current.locks()
+            if (locks != savedLocks) {
+                // A failed save is retried on the next tick.
+                val target = calibrationStore
+                val saved = target == null || runCatching { target.save(locks) }.isSuccess
+                if (saved) savedLocks = locks
+            }
+            current.calibration()
+        }
 
     private fun KernelRead.toReading(): LiveReading {
-        val power =
-            calibrationInput?.let { input ->
-                val calibration =
-                    synchronized(evidence) {
-                        evidence.add(input)
-                        evidence.calibration()
-                    }
-                calibrator.toReading(input, calibration)
-            }
+        val power = calibrationInput?.let { input -> calibrator.toReading(input, calibrate(input)) }
         return LiveReading(
             wallMs = light.clock.wallMs,
             elapsedRealtimeMs = light.clock.elapsedRealtimeMs,

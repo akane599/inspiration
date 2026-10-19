@@ -175,7 +175,8 @@ class AndroidTelemetrySource(
                     sysfsVoltageRaw = kernel.voltageNowRaw,
                     bmCurrentNowUa = bmCurrentNowUa,
                     bmVoltageMv = light.voltageMv,
-                    isCharging = light.status == "charging" || light.status == "full",
+                    // A full battery, like one held at a charge limit, says nothing about which way current flows.
+                    isCharging = light.status == "charging",
                     plugged = light.plugged == true,
                 )
             KernelRead(kernel, calibration, light)

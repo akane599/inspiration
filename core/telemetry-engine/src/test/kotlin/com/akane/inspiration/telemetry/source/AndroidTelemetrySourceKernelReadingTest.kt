@@ -1,5 +1,6 @@
 package com.akane.inspiration.telemetry.source
 
+import android.content.Intent
 import android.os.BatteryManager
 import com.akane.inspiration.ipc.ITelemetryUserService
 import com.akane.inspiration.ipc.ShizukuManager
@@ -16,6 +17,7 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
@@ -102,6 +104,31 @@ class AndroidTelemetrySourceKernelReadingTest {
 
             assertEquals("the same moment as sysfs, not cut to whole mA", 1_537, input.bmCurrentNowUa)
             assertEquals(1_540L, input.sysfsCurrentRaw)
+        }
+
+    @Test
+    fun `only a charging status is reported to the calibrator as charging`() =
+        runBlocking {
+            val expected =
+                mapOf(
+                    BatteryManager.BATTERY_STATUS_CHARGING to true,
+                    BatteryManager.BATTERY_STATUS_FULL to false,
+                    BatteryManager.BATTERY_STATUS_NOT_CHARGING to false,
+                )
+            for ((status, charging) in expected) {
+                @Suppress("DEPRECATION")
+                context.sendStickyBroadcast(
+                    Intent(Intent.ACTION_BATTERY_CHANGED)
+                        .putExtra(BatteryManager.EXTRA_STATUS, status)
+                        .putExtra(BatteryManager.EXTRA_PLUGGED, BatteryManager.BATTERY_PLUGGED_AC),
+                )
+
+                val input =
+                    checkNotNull(source(kernel(currentNowRaw = 120_000L, voltageNowRaw = 4_350_000L)).kernelReading()?.calibrationInput)
+
+                assertEquals("status $status", charging, input.isCharging)
+                assertTrue("status $status", input.plugged)
+            }
         }
 
     private fun kernel(

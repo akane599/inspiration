@@ -20,21 +20,24 @@ class AndroidCalibrationInputReader(
     override fun read(): CalibrationInput = cached
 
     private fun readUncached(): CalibrationInput {
-        val batteryDirectory = sysfsRoot.listFiles()
-            ?.firstOrNull { it.isDirectory && File(it, "type").readTextOrNull()?.trim() == "Battery" }
-            ?: File(sysfsRoot, "battery")
+        val batteryDirectory =
+            sysfsRoot
+                .listFiles()
+                ?.firstOrNull { it.isDirectory && File(it, "type").readTextOrNull()?.trim() == "Battery" }
+                ?: File(sysfsRoot, "battery")
         val sticky = context.registerReceiver(null, android.content.IntentFilter(android.content.Intent.ACTION_BATTERY_CHANGED))
         return CalibrationInput(
             sysfsCurrentRaw = File(batteryDirectory, "current_now").readLongOrNull(),
             sysfsVoltageRaw = File(batteryDirectory, "voltage_now").readLongOrNull(),
-            bmCurrentNowUa = batteryManager?.getIntProperty(BatteryManager.BATTERY_PROPERTY_CURRENT_NOW)
-                ?.takeUnless { it == Int.MIN_VALUE },
-            bmVoltageMv = sticky?.getIntExtra(BatteryManager.EXTRA_VOLTAGE, Int.MIN_VALUE)
-                ?.takeUnless { it == Int.MIN_VALUE },
-            isCharging = sticky?.getIntExtra(BatteryManager.EXTRA_STATUS, -1) in setOf(
-                BatteryManager.BATTERY_STATUS_CHARGING,
-                BatteryManager.BATTERY_STATUS_FULL,
-            ),
+            bmCurrentNowUa =
+                batteryManager
+                    ?.getIntProperty(BatteryManager.BATTERY_PROPERTY_CURRENT_NOW)
+                    ?.takeUnless { it == Int.MIN_VALUE },
+            bmVoltageMv =
+                sticky
+                    ?.getIntExtra(BatteryManager.EXTRA_VOLTAGE, Int.MIN_VALUE)
+                    ?.takeUnless { it == Int.MIN_VALUE },
+            isCharging = sticky?.getIntExtra(BatteryManager.EXTRA_STATUS, -1) == BatteryManager.BATTERY_STATUS_CHARGING,
             plugged = sticky?.getIntExtra(BatteryManager.EXTRA_PLUGGED, 0)?.let { it != 0 } == true,
         )
     }

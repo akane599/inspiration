@@ -4,7 +4,8 @@ import kotlin.math.abs
 
 /**
  * One moment of raw battery values. The sysfs and BatteryManager currents are compared with each other, so both are
- * raw (BatteryManager in its reported µA, never rounded to mA) and read as close together as possible.
+ * raw (BatteryManager as reported, never rounded to mA) and read as close together as possible. [isCharging] is the
+ * battery's own "charging" status only: a full battery, or one held at a charge limit, is not charging.
  */
 data class CalibrationInput(
     val sysfsCurrentRaw: Long?,
@@ -21,6 +22,8 @@ data class PowerCalibration(
     val voltageScaleToMv: Double,
     val cellCount: Int,
     val confidence: Confidence,
+    /** For a reading without a sysfs current. µA by contract, but a HAL that passes `current_now` through reports mA. */
+    val batteryManagerCurrentScaleToMa: Double = MICRO_TO_MILLI,
 )
 
 enum class Confidence {
@@ -35,6 +38,31 @@ data class PowerReading(
     val watts: Double,
 )
 
+/**
+ * The device constants a [CalibrationEvidence] has settled for good, null where it has not settled one. They belong to
+ * the fuel-gauge driver and the health HAL, not to one process, so a later process starts from them ([CalibrationStore]).
+ */
+data class CalibrationLocks(
+    /** The sysfs current is in mA (true) or µA (false). */
+    val sysfsMilliamps: Boolean? = null,
+    /** BatteryManager's current is in mA (true) or µA (false). */
+    val batteryManagerMilliamps: Boolean? = null,
+    /** Proved by unplugged readings only, never by a plugged battery's status. */
+    val dischargePositive: Boolean? = null,
+    /** sysfs reports the per-cell current of a two-cell pack. */
+    val perCellCurrent: Boolean? = null,
+    /** The sysfs voltage is in µV (true) or mV (false). */
+    val sysfsMicrovolts: Boolean? = null,
+)
+
+/** Keeps [CalibrationLocks] across processes, so a new one does not re-learn them from scratch. */
+interface CalibrationStore {
+    /** The locks saved for this device and build, or null when there are none. */
+    fun load(): CalibrationLocks?
+
+    fun save(locks: CalibrationLocks)
+}
+
 class PowerCalibrator {
     /** One calibration over [samples]; a live stream keeps a [CalibrationEvidence] instead, so its choices persist. */
     fun calibrate(samples: List<CalibrationInput>): PowerCalibration = CalibrationEvidence().apply { samples.forEach(::add) }.calibration()
@@ -47,7 +75,7 @@ class PowerCalibrator {
 
         val unnormalizedCurrentMa =
             raw.sysfsCurrentRaw?.toDouble()?.times(cal.currentScaleToMa)
-                ?: raw.bmCurrentNowUa?.toDouble()?.times(MICRO_TO_MILLI)
+                ?: raw.bmCurrentNowUa?.toDouble()?.times(cal.batteryManagerCurrentScaleToMa)
                 ?: return null
         val currentMa = if (cal.dischargeIsNegative) unnormalizedCurrentMa else -unnormalizedCurrentMa
         val voltageMv =
@@ -65,40 +93,38 @@ class PowerCalibrator {
 }
 
 /**
- * The current unit, sign convention, cell layout and voltage unit are constants of the device, so each is decided by
- * agreement across many samples, never re-decided from the latest one. A choice that [LOCK_LEAD] more samples support
- * than oppose is kept for good. Until then the evidence so far decides, and with none the documented units apply
- * (µA and µV, discharge negative, one cell).
+ * The current units, sign convention, cell layout and voltage unit are constants of the device, so each is decided by
+ * agreement across samples, never re-decided from the latest one. A choice that [LOCK_LEAD] more samples support than
+ * oppose is kept for good ([locks]), and a later process starts from it ([restored]). Until then the evidence so far
+ * decides, and with none the documented units apply (µA and µV, discharge negative, one cell).
  *
- * A sample whose current is under [NOISE_FLOOR_MA] adds no current evidence. Near zero, a little noise or a load
- * change between the two reads swings the sysfs/BatteryManager ratio anywhere, and a small value cannot tell µA from
- * mA. A sample whose two currents fit no known ratio adds no ratio evidence either.
+ * A sample whose current is under [NOISE_FLOOR_MA] adds no sign or cell evidence. Near zero, a little noise or a load
+ * change between the two reads swings the sysfs/BatteryManager ratio anywhere. A sample whose two currents fit no
+ * known ratio adds no ratio evidence either.
  *
  * Not thread-safe: a shared instance needs external synchronization.
  */
-class CalibrationEvidence {
+class CalibrationEvidence(
+    restored: CalibrationLocks = CalibrationLocks(),
+) {
     private var hasCurrent = false
     private var hasVoltage = false
     private var dualCellVoltage = false
 
-    // Unit of the sysfs current. Proof: a value over 20 A in mA can only be µA, and BatteryManager (µA) reading a
-    // thousand times sysfs at a real load means mA. Weaker: an unplugged device running the screen draws well over
-    // 20 mA, so a smaller non-zero value suggests mA; with no µA proof at all, only a run of them switches units.
-    private var microampProofs = 0
-    private var milliampProofs = 0
-    private var unpluggedSmallCurrents = 0
-    private var milliamps: Boolean? = null
+    private val sysfsUnit = UnitEvidence(restored.sysfsMilliamps)
+    private val batteryManagerUnit = UnitEvidence(restored.batteryManagerMilliamps)
 
     // sysfs reports the per-cell current of a two-cell pack: half of what BatteryManager reports. Doubles the current
     // only once locked, so a load swing between the two reads cannot double it.
-    private val halfCurrent = Vote()
+    private val halfCurrent = Vote(restored.perCellCurrent)
 
     // An unplugged battery can only discharge, so unplugged samples prove the kernel's sign convention. A plugged
-    // battery's status cannot (one reading "charging" can still lose to the load), so it decides only without proof.
-    private val unpluggedDischargePositive = Vote()
-    private val statusDischargePositive = Vote()
+    // "charging" status cannot: a weak charger still loses to the load. Its votes never lock, and overturn the
+    // documented convention only by a clear majority and only without proof. A full or held battery casts none.
+    private val unpluggedDischargePositive = Vote(restored.dischargePositive)
+    private val statusDischargePositive = Vote(lockable = false)
 
-    private val microvolts = Vote()
+    private val microvolts = Vote(restored.sysfsMicrovolts)
 
     fun add(sample: CalibrationInput) {
         hasCurrent = hasCurrent || sample.sysfsCurrentRaw != null || sample.bmCurrentNowUa != null
@@ -107,57 +133,48 @@ class CalibrationEvidence {
             ?.absoluteMagnitude()
             ?.takeIf { it > 0L }
             ?.let { microvolts.add(it > MICROVOLT_THRESHOLD) }
-        addUnitEvidence(sample)
+        val sysfs = sample.sysfsCurrentRaw?.absoluteMagnitude()
+        val batteryManager = sample.bmCurrentNowUa?.toLong()?.absoluteMagnitude()
+        sysfs?.let { sysfsUnit.add(it, other = batteryManager, plugged = sample.plugged) }
+        batteryManager?.let { batteryManagerUnit.add(it, other = sysfs, plugged = sample.plugged) }
 
-        val currentScale = baseCurrentScale()
         val voltageV = sample.voltageMv(voltageScale()) / MILLIVOLTS_PER_VOLT
         if (voltageV in DUAL_CELL_MIN_VOLTAGE..DUAL_CELL_MAX_VOLTAGE) dualCellVoltage = true
-        if (voltageV in SINGLE_CELL_MIN_VOLTAGE..SINGLE_CELL_MAX_VOLTAGE) addHalfCurrentEvidence(sample, currentScale)
-        addSignEvidence(sample, currentScale)
+        if (voltageV in SINGLE_CELL_MIN_VOLTAGE..SINGLE_CELL_MAX_VOLTAGE) addHalfCurrentEvidence(sample)
+        addSignEvidence(sample)
     }
 
     fun calibration(): PowerCalibration {
         if (!hasCurrent && !hasVoltage) return UNCALIBRATED
         val perCellCurrent = halfCurrent.locked == true
-        val dischargePositive = unpluggedDischargePositive.decision() ?: statusDischargePositive.decision() ?: false
-        val signVotes = unpluggedDischargePositive + statusDischargePositive
+        val dischargePositive = unpluggedDischargePositive.decision() ?: statusDischargePositive.clearMajority() ?: false
+        val mixedSigns =
+            unpluggedDischargePositive.yes + statusDischargePositive.yes > 0 &&
+                unpluggedDischargePositive.no + statusDischargePositive.no > 0
         return PowerCalibration(
             // Series pack voltage already includes both cells; only a per-cell current needs doubling.
-            currentScaleToMa = baseCurrentScale() * if (perCellCurrent) 2 else 1,
+            currentScaleToMa = sysfsUnit.scaleToMa() * if (perCellCurrent) 2 else 1,
             dischargeIsNegative = !dischargePositive,
             voltageScaleToMv = voltageScale(),
             cellCount = if (dualCellVoltage || perCellCurrent) 2 else 1,
-            confidence = if (signVotes.yes > 0 && signVotes.no > 0) Confidence.LOW else Confidence.HIGH,
+            confidence = if (mixedSigns) Confidence.LOW else Confidence.HIGH,
+            batteryManagerCurrentScaleToMa = batteryManagerUnit.scaleToMa(),
         )
     }
 
-    private fun addUnitEvidence(sample: CalibrationInput) {
-        if (milliamps != null) return
-        val sysfs = sample.sysfsCurrentRaw?.absoluteMagnitude() ?: return
-        val batteryManager = sample.bmCurrentNowUa?.toLong()?.absoluteMagnitude()
-        when {
-            sysfs > MICROAMP_THRESHOLD -> microampProofs++
+    /** What is settled for good, for a later process to start from. */
+    fun locks(): CalibrationLocks =
+        CalibrationLocks(
+            sysfsMilliamps = sysfsUnit.locked,
+            batteryManagerMilliamps = batteryManagerUnit.locked,
+            dischargePositive = unpluggedDischargePositive.locked,
+            perCellCurrent = halfCurrent.locked,
+            sysfsMicrovolts = microvolts.locked,
+        )
 
-            batteryManager != null && batteryManager >= NOISE_FLOOR_UA && sysfs > 0L &&
-                (sysfs.toDouble() / batteryManager).isApproximately(MICRO_TO_MILLI) -> milliampProofs++
-
-            !sample.plugged && sysfs >= MIN_UNPLUGGED_DRAW_MA -> unpluggedSmallCurrents++
-        }
-        milliamps =
-            when {
-                milliampProofs - microampProofs >= LOCK_LEAD -> true
-                microampProofs - milliampProofs >= LOCK_LEAD -> false
-                microampProofs == 0 && unpluggedSmallCurrents >= UNPLUGGED_SMALL_LOCK -> true
-                else -> null
-            }
-    }
-
-    private fun addHalfCurrentEvidence(
-        sample: CalibrationInput,
-        currentScale: Double,
-    ) {
-        val sysfsMa = sample.sysfsCurrentRaw?.let { abs(it * currentScale) } ?: return
-        val batteryManagerMa = sample.bmCurrentNowUa?.let { abs(it * MICRO_TO_MILLI) } ?: return
+    private fun addHalfCurrentEvidence(sample: CalibrationInput) {
+        val sysfsMa = sample.sysfsCurrentRaw?.let { abs(it * sysfsUnit.scaleToMa()) } ?: return
+        val batteryManagerMa = sample.bmCurrentNowUa?.let { abs(it * batteryManagerUnit.scaleToMa()) } ?: return
         if (batteryManagerMa < NOISE_FLOOR_MA) return
         val ratio = sysfsMa / batteryManagerMa
         when {
@@ -166,42 +183,95 @@ class CalibrationEvidence {
         }
     }
 
-    private fun addSignEvidence(
-        sample: CalibrationInput,
-        currentScale: Double,
-    ) {
-        val (current, toMa) =
-            sample.sysfsCurrentRaw?.let { it to currentScale }
-                ?: sample.bmCurrentNowUa?.let { it.toLong() to MICRO_TO_MILLI }
+    private fun addSignEvidence(sample: CalibrationInput) {
+        val currentMa =
+            sample.sysfsCurrentRaw?.let { it * sysfsUnit.scaleToMa() }
+                ?: sample.bmCurrentNowUa?.let { it * batteryManagerUnit.scaleToMa() }
                 ?: return
-        if (abs(current * toMa) < NOISE_FLOOR_MA) return
-        if (!sample.plugged) {
-            unpluggedDischargePositive.add(current > 0L)
-        } else {
-            statusDischargePositive.add(if (sample.isCharging) current < 0L else current > 0L)
+        if (abs(currentMa) < NOISE_FLOOR_MA) return
+        when {
+            !sample.plugged -> unpluggedDischargePositive.add(currentMa > 0.0)
+            sample.isCharging -> statusDischargePositive.add(currentMa < 0.0)
         }
     }
-
-    // Until units are locked only proof decides: weak hints act through the lock alone, never one sample at a time.
-    private fun baseCurrentScale(): Double = if (milliamps ?: (milliampProofs > microampProofs)) 1.0 else MICRO_TO_MILLI
 
     private fun voltageScale(): Double = if (microvolts.decision() == false) 1.0 else MICRO_TO_MILLI
 
     private fun CalibrationInput.voltageMv(voltageScale: Double): Double =
         sysfsVoltageRaw?.toDouble()?.times(voltageScale) ?: bmVoltageMv?.toDouble() ?: Double.NaN
 
-    /** Two-way agreement; once one side leads by [LOCK_LEAD] it is [locked] and later samples are ignored. */
-    private class Vote(
-        var yes: Int = 0,
-        var no: Int = 0,
+    /**
+     * The unit of one source's current: µA by contract until shown otherwise.
+     *
+     * Proof: a value over 20 A in mA can only be µA, and the other source reading a thousand times this one at a real
+     * load means mA. A prior: the live gauge runs while the screen is on, and an unplugged phone with its screen on
+     * draws well over 20 mA, so an unplugged value of 50 to 20,000 means mA from the first one. Any µA proof overrides
+     * the prior. Plugged values never feed it, since a µA battery held at a charge limit reads a few mA.
+     */
+    private class UnitEvidence(
+        restored: Boolean?,
     ) {
-        var locked: Boolean? = null
+        /** True for mA, false for µA, once settled for good. */
+        var locked: Boolean? = restored
+            private set
+        private var microampProofs = 0
+        private var milliampProofs = 0
+        private var unpluggedHints = 0
+
+        fun add(
+            magnitude: Long,
+            other: Long?,
+            plugged: Boolean,
+        ) {
+            if (locked != null) return
+            when {
+                magnitude > MICROAMP_THRESHOLD -> {
+                    microampProofs++
+                }
+
+                other != null && other >= NOISE_FLOOR_UA && magnitude > 0L &&
+                    (magnitude.toDouble() / other).isApproximately(MICRO_TO_MILLI) -> {
+                    milliampProofs++
+                }
+
+                !plugged && magnitude >= MIN_UNPLUGGED_DRAW_MA -> {
+                    unpluggedHints++
+                }
+            }
+            locked =
+                when {
+                    milliampProofs - microampProofs >= LOCK_LEAD -> true
+                    microampProofs - milliampProofs >= LOCK_LEAD -> false
+                    microampProofs == 0 && milliampProofs + unpluggedHints >= LOCK_LEAD -> true
+                    else -> null
+                }
+        }
+
+        fun scaleToMa(): Double = if (milliamps()) 1.0 else MICRO_TO_MILLI
+
+        private fun milliamps(): Boolean =
+            locked ?: if (microampProofs + milliampProofs > 0) milliampProofs > microampProofs else unpluggedHints > 0
+    }
+
+    /**
+     * Two-way agreement. Once one side leads by [LOCK_LEAD] it is [locked] and later samples are ignored, unless the
+     * vote is not [lockable].
+     */
+    private class Vote(
+        restored: Boolean? = null,
+        private val lockable: Boolean = true,
+    ) {
+        var yes: Int = 0
+            private set
+        var no: Int = 0
+            private set
+        var locked: Boolean? = restored
             private set
 
         fun add(value: Boolean) {
             if (locked != null) return
             if (value) yes++ else no++
-            if (abs(yes - no) >= LOCK_LEAD) locked = yes > no
+            if (lockable && abs(yes - no) >= LOCK_LEAD) locked = yes > no
         }
 
         /** The locked choice, else the majority so far; null with no evidence or a tie. */
@@ -212,15 +282,21 @@ class CalibrationEvidence {
                 else -> null
             }
 
-        operator fun plus(other: Vote) = Vote(yes + other.yes, no + other.no)
+        /** The side that leads by [LOCK_LEAD] and outnumbers the other [CLEAR_MAJORITY] to one; null otherwise. */
+        fun clearMajority(): Boolean? =
+            when {
+                yes - no >= LOCK_LEAD && yes >= CLEAR_MAJORITY * no -> true
+                no - yes >= LOCK_LEAD && no >= CLEAR_MAJORITY * yes -> false
+                else -> null
+            }
     }
 
     private companion object {
         /** Agreeing samples (net of contrary ones) that settle a device constant for good. */
         const val LOCK_LEAD = 3
 
-        /** Unplugged small currents, with no µA proof at all, that settle mA. */
-        const val UNPLUGGED_SMALL_LOCK = 10
+        /** How many times the other side's count a vote that never locks needs to overturn a default. */
+        const val CLEAR_MAJORITY = 3
         const val NOISE_FLOOR_MA = 50.0
         const val NOISE_FLOOR_UA = 50_000L
         const val MIN_UNPLUGGED_DRAW_MA = 50L

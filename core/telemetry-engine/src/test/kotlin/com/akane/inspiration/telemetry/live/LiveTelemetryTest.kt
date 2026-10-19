@@ -2,6 +2,8 @@ package com.akane.inspiration.telemetry.live
 
 import com.akane.inspiration.ipc.model.HistoryEvent
 import com.akane.inspiration.telemetry.calibration.CalibrationInput
+import com.akane.inspiration.telemetry.calibration.CalibrationLocks
+import com.akane.inspiration.telemetry.calibration.CalibrationStore
 import com.akane.inspiration.telemetry.calibration.PowerCalibrator
 import com.akane.inspiration.telemetry.capacity.ChargeSegment
 import com.akane.inspiration.telemetry.capacity.SegmentVerdict
@@ -118,6 +120,82 @@ class LiveTelemetryTest {
                     .map { it.currentMa }
 
             assertEquals(listOf(-300, -310, -290, 2, 15, 1, -400), currents)
+        }
+
+    @Test
+    fun `a milliamp kernel reads milliamps from the first unplugged tick`() =
+        runTest {
+            // The HAL passes current_now through: sysfs and BatteryManager both hold the kernel's mA.
+            val ticks = listOf(tick(lightRead(), sysfsCurrent = -400, bmCurrent = -400))
+
+            val reading =
+                LiveTelemetry(ScriptedSource(ticks), PowerCalibrator(), TestClocks())
+                    .readings(periodMs = 1)
+                    .take(1)
+                    .toList()
+                    .single()
+
+            assertEquals(-400, reading.currentMa)
+        }
+
+    @Test
+    fun `a milliamp kernel only ever plugged reads milliamps when an earlier process settled the unit`() =
+        runTest {
+            val calibrationStore = MemoryCalibrationStore()
+            // An earlier process saw the device unplugged: the unit, sign and cell layout settled and were saved.
+            currents(calibrationStore, List(3) { tick(lightRead(), sysfsCurrent = -400, bmCurrent = -400) })
+            assertEquals(
+                CalibrationLocks(
+                    sysfsMilliamps = true,
+                    batteryManagerMilliamps = true,
+                    dischargePositive = false,
+                    perCellCurrent = false,
+                    sysfsMicrovolts = true,
+                ),
+                calibrationStore.saved,
+            )
+            // This process starts on the charger and stays there: a 2 A charge, sysfs and BatteryManager agreeing.
+            val charging = lightRead().copy(plugged = true, status = "charging")
+            val pluggedTicks = List(3) { tick(charging, sysfsCurrent = 2_000, bmCurrent = 2_000) }
+
+            assertEquals(listOf(2_000, 2_000, 2_000), currents(calibrationStore, pluggedTicks))
+            // Without the earlier process, plugged readings are no evidence and the documented µA applies.
+            assertEquals(listOf(2, 2, 2), currents(MemoryCalibrationStore(), pluggedTicks))
+        }
+
+    @Test
+    fun `a weak charger on a fresh process keeps the sign an earlier process proved unplugged`() =
+        runTest {
+            val calibrationStore = MemoryCalibrationStore()
+            currents(calibrationStore, List(3) { tick(lightRead(), sysfsCurrent = -300_000, bmCurrent = -300_000) })
+            // Status "charging" while the battery still loses 250 mA to the load.
+            val weakCharger = lightRead().copy(plugged = true, status = "charging")
+
+            val currents = currents(calibrationStore, List(6) { tick(weakCharger, sysfsCurrent = -250_000, bmCurrent = -250_000) })
+
+            assertEquals(List(6) { -250 }, currents)
+            assertEquals("a plugged status never settles the sign", false, calibrationStore.saved?.dischargePositive)
+        }
+
+    @Test
+    fun `a failing calibration store costs only the head start`() =
+        runTest {
+            val failing =
+                object : CalibrationStore {
+                    var saves = 0
+
+                    override fun load(): CalibrationLocks = error("unreadable")
+
+                    override fun save(locks: CalibrationLocks) {
+                        saves++
+                        error("disk full")
+                    }
+                }
+
+            val currents = currents(failing, List(4) { tick(lightRead(), sysfsCurrent = -400, bmCurrent = -400) })
+
+            assertEquals(List(4) { -400 }, currents)
+            assertTrue("a failed save is retried", failing.saves > 1)
         }
 
     @Test
@@ -316,6 +394,27 @@ class LiveTelemetryTest {
             chargeCounterUah = null,
         )
 
+    /** The currents a new [LiveTelemetry] (a new process) reads from [ticks], calibrating with [calibrationStore]. */
+    private suspend fun currents(
+        calibrationStore: CalibrationStore,
+        ticks: List<KernelRead>,
+    ): List<Int?> =
+        LiveTelemetry(ScriptedSource(ticks), PowerCalibrator(), TestClocks(), calibrationStore = calibrationStore)
+            .readings(periodMs = 1)
+            .take(ticks.size)
+            .toList()
+            .map { it.currentMa }
+
+    private class MemoryCalibrationStore : CalibrationStore {
+        var saved: CalibrationLocks? = null
+
+        override fun load(): CalibrationLocks? = saved
+
+        override fun save(locks: CalibrationLocks) {
+            saved = locks
+        }
+    }
+
     private fun tick(
         light: LightRead,
         sysfsCurrent: Long,
@@ -328,7 +427,7 @@ class LiveTelemetryTest {
                 sysfsVoltageRaw = 4_000_000L,
                 bmCurrentNowUa = bmCurrent,
                 bmVoltageMv = 4_000,
-                isCharging = light.status == "charging" || light.status == "full",
+                isCharging = light.status == "charging",
                 plugged = light.plugged == true,
             ),
         light = light,

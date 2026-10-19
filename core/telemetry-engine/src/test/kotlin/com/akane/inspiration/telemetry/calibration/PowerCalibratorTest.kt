@@ -153,19 +153,113 @@ class PowerCalibratorTest {
     }
 
     @Test
-    fun `a milliamp kernel matching battery manager is learned from a run of unplugged readings`() {
+    fun `a milliamp kernel matching battery manager reads milliamps from its first unplugged reading`() {
+        // The HAL passes current_now through, so both read the same mA value and their ratio proves nothing.
         val evidence = CalibrationEvidence()
         val unplugged = discharge(sysfsCurrent = -400, bmCurrent = -400, sysfsVoltage = 3_900_000)
 
-        repeat(9) { evidence.add(unplugged) }
-        assertEquals("nine readings are not yet a run", 0.001, evidence.calibration().currentScaleToMa, 0.0)
         evidence.add(unplugged)
 
         assertEquals(1.0, evidence.calibration().currentScaleToMa, 0.0)
         assertEquals(-400.0, calibrator.toReading(unplugged, evidence.calibration())!!.currentMa, 0.0)
-        // Once settled, a plugged reading near zero stays in mA as well.
+        // A plugged reading near zero then stays in mA as well.
         evidence.add(charging(sysfsCurrent = 3, bmCurrent = 3, sysfsVoltage = 4_350_000))
         assertEquals(1.0, evidence.calibration().currentScaleToMa, 0.0)
+    }
+
+    @Test
+    fun `a reading over 20 A in milliamps overrides the unplugged milliamp prior`() {
+        val evidence = CalibrationEvidence()
+        repeat(2) { evidence.add(discharge(sysfsCurrent = -8_000, bmCurrent = -8_000, sysfsVoltage = 3_900_000)) }
+
+        evidence.add(discharge(sysfsCurrent = -300_000, bmCurrent = -300_000, sysfsVoltage = 3_900_000))
+
+        assertEquals(0.001, evidence.calibration().currentScaleToMa, 0.0)
+    }
+
+    @Test
+    fun `plugged readings never feed the milliamp prior`() {
+        // A µA kernel held at a charge limit reads a few mA for as long as it stays plugged.
+        val evidence = CalibrationEvidence()
+        val held = charging(sysfsCurrent = 2_000, bmCurrent = 2_000, sysfsVoltage = 4_350_000)
+
+        repeat(20) { evidence.add(held) }
+
+        assertEquals(0.001, evidence.calibration().currentScaleToMa, 0.0)
+        assertEquals(2.0, calibrator.toReading(held, evidence.calibration())!!.currentMa, 1e-9)
+    }
+
+    @Test
+    fun `battery manager only milliamps are learned from unplugged readings`() {
+        // sysfs unreadable, and a HAL that passes the kernel's mA through as BatteryManager's current.
+        val evidence = CalibrationEvidence()
+        val unplugged = discharge(bmCurrent = -400, bmVoltage = 3_900)
+
+        evidence.add(unplugged)
+
+        assertEquals(-400.0, calibrator.toReading(unplugged, evidence.calibration())!!.currentMa, 0.0)
+    }
+
+    @Test
+    fun `plugged status votes never lock the sign, so a weak charger cannot invert a later charge`() {
+        val evidence = CalibrationEvidence()
+        // A weak charger: status "charging" while a discharge-negative battery still loses 250 mA.
+        repeat(5) { evidence.add(charging(sysfsCurrent = -250_000, bmCurrent = -250_000, sysfsVoltage = 3_900_000)) }
+        // Then the load drops and the charger wins: 1 A into the battery.
+        val charge = charging(sysfsCurrent = 1_000_000, bmCurrent = 1_000_000, sysfsVoltage = 3_900_000)
+
+        repeat(2) { evidence.add(charge) }
+
+        assertTrue(evidence.calibration().dischargeIsNegative)
+        assertEquals(1_000.0, calibrator.toReading(charge, evidence.calibration())!!.currentMa, 0.0)
+    }
+
+    @Test
+    fun `a plugged battery that is not charging casts no sign vote`() {
+        // Held at a charge limit or full: the source does not report it as charging, and a top-up current into a
+        // discharge-negative battery says nothing about which way it is flowing.
+        val evidence = CalibrationEvidence()
+        val held = charging(sysfsCurrent = 120_000, bmCurrent = 120_000, sysfsVoltage = 4_350_000).copy(isCharging = false)
+
+        repeat(5) { evidence.add(held) }
+
+        assertTrue(evidence.calibration().dischargeIsNegative)
+        assertEquals(120.0, calibrator.toReading(held, evidence.calibration())!!.currentMa, 0.0)
+    }
+
+    @Test
+    fun `three agreeing readings settle the constants a later process starts from, and a plugged status none`() {
+        val evidence = CalibrationEvidence()
+        repeat(10) { evidence.add(charging(sysfsCurrent = -250_000, bmCurrent = -250_000, sysfsVoltage = 3_900_000)) }
+        assertNull("a plugged status never settles the sign", evidence.locks().dischargePositive)
+
+        repeat(3) { evidence.add(discharge(sysfsCurrent = -400_000, bmCurrent = -400_000, sysfsVoltage = 3_900_000)) }
+
+        assertEquals(
+            CalibrationLocks(
+                sysfsMilliamps = false,
+                batteryManagerMilliamps = false,
+                dischargePositive = false,
+                perCellCurrent = false,
+                sysfsMicrovolts = true,
+            ),
+            evidence.locks(),
+        )
+    }
+
+    @Test
+    fun `restored locks apply from the first reading and outweigh it`() {
+        val restored = CalibrationLocks(sysfsMilliamps = true, dischargePositive = true, perCellCurrent = true, sysfsMicrovolts = false)
+        val evidence = CalibrationEvidence(restored)
+        // A reading that alone would mean µA, a discharge-negative kernel and a single cell.
+        val reading = discharge(sysfsCurrent = -300_000, bmCurrent = -300_000, sysfsVoltage = 3_900)
+
+        evidence.add(reading)
+
+        assertEquals(restored, evidence.locks())
+        assertEquals(2.0, evidence.calibration().currentScaleToMa, 0.0)
+        assertFalse(evidence.calibration().dischargeIsNegative)
+        assertEquals(1.0, evidence.calibration().voltageScaleToMv, 0.0)
     }
 
     @Test
@@ -209,6 +303,7 @@ class PowerCalibratorTest {
         val reading = calibrator.toReading(charging(sysfsCurrent = 600_000, sysfsVoltage = 4_100_000), calibration)
 
         assertEquals(0.001, calibration.currentScaleToMa, 0.0)
+        assertEquals(1.0, calibration.batteryManagerCurrentScaleToMa, 0.0)
         assertEquals(600.0, reading!!.currentMa, 0.0)
     }
 
