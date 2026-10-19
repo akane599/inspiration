@@ -20,7 +20,17 @@ import com.akane.inspiration.designsystem.theme.spacing
 import kotlinx.collections.immutable.ImmutableList
 import kotlinx.collections.immutable.persistentListOf
 
-private const val ADJUSTMENT_STEP_MS = 60_000L
+private const val MINUTE_MS = 60_000L
+
+/** A boundary button moves an edge by the window divided by this: 30 min on the Cockpit's 24 h chart. */
+private const val ADJUSTMENTS_PER_WINDOW = 48
+
+/**
+ * How far one boundary button moves an edge: 1/[ADJUSTMENTS_PER_WINDOW] of [window] in whole minutes, never under a
+ * minute. A fixed minute made a 3 h slice on a 24 h chart take about 175 activations, each restarting the analysis.
+ */
+internal fun adjustmentStepMs(window: TimeRange): Long =
+    maxOf(MINUTE_MS, window.durationMs / ADJUSTMENTS_PER_WINDOW / MINUTE_MS * MINUTE_MS)
 
 /** A button's immutable target; null clears the selection through the same callback as a plot tap. */
 internal data class SliceControl(
@@ -46,7 +56,8 @@ internal fun sliceControls(
         return persistentListOf(create, SliceControl(R.string.chart_clear_selection, selection = null))
     }
     val active = normalizeSelection(selection.startMs, selection.endMs, window, minimum) ?: return persistentListOf(create)
-    val shrinkBy = minOf(ADJUSTMENT_STEP_MS, active.durationMs - minimum)
+    val step = adjustmentStepMs(window)
+    val shrinkBy = minOf(step, active.durationMs - minimum)
 
     fun adjustment(
         labelRes: Int,
@@ -55,13 +66,13 @@ internal fun sliceControls(
     return persistentListOf(
         adjustment(
             R.string.chart_start_earlier,
-            TimeRange.of(active.startMs - minOf(ADJUSTMENT_STEP_MS, active.startMs - window.startMs), active.endMs),
+            TimeRange.of(active.startMs - minOf(step, active.startMs - window.startMs), active.endMs),
         ),
         adjustment(R.string.chart_start_later, TimeRange.of(active.startMs + shrinkBy, active.endMs)),
         adjustment(R.string.chart_end_earlier, TimeRange.of(active.startMs, active.endMs - shrinkBy)),
         adjustment(
             R.string.chart_end_later,
-            TimeRange.of(active.startMs, active.endMs + minOf(ADJUSTMENT_STEP_MS, window.endMs - active.endMs)),
+            TimeRange.of(active.startMs, active.endMs + minOf(step, window.endMs - active.endMs)),
         ),
         SliceControl(R.string.chart_clear_selection, selection = null),
     )

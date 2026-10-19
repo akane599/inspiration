@@ -112,6 +112,33 @@ class SliceControlsTest {
     }
 
     @Test
+    fun `on a 24 h window each endpoint action moves its endpoint by 30 minutes`() {
+        val hour = 60 * minute
+        val day = TimeRange.of(0, 24 * hour)
+        val active = TimeRange.of(12 * hour, 15 * hour)
+        val controls = sliceControls(day, active, minimum, hasData = true)
+
+        assertEquals(TimeRange.of(11 * hour + 30 * minute, 15 * hour), controls[0].selection)
+        assertEquals(TimeRange.of(12 * hour + 30 * minute, 15 * hour), controls[1].selection)
+        assertEquals(TimeRange.of(12 * hour, 14 * hour + 30 * minute), controls[2].selection)
+        assertEquals(TimeRange.of(12 * hour, 15 * hour + 30 * minute), controls[3].selection)
+        // Widening the created 5 min interval by 3 h takes six "Move start earlier" activations, not 180.
+        var slice = sliceControls(day, null, minimum, hasData = true).single().selection
+        repeat(6) { slice = sliceControls(day, slice, minimum, hasData = true)[0].selection }
+        assertEquals(TimeRange.of(21 * hour - 5 * minute, 24 * hour), slice)
+    }
+
+    @Test
+    fun `the step scales with the window in whole minutes and never drops below one minute`() {
+        val hour = 60 * minute
+        assertEquals(30 * minute, adjustmentStepMs(TimeRange.of(0, 24 * hour)))
+        assertEquals(60 * minute, adjustmentStepMs(TimeRange.of(0, 48 * hour)))
+        assertEquals(7 * minute, adjustmentStepMs(TimeRange.of(0, 6 * hour)))
+        assertEquals(minute, adjustmentStepMs(TimeRange.of(0, 20 * minute)))
+        assertEquals(minute, adjustmentStepMs(TimeRange.of(0, 0)))
+    }
+
+    @Test
     fun `a selection the window slid past offers only a new interval and clearing`() {
         // A day-old slice: the window moved on, so the selection lies wholly outside it or only touches one of its ends.
         for (stale in listOf(TimeRange.of(0, 5 * minute), TimeRange.of(0, window.startMs), TimeRange.of(31 * minute, 40 * minute))) {
