@@ -22,6 +22,13 @@ interface CockpitDependencies {
     val shizukuState: StateFlow<ShizukuState>
     val clocks: Clocks
 
+    /**
+     * Wall time of the last successful refresh in this process, whoever asked for it (this screen, the app-open
+     * capture this screen's refresh joined, or the re-run when Shizuku became ready); null before the first. A new
+     * value means newly stored history and a moved history horizon, which a timeline read earlier does not show.
+     */
+    val lastRefreshWallMs: StateFlow<Long?>
+
     /** FULL capture plus history ingest; debounced to 60 s by the container, so safe to call on start and on pull-to-refresh. */
     suspend fun refresh(): RefreshResult
 

@@ -12,6 +12,7 @@ import com.akane.inspiration.telemetry.store.TelemetrySample
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.flow
 
 internal const val HOUR_MS = 3_600_000L
@@ -19,10 +20,15 @@ internal const val MIN_MS = 60_000L
 internal const val SEC_MS = 1_000L
 internal const val NOW_MS = 1_000L * HOUR_MS
 
-internal class FakeClocks(var wall: Long = NOW_MS) : Clocks {
+internal class FakeClocks(
+    var wall: Long = NOW_MS,
+) : Clocks {
     override fun wallMs() = wall
+
     override fun elapsedRealtimeMs() = wall
+
     override fun uptimeMs() = wall
+
     override fun bootCount() = 1
 }
 
@@ -39,6 +45,12 @@ internal class FakeHealthDeps(
     var refreshResult: RefreshResult = RefreshResult.Refreshed(NOW_MS)
     var refreshCalls = 0
 
+    /** The coordinator's tick: a Refreshed result records its time, as the coordinator does before returning it. */
+    override val lastRefreshWallMs = MutableStateFlow<Long?>(null)
+
+    /** Stored-history reads, i.e. how many times the screen loaded. */
+    var historyReads = 0
+
     /** While set, refresh() suspends until it completes, so a test can act during a running refresh. */
     var refreshGate: CompletableDeferred<Unit>? = null
 
@@ -52,7 +64,7 @@ internal class FakeHealthDeps(
     override suspend fun refresh(): RefreshResult {
         refreshCalls++
         refreshGate?.await()
-        return refreshResult
+        return refreshResult.also { if (it is RefreshResult.Refreshed) lastRefreshWallMs.value = it.wallMs }
     }
 
     override suspend fun kernelBattery(): KernelCapacitySnapshot? {
@@ -64,20 +76,29 @@ internal class FakeHealthDeps(
 
     override suspend fun chargeSessions(): List<ChargeSessionRecord> = sessions ?: error("sessions unavailable")
 
-    override suspend fun samplesBetween(from: Long, to: Long): List<TelemetrySample> =
-        samples ?: error("samples unavailable")
+    override suspend fun samplesBetween(
+        from: Long,
+        to: Long,
+    ): List<TelemetrySample> = samples ?: error("samples unavailable")
 
-    override suspend fun historyBetween(from: Long, to: Long): List<HistoryEvent> = history ?: error("history unavailable")
-
-    override fun liveReadings(periodMs: Long): Flow<LiveReading> = flow {
-        liveCollections++
-        requestedPeriodMs = periodMs
-        while (true) {
-            readingsRequested++
-            emit(liveReading(wallMs = clocks.wall + readingsRequested * periodMs, levelPct = 40 + readingsRequested))
-            delay(periodMs)
-        }
+    override suspend fun historyBetween(
+        from: Long,
+        to: Long,
+    ): List<HistoryEvent> {
+        historyReads++
+        return history ?: error("history unavailable")
     }
+
+    override fun liveReadings(periodMs: Long): Flow<LiveReading> =
+        flow {
+            liveCollections++
+            requestedPeriodMs = periodMs
+            while (true) {
+                readingsRequested++
+                emit(liveReading(wallMs = clocks.wall + readingsRequested * periodMs, levelPct = 40 + readingsRequested))
+                delay(periodMs)
+            }
+        }
 
     override fun holdBinding(): AutoCloseable {
         bindingsOpened++

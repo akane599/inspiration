@@ -9,6 +9,7 @@ import com.akane.inspiration.telemetry.store.ChargeSessionRecord
 import com.akane.inspiration.telemetry.store.HealthSample
 import com.akane.inspiration.telemetry.store.TelemetrySample
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.StateFlow
 
 /**
  * Everything the Health screen needs from the app, pinned by docs/plans/phase-5.md ("Feature dependencies").
@@ -17,6 +18,13 @@ import kotlinx.coroutines.flow.Flow
  */
 interface HealthDependencies {
     val clocks: Clocks
+
+    /**
+     * Wall time of the last successful refresh in this process, whoever asked for it (this screen, the app-open
+     * capture this screen's refresh joined, or the re-run when Shizuku became ready); null before the first. A new
+     * value means newly stored history, samples and health records, which a read made earlier does not show.
+     */
+    val lastRefreshWallMs: StateFlow<Long?>
 
     suspend fun refresh(): RefreshResult
 
@@ -27,7 +35,10 @@ interface HealthDependencies {
 
     suspend fun chargeSessions(): List<ChargeSessionRecord>
 
-    suspend fun samplesBetween(from: Long, to: Long): List<TelemetrySample>
+    suspend fun samplesBetween(
+        from: Long,
+        to: Long,
+    ): List<TelemetrySample>
 
     /** Cold flow: it reads only while collected. The caller starts and stops it with screen visibility (H13). */
     fun liveReadings(periodMs: Long): Flow<LiveReading>
@@ -35,5 +46,8 @@ interface HealthDependencies {
     /** Keeps the Shizuku service bound; close it when the screen is hidden. */
     fun holdBinding(): AutoCloseable
 
-    suspend fun historyBetween(from: Long, to: Long): List<HistoryEvent>
+    suspend fun historyBetween(
+        from: Long,
+        to: Long,
+    ): List<HistoryEvent>
 }

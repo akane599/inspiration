@@ -41,7 +41,8 @@ private class HealthInputs(
  * Charge & Health state holder (H5). It is Activity-scoped, so it outlives the tab; everything that reads the device
  * is therefore tied to [HealthIntent.Visible] / [HealthIntent.Hidden] and the plug state, never to the ViewModel's
  * lifetime (H13): the live readings job and the Shizuku binding exist only while the screen is visible *and* the
- * phone is charging. Background charging is not recorded here; it shows up as battery-history events (H9).
+ * phone is charging. Background charging is not recorded here; it shows up as battery-history events (H9). The stored
+ * data is read on enter, on a pull, after an observed unplug and on every refresh tick while visible.
  */
 class HealthViewModel(
     private val deps: HealthDependencies,
@@ -59,6 +60,12 @@ class HealthViewModel(
     private var observedUnplugMs: Long? = null
     private var liveJob: Job? = null
     private var refreshJob: Job? = null
+
+    /** Follows the refresh tick while visible, reloading on each one. */
+    private var ticksJob: Job? = null
+
+    /** The load in flight. A newer load replaces it, so an older read can never land after a newer one. */
+    private var loadJob: Job? = null
 
     /** The user asked for the running refresh (main thread only, like every intent). */
     private var userWaiting = false
@@ -81,12 +88,18 @@ class HealthViewModel(
         if (visible) return
         visible = true
         syncLive()
+        // The first value loads this visit's data. Every later one is a refresh that stored history, samples and
+        // health records after that load: this screen's own, the app-open capture its on-enter refresh joined (which
+        // then comes back Debounced), or the re-run when Shizuku became ready, which this screen never asked for.
+        ticksJob = viewModelScope.launch { deps.lastRefreshWallMs.collect { reload() } }
         startRefresh(userInitiated = false)
     }
 
     private fun onHidden() {
         if (!visible) return
         visible = false
+        ticksJob?.cancel()
+        ticksJob = null
         // The plug listener goes away with the screen; the next Visible brings a fresh plug state.
         charging = false
         syncLive()
@@ -120,7 +133,7 @@ class HealthViewModel(
         charging = nowCharging
         syncLive()
         // The charge that just ended is in storage now; pick it up without waiting for a pull.
-        if (!nowCharging && visible) viewModelScope.launch { load() }
+        if (!nowCharging && visible) reload()
         render()
     }
 
@@ -163,17 +176,15 @@ class HealthViewModel(
             userWaiting = true
             _state.update { it.copy(refreshing = true) }
         }
+        // A pull re-reads the store at once, and a capture it starts or joins reloads again through its refresh tick.
+        if (userInitiated) reload()
         if (refreshJob?.isActive == true) return
         refreshJob =
             viewModelScope.launch {
                 try {
-                    load()
                     when (attempt { deps.refresh() }) {
-                        is RefreshResult.Refreshed -> {
-                            load()
-                        }
-
-                        is RefreshResult.Debounced -> {
+                        // A stored capture reaches the screen through its refresh tick.
+                        is RefreshResult.Refreshed, is RefreshResult.Debounced -> {
                             Unit
                         }
 
@@ -186,6 +197,11 @@ class HealthViewModel(
                     _state.update { it.copy(refreshing = false) }
                 }
             }
+    }
+
+    private fun reload() {
+        loadJob?.cancel()
+        loadJob = viewModelScope.launch { load() }
     }
 
     private suspend fun load() {

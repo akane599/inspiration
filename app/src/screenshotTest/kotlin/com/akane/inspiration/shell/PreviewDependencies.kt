@@ -69,6 +69,8 @@ internal object PreviewDependencies :
         }
     override val toolkit = ToolkitActions(ToolkitGateway(NeverBoundShizuku), EmptyStore, holdBinding = { AutoCloseable {} })
 
+    override val lastRefreshWallMs: StateFlow<Long?> = MutableStateFlow(null)
+
     override suspend fun refresh(): RefreshResult = RefreshResult.Debounced(0L)
 
     override fun recomputeAnalysis() = Unit

@@ -125,8 +125,11 @@ class AppContainer(
             capture = ::captureFull,
         )
 
-    /** Wall time of the last successful refresh; it feeds [analysisSession] as its refresh tick. */
-    val lastRefreshWallMs: StateFlow<Long?> = refreshCoordinator.lastRefreshWallMs
+    /**
+     * Wall time of the last successful refresh; it feeds [analysisSession] as its refresh tick, and the Cockpit
+     * timeline and Health re-read the store on it while they are visible.
+     */
+    override val lastRefreshWallMs: StateFlow<Long?> = refreshCoordinator.lastRefreshWallMs
 
     /** FULL capture plus history ingest, mutex-guarded and debounced to 60 s. Nothing calls it on a timer. */
     override suspend fun refresh(): RefreshResult = refreshCoordinator.refresh()

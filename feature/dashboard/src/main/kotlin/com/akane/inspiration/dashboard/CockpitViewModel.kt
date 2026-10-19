@@ -48,7 +48,8 @@ internal const val CHART_WINDOW_MS = 24L * 3_600_000
  * is therefore tied to [CockpitIntent.Visible] / [CockpitIntent.Hidden] and never to the ViewModel's lifetime (H13):
  * the live readings job and the Shizuku binding exist only between the two. The in-process flows (analysis,
  * selection, Shizuku state) are passive and are collected for the ViewModel's whole life. The chart's timeline is
- * read and shaped on [shapingDispatcher], never on the main thread.
+ * read on enter, on a pull and on every refresh tick while visible, and read and shaped on [shapingDispatcher],
+ * never on the main thread.
  */
 class CockpitViewModel(
     private val deps: CockpitDependencies,
@@ -63,6 +64,12 @@ class CockpitViewModel(
     private var visible = false
     private var liveJob: Job? = null
     private var refreshJob: Job? = null
+
+    /** Follows the refresh tick while visible, re-reading the chart on each one. */
+    private var ticksJob: Job? = null
+
+    /** The chart read in flight. A newer read replaces it, so an older read can never land after a newer one. */
+    private var timelineJob: Job? = null
 
     /** The user asked for the running refresh (main thread only, like every intent). */
     private var userWaiting = false
@@ -138,6 +145,10 @@ class CockpitViewModel(
                         clearLive()
                     }
             }
+        // The first value reads this visit's chart. Every later one is a refresh that stored history and moved the
+        // history horizon after that read: this screen's own, the app-open capture its on-enter refresh joined (which
+        // then comes back Debounced), or the re-run when Shizuku became ready, which this screen never asked for.
+        ticksJob = viewModelScope.launch { deps.lastRefreshWallMs.collect { reloadTimeline() } }
         startRefresh(userInitiated = false)
     }
 
@@ -146,6 +157,8 @@ class CockpitViewModel(
         visible = false
         liveJob?.cancel()
         liveJob = null
+        ticksJob?.cancel()
+        ticksJob = null
         closeBinding()
         // End this visit's refresh ownership without cancelling the shared capture: a failure that lands (or was
         // queued) after the user left must not be shown on the next visit.
@@ -186,15 +199,18 @@ class CockpitViewModel(
             }
             // The analysis reads only stored data, so Retry on a failed one need not wait for (or get) a capture.
             if (deps.analysis.value is AnalysisState.Failed) deps.recomputeAnalysis()
+            // So does the chart: a pull re-reads it at once (a failed one included), and a capture the pull starts
+            // or joins re-reads it again through its refresh tick once it is stored.
+            reloadTimeline()
         }
         if (refreshJob?.isActive == true) return
         refreshJob =
             viewModelScope.launch {
                 try {
-                    loadTimeline()
-                    when (val result = attempt { deps.refresh() }) {
+                    when (attempt { deps.refresh() }) {
+                        // A stored capture reaches the chart through its refresh tick, and the analysis through the same tick.
                         is RefreshResult.Refreshed -> {
-                            loadTimeline()
+                            Unit
                         }
 
                         // No new capture means no refresh tick: what the user asked for is recomputed from what is stored.
@@ -214,6 +230,11 @@ class CockpitViewModel(
                     _state.update { it.copy(refreshing = false) }
                 }
             }
+    }
+
+    private fun reloadTimeline() {
+        timelineJob?.cancel()
+        timelineJob = viewModelScope.launch { loadTimeline() }
     }
 
     private suspend fun loadTimeline() {
@@ -276,6 +297,8 @@ class CockpitViewModel(
                 _state.update { it.copy(markerSheet = it.markerSheet?.copy(creating = false, failed = true)) }
             } else {
                 _state.update { it.copy(markerSheet = it.markerSheet?.copy(creating = false)) }
+                // The marker's FULL capture ingested history and moved the horizon without a refresh tick.
+                reloadTimeline()
                 loadMarkers()
             }
         }

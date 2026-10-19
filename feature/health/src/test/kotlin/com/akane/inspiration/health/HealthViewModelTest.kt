@@ -559,6 +559,57 @@ class HealthViewModelTest {
         }
 
     @Test
+    fun `an app-open refresh in flight on enter is shown once its history is stored`() =
+        runTest(dispatcher) {
+            // The app-open capture (MainActivity.onStart) holds the coordinator when Health becomes visible: the
+            // charge that ended while the app was away is not in the store yet.
+            val appOpenCapture = CompletableDeferred<Unit>().also { deps.refreshGate = it }
+            val vm = viewModel()
+            vm.onIntent(HealthIntent.Visible)
+            try {
+                runCurrent()
+                assertEquals(CurveUi.None, vm.state.value.curve)
+
+                // The capture commits its history ingest and the coordinator records its tick. The screen's own
+                // refresh, queued behind it, then comes back Debounced: no capture of its own.
+                deps.history = backgroundCharge()
+                deps.lastRefreshWallMs.value = NOW_MS
+                deps.refreshResult = RefreshResult.Debounced(NOW_MS)
+                appOpenCapture.complete(Unit)
+                runCurrent()
+
+                assertEquals(CurveSource.History, (vm.state.value.curve as CurveUi.Ready).source)
+                assertEquals(1, deps.refreshCalls)
+            } finally {
+                vm.onIntent(HealthIntent.Hidden)
+            }
+        }
+
+    @Test
+    fun `a refresh this screen did not ask for reloads while visible, and nothing is read while hidden`() =
+        runTest(dispatcher) {
+            // The on-enter refresh fails (no binder yet); Shizuku then becomes ready and the container re-runs it.
+            deps.refreshResult = RefreshResult.Failed("shizuku not ready")
+            val vm = viewModel()
+            vm.onIntent(HealthIntent.Visible)
+            try {
+                runCurrent()
+                val reads = deps.historyReads
+
+                deps.lastRefreshWallMs.value = NOW_MS
+                runCurrent()
+                assertEquals(reads + 1, deps.historyReads)
+
+                vm.onIntent(HealthIntent.Hidden)
+                deps.lastRefreshWallMs.value = NOW_MS + MIN_MS
+                runCurrent()
+                assertEquals("a hidden screen reads nothing", reads + 1, deps.historyReads)
+            } finally {
+                vm.onIntent(HealthIntent.Hidden)
+            }
+        }
+
+    @Test
     fun `nothing recorded and no kernel is the designed empty state`() =
         runTest(dispatcher) {
             deps.kernel = null
@@ -759,7 +810,7 @@ class HealthViewModelTest {
                     runCurrent()
                     assertEquals(HealthPhase.Loading, vm.state.value.phase)
                     assertEquals("load must stop at cancellation", 0, sessionReads)
-                    assertEquals(refreshesBefore, deps.refreshCalls)
+                    assertEquals("the shared capture does not wait on the screen's read", refreshesBefore + 1, deps.refreshCalls)
 
                     cancelRead = false
                     vm.onIntent(HealthIntent.Refresh)
@@ -959,26 +1010,30 @@ class HealthViewModelTest {
 
     // ---- data assembly ---------------------------------------------------------------------------
 
+    /** A charge three hours ago, while the app was not open: only battery history saw it. */
+    private fun backgroundCharge(): List<HistoryEvent> {
+        val start = NOW_MS - 3 * HOUR_MS
+        return buildList {
+            add(event(start, HistoryKind.PLUGGED, level = 20, tempDeciC = 300))
+            for (i in 1..8) {
+                add(
+                    event(
+                        start + i * 10 * MIN_MS,
+                        level = 20 + i * 8,
+                        tempDeciC = 380 + i * 10,
+                        voltageMv =
+                            4_100 + i * 30,
+                    ),
+                )
+            }
+            add(event(start + 90 * MIN_MS, HistoryKind.UNPLUGGED, level = 84))
+        }
+    }
+
     @Test
     fun `background charging is drawn from history with its caption source`() =
         runTest(dispatcher) {
-            val start = NOW_MS - 3 * HOUR_MS
-            deps.history =
-                buildList {
-                    add(event(start, HistoryKind.PLUGGED, level = 20, tempDeciC = 300))
-                    for (i in 1..8) {
-                        add(
-                            event(
-                                start + i * 10 * MIN_MS,
-                                level = 20 + i * 8,
-                                tempDeciC = 380 + i * 10,
-                                voltageMv =
-                                    4_100 + i * 30,
-                            ),
-                        )
-                    }
-                    add(event(start + 90 * MIN_MS, HistoryKind.UNPLUGGED, level = 84))
-                }
+            deps.history = backgroundCharge()
             val vm = viewModel()
 
             vm.onIntent(HealthIntent.Visible)

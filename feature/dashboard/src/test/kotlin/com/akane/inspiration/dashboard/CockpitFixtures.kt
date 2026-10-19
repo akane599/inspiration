@@ -59,6 +59,9 @@ internal class FakeCockpitDeps(
     var refreshResult: RefreshResult = RefreshResult.Refreshed(NOW_MS)
     var refreshCalls = 0
 
+    /** The coordinator's tick: a Refreshed result records its time, as the coordinator does before returning it. */
+    override val lastRefreshWallMs = MutableStateFlow<Long?>(null)
+
     /** While set, refresh() suspends until it completes, so a test can act during a running refresh. */
     var refreshGate: CompletableDeferred<Unit>? = null
     var permissionRequests = 0
@@ -81,7 +84,7 @@ internal class FakeCockpitDeps(
     override suspend fun refresh(): RefreshResult {
         refreshCalls++
         refreshGate?.await()
-        return refreshResult
+        return refreshResult.also { if (it is RefreshResult.Refreshed) lastRefreshWallMs.value = it.wallMs }
     }
 
     var recomputeCalls = 0

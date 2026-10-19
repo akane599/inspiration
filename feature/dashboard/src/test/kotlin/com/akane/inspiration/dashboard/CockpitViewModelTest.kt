@@ -1,7 +1,11 @@
 package com.akane.inspiration.dashboard
 
+import com.akane.inspiration.designsystem.chart.model.LaneKind
+import com.akane.inspiration.designsystem.chart.model.LaneSegment
 import com.akane.inspiration.designsystem.component.PulseStatus
 import com.akane.inspiration.diagnostics.analysis.AnalysisState
+import com.akane.inspiration.diagnostics.analysis.SegmentKind
+import com.akane.inspiration.diagnostics.analysis.TimelineSegment
 import com.akane.inspiration.diagnostics.story.BatteryStory
 import com.akane.inspiration.diagnostics.story.StorySentence
 import com.akane.inspiration.ipc.ShizukuState
@@ -237,22 +241,115 @@ class CockpitViewModelTest {
             vm.onIntent(CockpitIntent.Hidden)
         }
 
+    /** The store's view of a screen-on stretch that began half an hour ago, with its lane closed at [endMs]. */
+    private fun screenOnUntil(endMs: Long) =
+        emptyTimeline().copy(segments = listOf(TimelineSegment(SegmentKind.SCREEN_ON, NOW_MS - 30 * MIN_MS, endMs)))
+
+    private fun CockpitState.screenOnLane(): List<LaneSegment>? =
+        (chart as? ChartUi.Ready)
+            ?.data
+            ?.lanes
+            ?.single { it.kind == LaneKind.SCREEN_ON }
+            ?.segments
+
     @Test
-    fun `a refreshed capture reloads the timeline and a debounced one does not`() =
+    fun `an app-open refresh in flight on enter reloads the chart once its history is stored`() =
+        runTest(dispatcher) {
+            // The app-open capture (MainActivity.onStart) holds the coordinator when the Cockpit becomes visible:
+            // the store still has the previous horizon, so the screen-on lane ends there.
+            val previousHorizon = NOW_MS - 20 * MIN_MS
+            deps.timelineResult = screenOnUntil(previousHorizon)
+            val appOpenCapture = CompletableDeferred<Unit>().also { deps.refreshGate = it }
+            val vm = viewModel()
+            vm.onIntent(CockpitIntent.Visible)
+            try {
+                runCurrent()
+                assertEquals(listOf(LaneSegment(NOW_MS - 30 * MIN_MS, previousHorizon)), vm.state.value.screenOnLane())
+
+                // The capture commits its history ingest and the coordinator records its tick. The screen's own
+                // refresh, queued behind it, then comes back Debounced: no capture of its own.
+                deps.timelineResult = screenOnUntil(NOW_MS)
+                deps.lastRefreshWallMs.value = NOW_MS
+                deps.refreshResult = RefreshResult.Debounced(NOW_MS)
+                appOpenCapture.complete(Unit)
+                runCurrent()
+
+                assertEquals(
+                    "the lane runs to the newly stored horizon",
+                    listOf(LaneSegment(NOW_MS - 30 * MIN_MS, NOW_MS)),
+                    vm.state.value.screenOnLane(),
+                )
+                assertEquals(1, deps.refreshCalls)
+            } finally {
+                vm.onIntent(CockpitIntent.Hidden)
+            }
+        }
+
+    @Test
+    fun `a refresh this screen did not ask for reloads the chart while visible, and none is read while hidden`() =
+        runTest(dispatcher) {
+            // The on-enter refresh fails (no binder yet); Shizuku then becomes ready and the container re-runs it.
+            deps.refreshResult = RefreshResult.Failed("shizuku not ready")
+            val vm = viewModel()
+            vm.onIntent(CockpitIntent.Visible)
+            try {
+                runCurrent()
+                val reads = deps.timelineCalls.size
+
+                deps.lastRefreshWallMs.value = NOW_MS
+                runCurrent()
+                assertEquals(reads + 1, deps.timelineCalls.size)
+
+                vm.onIntent(CockpitIntent.Hidden)
+                deps.lastRefreshWallMs.value = NOW_MS + MIN_MS
+                runCurrent()
+                assertEquals("a hidden screen reads nothing", reads + 1, deps.timelineCalls.size)
+            } finally {
+                vm.onIntent(CockpitIntent.Hidden)
+            }
+        }
+
+    @Test
+    fun `a pull re-reads the chart at once and its capture reloads it again once stored`() =
+        runTest(dispatcher) {
+            deps.refreshResult = RefreshResult.Debounced(NOW_MS)
+            val vm = viewModel()
+            vm.onIntent(CockpitIntent.Visible)
+            try {
+                runCurrent()
+                assertEquals("one read on enter; a debounced refresh stored nothing", 1, deps.timelineCalls.size)
+
+                deps.clocks.wall = NOW_MS + 2 * MIN_MS
+                deps.refreshResult = RefreshResult.Refreshed(deps.clocks.wall)
+                vm.onIntent(CockpitIntent.Refresh)
+                runCurrent()
+
+                assertEquals(2, deps.refreshCalls)
+                assertEquals("the pull's own read, then the stored capture's", 3, deps.timelineCalls.size)
+                assertFalse(vm.state.value.refreshing)
+            } finally {
+                vm.onIntent(CockpitIntent.Hidden)
+            }
+        }
+
+    @Test
+    fun `a marker's capture reloads the chart`() =
         runTest(dispatcher) {
             val vm = viewModel()
             vm.onIntent(CockpitIntent.Visible)
-            runCurrent()
-            assertEquals("timeline before and after the refresh", 2, deps.timelineCalls.size)
+            try {
+                runCurrent()
+                vm.onIntent(CockpitIntent.OpenMarkers)
+                runCurrent()
+                val reads = deps.timelineCalls.size
 
-            deps.refreshResult = RefreshResult.Debounced(NOW_MS)
-            vm.onIntent(CockpitIntent.Refresh)
-            runCurrent()
+                vm.onIntent(CockpitIntent.MarkNow("charger swap"))
+                runCurrent()
 
-            assertEquals(2, deps.refreshCalls)
-            assertEquals("debounced: only the pre-refresh read", 3, deps.timelineCalls.size)
-            assertFalse(vm.state.value.refreshing)
-            vm.onIntent(CockpitIntent.Hidden)
+                assertEquals("the marker's FULL capture ingested history", reads + 1, deps.timelineCalls.size)
+            } finally {
+                vm.onIntent(CockpitIntent.Hidden)
+            }
         }
 
     @Test
