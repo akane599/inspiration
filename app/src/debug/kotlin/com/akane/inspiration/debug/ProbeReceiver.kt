@@ -29,18 +29,24 @@ import com.akane.inspiration.ipc.client.PowerStatsClient
 import com.akane.inspiration.ipc.model.DeviceIdleSnapshot
 import com.akane.inspiration.ipc.model.DumpTarget
 import com.akane.inspiration.ipc.model.PowerMonitorSnapshot
+import com.akane.inspiration.telemetry.calibration.CalibrationEvidence
 import com.akane.inspiration.telemetry.calibration.CalibrationInput
+import com.akane.inspiration.telemetry.calibration.CalibrationStart
+import com.akane.inspiration.telemetry.calibration.PowerCalibration
 import com.akane.inspiration.telemetry.calibration.PowerCalibrator
+import com.akane.inspiration.telemetry.calibration.SharedPreferencesCalibrationStore
 import com.akane.inspiration.telemetry.capture.CaptureResult
 import com.akane.inspiration.telemetry.diff.ReferenceKind
 import com.akane.inspiration.telemetry.diff.ReferenceResolver
 import com.akane.inspiration.telemetry.diff.SnapshotDiffer
 import com.akane.inspiration.telemetry.interval.IntervalMetrics
 import com.akane.inspiration.telemetry.interval.IntervalMetricsCalculator
+import com.akane.inspiration.telemetry.interval.intervalHistory
 import com.akane.inspiration.telemetry.snapshot.BatterySnapshot
 import com.akane.inspiration.telemetry.snapshot.CaptureTrigger
 import com.akane.inspiration.telemetry.snapshot.SnapshotKind
 import com.akane.inspiration.telemetry.store.SnapshotStore
+import com.akane.inspiration.telemetry.store.ingestedHistory
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.TimeoutCancellationException
@@ -122,9 +128,9 @@ class ProbeReceiver : BroadcastReceiver() {
                     isCharging = batteryManagerReading.isCharging,
                     plugged = batteryManagerReading.plugged,
                 )
-            val calibrator = PowerCalibrator()
-            val calibration = calibrator.calibrate(listOf(calibrationInput))
-            val reading = calibrator.toReading(calibrationInput, calibration)
+            val calibrationStart = runCatching { SharedPreferencesCalibrationStore.from(context).load() }.getOrNull()
+            val calibration = probeCalibration(calibrationStart, calibrationInput)
+            val reading = PowerCalibrator().toReading(calibrationInput, calibration)
             log(
                 JSONObject().put(
                     "kernel",
@@ -147,6 +153,7 @@ class ProbeReceiver : BroadcastReceiver() {
                                 .put("readAtElapsedMs", kernel.readAtElapsedMs),
                         ).put("batteryManager", batteryManagerReading.toJson())
                         .put("calibration", calibration.toJson())
+                        .put("calibrationRestored", calibrationStart != null)
                         .putNullable("reading", reading?.toJson()),
                 ),
             )
@@ -349,9 +356,12 @@ class ProbeReceiver : BroadcastReceiver() {
         val app = context as InspirationApplication
         val container = app.appContainer
         val input = resolveProbeDiffInput(container.store, intent, "insights") ?: return
+        val metrics = container.store.probeIntervalMetrics(input.now, input.coveredFromWallMs, input.coveredToWallMs)
+        if (metrics == null) {
+            log(JSONObject().put("insights", JSONObject().put("available", false).put("reason", "zero_length")))
+            return
+        }
         val diff = SnapshotDiffer.diff(input.ref, input.now)
-        val events = container.store.historyBetween(0, Long.MAX_VALUE).sortedBy { it.wallMs }
-        val metrics = IntervalMetricsCalculator.compute(events, input.coveredFromWallMs, input.coveredToWallMs)
         val report = container.ruleEngine.evaluate(DiagnosticInput(diff, metrics, input.perUidAvailable))
         val story = BatteryStoryBuilder().build(metrics, diff.sleep, report, endsNow = true)
 
@@ -708,6 +718,31 @@ class ProbeReceiver : BroadcastReceiver() {
                 "Landroid/os/IPowerManager",
             )
     }
+}
+
+/**
+ * The live-current calibration rules (LiveTelemetry) for one probe reading: the units, sign and cell layout come from
+ * every reading the app has settled ([start], the persisted [SharedPreferencesCalibrationStore]) plus [input], never
+ * from [input] alone. The probe only reads the store: a debug probe must not move the app's calibration.
+ */
+internal fun probeCalibration(
+    start: CalibrationStart?,
+    input: CalibrationInput,
+): PowerCalibration = CalibrationEvidence(start ?: CalibrationStart()).apply { add(input) }.calibration()
+
+/**
+ * Metrics for a probe pair under IntervalAnalyzer's rules, which only take a reference kind, not the probe's
+ * latest-two pair: null when no wall time passes between the snapshots (compute needs `to >= from`, and a zero-length
+ * pair measures nothing), state past the history horizon unknown, and only the interval's own history read (R-15).
+ */
+internal suspend fun SnapshotStore.probeIntervalMetrics(
+    now: BatterySnapshot,
+    fromWallMs: Long,
+    toWallMs: Long,
+): IntervalMetrics? {
+    if (toWallMs <= fromWallMs) return null
+    val horizon = if (now.ingestedHistory()) now.clock.wallMs else historyHorizonWallMs() ?: Long.MIN_VALUE
+    return IntervalMetricsCalculator.compute(intervalHistory(fromWallMs, toWallMs), fromWallMs, toWallMs, horizon)
 }
 
 private fun InputStream.readAtMost(maxBytes: Int): Int {
