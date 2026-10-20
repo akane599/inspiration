@@ -59,12 +59,12 @@ import com.akane.inspiration.designsystem.component.EmptyState
 import com.akane.inspiration.designsystem.component.EmptyStateAction
 import com.akane.inspiration.designsystem.component.SemanticDot
 import com.akane.inspiration.designsystem.component.filterTouchesWhenObscured
+import com.akane.inspiration.designsystem.component.format.monogram
 import com.akane.inspiration.designsystem.theme.spacing
 import com.akane.inspiration.designsystem.theme.statusColors
 import com.akane.inspiration.ipc.toolkit.AppOp
 import com.akane.inspiration.ipc.toolkit.StandbyBucket
 import com.akane.inspiration.telemetry.toolkit.ToolkitWarning
-import java.util.Locale
 
 // ---- picker --------------------------------------------------------------------------------------
 
@@ -219,12 +219,6 @@ internal fun AppIcon(
         }
     }
 }
-
-/** The tile's letter: the first letter or digit of [label], upper-cased by [locale]'s rules (Turkish `i` becomes `İ`). */
-internal fun monogram(
-    label: String,
-    locale: Locale,
-): String = label.firstOrNull { it.isLetterOrDigit() }?.uppercase(locale).orEmpty()
 
 // ---- detail sheet --------------------------------------------------------------------------------
 

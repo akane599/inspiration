@@ -1,4 +1,4 @@
-package com.akane.inspiration.xray
+package com.akane.inspiration.designsystem.component.format
 
 import org.junit.Assert.assertEquals
 import org.junit.Test
@@ -23,7 +23,7 @@ class MonogramTest {
     }
 
     @Test
-    fun `a name without a letter or digit has no monogram`() {
+    fun `a label without a letter or digit has no monogram`() {
         assertEquals("", monogram("…", turkish))
     }
 }

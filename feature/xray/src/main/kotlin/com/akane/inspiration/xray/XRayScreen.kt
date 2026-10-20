@@ -54,6 +54,7 @@ import com.akane.inspiration.designsystem.component.StackedBar
 import com.akane.inspiration.designsystem.component.TimeSliceBanner
 import com.akane.inspiration.designsystem.component.color
 import com.akane.inspiration.designsystem.component.rememberObscuredTouchNotice
+import com.akane.inspiration.designsystem.component.format.monogram
 import com.akane.inspiration.designsystem.component.format.rememberSystemTimeZone
 import com.akane.inspiration.designsystem.theme.numericTypography
 import com.akane.inspiration.designsystem.theme.spacing
@@ -62,7 +63,6 @@ import com.akane.inspiration.diagnostics.dictionary.Explanation
 import kotlinx.collections.immutable.ImmutableList
 import kotlinx.collections.immutable.persistentListOf
 import kotlinx.collections.immutable.toImmutableList
-import java.util.Locale
 import java.util.TimeZone
 
 /** Looks a name up in the diagnostic dictionary for the current locale. Null when nothing matches. */
@@ -498,12 +498,6 @@ internal fun AppIcon(
         }
     }
 }
-
-/** The tile's letter: the first letter or digit of [name], upper-cased by [locale]'s rules (Turkish `i` becomes `İ`). */
-internal fun monogram(
-    name: String,
-    locale: Locale,
-): String = name.firstOrNull { it.isLetterOrDigit() }?.uppercase(locale).orEmpty()
 
 /** The name of the thing a sheet or card is about: a heading in the strongest title style (see [CardTitle] for sections). */
 @Composable
