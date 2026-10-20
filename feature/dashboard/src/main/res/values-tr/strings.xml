@@ -72,6 +72,7 @@
     <string name="cockpit_markers_loading">İşaretleyiciler yükleniyor…</string>
     <string name="cockpit_markers_empty">Henüz işaretleyici yok.</string>
     <string name="cockpit_markers_failed">Olmadı. Shizuku/Sui\'nin bağlı olduğunu kontrol edip tekrar dene.</string>
+    <string name="cockpit_markers_list_failed">İşaretleyiciler yüklenemedi.</string>
 
     <!-- Snackbar -->
     <string name="cockpit_refresh_failed">Yenilenemedi. Shizuku/Sui çalışıyor mu?</string>

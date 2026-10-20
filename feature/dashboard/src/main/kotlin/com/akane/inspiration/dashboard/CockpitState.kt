@@ -127,7 +127,13 @@ data class MarkerSheetUi(
     val loading: Boolean,
     val markers: ImmutableList<MarkerUi>,
     val creating: Boolean,
-    val failed: Boolean,
+    /** The last "Mark now" capture failed; only a capture sets it. */
+    val captureFailed: Boolean,
+    /**
+     * The last read of the list failed. [markers] are still the ones read before it (none on the sheet's first read):
+     * a failed read says nothing about a capture, so it must not invite another, duplicate, marker.
+     */
+    val listFailed: Boolean,
     /** The marker currently used as the reference, if any. */
     val selectedId: Long?,
 ) {
@@ -137,7 +143,8 @@ data class MarkerSheetUi(
                 loading = true,
                 markers = persistentListOf(),
                 creating = false,
-                failed = false,
+                captureFailed = false,
+                listFailed = false,
                 selectedId = selectedId,
             )
     }

@@ -875,7 +875,7 @@ class CockpitViewModelTest {
             assertEquals(listOf("before the update"), deps.createdLabels)
             val sheet = vm.state.value.markerSheet
             assertEquals(false, sheet?.creating)
-            assertEquals(false, sheet?.failed)
+            assertEquals(false, sheet?.captureFailed)
             assertEquals(listOf("before the update"), sheet?.markers?.map { it.label })
         }
 
@@ -891,8 +891,54 @@ class CockpitViewModelTest {
             runCurrent()
 
             val sheet = vm.state.value.markerSheet
-            assertEquals(true, sheet?.failed)
+            assertEquals(true, sheet?.captureFailed)
+            assertEquals("the list itself was read", false, sheet?.listFailed)
             assertEquals(false, sheet?.creating)
+            assertTrue(sheet?.markers?.isEmpty() == true)
+        }
+
+    @Test
+    fun `a list read that fails after a successful capture keeps the markers and reports no capture failure`() =
+        runTest(dispatcher) {
+            deps.markerList = listOf(Marker(1, 1, "before gaming", NOW_MS - HOUR_MS))
+            val vm = viewModel()
+            vm.onIntent(CockpitIntent.OpenMarkers)
+            runCurrent()
+
+            deps.markersReadable = false
+            vm.onIntent(CockpitIntent.MarkNow("after dinner"))
+            runCurrent()
+
+            val sheet = vm.state.value.markerSheet
+            assertEquals(listOf("after dinner"), deps.createdLabels)
+            assertEquals("the capture worked, so it is not reported as failed", false, sheet?.captureFailed)
+            assertEquals("the list read is what failed", true, sheet?.listFailed)
+            assertEquals(false, sheet?.creating)
+            assertEquals("the markers already shown stay", listOf("before gaming"), sheet?.markers?.map { it.label })
+
+            // The next read that works lists the new marker and clears the note.
+            deps.markersReadable = true
+            vm.onIntent(CockpitIntent.DismissMarkers)
+            vm.onIntent(CockpitIntent.OpenMarkers)
+            runCurrent()
+            val reread = vm.state.value.markerSheet
+            assertEquals(false, reread?.listFailed)
+            assertEquals(listOf("after dinner", "before gaming"), reread?.markers?.map { it.label })
+        }
+
+    @Test
+    fun `a sheet whose first list read fails says so instead of claiming there are no markers`() =
+        runTest(dispatcher) {
+            deps.markersReadable = false
+            val vm = viewModel()
+
+            vm.onIntent(CockpitIntent.OpenMarkers)
+            runCurrent()
+
+            val sheet = vm.state.value.markerSheet
+            assertEquals(false, sheet?.loading)
+            assertEquals(true, sheet?.listFailed)
+            assertEquals("no capture ran, so none failed", false, sheet?.captureFailed)
             assertTrue(sheet?.markers?.isEmpty() == true)
         }
 
@@ -921,7 +967,7 @@ class CockpitViewModelTest {
 
             val sheet = vm.state.value.markerSheet
             assertEquals(false, sheet?.creating)
-            assertEquals(false, sheet?.failed)
+            assertEquals(false, sheet?.captureFailed)
             assertEquals("the reopened sheet lists the marker it watched", listOf("first"), sheet?.markers?.map { it.label })
         }
 
@@ -946,7 +992,7 @@ class CockpitViewModelTest {
             // The reopened sheet showed this capture in progress, so its failure is the one the sheet was waiting on.
             val sheet = vm.state.value.markerSheet
             assertEquals(false, sheet?.creating)
-            assertEquals(true, sheet?.failed)
+            assertEquals(true, sheet?.captureFailed)
 
             // Once it has ended, a new tap starts a new capture.
             deps.createMarkerGate = null
@@ -954,7 +1000,7 @@ class CockpitViewModelTest {
             vm.onIntent(CockpitIntent.MarkNow("y"))
             runCurrent()
             assertEquals(listOf("x", "y"), deps.createdLabels)
-            assertEquals(false, vm.state.value.markerSheet?.failed)
+            assertEquals(false, vm.state.value.markerSheet?.captureFailed)
         }
 
     @Test
@@ -978,7 +1024,7 @@ class CockpitViewModelTest {
             runCurrent()
             val sheet = vm.state.value.markerSheet
             assertEquals(false, sheet?.creating)
-            assertEquals("a failure nobody watched is not shown later", false, sheet?.failed)
+            assertEquals("a failure nobody watched is not shown later", false, sheet?.captureFailed)
         }
 
     @Test

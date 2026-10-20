@@ -79,6 +79,9 @@ internal class FakeCockpitDeps(
     /** The dispatcher the last timeline read ran on. */
     var timelineDispatcher: ContinuationInterceptor? = null
     var markerList: List<Marker> = emptyList()
+
+    /** While false, markers() fails like a store read that throws. */
+    var markersReadable = true
     var createMarkerResult: Long? = 1L
     val createdLabels = mutableListOf<String>()
 
@@ -133,7 +136,7 @@ internal class FakeCockpitDeps(
         return timelineResult ?: error("timeline unavailable")
     }
 
-    override suspend fun markers(): List<Marker> = markerList
+    override suspend fun markers(): List<Marker> = if (markersReadable) markerList else error("markers unavailable")
 
     override suspend fun createMarker(label: String): Long? {
         createdLabels += label

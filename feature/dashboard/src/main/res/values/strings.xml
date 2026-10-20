@@ -79,7 +79,10 @@
     <string name="cockpit_marker_in_use">In use</string>
     <string name="cockpit_markers_loading">Loading markers…</string>
     <string name="cockpit_markers_empty">No markers yet.</string>
+    <!-- A "Mark now" capture failed -->
     <string name="cockpit_markers_failed">That didn\'t work. Check that Shizuku or Sui is connected, then try again.</string>
+    <!-- Reading the stored marker list failed; any markers read before stay listed below it -->
+    <string name="cockpit_markers_list_failed">Couldn\'t load markers.</string>
 
     <!-- Snackbar -->
     <string name="cockpit_refresh_failed">Couldn\'t refresh. Is Shizuku or Sui running?</string>

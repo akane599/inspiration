@@ -109,7 +109,7 @@ internal fun MarkerSheetContent(
                     Text(stringResource(R.string.cockpit_marker_mark_now))
                 }
             }
-            if (sheet.failed) {
+            if (sheet.captureFailed) {
                 Text(
                     text = stringResource(R.string.cockpit_markers_failed),
                     style = MaterialTheme.typography.bodyMedium,
@@ -130,9 +130,18 @@ private fun MarkerList(
 ) {
     val format = rememberTelemetryFormat()
     when {
-        sheet.loading -> MarkerNote(R.string.cockpit_markers_loading, modifier)
-        sheet.markers.isEmpty() -> MarkerNote(R.string.cockpit_markers_empty, modifier)
+        sheet.loading -> {
+            MarkerNote(R.string.cockpit_markers_loading, modifier)
+        }
+
+        // A list that could not be read is not known to be empty.
+        sheet.markers.isEmpty() -> {
+            if (sheet.listFailed) ListFailedNote(modifier) else MarkerNote(R.string.cockpit_markers_empty, modifier)
+        }
+
         else -> {
+            // The markers read before the failed read stay listed under the note.
+            if (sheet.listFailed) ListFailedNote(Modifier)
             Text(
                 text = pluralStringResource(R.plurals.cockpit_markers_count, sheet.markers.size, sheet.markers.size),
                 style = MaterialTheme.typography.labelLarge,
@@ -169,11 +178,21 @@ private fun MarkerList(
 }
 
 @Composable
-private fun MarkerNote(textRes: Int, modifier: Modifier) {
+private fun MarkerNote(
+    textRes: Int,
+    modifier: Modifier,
+    color: Color = MaterialTheme.colorScheme.onSurfaceVariant,
+) {
     Text(
         text = stringResource(textRes),
         style = MaterialTheme.typography.bodyMedium,
-        color = MaterialTheme.colorScheme.onSurfaceVariant,
+        color = color,
         modifier = modifier.padding(horizontal = MaterialTheme.spacing.md, vertical = MaterialTheme.spacing.md),
     )
+}
+
+/** The list read failed: its own note, apart from a failed capture's, so it does not ask for another marker. */
+@Composable
+private fun ListFailedNote(modifier: Modifier) {
+    MarkerNote(R.string.cockpit_markers_list_failed, modifier, color = MaterialTheme.colorScheme.error)
 }

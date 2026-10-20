@@ -92,3 +92,13 @@ fun CockpitMarkerSheetPreview() =
             MarkerSheetContent(sheet = CockpitPreviewData.markers, onIntent = {}, zone = CockpitPreviewData.zone)
         }
     }
+
+@PreviewTest
+@Preview(name = "markers-list-failed", showBackground = true, widthDp = 412, heightDp = 600)
+@Composable
+fun CockpitMarkerSheetListFailedPreview() =
+    InspirationTheme(darkTheme = true) {
+        Surface(color = MaterialTheme.colorScheme.surfaceContainerLow, modifier = Modifier.fillMaxWidth()) {
+            MarkerSheetContent(sheet = CockpitPreviewData.markersListFailed, onIntent = {}, zone = CockpitPreviewData.zone)
+        }
+    }

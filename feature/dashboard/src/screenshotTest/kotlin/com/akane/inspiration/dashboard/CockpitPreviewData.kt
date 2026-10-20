@@ -270,9 +270,13 @@ internal object CockpitPreviewData {
                     MarkerUi(1, "Marker 08:00", atHour(8.0)),
                 ),
             creating = false,
-            failed = false,
+            captureFailed = false,
+            listFailed = false,
             selectedId = 2,
         )
+
+    /** A re-read after a successful capture failed: the markers read before stay, under their own note. */
+    val markersListFailed = markers.copy(listFailed = true)
 }
 
 @Composable

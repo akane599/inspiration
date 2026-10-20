@@ -302,21 +302,16 @@ class CockpitViewModel(
     }
 
     private suspend fun loadMarkers() {
-        val markers = attempt { deps.markers() }
+        val listed =
+            attempt { deps.markers() }
+                ?.sortedByDescending { it.wallMs }
+                ?.map { MarkerUi(it.id, it.label, it.wallMs) }
+                ?.toImmutableList()
         _state.update { state ->
             state.markerSheet?.let { sheet ->
+                // A failed read keeps the markers already shown and says so; it is not a failed capture.
                 state.copy(
-                    markerSheet =
-                        sheet.copy(
-                            loading = false,
-                            failed = markers == null,
-                            markers =
-                                markers
-                                    .orEmpty()
-                                    .sortedByDescending { it.wallMs }
-                                    .map { MarkerUi(it.id, it.label, it.wallMs) }
-                                    .toImmutableList(),
-                        ),
+                    markerSheet = sheet.copy(loading = false, listFailed = listed == null, markers = listed ?: sheet.markers),
                 )
             } ?: state
         }
@@ -326,14 +321,14 @@ class CockpitViewModel(
         if (_state.value.markerSheet == null) return
         // One capture at a time, whichever sheet started it.
         if (markJob?.isActive == true) return
-        _state.update { it.copy(markerSheet = it.markerSheet?.copy(creating = true, failed = false)) }
+        _state.update { it.copy(markerSheet = it.markerSheet?.copy(creating = true, captureFailed = false)) }
         markJob =
             viewModelScope.launch {
                 val id = attempt { deps.createMarker(label) }
                 // A sheet open now was opened on this capture (a reopened one showed it as creating), so the outcome
                 // is the one it is waiting on; with the sheet closed there is nothing to show.
                 if (id == null) {
-                    _state.update { it.copy(markerSheet = it.markerSheet?.copy(creating = false, failed = true)) }
+                    _state.update { it.copy(markerSheet = it.markerSheet?.copy(creating = false, captureFailed = true)) }
                 } else {
                     _state.update { it.copy(markerSheet = it.markerSheet?.copy(creating = false)) }
                     // Listed outside this job, so the capture has ended once `creating` clears: a sheet reopened
