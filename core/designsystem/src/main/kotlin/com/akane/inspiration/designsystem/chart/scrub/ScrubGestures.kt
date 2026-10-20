@@ -36,7 +36,8 @@ internal class ScrubGestureInputs(
 
 /**
  * One `pointerInput` with a single [awaitEachGesture] loop feeding [ScrubGestureReducer].
- * Long press is detected here with [withTimeoutOrNull]; the reducer decides everything else.
+ * Long press is detected here with [withTimeoutOrNull]; the reducer decides everything else. A Down an ancestor
+ * already consumed (a flinging scroll the press stops) starts no gesture.
  * Keyed only on the chart-lifetime [state] and [inputs], so a data reload (a new window) never restarts
  * the loop and cancels a gesture in progress. The window, callbacks and selection are read through
  * [inputs]; each gesture keeps the [TimeScale] built from the window current at its Down.
@@ -52,6 +53,9 @@ internal fun Modifier.scrubGestures(
         val longPressMs = viewConfiguration.longPressTimeoutMillis
         awaitEachGesture {
             val down = awaitFirstDown(requireUnconsumed = false)
+            // An ancestor took this press on its way down: a moving scroll stopping on it, or the obscured-touch
+            // guard. It is not a tap, brush, scrub or handle grab on the chart, so it never clears the selection.
+            if (down.isConsumed) return@awaitEachGesture
             val gutters = inputs.gutters.value
             val plotWidth = (size.width - gutters.leftPx - gutters.rightPx).coerceAtLeast(1f)
             val driver =
