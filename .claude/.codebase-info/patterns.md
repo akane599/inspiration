@@ -40,7 +40,15 @@ Durations and deadlines use `elapsedRealtime`, never wall-clock differences: ret
 
 ## NotEvaluable instead of guessing
 
-Each diagnostic rule returns either insights or a machine-readable reason (`DiagnosticReport.notEvaluable`), never a guess or silence: invalid batterystats, missing per-UID data (LIGHT endpoint), invalid components, absent sensor/signal sources. Only `UidDelta.valid` UIDs are evaluated and skipped ones are counted. R2 culprits carry `CulpritScope`, so a mixed screen-on/off interval is labelled "contributors over the whole interval", never "cause". The Battery Story omits any sentence whose fact is missing. `IntervalAnalyzer` always passes `endsNow = false` for stored/cached coverage, so historical fallback intervals are not narrated as "the last" hours.
+Each diagnostic rule returns either insights or a machine-readable reason (`DiagnosticReport.notEvaluable`), never a guess or silence: invalid batterystats, missing per-UID data (LIGHT endpoint), invalid components, absent sensor/signal sources. Only `UidDelta.valid` UIDs are evaluated and skipped ones are counted.
+- **No checkable app (B-03):** a diff that has app UIDs but no valid one makes R1/R4 not evaluable (`APPS_UNPROVEN`), never an all-clear. Sleep Lab's app and alarm tabs say how many apps couldn't be checked (`ListUi.Rows.excluded`) instead of "Nothing recorded".
+- **App UIDs (B-16):** an app is any UID whose per-user app id is at or above `FIRST_APPLICATION_UID`. The public `isApplicationUid` in `UidIdentity.kt` decides this, so secondary-user platform UIDs (for example 1001000) are not apps. R1 and R4 both use it.
+- **Missing screen-off figures (B-04):** R2 returns `NO_SCREEN_OFF_FIGURES` when the diff has no sleep figures or screen-off time. `NO_SCREEN_OFF_TIME` now means only "under 30 min of screen-off". Sleep Lab names the cause from the clocks:
+  - `UnavailableCause` is `DeviceRestarted`, `StatsReset` or `NotCaptured`.
+  - `AwakeSkipReason` has matching `StatsReset` and `NotCaptured` values.
+  - The CPU card says "restarted" only after a restart. It shows `NotCaptured` when one end is LIGHT (`cpuUi(diff, fullAtBothEnds)`), and `NoData` only when both ends are FULL and the kernel reported nothing.
+
+R2 culprits carry `CulpritScope`, so a mixed screen-on/off interval is labelled "contributors over the whole interval", never "cause". The Battery Story omits any sentence whose fact is missing. `IntervalAnalyzer` always passes `endsNow = false` for stored/cached coverage, so historical fallback intervals are not narrated as "the last" hours.
 
 ## Deterministic dictionary matching
 
