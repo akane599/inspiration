@@ -21,6 +21,8 @@ The second independent audit's remediation (N-01–N-28, release 0.2.4) adds:
 - a hidden-API exemption narrowed to `Sensor.getHandle()`, and release resource shrinking with en/tr locales;
 - reserved AIDL txns 4/5 and dump targets 2/4, plus dead-code removal.
 
+The third audit's remediation (R-01–R-21, branch `remediate/audit-2026-10-20`) adds proven-zero baselines for UIDs new to a complete reference, FULL screen-off captures that bind the service on demand, Room schema v6 with newest-of-kind history seeks, post-dispatch-safe toolkit outcomes, a queued Shizuku bind/unbind drainer, the status-start gate, and one shared touch guard in `:core:designsystem` with hidden overlay windows.
+
 | Doc | What |
 |---|---|
 | [architecture.md](architecture.md) | Runtime layers, capture flow, persistence, and privileged data flow |
@@ -30,7 +32,7 @@ The second independent audit's remediation (N-01–N-28, release 0.2.4) adds:
 | [patterns.md](patterns.md) | Availability, validity, merge, persistence, binder-call deadlines, monotonic time, test-double, chart draw-phase/static-overlay, MVI/visibility, failure containment, refresh and toolkit-write conventions |
 | [tech-landscape.md](tech-landscape.md) | Toolchain, dependency catalog, protobuf, Room, Inter fonts, and test/screenshot infrastructure |
 | [directory-structure.md](directory-structure.md) | Source tree, excluding generated output |
-| [database.md](database.md) | Room schema v5 and migrations (incl. nullable UID ownership proof, signal columns, `snapshot_uid_sensor`, `toolkit_action`, the trigger index), boot/elapsed trigger ordering, DAOs, WAL setup, retention, and snapshot-store mapping |
+| [database.md](database.md) | Room schema v6 and migrations (incl. nullable UID ownership proof, signal columns, `snapshot_uid_sensor`, `toolkit_action`, the trigger index), boot/elapsed trigger ordering, DAOs, WAL setup, retention, and snapshot-store mapping |
 | [onboarding.md](onboarding.md) | Build, test, the redroid-only device (no KVM, no emulator), probes (incl. `PROBE_INSIGHTS`), design gallery launch, the `device-probe` and `release` skills, the Gradle slot script, and Shizuku workflow |
 
 ## Map maintenance

@@ -3,7 +3,7 @@
   "tool": "codebase-mapper",
   "version": "2.15.10",
   "mappedAt": "2026-10-20",
-  "gitCommit": "a0d70225f54d363f2773bcf02782de73e1c36859",
+  "gitCommit": "230617568e5740cc78b10edb94cf61d49a11d34f",
   "documents": [
     "architecture.md",
     "communication.md",
@@ -16,15 +16,15 @@
     "tech-landscape.md"
   ],
   "hashes": {
-    "INDEX.md": "d14382aeeb3fd047960c82969858ca95f7a43c7a4ade90f34499600893ae526d",
-    "architecture.md": "e90c215775f164ae52e61b1d5031ec1df6de667aefe86ff9b4e3ad5957f474b9",
+    "INDEX.md": "0dc7a31dd66c94b79bb9063849ec8c513f977e04cece1122d58f94bc7dd84b60",
+    "architecture.md": "7e8d9f30004e91231e86f2cdd56dc85417345e2cb30145a315d2317503090b4d",
     "communication.md": "caeaad9fa866731002617a351c8595049a6f9dab3e3217b306ac2eb18c950f2a",
-    "database.md": "2b319e6ab984119cb1c89f5d90a43858a1c60205b04504197985bf1a710926a6",
-    "directory-structure.md": "c0117f5b1e64944e2154988b1d523db4139823f8d0885f4dcf14db9c9684bc2c",
-    "entry-points.md": "d0b2ac11b8ceacef2a4b13844b9b9823adf186aa6a0e1e64ed48d0ab81a1aa30",
-    "modules.md": "ba7b8569a397e2b5755a1e78b6cad19f6117a4ccc92cab76eb4e5f9473582972",
-    "onboarding.md": "869e6197132340e19ea698e0ed76ef1783578d6d1e00212e0e6912cd1375848d",
-    "patterns.md": "edc9df8897d2733eb6176c33a829cd8daf3ef75250f53dad8b394d13cd5ab5c3",
-    "tech-landscape.md": "a010ef2ce527a0ed4bd7ae4d91e416b11c627479a3f755d35ade17ef931176f1"
+    "database.md": "c3ffddd0d613a48cdbb3c8c0d6ecff65365542ac4784b4d3525067276dac3439",
+    "directory-structure.md": "c706307eb0751df759cae4b1b15dc822f35488f861f41ca6f11c4d3f1b70a811",
+    "entry-points.md": "42f41ec3335957f0901c0cd03390135379350ef9619c51b8073877b797ef0ce0",
+    "modules.md": "b224024ad61d6d745a2547ff4e673d28c005d0e81753b4f3e518b00545a2ca1d",
+    "onboarding.md": "d8b86384c800fb2c561e834442fad15e625c7cec3f18a5f072c292e1094d6352",
+    "patterns.md": "f667c7d1da71461232d383f35c4c25c5a0950c48a28aacc83089a3835a550213",
+    "tech-landscape.md": "2cdb9a84ff45ba9f22b750d770e798af0be27037c706d3c88603b216fe1f2217"
   }
 }

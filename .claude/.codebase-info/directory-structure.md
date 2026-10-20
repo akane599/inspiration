@@ -67,7 +67,7 @@ core/
       common/Clocks.kt
       diff/{BatteryStatsSession,ReferenceResolver,SnapshotDiffer}.kt
       dump/{DumpModels,DumpParser,DumpReader}.kt
-      interval/IntervalMetrics.kt
+      interval/{IntervalHistory,IntervalMetrics}.kt
       app/AppFacingModels.kt       # RefreshResult, KernelCapacitySnapshot, AppEntry, AppLabels, packageForUid
       app/Attempt.kt               # shared attempt {} for feature ViewModels
       live/{KernelUnits,LiveTelemetry}.kt
@@ -81,13 +81,14 @@ core/
       batterystats-api35,batterystats-api36,batterystats-api37}.pb
   database/
     build.gradle.kts
-    schemas/com.akane.inspiration.database.InspirationDatabase/{1,2,3,4,5}.json
+    schemas/com.akane.inspiration.database.InspirationDatabase/{1,2,3,4,5,6}.json
     src/main/kotlin/com/akane/inspiration/database/
-      Daos.kt,Entities.kt,InspirationDatabase.kt   # version 5, MIGRATION_1_2..4_5
+      Daos.kt,Entities.kt,InspirationDatabase.kt   # version 6, MIGRATION_1_2..5_6
       store/RoomSnapshotStore.kt
     src/test/kotlin/com/akane/inspiration/database/
       InspirationDatabaseTest.kt                   # incl. migrations + EXPLAIN QUERY PLAN
-      store/{HistoryCursorTest,RoomSnapshotStoreTest,ToolkitActionRetentionTest}.kt
+      store/{HistoryCursorTest,IntervalHistoryEquivalenceTest,RoomSnapshotStoreTest,
+        ToolkitActionRetentionTest,ToolkitRetentionParityTest}.kt
   diagnostics/
     build.gradle.kts
     src/main/res/raw/diagnostic_dictionary.json
@@ -108,6 +109,7 @@ core/
       component/{CardTitle,EmptyState,InspirationCard,LegendRow,LiveGauge,MetricBar,MetricTile,
         MetricValue,ReducedMotion,ReferencePill,ScreenHeader,SegmentedToggle,SemanticDot,
         ShizukuPulse,StackedBar,TimeSliceBanner}.kt
+      component/ObscuredTouchGuard.kt
       component/format/{SystemZone,TelemetryFormat}.kt
       chart/model/{ChartLabels,ChartModels}.kt
       chart/math/{Scales,ScrubGestureReducer,SeriesMath,TimeRanges,TimeTicks}.kt
@@ -117,7 +119,7 @@ core/
       chart/hypnogram/{HypnogramMath,SleepHypnogram}.kt
     src/main/res/font/inter_{regular,medium,semibold}.ttf
     src/main/res/{values,values-tr}/strings_chart.xml
-    src/test/kotlin/.../designsystem/**       # math, model, contrast tests
+    src/test/kotlin/.../designsystem/**       # math, model, contrast tests; component/ObscuredTouch{Gate,GuardUi}Test (Robolectric)
     src/screenshotTest/kotlin/.../designsystem/{theme,component,chart/scrub,chart/hypnogram}/   # component/ incl. Phase5Component*
     src/screenshotTestDebug/reference/.../    # per-area PNG references
 
@@ -125,11 +127,11 @@ feature/                           # each: src/main/kotlin/com/akane/inspiration
                                    # src/test (VM + mapper tests with fakes), src/screenshotTest (previews + PreviewData)
   dashboard/                       # Cockpit{Route,ViewModel,State,Screen,Dependencies,Mappers,Format,Header,Cards,
                                    #   ChartCard,MarkerSheet}.kt
-  xray/                            # XRay{Route,ViewModel,Models,Screen,Dependencies,Mapper,Detail,Text,TouchGuard}.kt
+  xray/                            # XRay{Route,ViewModel,Models,Screen,Dependencies,Mapper,Detail,Text}.kt
   sleeplab/                        # SleepLab{Route,ViewModel,State,Screen,Dependencies,Mappers,Format,Cpu,Diagnostics}.kt
   health/                          # Health{Route,ViewModel,State,Screen,Dependencies,Mappers,Format,Cards,Charts}.kt
   toolkit/                         # Toolkit{Route,ViewModel,Models,Screen,Dependencies,Mapper,Text,Apps,Dialogs,
-                                   #   Sections,TouchGuard}.kt
+                                   #   Sections}.kt
 
 settings.gradle.kts                # includes all core and feature modules
 gradle/libs.versions.toml          # toolchain and dependency catalog
