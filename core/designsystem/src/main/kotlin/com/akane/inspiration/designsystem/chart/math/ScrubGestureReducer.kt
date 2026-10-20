@@ -279,15 +279,21 @@ class ScrubGestureReducer(
             }
 
             is ScrubGestureState.DraggingHandle -> {
-                // A too-short result widens away from the fixed edge, so only the dragged edge moves.
+                // A too-short result widens from the fixed edge toward the dragged side, or the other way when
+                // that would cross the window bound, so only the dragged edge moves. Only a window with no room
+                // on either side leaves normalizeSelection to shift the fixed edge.
                 val other = state.otherEdgeMs
+                val after = other + minSelectionMs
+                val before = other - minSelectionMs
+                val afterFits = after <= scale.window.endMs
+                val beforeFits = before >= scale.window.startMs
                 val dragged =
                     if (abs(state.currentMs - other) >= minSelectionMs) {
                         state.currentMs
                     } else if (state.currentMs >= other) {
-                        other + minSelectionMs
+                        if (afterFits || !beforeFits) after else before
                     } else {
-                        other - minSelectionMs
+                        if (beforeFits || !afterFits) before else after
                     }
                 val range = normalizeSelection(other, dragged, scale.window, minSelectionMs)
                 ScrubGestureResult(ScrubGestureState.Idle, commit = range?.let { SelectionCommit.Set(it) }, consume = true)

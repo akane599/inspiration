@@ -227,6 +227,53 @@ class ScrubGestureReducerTest {
         assertEquals(SelectionCommit.Set(TimeRange.of(55_000L, 60_000L)), r.commit)
     }
 
+    /** Releases a handle drag at [x] on a 0..[windowEndMs] window drawn 100 ms per px; the fixed edge is [otherMs]. */
+    private fun releaseHandleNearBound(
+        edge: HandleEdge,
+        otherMs: Long,
+        x: Float,
+        windowEndMs: Long = 60_000L,
+    ): SelectionCommit? {
+        val narrow = TimeScale(TimeRange.of(0L, windowEndMs), windowEndMs / 100f)
+        val dragging = ScrubGestureState.DraggingHandle(edge, otherMs, otherMs, grabOffsetMs = 0L)
+        return reducer.reduce(dragging, Up(x), narrow, null).commit
+    }
+
+    @Test
+    fun handleDragNearTheEndBoundWidensBackwardAndKeepsTheFixedEdge() {
+        // R-11: selection 50..58 s, START dragged to 59 s. 58 + 5 crosses the 60 s bound, so it widens to 53..58.
+        assertEquals(SelectionCommit.Set(TimeRange.of(53_000L, 58_000L)), releaseHandleNearBound(HandleEdge.START, 58_000L, 590f))
+        // END with the fixed start at 58 s, dragged across it to 59 s: same fixed edge, same answer.
+        assertEquals(SelectionCommit.Set(TimeRange.of(53_000L, 58_000L)), releaseHandleNearBound(HandleEdge.END, 58_000L, 590f))
+    }
+
+    @Test
+    fun handleDragNearTheStartBoundWidensForwardAndKeepsTheFixedEdge() {
+        // R-11 mirror: selection 2..10 s, END dragged to 1 s. 2 - 5 crosses the 0 bound, so it widens to 2..7.
+        assertEquals(SelectionCommit.Set(TimeRange.of(2_000L, 7_000L)), releaseHandleNearBound(HandleEdge.END, 2_000L, 10f))
+        // START with the fixed end at 2 s, dragged across it to 1 s.
+        assertEquals(SelectionCommit.Set(TimeRange.of(2_000L, 7_000L)), releaseHandleNearBound(HandleEdge.START, 2_000L, 10f))
+    }
+
+    @Test
+    fun handleDragNearABoundStillWidensTowardTheDraggedSideWhenThatFits() {
+        // Fixed edge 58 s, dragged to 57 s: 58 - 5 is inside the window, so the dragged side wins.
+        assertEquals(SelectionCommit.Set(TimeRange.of(53_000L, 58_000L)), releaseHandleNearBound(HandleEdge.START, 58_000L, 570f))
+        // Fixed edge 2 s, dragged to 3 s: 2 + 5 is inside the window.
+        assertEquals(SelectionCommit.Set(TimeRange.of(2_000L, 7_000L)), releaseHandleNearBound(HandleEdge.END, 2_000L, 30f))
+    }
+
+    @Test
+    fun handleDragWithNoRoomOnEitherSideFallsBackToNormalisation() {
+        // 0..8 s window, fixed edge 4 s: neither 4 + 5 nor 4 - 5 fits, so the fixed edge has to give way.
+        assertEquals(
+            SelectionCommit.Set(TimeRange.of(3_000L, 8_000L)),
+            releaseHandleNearBound(HandleEdge.START, 4_000L, 50f, windowEndMs = 8_000L),
+        )
+        // A window shorter than the minimum commits nothing.
+        assertNull(releaseHandleNearBound(HandleEdge.END, 2_000L, 10f, windowEndMs = 4_000L))
+    }
+
     @Test
     fun downFarFromHandlesStartsPressedNotHandleDrag() {
         val r = step(ScrubGestureState.Idle, Down(400f, 50f), selection)
