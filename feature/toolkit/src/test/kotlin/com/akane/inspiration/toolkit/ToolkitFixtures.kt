@@ -312,10 +312,17 @@ internal class MemoryStore : SnapshotStore {
     val rows = mutableListOf<ToolkitActionRecord>()
     var insertGate: CompletableDeferred<Unit>? = null
 
+    /** When set, an audit update throws it (the row of a write already sent cannot be settled). */
+    var updateFailure: RuntimeException? = null
+
     /** When set, reading the audit log throws it, as Room does on a closed or unreadable database. */
     var readFailure: RuntimeException? = null
 
+    /** Runs before every audit insert; it may throw, as Room does on a full disk. */
+    var beforeInsert: () -> Unit = {}
+
     override suspend fun insertToolkitAction(record: ToolkitActionRecord): Long {
+        beforeInsert()
         insertGate?.await()
         val id = rows.size + 1L
         rows += record.copy(id = id)
@@ -323,6 +330,7 @@ internal class MemoryStore : SnapshotStore {
     }
 
     override suspend fun updateToolkitAction(record: ToolkitActionRecord) {
+        updateFailure?.let { throw it }
         val index = rows.indexOfFirst { it.id == record.id }
         if (index >= 0) rows[index] = record
     }

@@ -356,7 +356,15 @@ class ToolkitActions internal constructor(
         val action =
             restoreAction(row, chainOriginal(row, chainWith(row, rows)))
                 ?: return ToolkitOutcome.Refused(ToolkitRefusal.NOT_RESTORABLE)
-        return run(action, confirmed = true, restoring = row, requireExpectedCurrent = true)
+        // A storage error before this item's write (its write-ahead row) fails this item only: the items already
+        // restored are reported as restored, not lost with the whole reset (R-05).
+        return try {
+            run(action, confirmed = true, restoring = row, requireExpectedCurrent = true)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (_: Exception) {
+            ToolkitOutcome.Failed(code = null)
+        }
     }
 
     // ---- reconcile -------------------------------------------------------------------------
@@ -415,11 +423,15 @@ class ToolkitActions internal constructor(
                     }
                 mutex.withLock {
                     // The "before" value is not used for anything on a dexopt row, so its absence is not an error.
-                    val outcome = settle(pending, reply, requireBefore = false, keepPendingOnDone = true)
-                    if (outcome is ToolkitOutcome.Done) {
-                        syncHold(running = true)
-                        supersedeOtherDexoptRows(outcome.value.id)
-                    }
+                    val outcome =
+                        afterDispatch {
+                            settle(pending, reply, requireBefore = false, keepPendingOnDone = true).also { settled ->
+                                if (settled is ToolkitOutcome.Done) {
+                                    syncHold(running = true)
+                                    supersedeOtherDexoptRows(settled.value.id)
+                                }
+                            }
+                        }
                     changes.value += 1
                     outcome
                 }
@@ -711,14 +723,33 @@ class ToolkitActions internal constructor(
                     changes.value += 1
                     throw e
                 }
-            val outcome = settle(pending, reply, requireBefore = spec.kind != KIND_DOZE, keepPendingOnDone = false)
-            if (outcome is ToolkitOutcome.Done && restoring != null) {
-                audit.update(restoring.copy(status = ToolkitActionStatus.RESTORED))
-            }
+            val outcome =
+                afterDispatch {
+                    settle(pending, reply, requireBefore = spec.kind != KIND_DOZE, keepPendingOnDone = false).also { settled ->
+                        if (settled is ToolkitOutcome.Done && restoring != null) {
+                            audit.update(restoring.copy(status = ToolkitActionStatus.RESTORED))
+                        }
+                    }
+                }
             changes.value += 1
             outcome
         }
     }
+
+    /**
+     * Runs the audit bookkeeping of a privileged call already dispatched. The device may have changed by now, so a
+     * storage error here (a Room error on a full disk, say) is not "the command failed": it is the "sent, but could
+     * not be confirmed" outcome, and a row it left PENDING is read back before its target is used again (R-05).
+     * Only a failure before dispatch (the write-ahead row cannot be stored) still propagates. Cancellation does too.
+     */
+    private inline fun <T> afterDispatch(bookkeeping: () -> ToolkitOutcome<T>): ToolkitOutcome<T> =
+        try {
+            bookkeeping()
+        } catch (e: CancellationException) {
+            throw e
+        } catch (_: Exception) {
+            ToolkitOutcome.Unavailable(ToolkitUnavailable.UNVERIFIED)
+        }
 
     private suspend fun failPending(pending: ToolkitActionRecord) {
         audit.update(pending.copy(status = ToolkitActionStatus.PENDING, endedAt = null, code = ToolkitClientCode.WRITE_ERROR))

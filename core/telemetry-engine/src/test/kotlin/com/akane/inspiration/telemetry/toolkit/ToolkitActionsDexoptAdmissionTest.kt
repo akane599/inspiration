@@ -293,21 +293,14 @@ class ToolkitActionsDexoptAdmissionTest {
     fun anAuditSettlementExceptionCannotLeaveTheAdmissionIdProtectedForever() =
         runTest {
             val fixture = Fixture(this)
-            val start =
-                async {
-                    try {
-                        fixture.actions.startBgDexopt()
-                        null
-                    } catch (error: AdmissionFailure) {
-                        error
-                    }
-                }
+            val start = async { fixture.actions.startBgDexopt() }
             val admission = fixture.backend.admissions.receive()
             try {
                 val row = fixture.audit.rows.single()
                 fixture.store.failNextUpdate = true
                 admission.accept()
-                assertTrue(start.await() is AdmissionFailure)
+                // The service started the job, so a settlement that cannot be stored is "sent, unconfirmed" (R-05).
+                assertEquals(ToolkitOutcome.Unavailable(ToolkitUnavailable.UNVERIFIED), start.await())
                 assertEquals(ToolkitActionStatus.PENDING, fixture.audit.byId(row.id).status)
                 assertEquals(ToolkitOutcome.Done(Unit), fixture.actions.cancelBgDexopt())
                 assertEquals(

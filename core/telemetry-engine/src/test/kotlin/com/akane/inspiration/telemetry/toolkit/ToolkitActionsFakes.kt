@@ -37,12 +37,22 @@ fun serviceStatus(
     reason = reason,
 )
 
+/** What Room throws on a full disk: `SQLiteFullException` is a RuntimeException. */
+fun diskFull() = RuntimeException("SQLiteFullException: database or disk is full (code 13)")
+
 /** In-memory audit log with the real store's ordering contract (recent: newest first, pending: oldest first). */
 class FakeAudit : ToolkitAuditStore {
     val rows = mutableListOf<ToolkitActionRecord>()
     private var nextId = 1L
 
+    /** An insert of a row this answers an exception for throws it, as Room does on a full disk ([diskFull]). */
+    var failInsert: (ToolkitActionRecord) -> RuntimeException? = { null }
+
+    /** An update to a row this answers an exception for throws it and leaves the stored row as it was. */
+    var failUpdate: (ToolkitActionRecord) -> RuntimeException? = { null }
+
     override suspend fun insert(record: ToolkitActionRecord): Long {
+        failInsert(record)?.let { throw it }
         val id = nextId++
         rows += record.copy(id = id)
         return id
@@ -51,6 +61,7 @@ class FakeAudit : ToolkitAuditStore {
     override suspend fun update(record: ToolkitActionRecord) {
         // A real cancellation point, like a Room call: an update the caller's cancel can abort.
         yield()
+        failUpdate(record)?.let { throw it }
         val index = rows.indexOfFirst { it.id == record.id }
         if (index >= 0) rows[index] = record
     }

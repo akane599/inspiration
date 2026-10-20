@@ -1,6 +1,7 @@
 package com.akane.inspiration.xray
 
 import com.akane.inspiration.ipc.toolkit.StandbyBucket
+import com.akane.inspiration.telemetry.toolkit.ToolkitUnavailable
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
@@ -65,7 +66,7 @@ class XRayViewModelFailureTest {
     private val failed = ActionNotice.Rejected(Problem.Failed(code = null))
 
     @Test
-    fun `a write whose audit row cannot be stored says it failed instead of crashing`() {
+    fun `a write whose write-ahead audit row cannot be stored says it failed instead of crashing`() {
         vm.onIntent(XRayIntent.OpenApp(CHATTY_UID))
         store.insertFailure = diskFull()
 
@@ -73,9 +74,24 @@ class XRayViewModelFailureTest {
 
         assertNothingEscaped()
         assertFalse("the failed action must end busy", detail.busy)
+        // Nothing was sent (the row is stored before the call), so "the command failed" is true.
         assertEquals(failed, detail.notice)
         assertTrue("the controls show the read-back state again", detail.actions is ActionsState.Loaded)
         assertTrue("nothing was written without its audit row", deps.device.writes.isEmpty())
+    }
+
+    @Test
+    fun `a write sent before its audit row could be settled says it could not be confirmed`() {
+        vm.onIntent(XRayIntent.OpenApp(CHATTY_UID))
+        store.updateFailure = diskFull()
+
+        vm.onIntent(XRayIntent.Act(ActionRequest.SetBucket(StandbyBucket.WORKING_SET)))
+
+        assertNothingEscaped()
+        assertFalse(detail.busy)
+        // R-05: the device changed, so this is "sent, but couldn't be confirmed", never "the command failed".
+        assertEquals(listOf("setStandbyBucket"), deps.device.writes)
+        assertEquals(ActionNotice.Rejected(Problem.Unavailable(ToolkitUnavailable.UNVERIFIED)), detail.notice)
     }
 
     @Test

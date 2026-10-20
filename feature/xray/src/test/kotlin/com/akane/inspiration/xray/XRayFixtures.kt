@@ -293,6 +293,9 @@ internal class MemoryStore : SnapshotStore {
     /** When set, an audit insert throws it, as Room does on a full disk (`SQLiteFullException` is a RuntimeException). */
     var insertFailure: RuntimeException? = null
 
+    /** When set, an audit update throws it (the row of a write already sent cannot be settled). */
+    var updateFailure: RuntimeException? = null
+
     /** When set, reading the audit log throws it, as Room does on a closed or unreadable database. */
     var readFailure: RuntimeException? = null
 
@@ -304,6 +307,7 @@ internal class MemoryStore : SnapshotStore {
     }
 
     override suspend fun updateToolkitAction(record: ToolkitActionRecord) {
+        updateFailure?.let { throw it }
         val index = rows.indexOfFirst { it.id == record.id }
         if (index >= 0) rows[index] = record
     }

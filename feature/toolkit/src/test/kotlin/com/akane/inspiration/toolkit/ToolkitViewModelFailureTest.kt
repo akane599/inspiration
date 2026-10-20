@@ -3,6 +3,7 @@ package com.akane.inspiration.toolkit
 import com.akane.inspiration.ipc.toolkit.AppOp
 import com.akane.inspiration.ipc.toolkit.StandbyBucket
 import com.akane.inspiration.telemetry.toolkit.BgDexoptStatus
+import com.akane.inspiration.telemetry.toolkit.ToolkitUnavailable
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -84,7 +85,7 @@ class ToolkitViewModelFailureTest {
     private fun assertNothingEscaped() = assertTrue("an exception reached the thread's handler: $uncaught", uncaught.isEmpty())
 
     @Test
-    fun `a write whose audit row cannot be stored says it failed instead of crashing`() {
+    fun `a write whose write-ahead audit row cannot be stored says it failed instead of crashing`() {
         start()
         vm.onIntent(ToolkitIntent.OpenApp(CHATTY))
         assertEquals("precondition: the sheet is open", CHATTY, detail.app.packageName)
@@ -94,9 +95,26 @@ class ToolkitViewModelFailureTest {
 
         assertNothingEscaped()
         assertFalse("the failed action must end busy", state.busy)
+        // Nothing was sent (the row is stored before the call), so "the command failed" is true.
         assertEquals(ToolkitNotice.Rejected(Problem.Failed(code = null)), detail.notice)
         assertTrue("the controls show the read-back state again", detail.controls is ControlsState.Loaded)
         assertTrue("nothing was written without its audit row", device.writes.isEmpty())
+    }
+
+    @Test
+    fun `a write sent before its audit row could be settled says it could not be confirmed`() {
+        start()
+        vm.onIntent(ToolkitIntent.OpenApp(CHATTY))
+        device.store.updateFailure = diskFull()
+
+        act(ToolkitRequest.SetBucket(StandbyBucket.RARE))
+
+        assertNothingEscaped()
+        assertFalse(state.busy)
+        // R-05: the device changed, so this is "sent, but couldn't be confirmed", never "the command failed".
+        assertEquals(listOf("setStandbyBucket"), device.writes)
+        assertEquals(ToolkitNotice.Rejected(Problem.Unavailable(ToolkitUnavailable.UNVERIFIED)), detail.notice)
+        assertTrue("the controls show the read-back state", detail.controls is ControlsState.Loaded)
     }
 
     @Test
@@ -141,7 +159,7 @@ class ToolkitViewModelFailureTest {
         act(ToolkitRequest.SetBucket(StandbyBucket.RARE))
         vm.onIntent(ToolkitIntent.CloseApp)
         act(ToolkitRequest.ResetAll)
-        failInserts()
+        device.store.readFailure = diskFull() // the overrides to reset cannot be read: nothing is attempted
 
         confirm()
 
@@ -149,6 +167,31 @@ class ToolkitViewModelFailureTest {
         assertFalse(state.busy)
         assertNull(state.resetReport)
         assertEquals(ToolkitNotice.Rejected(Problem.Failed(code = null)), state.overridesNotice)
+    }
+
+    @Test
+    fun `a reset all item whose audit row cannot be stored is reported not restored, the others restored`() {
+        start()
+        vm.onIntent(ToolkitIntent.OpenApp(MAPS))
+        act(ToolkitRequest.SetBucket(StandbyBucket.RARE))
+        vm.onIntent(ToolkitIntent.OpenApp(CHATTY))
+        act(ToolkitRequest.SetBucket(StandbyBucket.RARE))
+        vm.onIntent(ToolkitIntent.CloseApp)
+        act(ToolkitRequest.ResetAll)
+        // The first item restores; the write-ahead row of every later one cannot be stored.
+        var inserts = 0
+        device.store.beforeInsert = { if (inserts++ > 0) throw diskFull() }
+        val sent = device.writes.size
+
+        confirm()
+
+        assertNothingEscaped()
+        assertFalse(state.busy)
+        val results = state.resetReport!!.lines.map { it.result }
+        assertEquals(2, results.size)
+        assertTrue("the item restored before the failure is reported restored: $results", ResetResult.Restored in results)
+        assertTrue(ResetResult.NotRestored(Problem.Failed(code = null)) in results)
+        assertEquals("only the item whose row was stored was written", 1, device.writes.size - sent)
     }
 
     @Test
