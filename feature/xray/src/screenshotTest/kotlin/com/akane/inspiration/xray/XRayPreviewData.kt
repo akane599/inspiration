@@ -2,6 +2,7 @@ package com.akane.inspiration.xray
 
 import com.akane.inspiration.diagnostics.dictionary.EntryKind
 import com.akane.inspiration.diagnostics.dictionary.Explanation
+import com.akane.inspiration.ipc.BlockedReason
 import com.akane.inspiration.ipc.ShizukuBackend
 import com.akane.inspiration.ipc.toolkit.AppOp
 import com.akane.inspiration.ipc.toolkit.StandbyBucket

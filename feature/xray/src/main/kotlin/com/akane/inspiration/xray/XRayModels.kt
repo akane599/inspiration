@@ -1,8 +1,10 @@
 package com.akane.inspiration.xray
 
 import androidx.compose.runtime.Immutable
+import com.akane.inspiration.ipc.BlockedReason
 import com.akane.inspiration.ipc.ShizukuBackend
 import com.akane.inspiration.ipc.ShizukuState
+import com.akane.inspiration.ipc.blockedReason
 import com.akane.inspiration.ipc.toolkit.AppOp
 import com.akane.inspiration.ipc.toolkit.StandbyBucket
 import com.akane.inspiration.telemetry.toolkit.ListedOverride
@@ -101,8 +103,6 @@ data class SliceInfo(
     val coveredFromMs: Long?,
     val coveredToMs: Long?,
 )
-
-enum class BlockedReason { NOT_INSTALLED, NOT_RUNNING, PERMISSION_REQUIRED, PERMISSION_DENIED, UNSUPPORTED_SERVER }
 
 /** What a toolkit call came back with when it was not a success. */
 sealed interface Problem {
@@ -284,16 +284,6 @@ sealed interface XRayEffect {
     /** A capture asked for by the screen did not complete; the last one stays on screen. */
     data object RefreshFailed : XRayEffect
 }
-
-internal fun ShizukuState.blockedReason(): BlockedReason? =
-    when (this) {
-        is ShizukuState.Ready -> null
-        ShizukuState.NotInstalled -> BlockedReason.NOT_INSTALLED
-        ShizukuState.NotRunning -> BlockedReason.NOT_RUNNING
-        is ShizukuState.PermissionRequired -> BlockedReason.PERMISSION_REQUIRED
-        is ShizukuState.PermissionDenied -> BlockedReason.PERMISSION_DENIED
-        is ShizukuState.UnsupportedServer -> BlockedReason.UNSUPPORTED_SERVER
-    }
 
 /** The blocked actions card for this state, naming its backend when a binder is there; null when Ready. */
 internal fun ShizukuState.blockedActions(): ActionsState.Blocked? = blockedReason()?.let { ActionsState.Blocked(it, backend) }

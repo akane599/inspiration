@@ -1,8 +1,8 @@
 package com.akane.inspiration.toolkit
 
 import androidx.compose.runtime.Immutable
+import com.akane.inspiration.ipc.BlockedReason
 import com.akane.inspiration.ipc.ShizukuBackend
-import com.akane.inspiration.ipc.ShizukuState
 import com.akane.inspiration.ipc.toolkit.AppOp
 import com.akane.inspiration.ipc.toolkit.DozeProfile
 import com.akane.inspiration.ipc.toolkit.StandbyBucket
@@ -18,8 +18,6 @@ import kotlinx.collections.immutable.persistentListOf
 
 /** What the whole screen is doing: [BLOCKED] is Shizuku not Ready, [FAILED] is a Ready Shizuku whose service did not answer. */
 enum class ToolkitPhase { LOADING, BLOCKED, FAILED, READY }
-
-enum class BlockedReason { NOT_INSTALLED, NOT_RUNNING, PERMISSION_REQUIRED, PERMISSION_DENIED, UNSUPPORTED_SERVER }
 
 /** Shizuku only shows its dialog while the permission is still undecided, so Grant is only offered then. */
 val BlockedReason.canGrant: Boolean get() = this == BlockedReason.PERMISSION_REQUIRED
@@ -412,13 +410,3 @@ sealed interface ToolkitEffect {
     /** The Route should open the system notification settings of this app. */
     data object OpenNotificationSettings : ToolkitEffect
 }
-
-internal fun ShizukuState.blockedReason(): BlockedReason? =
-    when (this) {
-        is ShizukuState.Ready -> null
-        ShizukuState.NotInstalled -> BlockedReason.NOT_INSTALLED
-        ShizukuState.NotRunning -> BlockedReason.NOT_RUNNING
-        is ShizukuState.PermissionRequired -> BlockedReason.PERMISSION_REQUIRED
-        is ShizukuState.PermissionDenied -> BlockedReason.PERMISSION_DENIED
-        is ShizukuState.UnsupportedServer -> BlockedReason.UNSUPPORTED_SERVER
-    }

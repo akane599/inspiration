@@ -5,8 +5,10 @@ import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
+import com.akane.inspiration.ipc.BlockedReason
 import com.akane.inspiration.ipc.ShizukuBackend
 import com.akane.inspiration.ipc.ShizukuState
+import com.akane.inspiration.ipc.blockedReason
 import com.akane.inspiration.ipc.toolkit.AppOpMode
 import com.akane.inspiration.telemetry.app.AppEntry
 import com.akane.inspiration.telemetry.app.attempt

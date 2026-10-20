@@ -6,6 +6,7 @@ import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import com.akane.inspiration.designsystem.component.format.TelemetryFormat
 import com.akane.inspiration.designsystem.component.format.currentLocale
+import com.akane.inspiration.ipc.BlockedReason
 import com.akane.inspiration.ipc.ShizukuBackend
 import com.akane.inspiration.ipc.toolkit.AppOp
 import com.akane.inspiration.ipc.toolkit.DozeProfile

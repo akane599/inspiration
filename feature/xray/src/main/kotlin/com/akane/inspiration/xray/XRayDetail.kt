@@ -59,6 +59,7 @@ import com.akane.inspiration.designsystem.theme.numericTypography
 import com.akane.inspiration.designsystem.theme.spacing
 import com.akane.inspiration.designsystem.theme.statusColors
 import com.akane.inspiration.diagnostics.dictionary.EntryKind
+import com.akane.inspiration.ipc.BlockedReason
 import com.akane.inspiration.ipc.ShizukuBackend
 import com.akane.inspiration.ipc.toolkit.StandbyBucket
 import kotlinx.collections.immutable.toImmutableList

@@ -31,3 +31,17 @@ sealed interface ShizukuState {
         override val backend: ShizukuBackend = ShizukuBackend.SHIZUKU,
     ) : ShizukuState
 }
+
+/** Why privileged work is blocked: each [ShizukuState] other than [ShizukuState.Ready], as X-Ray and Toolkit explain it. */
+enum class BlockedReason { NOT_INSTALLED, NOT_RUNNING, PERMISSION_REQUIRED, PERMISSION_DENIED, UNSUPPORTED_SERVER }
+
+/** Why this state blocks privileged work; null when [ShizukuState.Ready]. */
+fun ShizukuState.blockedReason(): BlockedReason? =
+    when (this) {
+        is ShizukuState.Ready -> null
+        ShizukuState.NotInstalled -> BlockedReason.NOT_INSTALLED
+        ShizukuState.NotRunning -> BlockedReason.NOT_RUNNING
+        is ShizukuState.PermissionRequired -> BlockedReason.PERMISSION_REQUIRED
+        is ShizukuState.PermissionDenied -> BlockedReason.PERMISSION_DENIED
+        is ShizukuState.UnsupportedServer -> BlockedReason.UNSUPPORTED_SERVER
+    }

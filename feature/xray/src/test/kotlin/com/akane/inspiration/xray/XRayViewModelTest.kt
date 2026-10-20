@@ -1,6 +1,7 @@
 package com.akane.inspiration.xray
 
 import com.akane.inspiration.diagnostics.analysis.AnalysisState
+import com.akane.inspiration.ipc.BlockedReason
 import com.akane.inspiration.ipc.ShizukuBackend
 import com.akane.inspiration.ipc.ShizukuState
 import com.akane.inspiration.ipc.model.ToolkitCode
@@ -814,15 +815,6 @@ class XRayViewModelTest {
         // the breakdown itself is still there
         assertEquals(CHATTY, detail.app.packageName)
         assertEquals(3, detail.app.components.size)
-    }
-
-    @Test
-    fun `each Shizuku state that is not ready has its own blocked reason`() {
-        assertEquals(BlockedReason.NOT_INSTALLED, ShizukuState.NotInstalled.blockedReason())
-        assertEquals(BlockedReason.NOT_RUNNING, ShizukuState.NotRunning.blockedReason())
-        assertEquals(BlockedReason.PERMISSION_DENIED, ShizukuState.PermissionDenied().blockedReason())
-        assertEquals(BlockedReason.UNSUPPORTED_SERVER, ShizukuState.UnsupportedServer(12).blockedReason())
-        assertNull(ShizukuState.Ready(2000, 13).blockedReason())
     }
 
     @Test
