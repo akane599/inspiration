@@ -1,5 +1,5 @@
 # Directory Structure
-*Last Updated: 2026-10-20*
+*Last Updated: 2026-10-21*
 
 Generated `build/`, `.gradle/`, screenshot intermediates, Room generated sources, and other build output are intentionally omitted.
 
@@ -13,8 +13,8 @@ app/
     capture/{BootCaptureReceiver,BroadcastCaptureRunner,CapturePolicy,ChargeJobRun,
       ChargingCaptureJobService,ChargingCaptureRunner,ChargingCaptureScheduler,
       HistoryPageCounter,MarkerCapture,RuntimeCaptureReceiver}.kt
-    di/{AppEntries,ApplicationScope,CachedAppLabels,Preloaded,ReconcileOnReady,
-      RefreshCoordinator,StoreTicks,TimelineEvents}.kt
+    di/{AppEntries,ApplicationScope,CachedAppLabels,PackageChanges,Preloaded,
+      ReconcileOnReady,RefreshCoordinator,StoreTicks,TimelineEvents}.kt
     shell/{AppShell,ShellIcons,ShellState}.kt
     status/{StatusNotificationContent,StatusNotificationController,StatusNotifications,
       StatusNotificationService,StatusNotificationSettings,StatusStartDecision,StatusTicks}.kt

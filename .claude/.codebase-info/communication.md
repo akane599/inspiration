@@ -1,5 +1,5 @@
 # Communication
-*Last Updated: 2026-10-20*
+*Last Updated: 2026-10-21*
 
 ## AIDL contract
 
@@ -30,6 +30,15 @@ Typed Phase 5 toolkit actions are txns 20–30: `setAppOp`, `getAppOps`, `setSta
 - skips events that the retention prune would delete now (`retentionNowMs − RETENTION_WINDOW_MS`), so a relabelled session that is paged again from 0 cannot bring pruned rows back out of order (audit N-13);
 - also skips already-seen positions below the stored prune watermark (`history_watermark`, Room v7), so a row an earlier prune deleted stays out under a lower later cutoff (SQ-8);
 - advances a persisted cursor that only moves forward within a stats session.
+
+A read is complete only when every page was available and the last page is not `truncated` (`historyReadAvailability` /
+`historyReadComplete` in `HistoryHorizon.kt`, B-02). A read stopped at the eight-page cap records the history source
+as available with reason `page_cap` (`HISTORY_PAGE_CAP_REASON`), and one with a failed page records that page's reason
+(or `unavailable`); either way the pages already read are stored and the cursor advances, so the next ingest continues
+the drain. `HistoryIngest.historyComplete` follows the same rule for the charge job. Each page is still its own
+`getBatteryUsageStats` query; keeping one iterator open across binder calls was rejected (see `BatteryStatsClient`).
+Below API 34 (`API_HISTORY_ITERATOR`) the history iterator is not an `Iterator`, so `readHistory` returns reason `api`
+without querying (B-09).
 
 Each available page goes through one `SnapshotStore.persistHistoryPage` call that judges, stores, advances the cursor and raises the watermark atomically, returning the kept count; `HistoryPageCounter` ticks `StoreTicks` only when that count is above 0.
 
