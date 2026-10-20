@@ -233,6 +233,65 @@ class ToolkitViewModelTest {
     }
 
     @Test
+    fun `a confirmed write still running across Hidden and Visible reports its outcome`() {
+        start()
+        open(CHATTY)
+        act(ToolkitRequest.ForceStop)
+        val gate = CompletableDeferred<Unit>()
+        device.store.insertGate = gate
+        confirm() // planned and confirmed: the write is under way, held at its audit row
+        assertTrue(state.busy)
+
+        // R-04: a rotation or screen-off while the write runs ends the visit, but not the write.
+        vm.onIntent(ToolkitIntent.Hidden)
+        vm.onIntent(ToolkitIntent.Visible)
+        device.serviceUp = false
+        gate.complete(Unit)
+
+        assertEquals(CHATTY, detail.app.packageName)
+        assertEquals(ToolkitNotice.Rejected(Problem.Unavailable(ToolkitUnavailable.NO_SERVICE)), detail.notice)
+        assertFalse(state.busy)
+    }
+
+    @Test
+    fun `a write that finishes on another app's sheet does not report there`() {
+        start()
+        open(CHATTY)
+        act(ToolkitRequest.ForceStop)
+        val gate = CompletableDeferred<Unit>()
+        device.store.insertGate = gate
+        confirm()
+
+        open(MAPS)
+        gate.complete(Unit)
+
+        assertEquals(listOf("forceStop"), device.writes)
+        assertEquals(MAPS, detail.app.packageName)
+        assertNull(detail.notice)
+    }
+
+    @Test
+    fun `a stale refusal that arrives while hidden is reported, not silently dropped`() {
+        start { device.dozeStaleOnce = true }
+        val gate = CompletableDeferred<Unit>()
+        device.store.insertGate = gate
+        act(ToolkitRequest.ApplyDoze(DozeProfile.BALANCED)) // planned Ready, the write is under way
+        assertTrue(state.busy)
+
+        vm.onIntent(ToolkitIntent.Hidden)
+        gate.complete(Unit) // the service refuses it as STALE while the screen is gone
+        vm.onIntent(ToolkitIntent.Visible)
+
+        assertEquals(1, device.writes.size)
+        assertNull("nothing is asked on a screen that was not there", state.confirmation)
+        assertEquals(ToolkitNotice.Rejected(Problem.Refused(ToolkitRefusal.STALE)), state.doze.notice)
+        assertEquals("idle_to=1", dozeInfo.raw)
+        assertFalse(state.busy)
+        confirm()
+        assertEquals(1, device.writes.size)
+    }
+
+    @Test
     fun `switching apps invalidates a suspended non-confirming plan`() {
         start()
         open(CHATTY)

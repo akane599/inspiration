@@ -41,8 +41,11 @@ private const val HISTORY_LIMIT = 20
 /** A toolkit call threw instead of answering (a Room error from the audit log, say): there is no code, only the failure. */
 private val CALL_FAILED = ToolkitNotice.Rejected(Problem.Failed(code = null))
 
-/** The doze value moved and could not be read again, so the card is not loaded: the existing "changed, check it" notice. */
-private val DOZE_CHANGED = ToolkitNotice.Rejected(Problem.Refused(ToolkitRefusal.STALE))
+/** The setting moved before the write: the existing "changed, check it" notice. */
+private val STALE = ToolkitNotice.Rejected(Problem.Refused(ToolkitRefusal.STALE))
+
+/** The doze value moved and could not be read again, so the card is not loaded: the same "changed, check it" notice. */
+private val DOZE_CHANGED = STALE
 
 /**
  * MVI ViewModel of the Toolkit screen (H5). Everything privileged goes through `deps.toolkit` (plan, confirm,
@@ -81,6 +84,8 @@ class ToolkitViewModel(
         val request: ToolkitRequest,
         val action: ToolkitAction?,
         val target: String?,
+        /** The app whose sheet was open when it was asked: a sheet's result is shown only on that app's sheet. */
+        val pkg: String?,
         val generation: Long,
     )
 
@@ -149,7 +154,7 @@ class ToolkitViewModel(
         visibleJob?.cancel()
         detailJob?.cancel()
         // A confirmation must not outlive the screen it was asked on, and one still being planned is dropped
-        // when it arrives ([ask]). A write already running finishes.
+        // when it arrives ([ask]). A write already running finishes and still reports on its target ([finish]).
         invalidatePlanning()
         _state.update { it.copy(confirmation = null) }
     }
@@ -385,7 +390,7 @@ class ToolkitViewModel(
         val current = _state.value
         if (current.status != ToolkitPhase.READY || current.busy || current.confirmation != null) return
         if (!accepts(request, current)) return
-        val prepared = PreparedRequest(request, actionOf(request), targetOf(request), generation)
+        val prepared = PreparedRequest(request, actionOf(request), targetOf(request), current.detail?.app?.packageName, generation)
         if (request == ToolkitRequest.ResetAll) {
             // Reset all has no single plan: the user always confirms it, with the number of changes it restores.
             ask(Confirmation(request = request, target = null, warnings = persistentListOf(), count = current.overrides.size), prepared)
@@ -513,7 +518,7 @@ class ToolkitViewModel(
         confirmation: Confirmation,
         prepared: PreparedRequest,
     ) {
-        if (!visible || prepared.generation != generation) return
+        if (!canAsk(prepared)) return
         pending = prepared
         _state.update { it.copy(confirmation = confirmation) }
     }
@@ -592,8 +597,10 @@ class ToolkitViewModel(
     /** The setting moved between plan and write: read it again and let the user decide with the value that is there now. */
     private suspend fun askAgain(stalePrepared: PreparedRequest) {
         val request = stalePrepared.request
-        if (stalePrepared.generation != generation) {
-            _state.update { it.copy(busy = false) }
+        if (!canAsk(stalePrepared)) {
+            // The screen that asked is gone (Hidden) or moved on, so nothing is asked again; but the request was not
+            // carried out, and that is said on its target rather than dropped without a word (R-04).
+            finish(stalePrepared, STALE)
             return
         }
         refresh(request)
@@ -606,7 +613,8 @@ class ToolkitViewModel(
         // A doze action is pinned to the value on screen, which refresh just updated; other targets stay pinned.
         val prepared = if (request is ToolkitRequest.ApplyDoze) stalePrepared.copy(action = actionOf(request)) else stalePrepared
         val plan = planOf(prepared)
-        if (prepared.generation != generation) {
+        if (!canAsk(prepared)) {
+            if (stillShown(prepared)) showNotice(request, STALE)
             _state.update { it.copy(busy = false) }
             return
         }
@@ -641,9 +649,30 @@ class ToolkitViewModel(
         notice: ToolkitNotice,
     ) {
         refresh(prepared.request)
-        if (prepared.generation == generation) showNotice(prepared.request, notice)
+        if (stillShown(prepared)) showNotice(prepared.request, notice)
         _state.update { it.copy(busy = false) }
     }
+
+    /** A confirmation is only asked on the visit, and for the sheet, that planned it. */
+    private fun canAsk(prepared: PreparedRequest): Boolean = visible && prepared.generation == generation
+
+    /**
+     * Whether [prepared]'s result still has its place on screen. It is matched on the target, not on [generation],
+     * so a write already sent reports across Hidden and Visible (R-04): a sheet's result lands only on that app's
+     * sheet, never on another app's (as X-Ray matches late results), and the others on their own card.
+     */
+    private fun stillShown(prepared: PreparedRequest): Boolean =
+        when (prepared.request) {
+            is ToolkitRequest.SetAppOp, is ToolkitRequest.SetBucket, ToolkitRequest.ForceStop -> {
+                _state.value.detail
+                    ?.app
+                    ?.packageName == prepared.pkg
+            }
+
+            is ToolkitRequest.ApplyDoze, is ToolkitRequest.Restore, ToolkitRequest.ResetAll -> {
+                true
+            }
+        }
 
     private suspend fun refresh(request: ToolkitRequest) {
         val touchesDoze = request is ToolkitRequest.ApplyDoze || request is ToolkitRequest.Restore || request == ToolkitRequest.ResetAll
