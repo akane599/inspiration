@@ -21,6 +21,11 @@ import com.akane.inspiration.ipc.ShizukuState
 import com.akane.inspiration.telemetry.diff.ReferenceKind
 import com.akane.inspiration.telemetry.interval.IntervalMetrics
 import com.akane.inspiration.telemetry.snapshot.LiveReading
+import com.akane.inspiration.telemetry.status.CHARGING_DRAIN_DEADBAND_MA
+import com.akane.inspiration.telemetry.status.ChargeState
+import com.akane.inspiration.telemetry.status.DEADBAND_HYSTERESIS_MA
+import com.akane.inspiration.telemetry.status.chargeState
+import com.akane.inspiration.telemetry.status.deadbandHeldBy
 import kotlinx.collections.immutable.toImmutableList
 
 /** Same floor the interval metrics use for a rate: under 15 minutes of a state, a per-hour figure is noise. */
@@ -37,24 +42,6 @@ private const val MAX_EXTRAPOLATED_REMAINING_MS = 7L * 24 * 3_600_000
 internal const val SYSTEM_ESTIMATE_MAX_AGE_MS = 10 * 60_000L
 
 private const val DECI = 10.0
-
-/**
- * On a charger, a current within this of zero is noise (a taper ending, a charger regulating, a battery held at a
- * limit): it neither turns the label away from charging nor has a time to empty.
- */
-private const val CHARGING_DRAIN_DEADBAND_MA = 50
-
-/**
- * How far back inside [CHARGING_DRAIN_DEADBAND_MA] a current must come before the label or time left it decided
- * changes again, so a drain hovering at the deadband does not flip them every reading.
- */
-private const val DEADBAND_HYSTERESIS_MA = 10
-
-// LiveReading.status values (the battery's own BATTERY_STATUS_*).
-private const val STATUS_CHARGING = "charging"
-private const val STATUS_DISCHARGING = "discharging"
-private const val STATUS_FULL = "full"
-private const val STATUS_NOT_CHARGING = "not_charging"
 
 internal fun referenceUi(kind: ReferenceKind): ReferenceUi =
     when (kind) {
@@ -197,57 +184,23 @@ internal fun sliceUi(
     )
 }
 
-/**
- * What the battery is doing, from its own status and the measured current, never from the plug alone: a plugged
- * battery can be full, held at a charge limit, or losing to the load. The plug decides only without a usable status,
- * and then a drain past [CHARGING_DRAIN_DEADBAND_MA] still overrides it. A label the current decided against the
- * deadband ([previous], the last reading's) holds until the current is [DEADBAND_HYSTERESIS_MA] back inside it.
- */
+/** The gauge's label for [reading]: the shared [chargeState] rule, which the status notification uses too. */
 internal fun chargeState(
     reading: LiveReading,
     previous: GaugeChargeState? = null,
-): GaugeChargeState {
-    val currentMa = reading.currentMa
-    val plugged = reading.plugged
-    val drainDeadbandMa = CHARGING_DRAIN_DEADBAND_MA.heldBy(previous == GaugeChargeState.PluggedNotCharging)
-    val chargeDeadbandMa = CHARGING_DRAIN_DEADBAND_MA.heldBy(previous == GaugeChargeState.Charging)
-    val drainingPastDeadband = currentMa != null && currentMa <= -drainDeadbandMa
-    return when {
-        // Unplugged, the battery can only discharge.
-        plugged == false -> {
-            GaugeChargeState.Discharging
-        }
-
-        // "Charging" means the charger is enabled; a weak one can still lose to the load.
-        reading.status == STATUS_CHARGING -> {
-            if (drainingPastDeadband) GaugeChargeState.PluggedNotCharging else GaugeChargeState.Charging
-        }
-
-        reading.status == STATUS_DISCHARGING -> {
-            if (plugged == true) GaugeChargeState.PluggedNotCharging else GaugeChargeState.Discharging
-        }
-
-        reading.status == STATUS_FULL || reading.status == STATUS_NOT_CHARGING -> {
-            GaugeChargeState.PluggedNotCharging
-        }
-
-        // No usable status: the plug decides, with the same deadband for a measured drain.
-        plugged == true -> {
-            if (drainingPastDeadband) GaugeChargeState.PluggedNotCharging else GaugeChargeState.Charging
-        }
-
-        // Neither plug nor status: only a clear charge current reads as charging.
-        currentMa != null && currentMa >= chargeDeadbandMa -> {
-            GaugeChargeState.Charging
-        }
-
-        else -> {
-            GaugeChargeState.Discharging
-        }
+): GaugeChargeState =
+    when (chargeState(reading.plugged, reading.status, reading.currentMa, previous?.toChargeState())) {
+        ChargeState.Charging -> GaugeChargeState.Charging
+        ChargeState.Discharging -> GaugeChargeState.Discharging
+        ChargeState.PluggedNotCharging -> GaugeChargeState.PluggedNotCharging
     }
-}
 
-private fun Int.heldBy(held: Boolean): Int = if (held) this - DEADBAND_HYSTERESIS_MA else this
+private fun GaugeChargeState.toChargeState(): ChargeState =
+    when (this) {
+        GaugeChargeState.Charging -> ChargeState.Charging
+        GaugeChargeState.Discharging -> ChargeState.Discharging
+        GaugeChargeState.PluggedNotCharging -> ChargeState.PluggedNotCharging
+    }
 
 /**
  * Time to empty whenever the battery is not charging: `chargeCounterUah / |currentMa|` while it drains, else the
@@ -268,7 +221,7 @@ internal fun remainingMs(
             GaugeChargeState.Discharging -> false
         }
     val drainCounted = previous?.chargeState == GaugeChargeState.PluggedNotCharging && previous.remainingMs != null
-    val minDrainMa = if (onCharger) CHARGING_DRAIN_DEADBAND_MA.heldBy(drainCounted) else 1
+    val minDrainMa = if (onCharger) deadbandHeldBy(drainCounted) else 1
     val drainMa = reading.currentMa?.let { -it }?.takeIf { it >= minDrainMa }
     val counterUah = reading.chargeCounterUah
     val extrapolated =

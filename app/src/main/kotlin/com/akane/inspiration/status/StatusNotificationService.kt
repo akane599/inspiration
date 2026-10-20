@@ -18,6 +18,7 @@ import com.akane.inspiration.telemetry.snapshot.SnapshotKind
 import com.akane.inspiration.telemetry.snapshot.SourceAvailability
 import com.akane.inspiration.telemetry.source.AndroidTelemetrySource
 import com.akane.inspiration.telemetry.source.LightRead
+import com.akane.inspiration.telemetry.status.LightCurrent
 import com.akane.inspiration.telemetry.status.UnplugSummaryCalculator
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
@@ -105,7 +106,8 @@ class StatusNotificationService : Service() {
     ) {
         try {
             if (stopIfBlocked(container)) return
-            val light = source.light()
+            // The gauge's persisted calibration gives the current that decides "Charging" its unit and sign.
+            val light = LightCurrent.calibrate(source.light(), container.calibrationStore)
             val nowMs = light.clock.wallMs
             // The rows since the last unplug; the whole retention window is read only when it holds no unplug.
             val history = container.store.unplugWindowSnapshots(nowMs - HISTORY_WINDOW_MS, nowMs)

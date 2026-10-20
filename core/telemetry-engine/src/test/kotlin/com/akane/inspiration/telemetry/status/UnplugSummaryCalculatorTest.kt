@@ -69,6 +69,36 @@ class UnplugSummaryCalculatorTest {
     }
 
     @Test
+    fun `plugged with a charging status is charging`() {
+        val now = statusSnapshot(minutes(30), level = 60, plugged = true, status = "charging", currentMa = 900)
+
+        assertEquals(UnplugSummary.Charging(60), UnplugSummaryCalculator.compute(emptyList(), now))
+    }
+
+    @Test
+    fun `plugged but full or held at a limit is plugged not charging, not charging`() {
+        for (status in listOf("full", "not_charging", "discharging")) {
+            val now = statusSnapshot(minutes(30), level = 80, plugged = true, status = status, currentMa = 0)
+
+            assertEquals(status, UnplugSummary.PluggedNotCharging(80), UnplugSummaryCalculator.compute(emptyList(), now))
+        }
+    }
+
+    @Test
+    fun `plugged and charging but losing to the load is plugged not charging`() {
+        val now = statusSnapshot(minutes(30), level = 55, plugged = true, status = "charging", currentMa = -400)
+
+        assertEquals(UnplugSummary.PluggedNotCharging(55), UnplugSummaryCalculator.compute(emptyList(), now))
+    }
+
+    @Test
+    fun `a charging status with an unreadable plug is charging`() {
+        val now = statusSnapshot(minutes(30), level = 60, plugged = null, status = "charging", currentMa = 900)
+
+        assertEquals(UnplugSummary.Charging(60), UnplugSummaryCalculator.compute(emptyList(), now))
+    }
+
+    @Test
     fun `never plugged anchors at the earliest snapshot`() {
         val summary =
             UnplugSummaryCalculator.compute(

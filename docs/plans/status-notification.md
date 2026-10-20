@@ -91,6 +91,7 @@ A process with a running foreground service is never cached or frozen, so the ru
 - **`StatusNotificationContent`** is pure (blocker fix). It takes a `StatusStrings` data class of resolved strings and the pure `TelemetryFormat` functions, so it is a plain JVM test with no Robolectric. Wording:
   - Discharging: title `−18% since unplug · 6 h 12 min`, text `Screen on 9.4%/h · off 0.6%/h · Deep sleep 92%`. Missing parts read "—", and with no unplug anchor the title says "since <time>".
   - Charging: `Charging · 64%` with `Drain stats start when you unplug`.
+  - On a charger but not charging (full, held at a limit, or losing to the load): `Plugged in, not charging · 80%` with the same hint. Since SQ-4 the choice is the live gauge's rule (`telemetry/status/ChargeState.kt`: battery status plus the current, never the plug alone), and the light read's current is first calibrated with the gauge's persisted calibration (`LightCurrent`).
 - **Notification:**
   - Channel `status`, `IMPORTANCE_LOW`, no badge.
   - `setOngoing`, `setOnlyAlertOnce`, `setSilent`, `setShowWhen(false)`, category STATUS.

@@ -15,6 +15,11 @@ sealed interface UnplugSummary {
         val levelNow: Int?,
     ) : UnplugSummary
 
+    /** On a charger but not charging: full, held at a charge limit, or losing to the load ([ChargeState]). */
+    data class PluggedNotCharging(
+        val levelNow: Int?,
+    ) : UnplugSummary
+
     data class Discharging(
         val levelNow: Int?,
         val dropPct: Int,
@@ -34,13 +39,18 @@ object UnplugSummaryCalculator {
     /**
      * [snapshots] is the stored history (any order; snapshots at or after [now] are ignored) and [now] a fresh
      * read of the battery. The anchor is the first unplugged snapshot after the last plugged one, so a missing
-     * POWER_DISCONNECTED capture does not move it.
+     * POWER_DISCONNECTED capture does not move it. Whether [now] is charging is the gauge's [chargeState] rule (status
+     * and current, never the plug alone), so its current must already be calibrated.
      */
     fun compute(
         snapshots: List<BatterySnapshot>,
         now: BatterySnapshot,
     ): UnplugSummary {
-        if (now.battery.plugged == true) return UnplugSummary.Charging(now.battery.levelPct)
+        when (chargeState(now.battery.plugged, now.battery.status, now.battery.currentMa)) {
+            ChargeState.Charging -> return UnplugSummary.Charging(now.battery.levelPct)
+            ChargeState.PluggedNotCharging -> return UnplugSummary.PluggedNotCharging(now.battery.levelPct)
+            ChargeState.Discharging -> Unit
+        }
         val points = snapshots.filter { it.clock.wallMs < now.clock.wallMs }.sortedBy { it.clock.wallMs } + now
         val lastPlugged = points.indexOfLast { it.battery.plugged == true }
         // With no plugged snapshot stored (fresh install, pruned history) a disconnect capture still marks the unplug.

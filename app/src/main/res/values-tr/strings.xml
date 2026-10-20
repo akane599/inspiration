@@ -15,5 +15,6 @@
     <string name="status_title_since_time" formatted="false">%2$s itibarıyla %1$s · %3$s</string>
     <string name="status_detail" formatted="false">Ekran açık %1$s · kapalı %2$s · Derin uyku %3$s</string>
     <string name="status_charging" formatted="false">Şarj oluyor · %1$s</string>
+    <string name="status_plugged_not_charging" formatted="false">Şarja takılı, şarj olmuyor · %1$s</string>
     <string name="status_charging_hint">Tüketim istatistikleri şarjdan çıkardığınızda başlar</string>
 </resources>

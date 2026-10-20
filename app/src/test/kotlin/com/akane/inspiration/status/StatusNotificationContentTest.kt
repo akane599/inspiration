@@ -15,6 +15,7 @@ class StatusNotificationContentTest {
         titleSinceTime = "%1\$s since %2\$s · %3\$s",
         detail = "Screen on %1\$s · off %2\$s · Deep sleep %3\$s",
         charging = "Charging · %1\$s",
+        pluggedNotCharging = "Plugged in, not charging · %1\$s",
         chargingHint = "Drain stats start when you unplug",
     )
     private val turkish = StatusStrings(
@@ -23,6 +24,7 @@ class StatusNotificationContentTest {
         titleSinceTime = "%2\$s itibarıyla %1\$s · %3\$s",
         detail = "Ekran açık %1\$s · kapalı %2\$s · Derin uyku %3\$s",
         charging = "Şarj oluyor · %1\$s",
+        pluggedNotCharging = "Şarja takılı, şarj olmuyor · %1\$s",
         chargingHint = "Tüketim istatistikleri şarjdan çıkardığınızda başlar",
     )
     private val enFormat = TelemetryFormat(Locale.ENGLISH, TelemetryUnits.English)
@@ -113,6 +115,18 @@ class StatusNotificationContentTest {
     @Test
     fun `charging with an unknown level reads as a dash`() {
         assertEquals("Charging · —", build(UnplugSummary.Charging(null), english, enFormat).title)
+    }
+
+    @Test
+    fun `plugged in but not charging says so, never charging, and keeps the hint`() {
+        val en = build(UnplugSummary.PluggedNotCharging(80), english, enFormat)
+        val tr = build(UnplugSummary.PluggedNotCharging(80), turkish, trFormat)
+
+        assertEquals("Plugged in, not charging · 80%", en.title)
+        assertEquals("Drain stats start when you unplug", en.text)
+        assertEquals("Şarja takılı, şarj olmuyor · %80", tr.title)
+        assertEquals("Tüketim istatistikleri şarjdan çıkardığınızda başlar", tr.text)
+        assertEquals("Plugged in, not charging · —", build(UnplugSummary.PluggedNotCharging(null), english, enFormat).title)
     }
 
     private companion object {

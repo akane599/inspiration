@@ -16,7 +16,7 @@ import kotlin.math.abs
  * - [titleSinceUnplug]: `%1$s` signed drop, `%2$s` elapsed time.
  * - [titleSinceTime]: `%1$s` signed drop, `%2$s` the anchor time, `%3$s` elapsed time (no unplug was seen).
  * - [detail]: `%1$s` screen-on rate, `%2$s` screen-off rate, `%3$s` deep-sleep share.
- * - [charging]: `%1$s` the battery level.
+ * - [charging], [pluggedNotCharging]: `%1$s` the battery level.
  */
 data class StatusStrings(
     val percent: String,
@@ -24,6 +24,7 @@ data class StatusStrings(
     val titleSinceTime: String,
     val detail: String,
     val charging: String,
+    val pluggedNotCharging: String,
     val chargingHint: String,
 )
 
@@ -42,6 +43,11 @@ object StatusNotificationContent {
     ): StatusText = when (summary) {
         is UnplugSummary.Charging -> StatusText(
             title = strings.charging.format(format.locale, level(summary.levelNow, strings, format)),
+            text = strings.chargingHint,
+        )
+        // Drain stats still start only at the unplug, so the hint holds on a charger that is not charging too.
+        is UnplugSummary.PluggedNotCharging -> StatusText(
+            title = strings.pluggedNotCharging.format(format.locale, level(summary.levelNow, strings, format)),
             text = strings.chargingHint,
         )
         is UnplugSummary.Discharging -> discharging(summary, strings, format, zone)

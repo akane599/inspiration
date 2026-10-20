@@ -1,6 +1,7 @@
 package com.akane.inspiration.telemetry.capture
 
 import com.akane.inspiration.ipc.model.HistoryEvent
+import com.akane.inspiration.telemetry.calibration.CalibrationStore
 import com.akane.inspiration.telemetry.common.Clocks
 import com.akane.inspiration.telemetry.diff.BatteryStatsSession
 import com.akane.inspiration.telemetry.dump.AlarmDump
@@ -20,6 +21,7 @@ import com.akane.inspiration.telemetry.snapshot.UidSnapshot
 import com.akane.inspiration.telemetry.source.FullRead
 import com.akane.inspiration.telemetry.source.LightRead
 import com.akane.inspiration.telemetry.source.TelemetrySource
+import com.akane.inspiration.telemetry.status.LightCurrent
 import com.akane.inspiration.telemetry.store.RETENTION_WINDOW_MS
 import com.akane.inspiration.telemetry.store.SnapshotStore
 import com.akane.inspiration.telemetry.store.retentionNowMs
@@ -30,10 +32,15 @@ import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 
+/**
+ * [calibrationStore] is the live gauge's persisted calibration: with it, the stored light current gets the gauge's
+ * unit and sign, or is left out where nothing settled them ([LightCurrent]). Without it, the current is stored as read.
+ */
 class SnapshotCapturer(
     private val source: TelemetrySource,
     private val store: SnapshotStore,
     private val clocks: Clocks,
+    private val calibrationStore: CalibrationStore? = null,
 ) {
     /**
      * History ingests run one at a time (the app-open refresh, a marker, the charge job all share this capturer):
@@ -98,7 +105,7 @@ class SnapshotCapturer(
     }
 
     suspend fun captureLight(trigger: CaptureTrigger): CaptureResult {
-        val read = source.light()
+        val read = LightCurrent.calibrate(source.light(), calibrationStore)
         val id = store.insert(read.toSnapshot(trigger))
         return CaptureResult.Saved(id, SnapshotKind.LIGHT)
     }
@@ -232,7 +239,7 @@ class SnapshotCapturer(
             status = kernel?.status ?: light.status,
             temperatureDeciC = kernel?.temperatureDeciC ?: light.temperatureDeciC,
             voltageMv = light.voltageMv,
-            currentMa = light.currentMa,
+            currentMa = LightCurrent.calibrate(light, calibrationStore).currentMa,
             chargeCounterUah = light.chargeCounterUah,
             dischargedMah = usage?.takeIf { it.available }?.dischargedPowerMah,
         )

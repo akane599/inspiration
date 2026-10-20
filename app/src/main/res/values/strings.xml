@@ -15,5 +15,6 @@
     <string name="status_title_since_time" formatted="false">%1$s since %2$s · %3$s</string>
     <string name="status_detail" formatted="false">Screen on %1$s · off %2$s · Deep sleep %3$s</string>
     <string name="status_charging" formatted="false">Charging · %1$s</string>
+    <string name="status_plugged_not_charging" formatted="false">Plugged in, not charging · %1$s</string>
     <string name="status_charging_hint">Drain stats start when you unplug</string>
 </resources>

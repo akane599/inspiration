@@ -36,6 +36,7 @@ internal object StatusNotifications {
             titleSinceTime = context.getString(R.string.status_title_since_time),
             detail = context.getString(R.string.status_detail),
             charging = context.getString(R.string.status_charging),
+            pluggedNotCharging = context.getString(R.string.status_plugged_not_charging),
             chargingHint = context.getString(R.string.status_charging_hint),
         )
 

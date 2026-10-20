@@ -43,6 +43,7 @@ import com.akane.inspiration.telemetry.app.KernelCapacitySnapshot
 import com.akane.inspiration.telemetry.app.RefreshResult
 import com.akane.inspiration.telemetry.app.attempt
 import com.akane.inspiration.telemetry.calibration.PowerCalibrator
+import com.akane.inspiration.telemetry.calibration.CalibrationStore
 import com.akane.inspiration.telemetry.calibration.SharedPreferencesCalibrationStore
 import com.akane.inspiration.telemetry.capture.CaptureResult
 import com.akane.inspiration.telemetry.capture.SnapshotCapturer
@@ -100,11 +101,18 @@ class AppContainer(
 
     /** What the capturer writes through: a missed app-open or marker capture ticks for the pages it stored. */
     private val historyPages = HistoryPageCounter(store)
+
+    /**
+     * The live gauge's persisted current calibration. The gauge writes it; captures and the status notification read
+     * it, so a light read's current gets the gauge's unit and sign.
+     */
+    val calibrationStore: CalibrationStore = SharedPreferencesCalibrationStore.from(appContext)
     val capturer =
         SnapshotCapturer(
             source = telemetrySource,
             store = historyPages,
             clocks = clocks,
+            calibrationStore = calibrationStore,
         )
     private val liveTelemetry =
         LiveTelemetry(
@@ -112,7 +120,7 @@ class AppContainer(
             PowerCalibrator(),
             clocks,
             store,
-            calibrationStore = SharedPreferencesCalibrationStore.from(appContext),
+            calibrationStore = calibrationStore,
         )
 
     // The bundled dictionary (a disk read plus a parse) loads on IO from construction; see [Preloaded].

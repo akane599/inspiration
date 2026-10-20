@@ -5,6 +5,9 @@ import com.akane.inspiration.ipc.model.BatteryUsageSnapshot
 import com.akane.inspiration.ipc.model.HistoryEvent
 import com.akane.inspiration.ipc.model.HistoryKind
 import com.akane.inspiration.ipc.model.UidUsage
+import com.akane.inspiration.telemetry.calibration.CalibrationLocks
+import com.akane.inspiration.telemetry.calibration.CalibrationStart
+import com.akane.inspiration.telemetry.calibration.CalibrationStore
 import com.akane.inspiration.telemetry.common.Clocks
 import com.akane.inspiration.telemetry.dump.AlarmDump
 import com.akane.inspiration.telemetry.dump.AlarmFilterStat
@@ -431,6 +434,49 @@ class SnapshotCapturerTest {
         }
 
     @Test
+    fun `light and full captures store the light current calibrated by the persisted calibration`() =
+        runTest {
+            // A kernel that reports discharge as positive: +300 is a 300 mA drain.
+            val settled = calibrationStore(CalibrationLocks(batteryManagerMilliamps = false, dischargePositive = true))
+            val store = FakeStore()
+            val capturer = SnapshotCapturer(FakeSource(lightCurrentMa = 300), store, TestClocks(), settled)
+
+            capturer.captureLight(CaptureTrigger.SCREEN_ON)
+            capturer.captureFull(CaptureTrigger.APP_OPEN, deadlineMs = 100, ingestHistory = false)
+
+            assertEquals(listOf<Int?>(-300, -300), store.snapshots.map { it.battery.currentMa })
+        }
+
+    @Test
+    fun `a light current whose unit is not settled is not stored`() =
+        runTest {
+            val unsettled = calibrationStore(CalibrationLocks(dischargePositive = false))
+            val store = FakeStore()
+            val capturer = SnapshotCapturer(FakeSource(lightCurrentMa = 300), store, TestClocks(), unsettled)
+
+            capturer.captureLight(CaptureTrigger.SCREEN_ON)
+            capturer.captureFull(CaptureTrigger.APP_OPEN, deadlineMs = 100, ingestHistory = false)
+
+            assertEquals(listOf<Int?>(null, null), store.snapshots.map { it.battery.currentMa })
+        }
+
+    @Test
+    fun `without a calibration store the light current is stored as read`() =
+        runTest {
+            val store = FakeStore()
+            SnapshotCapturer(FakeSource(lightCurrentMa = 300), store, TestClocks()).captureLight(CaptureTrigger.SCREEN_ON)
+
+            assertEquals(300, store.snapshots.single().battery.currentMa)
+        }
+
+    private fun calibrationStore(locks: CalibrationLocks) =
+        object : CalibrationStore {
+            override fun load(): CalibrationStart = CalibrationStart(locks)
+
+            override fun save(start: CalibrationStart) = Unit
+        }
+
+    @Test
     fun `capturing an ingested read saves its snapshot without a second source read`() =
         runTest {
             val store = FakeStore()
@@ -478,6 +524,7 @@ class SnapshotCapturerTest {
         private val usage: BatteryUsageSnapshot = BatteryUsageSnapshot.unavailable("not_needed"),
         private val batteryStats: DumpParse<DumpSnapshot> = DumpParse.Unavailable("not_needed"),
         private val alarm: DumpParse<AlarmDump> = DumpParse.Unavailable("not_needed"),
+        private val lightCurrentMa: Int? = -100,
     ) : TelemetrySource {
         val receivedCursors = mutableListOf<Pair<Long, Long>?>()
         private var fullReadCount = 0
@@ -509,7 +556,7 @@ class SnapshotCapturerTest {
                 status = "discharging",
                 temperatureDeciC = 250,
                 voltageMv = 4000,
-                currentMa = -100,
+                currentMa = lightCurrentMa,
                 chargeCounterUah = 1_000_000,
             )
     }
