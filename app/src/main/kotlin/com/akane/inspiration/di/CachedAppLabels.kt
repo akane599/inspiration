@@ -4,6 +4,7 @@ import android.content.pm.PackageManager
 import android.graphics.Bitmap
 import androidx.core.graphics.drawable.toBitmap
 import com.akane.inspiration.telemetry.app.AppLabels
+import com.akane.inspiration.telemetry.snapshot.isApplicationUid
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -82,7 +83,7 @@ class CachedAppLabels(
 
     /** Current visible owners, distinct and sorted by name; membership is never cached. */
     override suspend fun packagesForUid(uid: Int): List<String> {
-        if (uid % PER_USER_UID_RANGE < FIRST_APPLICATION_UID) return emptyList() // shared platform UIDs own no single app
+        if (!isApplicationUid(uid)) return emptyList() // shared platform UIDs own no single app
         return withContext(ioDispatcher) {
             source.loadPackagesForUid(uid).distinct().sorted()
         }
@@ -97,8 +98,6 @@ class CachedAppLabels(
     private companion object {
         const val DEFAULT_MAX_LABELS = 512
         const val DEFAULT_MAX_ICONS = 96
-        const val PER_USER_UID_RANGE = 100_000
-        const val FIRST_APPLICATION_UID = 10_000
     }
 }
 

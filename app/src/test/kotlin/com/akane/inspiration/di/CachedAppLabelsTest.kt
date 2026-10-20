@@ -117,6 +117,7 @@ class CachedAppLabelsTest {
             assertEquals(emptyList<String>(), labels.packagesForUid(9_999))
             assertEquals(emptyList<String>(), labels.packagesForUid(1_001_000))
             assertEquals(emptyList<String>(), labels.packagesForUid(1_009_999))
+            assertEquals("no app id is negative", emptyList<String>(), labels.packagesForUid(-1))
             assertNull("a platform uid is named by the uid, not by a reported package", labels.packageForUid(1_000, reported = "android"))
             assertEquals(emptyList<Int>(), source.uidLoads)
         }
