@@ -9,6 +9,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
+import java.util.concurrent.atomic.AtomicInteger
 
 /**
  * The single refresh entry point behind `refresh()` (H7). A refresh is a FULL capture plus a history
@@ -44,14 +45,17 @@ class RefreshCoordinator(
     private val mutex = Mutex()
     private val mutableLastRefreshWallMs = MutableStateFlow<Long?>(null)
 
+    /**
+     * The last failure, tagged with the [backoffEpoch] its capture started in. Only a failure of the current
+     * epoch backs off, so a [clearFailureBackoff] that lands while a failure is being recorded still wins.
+     */
     @Volatile
-    private var lastFailure: Pair<Long, RefreshResult.Failed>? = null
+    private var lastFailure: FailureMark? = null
 
-    /** Bumped by [clearFailureBackoff]; a capture that started before the bump does not record its failure. */
-    @Volatile
-    private var backoffEpoch = 0
+    /** Bumped by [clearFailureBackoff]; a failure from a capture that started before the bump does not back off. */
+    private val backoffEpoch = AtomicInteger()
 
-    /** Whether the last capture that ran failed; unlike [lastFailure] it survives [clearFailureBackoff]. */
+    /** Whether the last capture that ran failed; unlike [lastFailure]'s backoff it survives [clearFailureBackoff]. */
     @Volatile
     private var lastCaptureFailed = false
 
@@ -61,11 +65,11 @@ class RefreshCoordinator(
     /**
      * Forgets the failure backoff so the next [refresh] captures at once. Call it when what made the capture
      * fail has changed (Shizuku became Ready): the cached [RefreshResult.Failed] describes the old state. The
-     * 60 s success debounce is untouched. Never blocks, so it is safe from any thread, mid-capture included.
+     * 60 s success debounce is untouched. Never blocks, so it is safe from any thread, mid-capture included:
+     * the epoch is the only thing it writes, so it cannot be lost to a failure being recorded at the same time.
      */
     fun clearFailureBackoff() {
-        backoffEpoch += 1
-        lastFailure = null
+        backoffEpoch.incrementAndGet()
     }
 
     suspend fun refresh(): RefreshResult =
@@ -74,11 +78,11 @@ class RefreshCoordinator(
             if (last != null && nowWallMs() - last in 0 until debounceMs) {
                 return@withLock RefreshResult.Debounced(last)
             }
-            val failure = lastFailure
-            if (failure != null && nowWallMs() - failure.first in 0 until failureBackoffMs) {
-                return@withLock failure.second
+            val failure = lastFailure?.takeIf { it.epoch == backoffEpoch.get() }
+            if (failure != null && nowWallMs() - failure.atWallMs in 0 until failureBackoffMs) {
+                return@withLock failure.result
             }
-            val epoch = backoffEpoch
+            val epoch = backoffEpoch.get()
             val result =
                 try {
                     withContext(NonCancellable) {
@@ -98,7 +102,7 @@ class RefreshCoordinator(
                     onFailure(error)
                     RefreshResult.Failed("capture_failed")
                 }
-            lastFailure = (result as? RefreshResult.Failed)?.takeIf { epoch == backoffEpoch }?.let { nowWallMs() to it }
+            lastFailure = (result as? RefreshResult.Failed)?.let { FailureMark(epoch, nowWallMs(), it) }
             lastCaptureFailed = result is RefreshResult.Failed
             if (result is RefreshResult.Refreshed) mutableLastRefreshWallMs.value = result.wallMs
             result
@@ -114,6 +118,12 @@ class RefreshCoordinator(
         if (!mutex.withLock { lastCaptureFailed }) return null
         return refresh()
     }
+
+    private class FailureMark(
+        val epoch: Int,
+        val atWallMs: Long,
+        val result: RefreshResult.Failed,
+    )
 
     private companion object {
         /** Long enough that Visible/onStart bursts on a hung service do not queue 10 s captures back to back. */

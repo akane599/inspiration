@@ -305,6 +305,36 @@ class RefreshCoordinatorTest {
         }
 
     @Test
+    fun `a clear that lands while a failed capture is being recorded still lets the re-run capture`() =
+        runTest {
+            var clearOnNextClockRead = false
+            lateinit var coordinator: RefreshCoordinator
+            coordinator =
+                RefreshCoordinator(
+                    nowWallMs = {
+                        // The first clock read after the capture is the one that stamps its failure, after the
+                        // capture's epoch was taken: Shizuku's Ready transition clears the backoff right there.
+                        if (clearOnNextClockRead) {
+                            clearOnNextClockRead = false
+                            coordinator.clearFailureBackoff()
+                        }
+                        now
+                    },
+                    debounceMs = 60_000L,
+                    onStored = {},
+                ) {
+                    captures += 1
+                    clearOnNextClockRead = true
+                    RefreshResult.Failed("service_unavailable")
+                }
+
+            assertEquals(RefreshResult.Failed("service_unavailable"), coordinator.refresh())
+            coordinator.refreshIfLastFailed()
+
+            assertEquals("the failure belongs to the cleared backoff, so the re-run captured", 2, captures)
+        }
+
+    @Test
     fun `a transition into Ready re-runs the refresh that failed before it`() =
         runTest(UnconfinedTestDispatcher()) {
             var serviceUp = false
