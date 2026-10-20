@@ -190,7 +190,7 @@ private fun CulpritItem(
     val explanation = remember(culprit.kind, culprit.name, explain) { explain(culprit.kind, culprit.name) }
     val count = culprit.count
     val duration = culprit.durationMs
-    val owner = culprit.uid?.let { ownerTitle(culprit.appLabel, it) }
+    val owner = culprit.uid?.let { ownerTitle(culprit.appLabel, it, culprit.sharedBy) }
     val action = explanation?.action?.let(::actionGuidanceRes)
     WakeItem(
         title = owner ?: culprit.name,

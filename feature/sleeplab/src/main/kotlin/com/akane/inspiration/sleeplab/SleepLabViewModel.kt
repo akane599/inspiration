@@ -10,7 +10,8 @@ import com.akane.inspiration.diagnostics.analysis.IntervalAnalysis
 import com.akane.inspiration.diagnostics.analysis.forSelection
 import com.akane.inspiration.telemetry.app.RefreshResult
 import com.akane.inspiration.telemetry.app.attempt
-import com.akane.inspiration.telemetry.app.packageForUid
+import com.akane.inspiration.telemetry.app.UidIdentity
+import com.akane.inspiration.telemetry.app.uidIdentity
 import com.akane.inspiration.telemetry.diff.ReferenceKind
 import com.akane.inspiration.telemetry.diff.ResolvedReference
 import kotlinx.coroutines.CoroutineDispatcher
@@ -138,7 +139,7 @@ class SleepLabViewModel(
         analysis: IntervalAnalysis,
         slice: SliceUi?,
     ) {
-        val named = withOwnerPackages(analysis)
+        val (named, sharedBy) = withOwners(analysis)
         val labels = labelsFor(named)
         val window = analysis.resolved.coveredFromWallMs to analysis.resolved.coveredToWallMs
         val sameWindow = hypnogramWindow == window
@@ -146,7 +147,7 @@ class SleepLabViewModel(
         hypnogramSource = analysis.resolved
         _state.update {
             it.copy(
-                analysis = sleepLabAnalysis(named, labels),
+                analysis = sleepLabAnalysis(named, labels, sharedBy),
                 slice = slice,
                 hypnogram = if (sameWindow) it.hypnogram else HypnogramUi.Loading,
             )
@@ -154,32 +155,42 @@ class SleepLabViewModel(
         loadHypnogram(analysis.resolved)
     }
 
+    /** [analysis] with its shown UIDs named by their package, and how many apps share each UID no package names. */
+    private data class OwnedAnalysis(
+        val analysis: IntervalAnalysis,
+        val sharedBy: Map<Int, Int>,
+    )
+
     /**
      * batterystats names a UID by one of its process names ("com.app:push"), or not at all; only the UID's installed
-     * packages say which app it is. A UID with no installed package (or whose lookup failed) is shown by its UID.
+     * packages say which app it is, by the rule X-Ray uses too (`uidIdentity`). A UID with no installed package (or
+     * whose lookup failed) is shown by its UID; one several apps share and none of them is named by is shown as shared.
      *
      * Only the UIDs that the tabs and the culprit card show are looked up (B-17), and a round's lookups run at once.
      * Nothing is cached: [SleepLabDependencies.appLabels] caches labels and icons but reads UID membership fresh, so
      * every emission asks again. The alarm list breaks ties by package, so naming the shown rows can bring an unnamed row
-     * into view; the next round names it, until every shown row is named. A UID left out of every list keeps its
-     * reported name, which nothing shows.
+     * into view; the next round names it, until every shown row is named. Every UID looked up is recorded, unnamed or
+     * failed ones too, so the rounds end. A UID left out of every list keeps its reported name, which nothing shows.
      */
-    private suspend fun withOwnerPackages(analysis: IntervalAnalysis): IntervalAnalysis {
+    private suspend fun withOwners(analysis: IntervalAnalysis): OwnedAnalysis {
         val reported = analysis.diff.uids.associate { it.uid to it.packageName }
-        val owners = HashMap<Int, String?>()
+        val owners = HashMap<Int, UidIdentity?>()
         var named = analysis
         while (true) {
             val unnamed = shownUids(named).filter { it in reported && it !in owners }
-            if (unnamed.isEmpty()) return named
+            if (unnamed.isEmpty()) break
             owners +=
                 coroutineScope {
                     unnamed
-                        .map { uid -> async { uid to attempt { deps.appLabels.packageForUid(uid, reported = reported[uid]) } } }
+                        .map { uid -> async { uid to attempt { deps.appLabels.uidIdentity(uid, reported = reported[uid]) } } }
                         .awaitAll()
                 }
-            val uids = analysis.diff.uids.map { uid -> if (uid.uid in owners) uid.copy(packageName = owners[uid.uid]) else uid }
+            val uids =
+                analysis.diff.uids.map { uid -> if (uid.uid in owners) uid.copy(packageName = owners[uid.uid]?.packageName) else uid }
             named = analysis.copy(diff = analysis.diff.copy(uids = uids))
         }
+        val sharedBy = owners.mapNotNull { (uid, identity) -> identity?.sharedBy?.takeIf { it > 0 }?.let { uid to it } }.toMap()
+        return OwnedAnalysis(named, sharedBy)
     }
 
     /** The UIDs of the rows the per-app tabs and the culprit card show for [analysis], as it names them now. */

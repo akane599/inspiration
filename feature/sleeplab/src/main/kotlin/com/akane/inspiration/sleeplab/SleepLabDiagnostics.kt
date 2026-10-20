@@ -168,9 +168,14 @@ private fun <T> RankedList(
     }
 }
 
+/**
+ * A row's owner as X-Ray names it too: the app, else "shared by [sharedBy] apps" for a UID several apps share and none
+ * of them is named by, else a platform UID's name, else the bare UID.
+ */
 @Composable
-internal fun ownerTitle(appLabel: String?, uid: Int): String =
+internal fun ownerTitle(appLabel: String?, uid: Int, sharedBy: Int = 0): String =
     appLabel
+        ?: sharedBy.takeIf { it > 0 }?.let { pluralStringResource(R.plurals.sleeplab_owner_shared, it, it, uid) }
         ?: systemUidLabelRes(uid)?.let { stringResource(it) }
         ?: stringResource(R.string.sleeplab_owner_uid, uid)
 
@@ -198,7 +203,7 @@ internal fun systemUidLabelRes(uid: Int): Int? = when (uid % PER_USER_UID_RANGE)
 private fun AppWakelockItem(row: AppWakelockRow, explain: (EntryKind, String) -> Explanation?) {
     val format = rememberTelemetryFormat()
     WakeItem(
-        title = ownerTitle(row.appLabel, row.uid),
+        title = ownerTitle(row.appLabel, row.uid, row.sharedBy),
         subtitle = row.name,
         primary = formatSpan(format, row.durationMs, stringResource(R.string.sleeplab_unit_second)),
         secondary = timesText(format, row.count),
@@ -223,7 +228,7 @@ private fun KernelWakelockItem(row: KernelWakelockRow, explain: (EntryKind, Stri
 private fun AlarmItem(row: AlarmRow, explanation: Explanation?) {
     val format = rememberTelemetryFormat()
     WakeItem(
-        title = ownerTitle(row.appLabel, row.uid),
+        title = ownerTitle(row.appLabel, row.uid, row.sharedBy),
         subtitle = null,
         primary = pluralStringResource(R.plurals.sleeplab_wakeups, row.wakeups.asQuantity(), format.number(row.wakeups.toDouble())),
         secondary = null,

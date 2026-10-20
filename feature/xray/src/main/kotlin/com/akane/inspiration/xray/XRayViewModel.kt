@@ -12,7 +12,7 @@ import com.akane.inspiration.ipc.toolkit.AppOpMode
 import com.akane.inspiration.ipc.toolkit.StandbyBucket
 import com.akane.inspiration.telemetry.app.RefreshResult
 import com.akane.inspiration.telemetry.app.attempt
-import com.akane.inspiration.telemetry.app.identifyingPackage
+import com.akane.inspiration.telemetry.app.uidIdentity
 import com.akane.inspiration.telemetry.diff.ReferenceKind
 import com.akane.inspiration.telemetry.toolkit.AdmissionRequest
 import com.akane.inspiration.telemetry.toolkit.AppToolkitState
@@ -246,10 +246,8 @@ class XRayViewModel(
             // batterystats names a UID by one of its process names ("com.app:push"), or not at all; only the UID's
             // installed packages say which app it is. The quick actions act on that package, so it is never the hint,
             // and a shared UID whose hint names none of its apps is labelled by how many share it, acting on none.
-            val owners = deps.appLabels.packagesForUid(row.uid)
-            val pkg =
-                identifyingPackage(owners, reported = row.packageName)
-                    ?: return@map row.copy(packageName = null, sharedBy = if (owners.size > 1) owners.size else 0)
+            val identity = deps.appLabels.uidIdentity(row.uid, reported = row.packageName)
+            val pkg = identity.packageName ?: return@map row.copy(packageName = null, sharedBy = identity.sharedBy)
             // Icons are not loaded here: rows load their own when composed, so an emission costs no bitmaps.
             row.copy(packageName = pkg, label = deps.appLabels.label(pkg))
         }

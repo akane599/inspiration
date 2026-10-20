@@ -21,6 +21,8 @@ data class AppWakelockRow(
     val name: String,
     val durationMs: Long,
     val count: Long,
+    /** With no owner named, how many installed apps share the UID (`UidIdentity.sharedBy`); 0 when not shared. */
+    val sharedBy: Int = 0,
 )
 
 /** A kernel wakelock as batterystats reports it. */
@@ -38,6 +40,8 @@ data class AlarmRow(
     val appLabel: String?,
     val wakeups: Long,
     val tags: ImmutableList<AlarmTagRow>,
+    /** See [AppWakelockRow.sharedBy]. */
+    val sharedBy: Int = 0,
 )
 
 /** Why a tab's counters cannot be compared across the period (audit B-04). */
@@ -120,6 +124,8 @@ data class CulpritRow(
     val appLabel: String?,
     val durationMs: Long?,
     val count: Long?,
+    /** See [AppWakelockRow.sharedBy]. */
+    val sharedBy: Int = 0,
 )
 
 /** Why the screen-off awake check (Rule 2) could not run for the period. */

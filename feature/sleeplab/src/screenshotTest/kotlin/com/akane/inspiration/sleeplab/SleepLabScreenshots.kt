@@ -97,3 +97,9 @@ import com.android.tools.screenshot.PreviewTest
 
 @PreviewTest @Preview(name = "turkish-alarms-narrow-large-font", showBackground = true, widthDp = 360, heightDp = 2900, fontScale = 1.5f, locale = "tr")
 @Composable fun SleepLabTurkishAlarmsNarrowLargeFont() = SleepLabPreviewHost(darkTheme = true, state = SleepLabPreviewData.alarmsTab)
+
+@PreviewTest @Preview(name = "shared-uid", showBackground = true, widthDp = 412, heightDp = 2150)
+@Composable fun SleepLabSharedUid() = SleepLabPreviewHost(darkTheme = true, state = SleepLabPreviewData.sharedOwner)
+
+@PreviewTest @Preview(name = "shared-uid-turkish", showBackground = true, widthDp = 412, heightDp = 2200, locale = "tr")
+@Composable fun SleepLabSharedUidTurkish() = SleepLabPreviewHost(darkTheme = true, state = SleepLabPreviewData.sharedOwner)

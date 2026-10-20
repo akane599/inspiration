@@ -344,6 +344,36 @@ internal object SleepLabPreviewData {
         )
     val appsUncheckedAlarms = appsUnchecked.copy(tab = SleepTab.Alarms)
 
+    /**
+     * The media providers' shared UID, reported as `android.process.media`, which names none of its five apps: the
+     * culprit card and the app tab say "shared by 5 apps", as X-Ray does, instead of naming one of them (B-08).
+     */
+    val sharedOwner =
+        apps.copy(
+            analysis =
+                sleepLabAnalysis(
+                    analysis(
+                        report =
+                            DiagnosticReport(
+                                listOf(
+                                    AwakeViolation(
+                                        Severity.RED,
+                                        0.24,
+                                        9 * HOUR,
+                                        CulpritScope.SCREEN_OFF_ONLY,
+                                        listOf(Culprit(EntryKind.PARTIAL, "MediaScannerService", 10_011, 21 * MIN, 17)),
+                                    ),
+                                ),
+                                emptyMap(),
+                                0,
+                            ),
+                        diff = diff().let { d -> d.copy(uids = d.uids + uid(10_011, null, listOf(wake("MediaScannerService", 21 * MIN, 17)))) },
+                    ),
+                    labels,
+                    sharedBy = mapOf(10_011 to 5),
+                ),
+        )
+
     /** The device rebooted inside the period: kernel wakelocks and CPU residency cannot be compared. */
     val counterReset = apps.copy(analysis = ui(kernelValid = false), tab = SleepTab.KernelWakelocks)
 

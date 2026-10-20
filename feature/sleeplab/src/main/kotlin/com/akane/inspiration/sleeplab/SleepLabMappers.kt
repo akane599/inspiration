@@ -168,12 +168,14 @@ private fun SnapshotClock.namesStatsSession() = statsStartMs != null && statsDur
 /**
  * Partial wakelocks per app, longest first. A uid the period could not check (owner unproven, counters reset under
  * it, package changed) is left out rather than shown as a wrong number, and counted in [ListUi.Rows.excluded].
- * [labels] maps package names to app labels; a package missing from it is shown by its package name.
+ * [labels] maps package names to app labels; a package missing from it is shown by its package name. [sharedBy] maps
+ * a UID no owner names to how many apps share it (`UidIdentity.sharedBy`), so its row says so.
  */
 internal fun appWakelockRows(
     diff: SnapshotDiff,
     perUidAvailable: Boolean,
     labels: Map<String, String>,
+    sharedBy: Map<Int, Int> = emptyMap(),
 ): ListUi<AppWakelockRow> {
     diff.perUidState(perUidAvailable)?.let { return it }
     if (!diff.validity.dumpCounters) return ListUi.Unavailable(diff.batteryStatsCause())
@@ -187,6 +189,7 @@ internal fun appWakelockRows(
                     name = it.name,
                     durationMs = it.durationMs,
                     count = it.count,
+                    sharedBy = sharedBy[uid.uid] ?: 0,
                 )
             }
         }
@@ -219,12 +222,14 @@ internal fun kernelWakelockRows(diff: SnapshotDiff): ListUi<KernelWakelockRow> {
 /**
  * Wake-up alarms per app, most wake-ups first, each with its busiest tags. The counts come from batterystats;
  * only when a uid has none is the alarm dump's own counter used instead. The two overlap, so they are never added.
- * Uids the period could not check are left out and counted in [ListUi.Rows.excluded], as in [appWakelockRows].
+ * Uids the period could not check are left out and counted in [ListUi.Rows.excluded], and owners are named, as in
+ * [appWakelockRows].
  */
 internal fun alarmRows(
     diff: SnapshotDiff,
     perUidAvailable: Boolean,
     labels: Map<String, String>,
+    sharedBy: Map<Int, Int> = emptyMap(),
 ): ListUi<AlarmRow> {
     diff.perUidState(perUidAvailable)?.let { return it }
     // Battery stats compare here, so batterystats' own alarm counts were not captured at one end.
@@ -241,6 +246,7 @@ internal fun alarmRows(
                     appLabel = uid.packageName?.let { pkg -> labels[pkg] ?: pkg },
                     wakeups = tags.sumOf { it.count },
                     tags = tags.map { AlarmTagRow(it.tag, it.count) }.toImmutableList(),
+                    sharedBy = sharedBy[uid.uid] ?: 0,
                 )
             }
         }
@@ -333,6 +339,7 @@ private fun clusterRoles(count: Int): List<ClusterRole> =
 internal fun awakeCheckUi(
     analysis: IntervalAnalysis,
     labels: Map<String, String>,
+    sharedBy: Map<Int, Int> = emptyMap(),
 ): AwakeCheckUi {
     val report = analysis.report
     report.notEvaluable[RuleId.AWAKE_VIOLATION]?.let { return AwakeCheckUi.NotEvaluable(awakeSkipReason(it, analysis.diff)) }
@@ -350,6 +357,7 @@ internal fun awakeCheckUi(
                     appLabel = pkg?.let { labels[it] ?: it },
                     durationMs = culprit.durationMs,
                     count = culprit.count,
+                    sharedBy = culprit.uid?.let { sharedBy[it] } ?: 0,
                 )
             }
     return AwakeCheckUi.Violation(
@@ -388,19 +396,23 @@ internal fun deepSleepUi(diff: SnapshotDiff): DeepSleepUi {
     return DeepSleepUi(ratio, sleep?.deepSleepMs?.takeIf { ratio != null })
 }
 
-/** Everything the culprit card, the three tabs and the CPU card show for one analysed interval. */
+/**
+ * Everything the culprit card, the three tabs and the CPU card show for one analysed interval. [labels] and [sharedBy]
+ * name the owners, as [appWakelockRows] says.
+ */
 internal fun sleepLabAnalysis(
     analysis: IntervalAnalysis,
     labels: Map<String, String>,
+    sharedBy: Map<Int, Int> = emptyMap(),
 ): AnalysisUi.Ready {
     val diff = analysis.diff
     val perUid = analysis.resolved.perUidAvailable
     return AnalysisUi.Ready(
-        appWakelocks = appWakelockRows(diff, perUid, labels),
+        appWakelocks = appWakelockRows(diff, perUid, labels, sharedBy),
         kernelWakelocks = kernelWakelockRows(diff),
-        alarms = alarmRows(diff, perUid, labels),
+        alarms = alarmRows(diff, perUid, labels, sharedBy),
         cpu = cpuUi(diff, fullAtBothEnds = perUid),
         deepSleep = deepSleepUi(diff),
-        awake = awakeCheckUi(analysis, labels),
+        awake = awakeCheckUi(analysis, labels, sharedBy),
     )
 }

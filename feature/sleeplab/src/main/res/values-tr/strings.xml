@@ -84,6 +84,11 @@
 
     <!-- %1$d: the app\'s UID, shown when its package is unknown -->
     <string name="sleeplab_owner_uid">UID %1$d</string>
+    <!-- %1$d: how many installed apps share the UID; %2$d: the UID. Shown when its process names none of them, as X-Ray says it -->
+    <plurals name="sleeplab_owner_shared">
+        <item quantity="one">UID %2$d · %1$d uygulama ortak kullanıyor</item>
+        <item quantity="other">UID %2$d · %1$d uygulama ortak kullanıyor</item>
+    </plurals>
     <string name="sleeplab_uid_root">Root işlemleri</string>
     <string name="sleeplab_uid_system">Android sistemi</string>
     <string name="sleeplab_uid_phone">Telefon ve mobil radyo</string>

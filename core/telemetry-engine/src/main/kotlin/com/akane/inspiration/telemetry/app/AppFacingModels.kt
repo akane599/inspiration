@@ -70,20 +70,41 @@ interface AppLabels {
     /**
      * The visible installed packages that run as app [uid], in any order. Empty for system and shared platform
      * UIDs (app id below 10000), which own no single app, and for UIDs no visible package owns. Screens name a
-     * UID through [packageForUid] (or [identifyingPackage] over this list), never by picking from it directly.
+     * UID through [uidIdentity], never by picking from this list directly.
      */
     suspend fun packagesForUid(uid: Int): List<String> = emptyList()
 }
 
 /**
- * The installed package that identifies app [uid]: the one rule every screen uses to name a battery-stats UID, the
- * [identifyingPackage] among [AppLabels.packagesForUid]. Null when no visible package runs as [uid] (system and
- * shared platform UIDs included), or when several do and batterystats' [reported] process belongs to none of them.
+ * Who a battery-stats UID is, as every screen names it ([uidIdentity]). [packageName] is the one installed app that
+ * identifies it, to label and act on. Without one, [sharedBy] is the number of installed apps that share the UID
+ * (`android:sharedUserId`) when there are several, so a screen says so instead of naming one of them; 0 otherwise.
  */
+data class UidIdentity(
+    val packageName: String?,
+    val sharedBy: Int = 0,
+)
+
+/**
+ * The one rule every screen uses to name a battery-stats UID: the [identifyingPackage] among [uid]'s installed
+ * packages ([AppLabels.packagesForUid], one read), else how many share it. No package when no visible package runs as
+ * [uid] (system and shared platform UIDs included), or when several do and batterystats' [reported] process belongs to
+ * none of them.
+ */
+suspend fun AppLabels.uidIdentity(
+    uid: Int,
+    reported: String?,
+): UidIdentity {
+    val owners = packagesForUid(uid).distinct()
+    val pkg = identifyingPackage(owners, reported)
+    return UidIdentity(pkg, sharedBy = if (pkg == null && owners.size > 1) owners.size else 0)
+}
+
+/** [uidIdentity]'s package alone. */
 suspend fun AppLabels.packageForUid(
     uid: Int,
     reported: String?,
-): String? = identifyingPackage(packagesForUid(uid), reported)
+): String? = uidIdentity(uid, reported).packageName
 
 /**
  * Which of a UID's [owners] (its installed packages) identifies it. batterystats' [reported] name

@@ -23,6 +23,8 @@ class PackageForUidTest {
                             "com.android.providers.downloads.ui",
                             "com.android.soundpicker",
                         ),
+                    // A source that lists one package twice.
+                    10_400 to listOf("com.example.a", "com.example.b", "com.example.a"),
                 )
 
             override suspend fun label(packageName: String) = packageName
@@ -75,6 +77,22 @@ class PackageForUidTest {
         assertEquals("com.android.mtp", identifyingPackage(listOf("com.android.mtp"), "android.process.media"))
         assertNull(identifyingPackage(emptyList(), "com.example.gone"))
     }
+
+    @Test
+    fun `a shared uid no owner names says how many apps share it, so every screen words it the same`() =
+        runTest {
+            assertEquals(UidIdentity(null, sharedBy = 5), labels.uidIdentity(10_011, reported = "android.process.media"))
+            assertEquals(UidIdentity(null, sharedBy = 3), labels.uidIdentity(10_200, reported = "com.google.process.gapps"))
+            assertEquals("a package listed twice is one app", UidIdentity(null, sharedBy = 2), labels.uidIdentity(10_400, reported = null))
+        }
+
+    @Test
+    fun `a named uid, a single-owner uid and an unowned uid count no sharers`() =
+        runTest {
+            assertEquals(UidIdentity("com.google.android.gms"), labels.uidIdentity(10_200, reported = "com.google.android.gms.persistent"))
+            assertEquals(UidIdentity("com.example.messenger"), labels.uidIdentity(10_100, reported = "com.other.app"))
+            assertEquals(UidIdentity(null, sharedBy = 0), labels.uidIdentity(10_300, reported = "com.example.gone:push"))
+        }
 
     @Test
     fun `a uid no package runs as has no package, whatever batterystats reported`() =

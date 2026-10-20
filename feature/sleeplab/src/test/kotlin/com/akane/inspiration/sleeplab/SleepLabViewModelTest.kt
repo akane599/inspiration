@@ -226,6 +226,51 @@ class SleepLabViewModelTest {
         }
 
     @Test
+    fun `a shared uid whose process names none of its apps is titled as shared, as x-ray titles it`() =
+        runTest(dispatcher) {
+            // redroid reports the media providers' shared UID by its process name, which no owner package carries.
+            val mediaUid = 10_011
+            val owners =
+                listOf(
+                    "com.android.providers.media",
+                    "com.android.providers.downloads",
+                    "com.android.providers.downloads.ui",
+                    "com.android.mtp",
+                    "com.android.providers.media.module",
+                )
+            deps.appLabels.uidPackages[mediaUid] = owners
+            val culprit = Culprit(EntryKind.PARTIAL, "scan", mediaUid, 40 * MIN_MS, 4)
+            val violation = AwakeViolation(Severity.RED, 0.3, 8 * HOUR_MS, CulpritScope.SCREEN_OFF_ONLY, listOf(culprit))
+            val media =
+                uidDelta(
+                    mediaUid,
+                    packageName = "android.process.media",
+                    wakelocks = listOf(wakelock("scan", 40 * MIN_MS, 4)),
+                    alarms = listOf(UidAlarm("sync", 2)),
+                )
+            deps.analysis.value =
+                ready(
+                    intervalAnalysis(
+                        diff = snapshotDiff(uids = listOf(media)),
+                        report = DiagnosticReport(listOf(violation), emptyMap(), 0),
+                    ),
+                )
+            val vm = viewModel()
+
+            visible(vm)
+
+            val analysis = vm.state.value.analysis as AnalysisUi.Ready
+            val wake = (analysis.appWakelocks as ListUi.Rows).rows.single()
+            val alarm = (analysis.alarms as ListUi.Rows).rows.single()
+            val named = (analysis.awake as AwakeCheckUi.Violation).culprits.single()
+            assertEquals(listOf(null, null, null), listOf(wake.packageName, alarm.packageName, named.packageName))
+            assertEquals(listOf(null, null, null), listOf(wake.appLabel, alarm.appLabel, named.appLabel))
+            assertEquals("each row is titled \"shared by 5 apps\"", listOf(5, 5, 5), listOf(wake.sharedBy, alarm.sharedBy, named.sharedBy))
+            assertTrue("no owner's label is read for a uid no owner identifies", deps.appLabels.looked.isEmpty())
+            assertEquals("the owner loop ends after one lookup", listOf(mediaUid), deps.appLabels.uidLooked)
+        }
+
+    @Test
     fun `a uid lookup that failed is asked again on the next analysis instead of being remembered`() =
         runTest(dispatcher) {
             deps.appLabels.uidFailure = IllegalStateException("package manager died")
