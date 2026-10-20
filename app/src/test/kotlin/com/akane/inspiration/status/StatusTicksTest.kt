@@ -1,10 +1,13 @@
 package com.akane.inspiration.status
 
 import androidx.core.app.NotificationManagerCompat
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.test.UnconfinedTestDispatcher
+import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.withTimeoutOrNull
@@ -61,13 +64,42 @@ class StatusTicksTest {
     }
 
     @Test
-    fun `a burst of ticks with no collector never blocks and is not replayed`() = runTest {
+    fun `a collector that subscribes after a burst gets none of it`() = runTest {
         val ticker = StatusTicks()
-
         repeat(5) { ticker.emit() }
 
-        // A late collector sees nothing replayed, so the service only ever redraws on a new tick.
-        assertTrue(ticker.ticks.replayCache.isEmpty())
+        var received = 0
+        val job = launch(UnconfinedTestDispatcher(testScheduler)) { ticker.ticks.collect { received++ } }
+        advanceUntilIdle()
+
+        // Nothing is replayed, so the service only ever redraws on a tick that comes after it subscribed.
+        assertEquals(0, received)
+        job.cancel()
+    }
+
+    @Test
+    fun `a burst while the collector is busy collapses to one pending tick`() = runTest {
+        val ticker = StatusTicks()
+        val gate = CompletableDeferred<Unit>()
+        var received = 0
+        val job = launch(UnconfinedTestDispatcher(testScheduler)) {
+            ticker.ticks.collect {
+                received++
+                if (received == 1) gate.await()
+            }
+        }
+        ticker.emit()
+        advanceUntilIdle()
+        assertEquals(1, received)
+
+        // extraBufferCapacity = 1 with DROP_OLDEST: the ticks emitted during the slow first redraw keep one slot, and
+        // emit() returns without waiting for the collector.
+        repeat(5) { ticker.emit() }
+        gate.complete(Unit)
+        advanceUntilIdle()
+
+        assertEquals(2, received)
+        job.cancel()
     }
 
     @Test

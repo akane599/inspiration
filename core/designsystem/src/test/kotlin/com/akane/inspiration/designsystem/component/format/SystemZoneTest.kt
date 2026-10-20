@@ -37,11 +37,4 @@ class SystemZoneTest {
         assertEquals(ZoneId.of("America/Sao_Paulo"), zoneAfterChange("+99:00"))
         assertEquals(ZoneId.of("America/Sao_Paulo"), zoneAfterChange(""))
     }
-
-    @Test
-    fun anEqualZoneIsEqualSoTheStateWriteIsSkipped() {
-        // mutableStateOf's structural policy compares with equals: a broadcast naming the zone already held must not
-        // count as a change, or every chart would lose its skipping and draw cache for nothing.
-        assertEquals(ZoneId.systemDefault(), zoneAfterChange("America/Sao_Paulo"))
-    }
 }

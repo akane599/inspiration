@@ -33,6 +33,9 @@ class ToolkitGatewayTest {
     private var returnNull = false
     private var dexoptState = BgDexoptState.RUNNING
 
+    /** What every typed toolkit call answers (bg-dexopt status aside). */
+    private var serviceResult: ToolkitResult = ToolkitResult.done(after = "x")
+
     // Throwable: a dead binder is a checked RemoteException, which the AIDL methods declare.
     private var serviceThrows: Throwable? = null
     private var apiVersionThrows: Throwable? = null
@@ -52,7 +55,7 @@ class ToolkitGatewayTest {
             when {
                 method.name == "getBgDexoptStatus" -> BgDexoptStatus(dexoptState, 1L, 0L, 0, BgDexoptReason.NONE)
                 returnNull -> null
-                else -> ToolkitResult.done(after = "x")
+                else -> serviceResult
             }
         } as ITelemetryUserService
 
@@ -232,11 +235,13 @@ class ToolkitGatewayTest {
         }
 
     @Test
-    fun `a service reply is passed through unchanged`() =
+    fun `a service-side refusal comes back as the service's reply, not as unavailable`() =
         runTest {
+            serviceResult = ToolkitResult.refused(ToolkitCode.NOT_PLUGGED)
+
             val reply = gateway.getDozeState()
 
-            assertEquals(GatewayReply.Reply(ToolkitResult.done(after = "x")), reply)
+            assertEquals(GatewayReply.Reply(serviceResult), reply)
         }
 
     @Test

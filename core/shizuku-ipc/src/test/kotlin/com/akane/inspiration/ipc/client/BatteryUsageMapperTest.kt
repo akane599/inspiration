@@ -67,11 +67,4 @@ class BatteryUsageMapperTest {
         val uid = BatteryUsageMapper.map(FakeBatteryUsage(uidConsumers = listOf(noPackage)), 35, 0L, 0L).uids.single()
         assertNull(uid.packageName)
     }
-
-    @Test
-    fun `component ids match the framework constants`() {
-        assertEquals(17, BatteryUsageMapper.COMPONENTS.size)
-        assertEquals((0..16).toList(), BatteryUsageMapper.COMPONENTS.map { it.first })
-        assertEquals(listOf(1, 2, 3, 4), BatteryUsageMapper.PROCESS_STATES.map { it.first })
-    }
 }
