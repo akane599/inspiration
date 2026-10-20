@@ -153,4 +153,27 @@ class CapturePolicyTest {
             ),
         )
     }
+
+    @Test
+    fun `with incomplete history the newer of the stored PLUGGED event and the POWER_CONNECTED capture starts the session`() {
+        fun shouldRun(
+            plugged: Long?,
+            powerConnected: Long?,
+        ) = CapturePolicy.chargeJobShouldRun(
+            lastPluggedHistoryWallMs = plugged,
+            lastPowerConnectedWallMs = powerConnected,
+            lastChargeJobWallMs = 200L,
+            lastChargeJobBootCount = 4,
+            currentBootCount = 4,
+            historyComplete = false,
+        )
+
+        // A stored PLUGGED event is real even when newer history went unread: past the last job it is a new charge.
+        assertTrue(shouldRun(plugged = 300L, powerConnected = null))
+        assertTrue(shouldRun(plugged = 300L, powerConnected = 100L))
+        // The stored one may be an earlier session's (audit B-02): a newer POWER_CONNECTED capture still decides.
+        assertTrue(shouldRun(plugged = 100L, powerConnected = 300L))
+        assertFalse(shouldRun(plugged = 100L, powerConnected = 150L))
+        assertFalse(shouldRun(plugged = null, powerConnected = null))
+    }
 }

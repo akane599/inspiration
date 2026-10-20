@@ -166,6 +166,29 @@ class ChargeJobCaptureTest {
         }
 
     @Test
+    fun `a capped history ingest whose pages hold a PLUGGED event after the last charge job makes the run capture`() =
+        runTest {
+            // Plugged in while the process was dead, so no POWER_CONNECTED capture; the ingest stops at its page cap,
+            // but the pages it read already prove a charge that began after the last charge job.
+            val source =
+                CountingSource(history = listOf(event(5_000, HistoryKind.PLUGGED), event(5_500, HistoryKind.LEVEL)), capped = true)
+            val store = FakeStore(snapshots = mutableListOf(snapshot(CaptureTrigger.CHARGE_JOB, wallMs = 4_000)))
+
+            runChargeJobCapture(
+                SnapshotCapturer(source, store, FixedClocks),
+                store,
+                FixedClocks,
+                DEADLINE_MS,
+                analyze = {},
+                onHistoryStored = {},
+            )
+
+            assertEquals(listOf(CaptureTrigger.CHARGE_JOB, CaptureTrigger.CHARGE_JOB), store.saved().map { it.second })
+            assertEquals(1, store.perKindLookups)
+            assertEquals(0, store.wholeHistoryLoads)
+        }
+
+    @Test
     fun `after a forward wall clock jump the charge job prunes on this boot's elapsed time`() =
         runTest {
             // The earlier charge job read wall 4_000 at elapsed 2; one minute later the wall clock reads a year ahead.

@@ -88,7 +88,12 @@ object CapturePolicy {
         is CapturePlan.Light -> BROADCAST_FULL_DEADLINE_MS
     }
 
-    /** [historyComplete]: the ingest stored the history up to the newest event, so its last PLUGGED event is current. */
+    /**
+     * True when no charge job ran in this boot, or the charge session began after the last one. With [historyComplete]
+     * (the ingest stored the history up to the newest event) the newest stored PLUGGED event starts the session. An
+     * incomplete ingest can only have missed a newer PLUGGED event, so the stored one still counts, but it may be an
+     * earlier session's (audit B-02): the newer of it and the last POWER_CONNECTED capture starts the session.
+     */
     fun chargeJobShouldRun(
         lastPluggedHistoryWallMs: Long?,
         lastPowerConnectedWallMs: Long?,
@@ -98,7 +103,12 @@ object CapturePolicy {
         historyComplete: Boolean,
     ): Boolean {
         if (lastChargeJobWallMs == null || lastChargeJobBootCount != currentBootCount) return true
-        val sessionStartWallMs = if (historyComplete) lastPluggedHistoryWallMs else lastPowerConnectedWallMs
+        val sessionStartWallMs =
+            if (historyComplete) {
+                lastPluggedHistoryWallMs
+            } else {
+                listOfNotNull(lastPluggedHistoryWallMs, lastPowerConnectedWallMs).maxOrNull()
+            }
         return sessionStartWallMs != null && lastChargeJobWallMs < sessionStartWallMs
     }
 

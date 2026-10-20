@@ -48,14 +48,10 @@ internal suspend fun runChargeJobCapture(
 ) {
     try {
         val ingest = capturer.ingestHistory(CaptureTrigger.CHARGE_JOB, deadlineMs)
-        // Only a complete ingest makes the newest stored PLUGGED event this charge's: a capped or partly failed one
-        // may have left it unread, and the policy then decides from the POWER_CONNECTED capture (audit B-02).
+        // Read even after an incomplete ingest: a capped or partly failed one may have left a newer PLUGGED event
+        // unread, but the stored ones are real; the policy weighs them by completeness (audit B-02).
         val lastPluggedHistoryWallMs =
-            if (ingest.historyComplete) {
-                store.lastHistoryOfEachKindBefore(Long.MAX_VALUE).lastOrNull { it.kind == HistoryKind.PLUGGED }?.wallMs
-            } else {
-                null
-            }
+            store.lastHistoryOfEachKindBefore(Long.MAX_VALUE).lastOrNull { it.kind == HistoryKind.PLUGGED }?.wallMs
         val lastPowerConnectedWallMs = store.latestClockByTrigger(CaptureTrigger.POWER_CONNECTED)?.wallMs
         val lastChargeJobClock = store.latestClockByTrigger(CaptureTrigger.CHARGE_JOB)
         runner.run(
