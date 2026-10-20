@@ -223,7 +223,8 @@ internal class BgDexoptController(
         } catch (_: RuntimeException) {
             finish(BgDexoptState.FINISHED, exit = -1, why = BgDexoptReason.NONE)
         } finally {
-            synchronized(lock) { client = null }
+            // finish() above already admits a new start, whose worker may have set its own client by now.
+            synchronized(lock) { if (client === process) client = null }
             process.destroy()
         }
     }
