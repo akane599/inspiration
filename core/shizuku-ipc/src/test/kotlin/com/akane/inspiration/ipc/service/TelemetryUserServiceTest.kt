@@ -14,6 +14,7 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.io.File
 import java.io.FileDescriptor
+import java.io.IOException
 import java.nio.file.Files
 
 class TelemetryUserServiceTest {
@@ -242,6 +243,59 @@ class TelemetryUserServiceTest {
 
             assertTrue(result.available)
             assertTrue(pipe.writeClosed)
+        }
+
+    @Test
+    fun `dump writers are bounded per target until one finishes`() =
+        withFixture { root ->
+            // Captured writers never run, like framework dumps hung before their first write.
+            val writers = mutableListOf<Runnable>()
+            val service =
+                service(
+                    root = root,
+                    serviceBinder = { ThrowingDumpBinder },
+                    startThread = { writers += it },
+                )
+
+            repeat(2) { assertTrue(service.openDump(DumpTarget.BATTERYSTATS_PROTO).available) }
+            val refused = service.openDump(DumpTarget.BATTERYSTATS_PROTO)
+
+            assertFalse(refused.available)
+            assertEquals(Reasons.BUSY, refused.reason)
+            assertNull(refused.fd)
+            assertEquals("a refused dump starts no writer", 2, writers.size)
+            assertTrue("another target has its own writers", service.openDump(DumpTarget.ALARM_PROTO).available)
+
+            writers.removeAt(0).run()
+            assertTrue("a finished writer frees its place", service.openDump(DumpTarget.BATTERYSTATS_PROTO).available)
+            assertEquals(Reasons.BUSY, service.openDump(DumpTarget.BATTERYSTATS_PROTO).reason)
+        }
+
+    @Test
+    fun `a dump whose writer never starts holds no writer place`() =
+        withFixture { root ->
+            var failPipe = true
+            var failThread = false
+            val writers = mutableListOf<Runnable>()
+            val service =
+                service(
+                    root = root,
+                    serviceBinder = { ThrowingDumpBinder },
+                    pipeFactory = { if (failPipe) throw IOException("EMFILE") else FakeDumpPipe() },
+                    startThread = { writer ->
+                        if (failThread) throw OutOfMemoryError("pthread_create failed")
+                        writers += writer
+                    },
+                )
+
+            repeat(3) { assertEquals(Reasons.IO, service.openDump(DumpTarget.BATTERYSTATS_PROTO).reason) }
+            failPipe = false
+            failThread = true
+            repeat(3) { assertEquals(Reasons.IO, service.openDump(DumpTarget.BATTERYSTATS_PROTO).reason) }
+            failThread = false
+
+            repeat(2) { assertTrue(service.openDump(DumpTarget.BATTERYSTATS_PROTO).available) }
+            assertEquals(Reasons.BUSY, service.openDump(DumpTarget.BATTERYSTATS_PROTO).reason)
         }
 
     private fun service(

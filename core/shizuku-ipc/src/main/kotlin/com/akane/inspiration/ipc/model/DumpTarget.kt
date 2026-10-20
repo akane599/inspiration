@@ -19,4 +19,7 @@ object Reasons {
     const val IO = "io"
     const val TARGET = "target"
     const val CALLER = "caller"
+
+    /** Every dump writer allowed for this target is still running (audit B-20). */
+    const val BUSY = "busy"
 }

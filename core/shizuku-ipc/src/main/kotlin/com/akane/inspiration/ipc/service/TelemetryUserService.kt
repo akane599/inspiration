@@ -79,6 +79,26 @@ private class ParcelFileDescriptorDumpPipe private constructor(
     }
 }
 
+/** Running dump writers per target, at most [perTarget] each; binder threads call it concurrently. */
+private class DumpWriterSlots(
+    private val perTarget: Int,
+) {
+    private val running = HashMap<Int, Int>()
+
+    fun tryAcquire(target: Int): Boolean =
+        synchronized(running) {
+            val count = running[target] ?: 0
+            (count < perTarget).also { free -> if (free) running[target] = count + 1 }
+        }
+
+    fun release(target: Int) {
+        synchronized(running) {
+            val count = running[target] ?: return
+            if (count > 1) running[target] = count - 1 else running.remove(target)
+        }
+    }
+}
+
 /**
  * Shell-UID Shizuku service. All binder entry points reject callers other than this app before
  * accessing framework services or sysfs.
@@ -146,6 +166,8 @@ class TelemetryUserService private constructor(
         exitProcess,
         Unit,
     )
+
+    private val dumpWriters = DumpWriterSlots(MAX_DUMP_WRITERS_PER_TARGET)
 
     override fun destroy() {
         // Shizuku's server (same shell UID as this process) calls destroy() when the app unbinds with
@@ -226,35 +248,49 @@ class TelemetryUserService private constructor(
             .readHistory(statsStartMs, afterHistoryTimeMs, maxEvents)
     }
 
+    /**
+     * The framework dump runs on a writer thread, with no timeout, and a Binder transaction ignores interrupts.
+     * When the client stops reading (EOF, its read timeout, or its death) the read end closes, which ends a dump that
+     * is writing (EPIPE) but not one hung before its first write. [dumpWriters] bounds the threads such hangs can
+     * hold until the process exits; a dump past the bound is refused [Reasons.BUSY] (audit B-20).
+     */
     override fun openDump(target: Int): DumpResult {
         if (!isCallerAllowed()) return DumpResult.unavailable(Reasons.CALLER)
         if (!DumpTarget.isValid(target)) return DumpResult.unavailable(Reasons.TARGET)
         val dumpRequest = dumpRequest(target) ?: return DumpResult.unavailable(Reasons.TARGET)
         val binder = serviceBinder(dumpRequest.serviceName) ?: return DumpResult.unavailable(Reasons.REMOTE)
-        val pipe =
+        if (!dumpWriters.tryAcquire(target)) return DumpResult.unavailable(Reasons.BUSY)
+        var writerStarted = false
+        try {
+            val pipe =
+                try {
+                    pipeFactory()
+                } catch (_: IOException) {
+                    return DumpResult.unavailable(Reasons.IO)
+                }
             try {
-                pipeFactory()
-            } catch (_: IOException) {
+                startThread(
+                    Runnable {
+                        try {
+                            binder.dump(pipe.writeDescriptor, dumpRequest.args)
+                        } catch (_: Exception) {
+                            // The caller observes an early EOF when the framework dump fails.
+                        } finally {
+                            pipe.closeWrite()
+                            dumpWriters.release(target)
+                        }
+                    },
+                )
+            } catch (_: Throwable) {
+                pipe.closeRead()
+                pipe.closeWrite()
                 return DumpResult.unavailable(Reasons.IO)
             }
-        try {
-            startThread(
-                Runnable {
-                    try {
-                        binder.dump(pipe.writeDescriptor, dumpRequest.args)
-                    } catch (_: Exception) {
-                        // The caller observes an early EOF when the framework dump fails.
-                    } finally {
-                        pipe.closeWrite()
-                    }
-                },
-            )
-        } catch (_: Throwable) {
-            pipe.closeRead()
-            pipe.closeWrite()
-            return DumpResult.unavailable(Reasons.IO)
+            writerStarted = true
+            return DumpResult(available = true, reason = null, fd = pipe.readEnd)
+        } finally {
+            if (!writerStarted) dumpWriters.release(target)
         }
-        return DumpResult(available = true, reason = null, fd = pipe.readEnd)
     }
 
     // Typed privileged actions (txns 20-31). The caller-UID check runs first, on the binder thread;
@@ -394,6 +430,12 @@ class TelemetryUserService private constructor(
         val WHITESPACE = Regex("\\s+")
 
         const val BATTERY_STATS_SERVICE = "batterystats"
+
+        /**
+         * Two, not one: broadcast FULL captures run outside the capturer's history lock, so one can overlap another
+         * capture's dump of the same target. Hung framework dumps then hold at most four threads in all.
+         */
+        const val MAX_DUMP_WRITERS_PER_TARGET = 2
 
         fun failClosedToolkit(): ToolkitExecutor {
             val runner = CommandRunner { throw IOException("toolkit unavailable without a Context") }
