@@ -17,7 +17,9 @@ import com.akane.inspiration.telemetry.store.TelemetrySample
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.async
 import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -28,6 +30,7 @@ import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
 
 /**
  * How long the curve stays live after its newest point: three periods plus the service bind timeout (5 s) a single
@@ -37,12 +40,19 @@ import kotlinx.coroutines.withContext
 internal const val LIVE_STALE_MS = 3 * CURVE_PERIOD_MS + 5_000L
 
 /**
- * What the last load read, and everything derived from it alone. A null read failed; an empty list is a real "nothing
- * recorded". The derived values are computed on construction, which happens once per load and off the main thread, so
- * a live tick never maps, de-duplicates or summarises the stored day again; it only merges the live points in.
+ * How long a load waits for the kernel read before it shows the stored day without it (B-14). A kernel answer that
+ * comes within it lands in the same frame as the stored day, so the card does not first show the recorded figures;
+ * a read that takes its whole 2 s deadline (Shizuku installed but not running) no longer holds back what Room has.
  */
-private class HealthInputs(
-    val kernel: KernelCapacitySnapshot?,
+internal const val KERNEL_GRACE_MS = 300L
+
+/**
+ * What the last load read from storage, and everything derived from it alone. A null read failed; an empty list is a
+ * real "nothing recorded". The derived values are computed on construction, which happens once per load and off the
+ * main thread, so a live tick never maps, de-duplicates or summarises the stored day again; it only merges the live
+ * points in.
+ */
+private class StoredDay(
     val healthSamples: List<HealthSample>?,
     val sessions: List<ChargeSessionRecord>?,
     val history: List<HistoryEvent>?,
@@ -53,7 +63,7 @@ private class HealthInputs(
     val historySpan: ChargeSpan?,
 ) {
     val everyReadFailed: Boolean
-        get() = kernel == null && healthSamples == null && sessions == null && history == null && samples == null
+        get() = healthSamples == null && sessions == null && history == null && samples == null
 
     /**
      * The persisted charging points in time order, one per time (the first stored wins). When the samples read failed
@@ -68,8 +78,23 @@ private class HealthInputs(
             ?.sortedBy { it.wallMs }
             ?: previousPoints
     val historyPoints: List<CurvePoint> = history.orEmpty().mapNotNull { it.toCurvePoint() }
-    val card: HealthCardUi = healthCard(kernel, healthSamples.orEmpty(), sessions.orEmpty())
     val wear: WearUi = wearUi(healthSamples.orEmpty())
+}
+
+/**
+ * A load's [stored] day with its kernel read. The stored reads do not wait for the kernel read, which can take its
+ * whole deadline (B-14): while [kernelPending], the read is still running and [kernel] is the previous load's answer
+ * (null on the first load), standing in so the stored parts can be shown. Built off the main thread, like [StoredDay].
+ */
+private class HealthInputs(
+    val stored: StoredDay,
+    val kernel: KernelCapacitySnapshot?,
+    val kernelPending: Boolean,
+) {
+    /** Every read failed, the kernel's included; never while the kernel read is still running. */
+    val everyReadFailed: Boolean
+        get() = !kernelPending && kernel == null && stored.everyReadFailed
+    val card: HealthCardUi = healthCard(kernel, stored.healthSamples.orEmpty(), stored.sessions.orEmpty())
 }
 
 /** When the newest accepted live reading was taken, on each clock. */
@@ -99,10 +124,10 @@ private sealed interface LiveAdd {
 
 /**
  * This visit's live points that storage has not given back yet. Every live tick copies them on the main thread, so a
- * load drops each one its stored day holds at the same time: the merge drops such a point from every frame of that
- * load anyway (a stored point wins a tie), and later loads read it from storage (a load whose samples read fails keeps
- * the previous load's points, see [HealthInputs.persistedPoints]). What is held is then bounded by the
- * readings since the last load, not by the length of the visit. The facts a frame needs about the whole visit
+ * load, once its stored day is shown, drops each one that day holds at the same time: the merge drops such a point
+ * from every frame of that load anyway (a stored point wins a tie), and later loads read it from storage (a load whose
+ * samples read fails keeps the previous load's points, see [StoredDay.persistedPoints]). What is held is then bounded
+ * by the readings since the last load, not by the length of the visit. The facts a frame needs about the whole visit
  * outlive that trim: whether any live point arrived (it still re-derives a charge the history has not caught up with)
  * and when the newest reading was taken (an earlier or repeated reading is still rejected).
  *
@@ -173,8 +198,9 @@ private fun shapeFrame(
     liveActive: Boolean,
     nowMs: Long,
 ): (HealthState) -> HealthState {
-    val sampled = mergeByTime(loaded.persistedPoints, live)
-    val inferredSpan = effectiveChargeSpan(loaded.historySpan, sampled, hasLive)
+    val stored = loaded.stored
+    val sampled = mergeByTime(stored.persistedPoints, live)
+    val inferredSpan = effectiveChargeSpan(stored.historySpan, sampled, hasLive)
     // Observed edges outrank stale history and gap heuristics, for persisted points as well as live ones.
     val observedSpan =
         observedPlugMs?.let { start ->
@@ -183,12 +209,17 @@ private fun shapeFrame(
             inferredSpan?.let { ChargeSpan(minOf(it.startMs, end), end) }
         }
     val span = observedSpan ?: inferredSpan
-    val session = chargeSession(span, sampled, loaded.historyPoints, hasLive = observedSpan == null && hasLive)
+    val session = chargeSession(span, sampled, stored.historyPoints, hasLive = observedSpan == null && hasLive)
     val curve = curveUi(session, liveActive)
     val analysis = if (curve is CurveUi.Ready) wearAnalysis(session, span, nowMs, liveActive) else null
     val nothing =
-        loaded.kernel == null && loaded.healthSamples.orEmpty().isEmpty() &&
-            loaded.sessions.orEmpty().isEmpty() && curve is CurveUi.None && !charging
+        loaded.kernel == null && stored.healthSamples.orEmpty().isEmpty() &&
+            stored.sessions.orEmpty().isEmpty() && curve is CurveUi.None && !charging
+    // While the kernel read runs, a frame its answer could still turn from Error or Empty into Ready waits for it: the
+    // screen keeps what it shows (Loading on the first load), as it did while a load was reading.
+    if (loaded.kernelPending && (nothing || (stored.everyReadFailed && !hasLive))) {
+        return { state -> state.copy(charging = charging) }
+    }
     val phase =
         when {
             loaded.everyReadFailed && !hasLive -> HealthPhase.Error
@@ -201,7 +232,7 @@ private fun shapeFrame(
             charging = charging,
             curve = curve,
             card = loaded.card,
-            wear = loaded.wear,
+            wear = stored.wear,
             analysis = analysis,
         )
     }
@@ -430,31 +461,57 @@ class HealthViewModel(
         loadJob = viewModelScope.launch { load() }
     }
 
-    private suspend fun load() {
-        val to = deps.clocks.wallMs()
-        val from = to - DATA_WINDOW_MS
-        val kernel = attempt { deps.kernelBattery() }
-        val healthSamples = attempt { deps.healthSamples() }
-        val sessions = attempt { deps.chargeSessions() }
-        val history = attempt { deps.historyBetween(from, to) }
-        val samples = attempt { deps.samplesBetween(from, to) }
-        val previousPoints = inputs?.persistedPoints.orEmpty()
-        inputs =
-            withContext(shapingDispatcher) {
-                val lastCharge = history?.let(::lastCharge)
-                // Only a charge whose plug-in is older than the window reads further back; a failed read keeps the
-                // window's own start.
-                val plugInMs = if (lastCharge?.startsBeforeWindow == true) attempt { plugInBefore(from, to) } else null
-                HealthInputs(
-                    kernel = kernel,
-                    healthSamples = healthSamples,
-                    sessions = sessions,
-                    history = history,
-                    samples = samples,
-                    previousPoints = previousPoints,
-                    historySpan = lastCharge?.startingAt(plugInMs),
-                )
-            }.also { live.dropStored(it.persistedPoints) }
+    /**
+     * Reads the stored day alongside the kernel read, which can take its whole deadline while Room answers at once
+     * (B-14). Once the stored day is shaped, a kernel read still running after [KERNEL_GRACE_MS] no longer holds it
+     * back: it is shown with the previous kernel answer standing in, then again with the kernel's own. Cancelling the
+     * load (a newer one replaces it) cancels the kernel read with it.
+     */
+    private suspend fun load() =
+        coroutineScope {
+            val to = deps.clocks.wallMs()
+            val from = to - DATA_WINDOW_MS
+            val kernel = async { attempt { deps.kernelBattery() } }
+            val healthSamples = attempt { deps.healthSamples() }
+            val sessions = attempt { deps.chargeSessions() }
+            val history = attempt { deps.historyBetween(from, to) }
+            val samples = attempt { deps.samplesBetween(from, to) }
+            val previous = inputs
+            val previousPoints = previous?.stored?.persistedPoints.orEmpty()
+            val stored =
+                withContext(shapingDispatcher) {
+                    val lastCharge = history?.let(::lastCharge)
+                    // Only a charge whose plug-in is older than the window reads further back; a failed read keeps the
+                    // window's own start.
+                    val plugInMs =
+                        if (lastCharge?.startsBeforeWindow == true) attempt { plugInBefore(from, to) } else null
+                    StoredDay(
+                        healthSamples = healthSamples,
+                        sessions = sessions,
+                        history = history,
+                        samples = samples,
+                        previousPoints = previousPoints,
+                        historySpan = lastCharge?.startingAt(plugInMs),
+                    )
+                }
+            if (!kernel.isCompleted) withTimeoutOrNull(KERNEL_GRACE_MS) { kernel.join() }
+            if (!kernel.isCompleted) {
+                val standIn = previous?.kernel
+                publish { HealthInputs(stored, standIn, kernelPending = true) }
+            }
+            val answer = kernel.await()
+            publish { HealthInputs(stored, answer, kernelPending = false) }
+        }
+
+    /**
+     * Builds [next] (its card) off the main thread, then makes it the inputs every frame is shaped from. Only from then
+     * on do frames draw the stored twins of the live points its stored day read back, so only then does the buffer let
+     * them go: a frame shaped while the load still waited for the kernel draws them from the buffer.
+     */
+    private suspend fun publish(next: () -> HealthInputs) {
+        val published = withContext(shapingDispatcher) { next() }
+        inputs = published
+        live.dropStored(published.stored.persistedPoints)
         render()
     }
 

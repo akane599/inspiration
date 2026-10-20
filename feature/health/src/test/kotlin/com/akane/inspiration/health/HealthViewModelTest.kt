@@ -905,8 +905,12 @@ class HealthViewModelTest {
                     val refreshesBefore = deps.refreshCalls
                     vm.onIntent(HealthIntent.Visible)
                     runCurrent()
-                    assertEquals(HealthPhase.Loading, vm.state.value.phase)
-                    assertEquals("load must stop at cancellation", 0, sessionReads)
+                    advanceTimeBy(KERNEL_GRACE_MS)
+                    runCurrent()
+                    assertEquals("a cancelled read publishes nothing", HealthPhase.Loading, vm.state.value.phase)
+                    // The stored reads run alongside the kernel read (B-14), so only a cancelled stored read stops
+                    // the reads after it; a cancelled kernel read still ends the load before any frame.
+                    if (!cancelKernel) assertEquals("load must stop at cancellation", 0, sessionReads)
                     assertEquals("the shared capture does not wait on the screen's read", refreshesBefore + 1, deps.refreshCalls)
 
                     cancelRead = false
