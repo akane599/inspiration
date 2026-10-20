@@ -18,6 +18,8 @@ dependencies {
     implementation(libs.androidx.compose.ui.tooling.preview)
 
     testImplementation(libs.junit)
+    // Drives the touch guard with real MotionEvents (ObscuredTouchGuardUiTest).
+    testImplementation(libs.robolectric)
 
     screenshotTestImplementation(libs.screenshot.validation.api)
     screenshotTestImplementation(libs.androidx.compose.ui.tooling)

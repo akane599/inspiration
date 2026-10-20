@@ -1,6 +1,6 @@
-package com.akane.inspiration.xray
+package com.akane.inspiration.designsystem.component
 
-import com.akane.inspiration.xray.ObscuredTouchGate.Verdict
+import com.akane.inspiration.designsystem.component.ObscuredTouchGate.Verdict
 import org.junit.Assert.assertEquals
 import org.junit.Test
 

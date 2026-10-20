@@ -53,6 +53,7 @@ import com.akane.inspiration.designsystem.component.LegendRow
 import com.akane.inspiration.designsystem.component.MetricValue
 import com.akane.inspiration.designsystem.component.SemanticDot
 import com.akane.inspiration.designsystem.component.color
+import com.akane.inspiration.designsystem.component.filterTouchesWhenObscured
 import com.akane.inspiration.designsystem.component.format.rememberTelemetryFormat
 import com.akane.inspiration.designsystem.theme.numericTypography
 import com.akane.inspiration.designsystem.theme.spacing

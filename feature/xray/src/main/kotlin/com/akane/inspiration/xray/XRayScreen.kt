@@ -46,11 +46,13 @@ import com.akane.inspiration.designsystem.component.EmptyStateAction
 import com.akane.inspiration.designsystem.component.InspirationCard
 import com.akane.inspiration.designsystem.component.LegendItem
 import com.akane.inspiration.designsystem.component.LegendRow
+import com.akane.inspiration.designsystem.component.LocalObscuredTouchNotice
 import com.akane.inspiration.designsystem.component.ScreenHeader
 import com.akane.inspiration.designsystem.component.SegmentedToggle
 import com.akane.inspiration.designsystem.component.StackedBar
 import com.akane.inspiration.designsystem.component.TimeSliceBanner
 import com.akane.inspiration.designsystem.component.color
+import com.akane.inspiration.designsystem.component.rememberObscuredTouchNotice
 import com.akane.inspiration.designsystem.component.format.rememberSystemTimeZone
 import com.akane.inspiration.designsystem.theme.numericTypography
 import com.akane.inspiration.designsystem.theme.spacing
@@ -86,7 +88,8 @@ fun XRayScreen(
     snackbarHostState: SnackbarHostState? = null,
     timeZone: TimeZone = rememberSystemTimeZone(),
 ) {
-    CompositionLocalProvider(LocalObscuredTouchNotice provides rememberObscuredTouchNotice(snackbarHostState)) {
+    val obscuredNotice = rememberObscuredTouchNotice(snackbarHostState, stringResource(R.string.xray_touch_obscured))
+    CompositionLocalProvider(LocalObscuredTouchNotice provides obscuredNotice) {
         Box(modifier = modifier.fillMaxSize()) {
             XRayBody(state = state, onIntent = onIntent, loadIcon = loadIcon, timeZone = timeZone)
             if (state.refreshing) {

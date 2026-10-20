@@ -35,8 +35,10 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.TextStyle
 import com.akane.inspiration.designsystem.component.EmptyState
 import com.akane.inspiration.designsystem.component.EmptyStateAction
+import com.akane.inspiration.designsystem.component.LocalObscuredTouchNotice
 import com.akane.inspiration.designsystem.component.ScreenHeader
 import com.akane.inspiration.designsystem.component.SemanticDot
+import com.akane.inspiration.designsystem.component.rememberObscuredTouchNotice
 import com.akane.inspiration.designsystem.component.format.rememberSystemTimeZone
 import com.akane.inspiration.designsystem.theme.spacing
 import com.akane.inspiration.designsystem.theme.statusColors
@@ -60,7 +62,8 @@ fun ToolkitScreen(
     snackbarHostState: SnackbarHostState? = null,
     timeZone: TimeZone = rememberSystemTimeZone(),
 ) {
-    CompositionLocalProvider(LocalObscuredTouchNotice provides rememberObscuredTouchNotice(snackbarHostState)) {
+    val obscuredNotice = rememberObscuredTouchNotice(snackbarHostState, stringResource(R.string.toolkit_touch_obscured))
+    CompositionLocalProvider(LocalObscuredTouchNotice provides obscuredNotice) {
         Box(modifier = modifier.fillMaxSize()) {
             ToolkitBody(state = state, onIntent = onIntent, loadIcon = loadIcon, timeZone = timeZone)
             // While the app sheet is open it shows the snackbars itself: this host would be hidden behind it.

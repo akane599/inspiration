@@ -23,6 +23,7 @@ import androidx.compose.ui.semantics.semantics
 import com.akane.inspiration.designsystem.component.CardTitle
 import com.akane.inspiration.designsystem.component.InspirationCard
 import com.akane.inspiration.designsystem.component.SemanticDot
+import com.akane.inspiration.designsystem.component.filterTouchesWhenObscured
 import com.akane.inspiration.designsystem.component.format.rememberTelemetryFormat
 import com.akane.inspiration.designsystem.theme.numericTypography
 import com.akane.inspiration.designsystem.theme.spacing

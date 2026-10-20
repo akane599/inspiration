@@ -57,6 +57,7 @@ import com.akane.inspiration.designsystem.component.CardTitle
 import com.akane.inspiration.designsystem.component.EmptyState
 import com.akane.inspiration.designsystem.component.EmptyStateAction
 import com.akane.inspiration.designsystem.component.SemanticDot
+import com.akane.inspiration.designsystem.component.filterTouchesWhenObscured
 import com.akane.inspiration.designsystem.theme.spacing
 import com.akane.inspiration.designsystem.theme.statusColors
 import com.akane.inspiration.ipc.toolkit.AppOp

@@ -1,4 +1,4 @@
-package com.akane.inspiration.toolkit
+package com.akane.inspiration.designsystem.component
 
 import android.view.MotionEvent
 import androidx.compose.material3.SnackbarHostState
@@ -17,7 +17,6 @@ import androidx.compose.ui.node.ModifierNodeElement
 import androidx.compose.ui.node.PointerInputModifierNode
 import androidx.compose.ui.node.currentValueOf
 import androidx.compose.ui.platform.InspectorInfo
-import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.IntSize
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
@@ -26,22 +25,22 @@ import kotlinx.coroutines.launch
  * Compose's counterpart of `View.setFilterTouchesWhenObscured(true)`, which Compose has no modifier for.
  * While another window covers this one, the system marks the touch with FLAG_WINDOW_IS_OBSCURED; the
  * events are consumed on the way down, before any child (button, switch, chip) sees them, so a
- * tapjacking overlay can't press the privileged controls. Put it on the container of destructive controls,
+ * tapjacking overlay can't press privileged controls. Put it on the container of destructive controls,
  * never on a Cancel or dismiss control (an overlay pressing those can do no harm, and a screen dimmer
  * would otherwise trap the user). The first blocked press of each gesture calls [LocalObscuredTouchNotice].
  */
-internal fun Modifier.filterTouchesWhenObscured(): Modifier = this then ObscuredTouchGuardElement
+fun Modifier.filterTouchesWhenObscured(): Modifier = this then ObscuredTouchGuardElement
 
 /** Called on a blocked press, to say why nothing happened. The screen provides it; previews keep the no-op. */
-internal val LocalObscuredTouchNotice = staticCompositionLocalOf<() -> Unit> { {} }
+val LocalObscuredTouchNotice = staticCompositionLocalOf<() -> Unit> { {} }
 
 /**
- * The notice for [LocalObscuredTouchNotice]: a snackbar on [hostState], at most one queued or showing at a
- * time, so a burst of blocked taps doesn't line up a row of identical snackbars. A no-op without a host.
+ * The notice for [LocalObscuredTouchNotice]: [message] as a snackbar on [hostState], at most one queued or
+ * showing at a time, so a burst of blocked taps doesn't line up a row of identical snackbars. A no-op
+ * without a host. The calling feature owns the (localized) [message].
  */
 @Composable
-internal fun rememberObscuredTouchNotice(hostState: SnackbarHostState?): () -> Unit {
-    val message = stringResource(R.string.toolkit_touch_obscured)
+fun rememberObscuredTouchNotice(hostState: SnackbarHostState?, message: String): () -> Unit {
     val scope = rememberCoroutineScope()
     return remember(hostState, scope, message) {
         var shown: Job? = null

@@ -18,6 +18,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
+import com.akane.inspiration.designsystem.component.filterTouchesWhenObscured
 import com.akane.inspiration.designsystem.theme.spacing
 import com.akane.inspiration.designsystem.theme.statusColors
 
