@@ -72,6 +72,31 @@ private class HealthInputs(
     val wear: WearUi = wearUi(healthSamples.orEmpty())
 }
 
+/** When the newest accepted live reading was taken, on each clock. */
+private class ReadingTime(
+    val bootCount: Int,
+    val elapsedMs: Long,
+    val wallMs: Long,
+)
+
+/** What [LiveBuffer.add] made of a reading. */
+private sealed interface LiveAdd {
+    /** Taken at or before the newest reading of the same boot: dropped. */
+    data object Rejected : LiveAdd
+
+    /** Held after the points already held. */
+    data object Added : LiveAdd
+
+    /**
+     * Taken after the newest reading but timed at or before it: the wall clock was set back. The held points, timed on
+     * the old clock, were dropped and the reading is the first one held. [stepMs] is how far the wall clock went back
+     * against the elapsed clock; null when a boot lies between the two readings and the step cannot be told.
+     */
+    data class ClockSetBack(
+        val stepMs: Long?,
+    ) : LiveAdd
+}
+
 /**
  * This visit's live points that storage has not given back yet. Every live tick copies them on the main thread, so a
  * load drops each one its stored day holds at the same time: the merge drops such a point from every frame of that
@@ -79,25 +104,44 @@ private class HealthInputs(
  * the previous load's points, see [HealthInputs.persistedPoints]). What is held is then bounded by the
  * readings since the last load, not by the length of the visit. The facts a frame needs about the whole visit
  * outlive that trim: whether any live point arrived (it still re-derives a charge the history has not caught up with)
- * and the newest one's time (an older or repeated reading is still rejected).
+ * and when the newest reading was taken (an earlier or repeated reading is still rejected).
+ *
+ * Readings are ordered on the elapsed clock of their boot, which only moves forward; the wall clock can be set back at
+ * any time (B-15). A reading from another boot is later than every reading before it.
  */
 private class LiveBuffer {
     private val unstored = ArrayList<CurvePoint>()
-    private var newestMs = Long.MIN_VALUE
+    private var newest: ReadingTime? = null
 
     /** A live point arrived since the last [clear], whether or not it is still held. */
-    var any = false
-        private set
+    val any: Boolean get() = newest != null
 
     val size: Int get() = unstored.size
 
-    /** Adds [point] if it is newer than every point since the last [clear]; false when it was rejected. */
-    fun add(point: CurvePoint): Boolean {
-        if (any && point.wallMs <= newestMs) return false
+    /**
+     * Holds [point], made from [reading], unless the reading was taken at or before the newest one. The held points
+     * stay in strictly increasing wall time, which [mergeByTime] needs, so a reading timed at or before the newest held
+     * point (the wall clock was set back) starts the held points over.
+     */
+    fun add(
+        reading: LiveReading,
+        point: CurvePoint,
+    ): LiveAdd {
+        val last = newest
+        val sameBoot = last != null && reading.bootCount == last.bootCount
+        if (last != null && sameBoot && reading.elapsedRealtimeMs <= last.elapsedMs) return LiveAdd.Rejected
+        val added =
+            if (last == null || point.wallMs > last.wallMs) {
+                LiveAdd.Added
+            } else {
+                unstored.clear()
+                // The wall clock's lead over the elapsed clock shrank by the step.
+                val step = (last.wallMs - last.elapsedMs) - (point.wallMs - reading.elapsedRealtimeMs)
+                LiveAdd.ClockSetBack(stepMs = step.takeIf { sameBoot })
+            }
         unstored += point
-        newestMs = point.wallMs
-        any = true
-        return true
+        newest = ReadingTime(reading.bootCount, reading.elapsedRealtimeMs, point.wallMs)
+        return added
     }
 
     /** Drops each held point [stored] (in time order, one point per time) has a point for at the same time. */
@@ -110,8 +154,7 @@ private class LiveBuffer {
 
     fun clear() {
         unstored.clear()
-        newestMs = Long.MIN_VALUE
-        any = false
+        newest = null
     }
 }
 
@@ -329,9 +372,27 @@ class HealthViewModel(
 
     private fun onReading(reading: LiveReading) {
         val point = reading.toCurvePoint() ?: return
-        if (!live.add(point)) return
+        when (val added = live.add(reading, point)) {
+            LiveAdd.Rejected -> return
+            LiveAdd.Added -> Unit
+            is LiveAdd.ClockSetBack -> onClockSetBack(added.stepMs)
+        }
         markLive()
         render()
+    }
+
+    /**
+     * The wall clock went back by [stepMs] during the charge, while the elapsed clock moved on (B-15). The observed
+     * edges go back with it, so the charge keeps its real start and length on the new clock, and the stored day is read
+     * again up to the new clock's now: the points the old clock stamped later than that are left out of the frame
+     * instead of being drawn after the newest reading.
+     */
+    private fun onClockSetBack(stepMs: Long?) {
+        if (stepMs != null) {
+            observedPlugMs = observedPlugMs?.minus(stepMs)
+            observedUnplugMs = observedUnplugMs?.minus(stepMs)
+        }
+        reload()
     }
 
     private fun startRefresh(userInitiated: Boolean) {

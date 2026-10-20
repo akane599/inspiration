@@ -7,6 +7,7 @@ import com.akane.inspiration.ipc.model.HistoryKind
 import com.akane.inspiration.telemetry.app.RefreshResult
 import com.akane.inspiration.telemetry.snapshot.LiveReading
 import com.akane.inspiration.telemetry.store.RETENTION_WINDOW_MS
+import com.akane.inspiration.telemetry.store.TelemetrySample
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineDispatcher
@@ -1463,7 +1464,7 @@ class HealthViewModelTest {
         }
 
     @Test
-    fun `the load that stores the live points draws the same charge and still rejects an older reading`() =
+    fun `the load that stores the live points draws the same charge and still rejects an earlier reading`() =
         runTest(dispatcher) {
             // The history still ends at the previous charge: only the live points say this one is going on.
             deps.history =
@@ -1492,11 +1493,149 @@ class HealthViewModelTest {
             assertEquals(0, vm.heldLivePoints)
             assertEquals("the stored twins draw exactly what the live points drew", before, vm.state.value)
 
-            // Older than the newest reading and never stored: rejected, as it was before the load.
+            // Taken before the newest reading (on the elapsed clock) and never stored: rejected, as it was before the
+            // load. Its wall time says nothing: the wall clock can be set back between two readings.
             readings.emit(liveReading(times[1] + SEC_MS, levelPct = 90))
+            readings.emit(liveReading(NOW_MS + HOUR_MS, levelPct = 91, elapsedMs = times[4]))
             runCurrent()
             assertEquals(0, vm.heldLivePoints)
             assertEquals(before, vm.state.value)
+            vm.onIntent(HealthIntent.Hidden)
+        }
+
+    // ---- B-15: live readings are ordered on the elapsed clock, not the wall clock -------------------------------
+
+    private fun TestScope.clockedViewModel(source: SettableClockSource): HealthViewModel =
+        HealthViewModel(source, shapingDispatcher = dispatcher).also { runCurrent() }
+
+    @Test
+    fun `a wall clock set back while charging keeps the curve live on the new clock`() =
+        runTest(dispatcher) {
+            deps.refreshResult = RefreshResult.Debounced(0L)
+            val source = SettableClockSource(deps)
+            val vm = clockedViewModel(source)
+            vm.onIntent(HealthIntent.Visible)
+            vm.onIntent(HealthIntent.PlugChanged(false))
+            // The plug-in is observed at NOW_MS on the old clock.
+            vm.onIntent(HealthIntent.PlugChanged(true))
+            runCurrent()
+            repeat(5) {
+                source.read()
+                advanceTimeBy(CURVE_PERIOD_MS)
+                runCurrent()
+            }
+
+            // A manual time change (or a large network correction) sets the wall clock back an hour.
+            deps.clocks.wall -= HOUR_MS
+            repeat(5) {
+                source.read()
+                advanceTimeBy(CURVE_PERIOD_MS)
+                runCurrent()
+            }
+
+            val state = vm.state.value
+            val curve = state.curve as CurveUi.Ready
+            assertEquals("readings after the change are still drawn live", CurveSource.Live, curve.source)
+            assertEquals(source.level, curve.endLevelPct)
+            assertEquals("the charge keeps its real start on the new clock", 10 * CURVE_PERIOD_MS, state.analysis?.chargeMs)
+            vm.onIntent(HealthIntent.Hidden)
+        }
+
+    @Test
+    fun `after the wall clock is set back the readings storage gives back are still held once`() =
+        runTest(dispatcher) {
+            deps.refreshResult = RefreshResult.Debounced(0L)
+            val source = SettableClockSource(deps)
+            val vm = clockedViewModel(source)
+            vm.onIntent(HealthIntent.Visible)
+            vm.onIntent(HealthIntent.PlugChanged(true))
+            runCurrent()
+            repeat(5) {
+                source.read()
+                runCurrent()
+            }
+            deps.clocks.wall -= HOUR_MS
+            repeat(3) {
+                source.read()
+                runCurrent()
+            }
+            assertTrue("only readings on the new clock are held: ${vm.heldLivePoints}", vm.heldLivePoints in 1..3)
+            val before = vm.state.value
+            val curve = before.curve as CurveUi.Ready
+            assertEquals(CurveSource.Live, curve.source)
+            assertEquals("what the old clock put after now is not drawn after the newest", source.level, curve.endLevelPct)
+
+            // A store tick reads back what the source stored on the new clock.
+            deps.lastRefreshWallMs.value = NOW_MS
+            runCurrent()
+            assertEquals(0, vm.heldLivePoints)
+            assertEquals("the stored twins draw exactly what the live points drew", before, vm.state.value)
+
+            // Taken before the newest reading on the elapsed clock, though later on the wall clock: still rejected.
+            val earlier = liveReading(deps.clocks.wall + SEC_MS, levelPct = 90, elapsedMs = source.elapsedMs - SEC_MS)
+            source.readings.emit(earlier)
+            runCurrent()
+            assertEquals(0, vm.heldLivePoints)
+            assertEquals(before, vm.state.value)
+            vm.onIntent(HealthIntent.Hidden)
+        }
+
+    @Test
+    fun `a reading from a new boot is not taken for an earlier one`() =
+        runTest(dispatcher) {
+            deps.refreshResult = RefreshResult.Debounced(0L)
+            val source = SettableClockSource(deps)
+            val vm = clockedViewModel(source)
+            vm.onIntent(HealthIntent.Visible)
+            vm.onIntent(HealthIntent.PlugChanged(true))
+            runCurrent()
+            repeat(3) {
+                source.read()
+                runCurrent()
+            }
+
+            // The elapsed clock starts over with a boot.
+            source.bootCount = 2
+            source.elapsedMs = 20 * SEC_MS
+            repeat(2) {
+                source.read()
+                runCurrent()
+            }
+
+            val curve = vm.state.value.curve as CurveUi.Ready
+            assertEquals(CurveSource.Live, curve.source)
+            assertEquals(source.level, curve.endLevelPct)
+            assertEquals("the earlier boot's points, still in time order, stay drawn", 41, curve.startLevelPct)
+            assertEquals(5, vm.heldLivePoints)
+            vm.onIntent(HealthIntent.Hidden)
+        }
+
+    @Test
+    fun `a wall clock set forward keeps the charge drawn so far`() =
+        runTest(dispatcher) {
+            deps.refreshResult = RefreshResult.Debounced(0L)
+            val source = SettableClockSource(deps)
+            val vm = clockedViewModel(source)
+            vm.onIntent(HealthIntent.Visible)
+            vm.onIntent(HealthIntent.PlugChanged(false))
+            vm.onIntent(HealthIntent.PlugChanged(true))
+            runCurrent()
+            repeat(5) {
+                source.read()
+                runCurrent()
+            }
+
+            deps.clocks.wall += 2 * HOUR_MS
+            repeat(2) {
+                source.read()
+                runCurrent()
+            }
+
+            val curve = vm.state.value.curve as CurveUi.Ready
+            assertEquals(CurveSource.Live, curve.source)
+            assertEquals("nothing drawn before the change is dropped", 41, curve.startLevelPct)
+            assertEquals(source.level, curve.endLevelPct)
+            assertEquals(7, vm.heldLivePoints)
             vm.onIntent(HealthIntent.Hidden)
         }
 
@@ -1506,6 +1645,37 @@ class HealthViewModelTest {
             shaping.drain()
             runCurrent()
         }
+    }
+}
+
+/**
+ * The live source of a phone whose wall clock can be set ([FakeClocks.wall]). Each [read] is one period after the last
+ * on both the elapsed clock and the wall clock, and, like LiveTelemetry, the source stores the reading after emitting
+ * it; the store answers by wall-time range, as Room does.
+ */
+private class SettableClockSource(
+    private val app: FakeHealthDeps,
+) : HealthDependencies by app {
+    val readings = MutableSharedFlow<LiveReading>()
+    private val stored = mutableListOf<TelemetrySample>()
+    var elapsedMs = app.clocks.wall
+    var bootCount = 1
+    var level = 40
+        private set
+
+    override fun liveReadings(periodMs: Long): Flow<LiveReading> = readings
+
+    override suspend fun samplesBetween(
+        from: Long,
+        to: Long,
+    ): List<TelemetrySample> = stored.filter { it.wallMs in from..to }
+
+    suspend fun read() {
+        elapsedMs += CURVE_PERIOD_MS
+        app.clocks.wall += CURVE_PERIOD_MS
+        level++
+        readings.emit(liveReading(app.clocks.wall, levelPct = level, elapsedMs = elapsedMs, bootCount = bootCount))
+        stored += sample(app.clocks.wall, level = level)
     }
 }
 
