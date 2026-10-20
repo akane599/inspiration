@@ -2,6 +2,7 @@ package com.akane.inspiration.xray
 
 import com.akane.inspiration.diagnostics.dictionary.EntryKind
 import com.akane.inspiration.diagnostics.dictionary.Explanation
+import com.akane.inspiration.ipc.ShizukuBackend
 import com.akane.inspiration.ipc.toolkit.AppOp
 import com.akane.inspiration.ipc.toolkit.StandbyBucket
 import com.akane.inspiration.telemetry.toolkit.OverrideKind
@@ -151,7 +152,7 @@ internal object XRayPreviewData {
             overrides = persistentListOf(override.copy(unverified = ToolkitRefusal.PROTECTION_UNKNOWN)),
         )
 
-    val detailBlocked = AppDetail(app = chatty, actions = ActionsState.Blocked(BlockedReason.PERMISSION_REQUIRED))
+    val detailBlocked = AppDetail(app = chatty, actions = ActionsState.Blocked(BlockedReason.PERMISSION_REQUIRED, ShizukuBackend.SUI))
 
     val detailRefused =
         AppDetail(

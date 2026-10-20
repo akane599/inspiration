@@ -76,7 +76,7 @@ class ShizukuManagerReadyWaitTest {
             facade.pushBinder()
             runCurrent()
 
-            assertSame(ShizukuState.PermissionRequired, manager.state.value)
+            assertEquals(ShizukuState.PermissionRequired(), manager.state.value)
             assertNull(call.await())
             assertEquals("the wait ended at the push, not at the timeout", 200L, currentTime)
             assertEquals(0, facade.bindCalls)
@@ -90,15 +90,15 @@ class ShizukuManagerReadyWaitTest {
                 listOf(
                     // No binder and no manager app: nothing will push one (a Sui binder would already be here).
                     ShizukuState.NotInstalled to LateBinderFacade(binderAlive = false),
-                    ShizukuState.PermissionRequired to
+                    ShizukuState.PermissionRequired() to
                         LateBinderFacade(binderAlive = true, permission = PackageManager.PERMISSION_DENIED),
-                    ShizukuState.PermissionDenied to
+                    ShizukuState.PermissionDenied() to
                         LateBinderFacade(binderAlive = true, permission = PackageManager.PERMISSION_DENIED, rationale = true),
                 )
             terminal.forEach { (expected, facade) ->
                 val manager = manager(facade, managerInstalled = expected != ShizukuState.NotInstalled)
                 manager.start()
-                assertSame(expected, manager.state.value)
+                assertEquals(expected, manager.state.value)
 
                 assertNull(manager.withTelemetryService(2_000L) { "read" })
 
@@ -154,6 +154,8 @@ class ShizukuManagerReadyWaitTest {
         }
 
         override fun pingBinder(): Boolean = binderAlive
+
+        override fun isSui(): Boolean = false
 
         override fun getUid(): Int = 2000
 

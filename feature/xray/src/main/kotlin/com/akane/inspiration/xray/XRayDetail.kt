@@ -59,6 +59,7 @@ import com.akane.inspiration.designsystem.theme.numericTypography
 import com.akane.inspiration.designsystem.theme.spacing
 import com.akane.inspiration.designsystem.theme.statusColors
 import com.akane.inspiration.diagnostics.dictionary.EntryKind
+import com.akane.inspiration.ipc.ShizukuBackend
 import com.akane.inspiration.ipc.toolkit.StandbyBucket
 import kotlinx.collections.immutable.toImmutableList
 
@@ -345,7 +346,7 @@ private fun QuickActions(
         CardTitle(stringResource(R.string.xray_actions_title))
         when (val actions = detail.actions) {
             is ActionsState.Blocked -> {
-                BlockedCard(actions.reason)
+                BlockedCard(actions.reason, actions.backend)
             }
 
             ActionsState.NoPackage -> {
@@ -380,7 +381,10 @@ private fun QuickActions(
 }
 
 @Composable
-private fun BlockedCard(reason: BlockedReason) {
+private fun BlockedCard(
+    reason: BlockedReason,
+    backend: ShizukuBackend?,
+) {
     val spacing = MaterialTheme.spacing
     Surface(
         modifier = Modifier.fillMaxWidth(),
@@ -391,14 +395,14 @@ private fun BlockedCard(reason: BlockedReason) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 SemanticDot(color = MaterialTheme.statusColors.warning)
                 Text(
-                    text = stringResource(R.string.xray_blocked_title),
+                    text = stringResource(blockedTitleRes(backend)),
                     style = MaterialTheme.typography.titleMedium,
                     color = MaterialTheme.colorScheme.onSurface,
                     modifier = Modifier.padding(start = spacing.sm),
                 )
             }
             Text(
-                text = stringResource(blockedBodyRes(reason)),
+                text = stringResource(blockedBodyRes(reason, backend)),
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )

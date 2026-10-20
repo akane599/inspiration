@@ -34,7 +34,7 @@ class ReconcileOnReadyTest {
         state.value = ShizukuState.Ready(2000, 13)
         assertEquals("the second transition into Ready reconciles again", 2, runs)
 
-        state.value = ShizukuState.PermissionDenied
+        state.value = ShizukuState.PermissionDenied()
         state.value = ShizukuState.Ready(2000, 13)
         assertEquals(3, runs)
         job.cancel()

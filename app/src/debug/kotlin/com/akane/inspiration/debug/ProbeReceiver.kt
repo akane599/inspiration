@@ -638,8 +638,8 @@ class ProbeReceiver : BroadcastReceiver() {
             ShizukuState.NotInstalled -> "NotInstalled"
             ShizukuState.NotRunning -> "NotRunning"
             is ShizukuState.UnsupportedServer -> "UnsupportedServer"
-            ShizukuState.PermissionRequired -> "PermissionRequired"
-            ShizukuState.PermissionDenied -> "PermissionDenied"
+            is ShizukuState.PermissionRequired -> "PermissionRequired"
+            is ShizukuState.PermissionDenied -> "PermissionDenied"
             is ShizukuState.Ready -> "Ready"
         }
 

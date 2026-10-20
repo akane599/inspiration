@@ -1,6 +1,7 @@
 package com.akane.inspiration.xray
 
 import com.akane.inspiration.diagnostics.analysis.AnalysisState
+import com.akane.inspiration.ipc.ShizukuBackend
 import com.akane.inspiration.ipc.ShizukuState
 import com.akane.inspiration.ipc.model.ToolkitCode
 import com.akane.inspiration.ipc.toolkit.StandbyBucket
@@ -600,13 +601,13 @@ class XRayViewModelTest {
 
     @Test
     fun `without Shizuku the actions are blocked, no call is made and no action runs`() {
-        start(FakeXRayDeps(shizuku = ShizukuState.PermissionRequired))
+        start(FakeXRayDeps(shizuku = ShizukuState.PermissionRequired(ShizukuBackend.SUI)))
 
         openChatty()
         vm.onIntent(XRayIntent.Act(ActionRequest.ForceStop))
         vm.onIntent(XRayIntent.Act(ActionRequest.SetRestricted(true)))
 
-        assertEquals(ActionsState.Blocked(BlockedReason.PERMISSION_REQUIRED), detail.actions)
+        assertEquals(ActionsState.Blocked(BlockedReason.PERMISSION_REQUIRED, ShizukuBackend.SUI), detail.actions)
         assertNull(state.confirmation)
         assertTrue(deps.device.calls.isEmpty())
         // the breakdown itself is still there
@@ -618,7 +619,7 @@ class XRayViewModelTest {
     fun `each Shizuku state that is not ready has its own blocked reason`() {
         assertEquals(BlockedReason.NOT_INSTALLED, ShizukuState.NotInstalled.blockedReason())
         assertEquals(BlockedReason.NOT_RUNNING, ShizukuState.NotRunning.blockedReason())
-        assertEquals(BlockedReason.PERMISSION_DENIED, ShizukuState.PermissionDenied.blockedReason())
+        assertEquals(BlockedReason.PERMISSION_DENIED, ShizukuState.PermissionDenied().blockedReason())
         assertEquals(BlockedReason.UNSUPPORTED_SERVER, ShizukuState.UnsupportedServer(12).blockedReason())
         assertNull(ShizukuState.Ready(2000, 13).blockedReason())
     }
@@ -627,13 +628,31 @@ class XRayViewModelTest {
     fun `an open sheet unlocks when Shizuku becomes ready and locks when it goes away`() {
         start(FakeXRayDeps(shizuku = ShizukuState.NotRunning))
         openChatty()
-        assertEquals(ActionsState.Blocked(BlockedReason.NOT_RUNNING), detail.actions)
+        assertEquals("no binder, so no backend", ActionsState.Blocked(BlockedReason.NOT_RUNNING, backend = null), detail.actions)
 
         deps.shizukuState.value = ShizukuState.Ready(2000, 13)
         assertTrue(detail.actions is ActionsState.Loaded)
 
-        deps.shizukuState.value = ShizukuState.PermissionDenied
-        assertEquals(ActionsState.Blocked(BlockedReason.PERMISSION_DENIED), detail.actions)
+        deps.shizukuState.value = ShizukuState.PermissionDenied(ShizukuBackend.SHIZUKU)
+        assertEquals(ActionsState.Blocked(BlockedReason.PERMISSION_DENIED, ShizukuBackend.SHIZUKU), detail.actions)
+    }
+
+    // SQ-29: a binder names its server; without one, the text names both Shizuku and Sui.
+    @Test
+    fun `the blocked text names the backend only when a binder is there`() {
+        assertEquals(R.string.xray_blocked_title_sui, blockedTitleRes(ShizukuBackend.SUI))
+        assertEquals(R.string.xray_blocked_title_shizuku, blockedTitleRes(ShizukuBackend.SHIZUKU))
+        assertEquals(R.string.xray_blocked_title, blockedTitleRes(null))
+        assertEquals(
+            R.string.xray_blocked_permission_required_sui,
+            blockedBodyRes(BlockedReason.PERMISSION_REQUIRED, ShizukuBackend.SUI),
+        )
+        assertEquals(
+            R.string.xray_blocked_permission_denied_shizuku,
+            blockedBodyRes(BlockedReason.PERMISSION_DENIED, ShizukuBackend.SHIZUKU),
+        )
+        assertEquals(R.string.xray_blocked_not_running, blockedBodyRes(BlockedReason.NOT_RUNNING, null))
+        assertEquals(R.string.xray_blocked_not_installed, blockedBodyRes(BlockedReason.NOT_INSTALLED, null))
     }
 
     @Test

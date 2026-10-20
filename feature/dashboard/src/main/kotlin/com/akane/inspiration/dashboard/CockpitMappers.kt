@@ -67,27 +67,27 @@ internal fun referenceKind(choice: ReferenceChoice): ReferenceKind =
 internal fun shizukuUi(state: ShizukuState): ShizukuUi =
     when (state) {
         is ShizukuState.Ready -> {
-            ShizukuUi(PulseStatus.ACTIVE, ShizukuReason.Ready, state.uid, canGrant = false)
+            ShizukuUi(PulseStatus.ACTIVE, ShizukuReason.Ready, state.uid, canGrant = false, backend = state.backend)
         }
 
-        ShizukuState.PermissionRequired -> {
-            ShizukuUi(PulseStatus.CONNECTING, ShizukuReason.PermissionRequired, uid = null, canGrant = true)
+        is ShizukuState.PermissionRequired -> {
+            ShizukuUi(PulseStatus.CONNECTING, ShizukuReason.PermissionRequired, uid = null, canGrant = true, backend = state.backend)
         }
 
-        ShizukuState.PermissionDenied -> {
-            ShizukuUi(PulseStatus.BLOCKED, ShizukuReason.PermissionDenied, uid = null, canGrant = true)
+        is ShizukuState.PermissionDenied -> {
+            ShizukuUi(PulseStatus.BLOCKED, ShizukuReason.PermissionDenied, uid = null, canGrant = true, backend = state.backend)
         }
 
         ShizukuState.NotRunning -> {
-            ShizukuUi(PulseStatus.BLOCKED, ShizukuReason.NotRunning, uid = null, canGrant = false)
+            ShizukuUi(PulseStatus.BLOCKED, ShizukuReason.NotRunning, uid = null, canGrant = false, backend = null)
         }
 
         is ShizukuState.UnsupportedServer -> {
-            ShizukuUi(PulseStatus.BLOCKED, ShizukuReason.UnsupportedServer, uid = null, canGrant = false)
+            ShizukuUi(PulseStatus.BLOCKED, ShizukuReason.UnsupportedServer, uid = null, canGrant = false, backend = null)
         }
 
         ShizukuState.NotInstalled -> {
-            ShizukuUi(PulseStatus.BLOCKED, ShizukuReason.NotInstalled, uid = null, canGrant = false)
+            ShizukuUi(PulseStatus.BLOCKED, ShizukuReason.NotInstalled, uid = null, canGrant = false, backend = null)
         }
     }
 

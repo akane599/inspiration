@@ -6,6 +6,7 @@ import com.akane.inspiration.designsystem.chart.model.TimeRange
 import com.akane.inspiration.designsystem.component.GaugeChargeState
 import com.akane.inspiration.designsystem.component.PulseStatus
 import com.akane.inspiration.diagnostics.story.BatteryStory
+import com.akane.inspiration.ipc.ShizukuBackend
 import kotlinx.collections.immutable.ImmutableList
 import kotlinx.collections.immutable.persistentListOf
 
@@ -33,6 +34,8 @@ data class ShizukuUi(
     val uid: Int?,
     /** True when asking for permission can help (required or denied). */
     val canGrant: Boolean,
+    /** The server whose binder this was read from, named in the label; null when there is no binder. */
+    val backend: ShizukuBackend?,
 )
 
 enum class ShizukuReason { Ready, PermissionRequired, PermissionDenied, NotRunning, NotInstalled, UnsupportedServer }
@@ -157,7 +160,7 @@ data class CockpitState(
         val Initial =
             CockpitState(
                 reference = ReferenceUi.SinceUnplugged,
-                shizuku = ShizukuUi(PulseStatus.BLOCKED, ShizukuReason.NotRunning, uid = null, canGrant = false),
+                shizuku = ShizukuUi(PulseStatus.BLOCKED, ShizukuReason.NotRunning, uid = null, canGrant = false, backend = null),
                 analysis = AnalysisUi.Loading,
                 live = null,
                 chart = ChartUi.Loading,

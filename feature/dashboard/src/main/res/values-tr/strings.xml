@@ -14,6 +14,10 @@
     <string name="cockpit_shizuku_active">Binder aktif · UID %1$d</string>
     <string name="cockpit_shizuku_permission_required">Shizuku/Sui izni gerekli</string>
     <string name="cockpit_shizuku_permission_denied">Shizuku/Sui izni reddedildi</string>
+    <string name="cockpit_permission_required_shizuku">Shizuku izni gerekli</string>
+    <string name="cockpit_permission_required_sui">Sui izni gerekli</string>
+    <string name="cockpit_permission_denied_shizuku">Shizuku izni reddedildi</string>
+    <string name="cockpit_permission_denied_sui">Sui izni reddedildi</string>
     <string name="cockpit_shizuku_not_running">Shizuku/Sui çalışmıyor</string>
     <string name="cockpit_shizuku_not_installed">Shizuku/Sui yüklü değil</string>
     <string name="cockpit_shizuku_unsupported_server">Shizuku\'yu güncelleyin</string>

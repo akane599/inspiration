@@ -125,11 +125,15 @@ class ShizukuManagerImplTest {
     @Test
     fun aSuiBinderWithoutTheManagerAppIsReadyAndServesCalls() =
         runTest {
-            val fixture = Fixture(this, managerInstalled = false).apply { facade.serverUid = 0 } // Sui runs as root
+            val fixture =
+                Fixture(this, managerInstalled = false).apply {
+                    facade.sui = true
+                    facade.serverUid = 0 // Sui runs as root
+                }
 
             fixture.manager.start()
 
-            assertEquals(ShizukuState.Ready(0, 13), fixture.manager.state.value)
+            assertEquals(ShizukuState.Ready(0, 13, ShizukuBackend.SUI), fixture.manager.state.value)
             val result = async { fixture.manager.withTelemetryService(1_000L) { "read" } }
             runCurrent()
             assertEquals(1, fixture.facade.bindCalls)
@@ -142,18 +146,51 @@ class ShizukuManagerImplTest {
         runTest {
             val fixture =
                 Fixture(this, managerInstalled = false).apply {
+                    facade.sui = true
                     facade.serverUid = 0
                     facade.permissionResult = PackageManager.PERMISSION_DENIED
                 }
             fixture.manager.start()
-            assertSame(ShizukuState.PermissionRequired, fixture.manager.state.value)
+            assertEquals(ShizukuState.PermissionRequired(ShizukuBackend.SUI), fixture.manager.state.value)
 
             fixture.manager.requestPermission()
             assertEquals("Sui shows its own dialog for Shizuku.requestPermission", 1, fixture.facade.permissionRequests)
             fixture.facade.permissionResult = PackageManager.PERMISSION_GRANTED
             fixture.facade.deliverPermissionResult(PackageManager.PERMISSION_GRANTED)
 
-            assertEquals(ShizukuState.Ready(0, 13), fixture.manager.state.value)
+            assertEquals(ShizukuState.Ready(0, 13, ShizukuBackend.SUI), fixture.manager.state.value)
+        }
+
+    // SQ-29: every binder-backed state names the server that sent the binder; the binderless ones cannot know it.
+    @Test
+    fun binderBackedStatesNameTheirBackendAndBinderlessStatesDoNot() =
+        runTest {
+            ShizukuBackend.entries.forEach { backend ->
+                val fixture =
+                    Fixture(this).apply {
+                        facade.sui = backend == ShizukuBackend.SUI
+                        facade.permissionResult = PackageManager.PERMISSION_DENIED
+                    }
+                fixture.manager.start()
+                assertEquals(ShizukuState.PermissionRequired(backend), fixture.manager.state.value)
+
+                fixture.facade.showPermissionRationale = true
+                fixture.manager.refresh()
+                assertEquals(ShizukuState.PermissionDenied(backend), fixture.manager.state.value)
+
+                fixture.facade.permissionResult = PackageManager.PERMISSION_GRANTED
+                fixture.manager.refresh()
+                assertEquals(ShizukuState.Ready(2000, 13, backend), fixture.manager.state.value)
+                assertEquals(backend, fixture.manager.state.value.backend)
+
+                fixture.facade.binderAlive = false
+                fixture.facade.deliverBinderDeath()
+                fixture.manager.refresh()
+                assertSame(ShizukuState.NotRunning, fixture.manager.state.value)
+                assertNull("no binder, so no backend", fixture.manager.state.value.backend)
+                fixture.manager.stop()
+                advanceUntilIdle()
+            }
         }
 
     @Test
@@ -259,7 +296,7 @@ class ShizukuManagerImplTest {
 
             fixture.manager.start()
 
-            assertSame(ShizukuState.PermissionRequired, fixture.manager.state.value)
+            assertEquals(ShizukuState.PermissionRequired(), fixture.manager.state.value)
             fixture.manager.requestPermission()
             assertEquals(1, fixture.facade.permissionRequests)
         }
@@ -277,7 +314,7 @@ class ShizukuManagerImplTest {
             fixture.facade.showPermissionRationale = true
             fixture.facade.deliverPermissionResult(PackageManager.PERMISSION_DENIED)
 
-            assertSame(ShizukuState.PermissionDenied, fixture.manager.state.value)
+            assertEquals(ShizukuState.PermissionDenied(), fixture.manager.state.value)
             assertEquals(0, fixture.facade.bindCalls)
         }
 
@@ -293,7 +330,7 @@ class ShizukuManagerImplTest {
 
             // Shizuku did not store this deny (onetime=true), so it reports no rationale and may ask again.
             fixture.facade.deliverPermissionResult(PackageManager.PERMISSION_DENIED)
-            assertSame(ShizukuState.PermissionRequired, fixture.manager.state.value)
+            assertEquals(ShizukuState.PermissionRequired(), fixture.manager.state.value)
 
             fixture.manager.requestPermission()
             assertEquals("the second Grant tap shows the dialog again", 2, fixture.facade.permissionRequests)
@@ -315,11 +352,11 @@ class ShizukuManagerImplTest {
                     facade.showPermissionRationale = true
                 }
             fixture.manager.start()
-            assertSame(ShizukuState.PermissionDenied, fixture.manager.state.value)
+            assertEquals(ShizukuState.PermissionDenied(), fixture.manager.state.value)
 
             // Shizuku answers a stored deny without a dialog, so it is not asked while the deny stands.
             fixture.manager.requestPermission()
-            assertSame(ShizukuState.PermissionDenied, fixture.manager.state.value)
+            assertEquals(ShizukuState.PermissionDenied(), fixture.manager.state.value)
             assertEquals(0, fixture.facade.permissionRequests)
 
             // Allowed in the Shizuku app, then Grant tapped back in Inspiration.
@@ -529,7 +566,7 @@ class ShizukuManagerImplTest {
                     facade.permissionResult = PackageManager.PERMISSION_DENIED
                 }
             fixture.manager.start()
-            assertSame(ShizukuState.PermissionRequired, fixture.manager.state.value)
+            assertEquals(ShizukuState.PermissionRequired(), fixture.manager.state.value)
 
             fixture.facade.serverVersion = 12
             fixture.facade.permissionResult = PackageManager.PERMISSION_GRANTED
@@ -1539,7 +1576,7 @@ class ShizukuManagerImplTest {
             resume.countDown()
             slow.join(10_000L)
 
-            assertSame(ShizukuState.PermissionRequired, fixture.manager.state.value)
+            assertEquals(ShizukuState.PermissionRequired(), fixture.manager.state.value)
         }
 
     // R-08 follow-up: a non-RuntimeException out of a bind must not leave the binding "bound" with no bind behind it
@@ -1880,6 +1917,9 @@ class ShizukuManagerImplTest {
 
     private class FakeShizukuFacade : ShizukuFacade {
         var binderAlive = true
+
+        /** ShizukuProvider took Sui's binder (Sui.isSui()). */
+        var sui = false
         var serverUid = 2000
         var preV11 = false
         var serverVersion = 13
@@ -1932,6 +1972,8 @@ class ShizukuManagerImplTest {
         private var boundStub: ConnectionStub? = null
 
         override fun pingBinder(): Boolean = binderAlive
+
+        override fun isSui(): Boolean = sui
 
         override fun getUid(): Int = serverUid
 

@@ -1020,7 +1020,7 @@ class CockpitViewModelTest {
                 assertEquals(PulseStatus.ACTIVE, vm.state.value.shizuku.status)
                 assertEquals(2000, vm.state.value.shizuku.uid)
                 assertFalse(vm.state.value.shizuku.canGrant)
-                deps.shizukuState.value = ShizukuState.PermissionRequired
+                deps.shizukuState.value = ShizukuState.PermissionRequired()
                 runCurrent()
                 assertEquals(PulseStatus.CONNECTING, vm.state.value.shizuku.status)
                 assertTrue(vm.state.value.shizuku.canGrant)

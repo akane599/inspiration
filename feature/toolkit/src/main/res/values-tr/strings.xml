@@ -27,6 +27,12 @@
     <string name="toolkit_blocked_not_running">Shizuku/Sui\'yu başlatın, sonra bu ekrana dönün.</string>
     <string name="toolkit_blocked_permission_required">Inspiration\'ın bu ayarları değiştirebilmesi için Shizuku/Sui\'da izninize ihtiyacı var.</string>
     <string name="toolkit_blocked_permission_denied">Shizuku/Sui\'da erişim reddedildi. Shizuku/Sui uygulamasında Inspiration\'a izin verin, sonra bu ekrana dönün.</string>
+    <string name="toolkit_blocked_title_shizuku">Shizuku hazır değil</string>
+    <string name="toolkit_blocked_title_sui">Sui hazır değil</string>
+    <string name="toolkit_blocked_permission_required_shizuku">Inspiration\'ın bu ayarları değiştirebilmesi için Shizuku\'da izninize ihtiyacı var.</string>
+    <string name="toolkit_blocked_permission_required_sui">Inspiration\'ın bu ayarları değiştirebilmesi için Sui\'de izninize ihtiyacı var.</string>
+    <string name="toolkit_blocked_permission_denied_shizuku">Shizuku\'da erişim reddedildi. Shizuku uygulamasında Inspiration\'a izin verin, sonra bu ekrana dönün.</string>
+    <string name="toolkit_blocked_permission_denied_sui">Sui\'de erişim reddedildi. Sui\'de Inspiration\'a izin verin, sonra bu ekrana dönün.</string>
     <string name="toolkit_blocked_unsupported_server">Araçları kullanmak için Shizuku/Sui\'yu güncelleyin. Çalışan sürüm Inspiration için çok eski. Yeni sürümü başlatın, sonra bu ekrana dönün.</string>
     <string name="toolkit_blocked_grant">Erişim ver</string>
     <string name="toolkit_touch_obscured">Başka bir uygulama ekranın üzerinde gösteriliyor. Bu kontrolleri kullanmak için o uygulamayı duraklatın.</string>

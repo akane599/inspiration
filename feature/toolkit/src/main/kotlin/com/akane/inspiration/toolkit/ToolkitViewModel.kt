@@ -5,6 +5,7 @@ import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
+import com.akane.inspiration.ipc.ShizukuBackend
 import com.akane.inspiration.ipc.ShizukuState
 import com.akane.inspiration.ipc.toolkit.AppOpMode
 import com.akane.inspiration.telemetry.app.AppEntry
@@ -163,7 +164,7 @@ class ToolkitViewModel(
     private suspend fun follow(shizuku: ShizukuState) {
         val reason = shizuku.blockedReason()
         if (reason != null) {
-            block(reason)
+            block(reason, shizuku.backend)
             return
         }
         coroutineScope {
@@ -176,7 +177,10 @@ class ToolkitViewModel(
         }
     }
 
-    private fun block(reason: BlockedReason) {
+    private fun block(
+        reason: BlockedReason,
+        backend: ShizukuBackend?,
+    ) {
         invalidatePlanning()
         detailJob?.cancel()
         allApps = emptyList()
@@ -186,6 +190,7 @@ class ToolkitViewModel(
             it.copy(
                 status = ToolkitPhase.BLOCKED,
                 blocked = reason,
+                blockedBackend = backend,
                 doze = DozeSection(),
                 apps = AppsSection(),
                 overrides = persistentListOf(),
@@ -215,9 +220,9 @@ class ToolkitViewModel(
             if (it.status ==
                 ToolkitPhase.READY
             ) {
-                it.copy(blocked = null)
+                it.copy(blocked = null, blockedBackend = null)
             } else {
-                it.copy(status = ToolkitPhase.LOADING, blocked = null)
+                it.copy(status = ToolkitPhase.LOADING, blocked = null, blockedBackend = null)
             }
         }
         // A read that throws instead of answering is the same error state, with the same retry.

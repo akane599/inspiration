@@ -25,6 +25,7 @@ import com.akane.inspiration.designsystem.component.ReferencePill
 import com.akane.inspiration.designsystem.component.ScreenHeader
 import com.akane.inspiration.designsystem.component.ShizukuPulse
 import com.akane.inspiration.designsystem.theme.spacing
+import com.akane.inspiration.ipc.ShizukuBackend
 
 /**
  * The top of the screen: its title, then the reference pill with its menu and the Shizuku connection status.
@@ -114,8 +115,20 @@ private fun ShizukuStatus(shizuku: ShizukuUi, showGrant: Boolean, onGrant: () ->
 @Composable
 private fun ShizukuUi.label(): String = when (reason) {
     ShizukuReason.Ready -> stringResource(R.string.cockpit_shizuku_active, uid ?: 0)
-    ShizukuReason.PermissionRequired -> stringResource(R.string.cockpit_shizuku_permission_required)
-    ShizukuReason.PermissionDenied -> stringResource(R.string.cockpit_shizuku_permission_denied)
+    ShizukuReason.PermissionRequired -> stringResource(
+        when (backend) {
+            null -> R.string.cockpit_shizuku_permission_required
+            ShizukuBackend.SHIZUKU -> R.string.cockpit_permission_required_shizuku
+            ShizukuBackend.SUI -> R.string.cockpit_permission_required_sui
+        },
+    )
+    ShizukuReason.PermissionDenied -> stringResource(
+        when (backend) {
+            null -> R.string.cockpit_shizuku_permission_denied
+            ShizukuBackend.SHIZUKU -> R.string.cockpit_permission_denied_shizuku
+            ShizukuBackend.SUI -> R.string.cockpit_permission_denied_sui
+        },
+    )
     ShizukuReason.NotRunning -> stringResource(R.string.cockpit_shizuku_not_running)
     ShizukuReason.NotInstalled -> stringResource(R.string.cockpit_shizuku_not_installed)
     ShizukuReason.UnsupportedServer -> stringResource(R.string.cockpit_shizuku_unsupported_server)

@@ -27,6 +27,13 @@
     <string name="toolkit_blocked_not_running">Start Shizuku or Sui, then come back to this screen.</string>
     <string name="toolkit_blocked_permission_required">Inspiration needs your permission in Shizuku or Sui before it can change these settings.</string>
     <string name="toolkit_blocked_permission_denied">Access was denied in Shizuku or Sui. Allow Inspiration in the Shizuku or Sui app, then come back to this screen.</string>
+    <!-- The binder is there, so the text names the server it came from -->
+    <string name="toolkit_blocked_title_shizuku">Shizuku isn\'t ready</string>
+    <string name="toolkit_blocked_title_sui">Sui isn\'t ready</string>
+    <string name="toolkit_blocked_permission_required_shizuku">Inspiration needs your permission in Shizuku before it can change these settings.</string>
+    <string name="toolkit_blocked_permission_required_sui">Inspiration needs your permission in Sui before it can change these settings.</string>
+    <string name="toolkit_blocked_permission_denied_shizuku">Access was denied in Shizuku. Allow Inspiration in the Shizuku app, then come back to this screen.</string>
+    <string name="toolkit_blocked_permission_denied_sui">Access was denied in Sui. Allow Inspiration in Sui, then come back to this screen.</string>
     <string name="toolkit_blocked_unsupported_server">Update Shizuku or Sui to use the toolkit. The version that is running is too old for Inspiration. Start the new one, then come back to this screen.</string>
     <string name="toolkit_blocked_grant">Grant access</string>
     <string name="toolkit_touch_obscured">Another app is drawing over the screen. Pause it to use these controls.</string>

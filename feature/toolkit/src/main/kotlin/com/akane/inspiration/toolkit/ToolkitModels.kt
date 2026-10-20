@@ -1,6 +1,7 @@
 package com.akane.inspiration.toolkit
 
 import androidx.compose.runtime.Immutable
+import com.akane.inspiration.ipc.ShizukuBackend
 import com.akane.inspiration.ipc.ShizukuState
 import com.akane.inspiration.ipc.toolkit.AppOp
 import com.akane.inspiration.ipc.toolkit.DozeProfile
@@ -327,6 +328,8 @@ data class StatusNotificationState(
 data class ToolkitState(
     val status: ToolkitPhase = ToolkitPhase.LOADING,
     val blocked: BlockedReason? = null,
+    /** The server whose binder [blocked] was read from, named in the text; null when there is no binder. */
+    val blockedBackend: ShizukuBackend? = null,
     val doze: DozeSection = DozeSection(),
     val apps: AppsSection = AppsSection(),
     val overrides: ImmutableList<OverrideItem> = persistentListOf(),
@@ -405,7 +408,7 @@ internal fun ShizukuState.blockedReason(): BlockedReason? =
         is ShizukuState.Ready -> null
         ShizukuState.NotInstalled -> BlockedReason.NOT_INSTALLED
         ShizukuState.NotRunning -> BlockedReason.NOT_RUNNING
-        ShizukuState.PermissionRequired -> BlockedReason.PERMISSION_REQUIRED
-        ShizukuState.PermissionDenied -> BlockedReason.PERMISSION_DENIED
+        is ShizukuState.PermissionRequired -> BlockedReason.PERMISSION_REQUIRED
+        is ShizukuState.PermissionDenied -> BlockedReason.PERMISSION_DENIED
         is ShizukuState.UnsupportedServer -> BlockedReason.UNSUPPORTED_SERVER
     }

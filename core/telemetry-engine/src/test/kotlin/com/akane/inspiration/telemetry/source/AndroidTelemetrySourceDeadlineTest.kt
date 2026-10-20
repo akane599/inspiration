@@ -666,7 +666,7 @@ class AndroidTelemetrySourceDeadlineTest {
                         13
                     }
 
-                    "isPreV11", "shouldShowRequestPermissionRationale" -> {
+                    "isSui", "isPreV11", "shouldShowRequestPermissionRationale" -> {
                         false
                     }
 

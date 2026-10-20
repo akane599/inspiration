@@ -110,6 +110,12 @@
     <string name="xray_blocked_not_running">Shizuku/Sui\'yu başlatın, sonra bu ekrana dönün.</string>
     <string name="xray_blocked_permission_required">Shizuku/Sui\'da Inspiration\'a izin verin. Erişimi Kokpit veya Araçlar\'dan verebilirsiniz.</string>
     <string name="xray_blocked_permission_denied">Shizuku/Sui\'da erişim reddedildi. Erişimi Kokpit veya Araçlar\'dan yeniden verebilirsiniz.</string>
+    <string name="xray_blocked_title_shizuku">Shizuku hazır değil</string>
+    <string name="xray_blocked_title_sui">Sui hazır değil</string>
+    <string name="xray_blocked_permission_required_shizuku">Shizuku\'da Inspiration\'a izin verin. Erişimi Kokpit veya Araçlar\'dan verebilirsiniz.</string>
+    <string name="xray_blocked_permission_required_sui">Sui\'de Inspiration\'a izin verin. Erişimi Kokpit veya Araçlar\'dan verebilirsiniz.</string>
+    <string name="xray_blocked_permission_denied_shizuku">Shizuku\'da erişim reddedildi. Erişimi Kokpit veya Araçlar\'dan yeniden verebilirsiniz.</string>
+    <string name="xray_blocked_permission_denied_sui">Sui\'de erişim reddedildi. Erişimi Kokpit veya Araçlar\'dan yeniden verebilirsiniz.</string>
     <string name="xray_blocked_unsupported_server">Uygulama ayarlarını buradan değiştirmek için Shizuku/Sui\'yu güncelleyin. Çalışan sürüm Inspiration için çok eski.</string>
     <string name="xray_touch_obscured">Başka bir uygulama ekranın üzerinde gösteriliyor. Bu kontrolleri kullanmak için o uygulamayı duraklatın.</string>
     <string name="xray_action_restrict_title">Arka plan etkinliğini kısıtla</string>

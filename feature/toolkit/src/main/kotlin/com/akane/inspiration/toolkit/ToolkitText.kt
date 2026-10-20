@@ -6,6 +6,7 @@ import androidx.compose.ui.platform.LocalLocale
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import com.akane.inspiration.designsystem.component.format.TelemetryFormat
+import com.akane.inspiration.ipc.ShizukuBackend
 import com.akane.inspiration.ipc.toolkit.AppOp
 import com.akane.inspiration.ipc.toolkit.DozeProfile
 import com.akane.inspiration.ipc.toolkit.StandbyBucket
@@ -100,13 +101,47 @@ internal fun bucketLabelRes(bucket: StandbyBucket): Int =
     }
 
 @StringRes
-internal fun blockedBodyRes(reason: BlockedReason): Int =
+internal fun blockedTitleRes(backend: ShizukuBackend?): Int =
+    when (backend) {
+        null -> R.string.toolkit_blocked_title
+        ShizukuBackend.SHIZUKU -> R.string.toolkit_blocked_title_shizuku
+        ShizukuBackend.SUI -> R.string.toolkit_blocked_title_sui
+    }
+
+/** Names the [backend] whose binder is there; with none, the text names both Shizuku and Sui. */
+@StringRes
+internal fun blockedBodyRes(
+    reason: BlockedReason,
+    backend: ShizukuBackend?,
+): Int =
     when (reason) {
-        BlockedReason.NOT_INSTALLED -> R.string.toolkit_blocked_not_installed
-        BlockedReason.NOT_RUNNING -> R.string.toolkit_blocked_not_running
-        BlockedReason.PERMISSION_REQUIRED -> R.string.toolkit_blocked_permission_required
-        BlockedReason.PERMISSION_DENIED -> R.string.toolkit_blocked_permission_denied
-        BlockedReason.UNSUPPORTED_SERVER -> R.string.toolkit_blocked_unsupported_server
+        BlockedReason.NOT_INSTALLED -> {
+            R.string.toolkit_blocked_not_installed
+        }
+
+        BlockedReason.NOT_RUNNING -> {
+            R.string.toolkit_blocked_not_running
+        }
+
+        BlockedReason.PERMISSION_REQUIRED -> {
+            when (backend) {
+                null -> R.string.toolkit_blocked_permission_required
+                ShizukuBackend.SHIZUKU -> R.string.toolkit_blocked_permission_required_shizuku
+                ShizukuBackend.SUI -> R.string.toolkit_blocked_permission_required_sui
+            }
+        }
+
+        BlockedReason.PERMISSION_DENIED -> {
+            when (backend) {
+                null -> R.string.toolkit_blocked_permission_denied
+                ShizukuBackend.SHIZUKU -> R.string.toolkit_blocked_permission_denied_shizuku
+                ShizukuBackend.SUI -> R.string.toolkit_blocked_permission_denied_sui
+            }
+        }
+
+        BlockedReason.UNSUPPORTED_SERVER -> {
+            R.string.toolkit_blocked_unsupported_server
+        }
     }
 
 @StringRes

@@ -43,6 +43,7 @@ import com.akane.inspiration.designsystem.component.format.rememberSystemTimeZon
 import com.akane.inspiration.designsystem.theme.spacing
 import com.akane.inspiration.designsystem.theme.statusColors
 import com.akane.inspiration.designsystem.theme.telemetryColors
+import com.akane.inspiration.ipc.ShizukuBackend
 import java.util.TimeZone
 
 /** Loads an app icon for the picker. Called per visible row; the real one is cached by `AppLabels`. */
@@ -110,7 +111,7 @@ private fun ToolkitBody(
         when (state.status) {
             ToolkitPhase.LOADING -> fullWidth { LoadingBlock() }
             ToolkitPhase.FAILED -> fullWidth { ErrorBlock(onIntent) }
-            ToolkitPhase.BLOCKED -> fullWidth { BlockedCard(state.blocked, onIntent) }
+            ToolkitPhase.BLOCKED -> fullWidth { BlockedCard(state.blocked, state.blockedBackend, onIntent) }
             ToolkitPhase.READY -> ready(state, onIntent, loadIcon, timeZone)
         }
         if (state.status == ToolkitPhase.BLOCKED || state.status == ToolkitPhase.READY) {
@@ -196,12 +197,13 @@ private fun ErrorBlock(onIntent: (ToolkitIntent) -> Unit) {
 @Composable
 internal fun BlockedCard(
     reason: BlockedReason?,
+    backend: ShizukuBackend?,
     onIntent: (ToolkitIntent) -> Unit,
 ) {
     if (reason == null) return
     EmptyState(
-        title = stringResource(R.string.toolkit_blocked_title),
-        body = stringResource(blockedBodyRes(reason)),
+        title = stringResource(blockedTitleRes(backend)),
+        body = stringResource(blockedBodyRes(reason, backend)),
         action =
             if (reason.canGrant) {
                 EmptyStateAction(stringResource(R.string.toolkit_blocked_grant)) { onIntent(ToolkitIntent.Grant) }

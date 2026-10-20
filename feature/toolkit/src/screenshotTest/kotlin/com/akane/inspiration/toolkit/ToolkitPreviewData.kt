@@ -1,5 +1,6 @@
 package com.akane.inspiration.toolkit
 
+import com.akane.inspiration.ipc.ShizukuBackend
 import com.akane.inspiration.ipc.toolkit.AppOp
 import com.akane.inspiration.ipc.toolkit.DozeProfile
 import com.akane.inspiration.ipc.toolkit.StandbyBucket
@@ -175,9 +176,16 @@ internal object ToolkitPreviewData {
             apps = AppsSection(phase = AppsPhase.FAILED),
         )
 
-    val blockedGrant = ToolkitState(status = ToolkitPhase.BLOCKED, blocked = BlockedReason.PERMISSION_REQUIRED, history = history)
+    val blockedGrant =
+        ToolkitState(
+            status = ToolkitPhase.BLOCKED,
+            blocked = BlockedReason.PERMISSION_REQUIRED,
+            blockedBackend = ShizukuBackend.SUI,
+            history = history,
+        )
 
-    val blockedDenied = ToolkitState(status = ToolkitPhase.BLOCKED, blocked = BlockedReason.PERMISSION_DENIED)
+    val blockedDenied =
+        ToolkitState(status = ToolkitPhase.BLOCKED, blocked = BlockedReason.PERMISSION_DENIED, blockedBackend = ShizukuBackend.SHIZUKU)
 
     val resetReport =
         ready.copy(

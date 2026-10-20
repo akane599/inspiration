@@ -3,9 +3,16 @@ package com.akane.inspiration.ipc
 import android.content.ComponentName
 import android.content.ServiceConnection
 import rikka.shizuku.Shizuku
+import rikka.sui.Sui
 
 interface ShizukuFacade {
     fun pingBinder(): Boolean
+
+    /**
+     * Whether ShizukuProvider took Sui's binder (it runs Sui.init before Application.onCreate and then ignores the
+     * Shizuku app's binder), so a live binder came from Sui.
+     */
+    fun isSui(): Boolean
 
     fun getUid(): Int
 
@@ -45,6 +52,8 @@ interface ShizukuFacade {
 
 object RealShizukuFacade : ShizukuFacade {
     override fun pingBinder(): Boolean = Shizuku.pingBinder()
+
+    override fun isSui(): Boolean = Sui.isSui()
 
     override fun getUid(): Int = Shizuku.getUid()
 

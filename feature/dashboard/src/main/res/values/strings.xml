@@ -15,6 +15,11 @@
     <string name="cockpit_shizuku_active">Binder active · UID %1$d</string>
     <string name="cockpit_shizuku_permission_required">Shizuku or Sui permission needed</string>
     <string name="cockpit_shizuku_permission_denied">Shizuku or Sui permission denied</string>
+    <!-- The binder is there, so the label names the server it came from -->
+    <string name="cockpit_permission_required_shizuku">Shizuku permission needed</string>
+    <string name="cockpit_permission_required_sui">Sui permission needed</string>
+    <string name="cockpit_permission_denied_shizuku">Shizuku permission denied</string>
+    <string name="cockpit_permission_denied_sui">Sui permission denied</string>
     <string name="cockpit_shizuku_not_running">Shizuku or Sui not running</string>
     <string name="cockpit_shizuku_not_installed">Shizuku or Sui not installed</string>
     <!-- Shizuku runs, but its version is too old for Inspiration -->

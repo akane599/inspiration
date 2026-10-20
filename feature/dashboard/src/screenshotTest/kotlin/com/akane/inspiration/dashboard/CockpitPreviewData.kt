@@ -16,6 +16,7 @@ import com.akane.inspiration.diagnostics.analysis.TimelineSegment
 import com.akane.inspiration.diagnostics.story.BatteryStory
 import com.akane.inspiration.diagnostics.story.StorySentence
 import com.akane.inspiration.diagnostics.story.UsageRating
+import com.akane.inspiration.ipc.ShizukuBackend
 import kotlinx.collections.immutable.persistentListOf
 import java.time.Instant
 import java.time.ZoneId
@@ -148,7 +149,8 @@ internal object CockpitPreviewData {
             chargeState = GaugeChargeState.Discharging,
         )
 
-    private val shizukuReady = ShizukuUi(PulseStatus.ACTIVE, ShizukuReason.Ready, uid = 2000, canGrant = false)
+    private val shizukuReady =
+        ShizukuUi(PulseStatus.ACTIVE, ShizukuReason.Ready, uid = 2000, canGrant = false, backend = ShizukuBackend.SHIZUKU)
 
     val ready =
         CockpitState(
@@ -205,7 +207,14 @@ internal object CockpitPreviewData {
     val empty =
         CockpitState(
             reference = ReferenceUi.SinceUnplugged,
-            shizuku = ShizukuUi(PulseStatus.CONNECTING, ShizukuReason.PermissionRequired, uid = null, canGrant = true),
+            shizuku =
+                ShizukuUi(
+                    PulseStatus.CONNECTING,
+                    ShizukuReason.PermissionRequired,
+                    uid = null,
+                    canGrant = true,
+                    backend = ShizukuBackend.SUI,
+                ),
             analysis = AnalysisUi.Empty(EmptyReason.NoSnapshotPair),
             live = null,
             chart =
@@ -243,7 +252,7 @@ internal object CockpitPreviewData {
 
     val error =
         ready.copy(
-            shizuku = ShizukuUi(PulseStatus.BLOCKED, ShizukuReason.NotRunning, uid = null, canGrant = false),
+            shizuku = ShizukuUi(PulseStatus.BLOCKED, ShizukuReason.NotRunning, uid = null, canGrant = false, backend = null),
             analysis = AnalysisUi.Error,
             live = null,
             chart = ChartUi.Failed,

@@ -9,6 +9,7 @@ import com.akane.inspiration.diagnostics.analysis.SegmentKind
 import com.akane.inspiration.diagnostics.analysis.Timeline
 import com.akane.inspiration.diagnostics.analysis.TimelinePoint
 import com.akane.inspiration.diagnostics.analysis.TimelineSegment
+import com.akane.inspiration.ipc.ShizukuBackend
 import com.akane.inspiration.ipc.ShizukuState
 import com.akane.inspiration.telemetry.diff.ReferenceKind
 import com.akane.inspiration.telemetry.snapshot.SleepStats
@@ -443,6 +444,18 @@ class CockpitMappersTest {
         assertEquals(ShizukuReason.UnsupportedServer, ui.reason)
         assertNull(ui.uid)
         assertFalse("permission cannot help a server that is too old", ui.canGrant)
+    }
+
+    // SQ-29: the binder-backed states carry the server that sent the binder; the binderless ones cannot know it.
+    @Test
+    fun `binder-backed Shizuku states carry their backend and binderless ones carry none`() {
+        assertEquals(ShizukuBackend.SUI, shizukuUi(ShizukuState.PermissionRequired(ShizukuBackend.SUI)).backend)
+        assertEquals(ShizukuBackend.SUI, shizukuUi(ShizukuState.PermissionDenied(ShizukuBackend.SUI)).backend)
+        assertEquals(ShizukuBackend.SUI, shizukuUi(ShizukuState.Ready(0, 13, ShizukuBackend.SUI)).backend)
+        assertEquals(ShizukuBackend.SHIZUKU, shizukuUi(ShizukuState.PermissionRequired(ShizukuBackend.SHIZUKU)).backend)
+        assertNull(shizukuUi(ShizukuState.NotRunning).backend)
+        assertNull(shizukuUi(ShizukuState.NotInstalled).backend)
+        assertNull(shizukuUi(ShizukuState.UnsupportedServer(12)).backend)
     }
 
     // --- Empty analysis ---

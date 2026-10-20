@@ -1,5 +1,6 @@
 package com.akane.inspiration.toolkit
 
+import com.akane.inspiration.ipc.ShizukuBackend
 import com.akane.inspiration.ipc.ShizukuState
 import com.akane.inspiration.ipc.model.BgDexoptReason
 import com.akane.inspiration.ipc.model.BgDexoptState
@@ -98,10 +99,11 @@ class ToolkitViewModelTest {
 
     @Test
     fun `without permission the screen is blocked, offers Grant and reads nothing until Ready`() {
-        start(shizuku = ShizukuState.PermissionRequired)
+        start(shizuku = ShizukuState.PermissionRequired(ShizukuBackend.SUI))
 
         assertEquals(ToolkitPhase.BLOCKED, state.status)
         assertEquals(BlockedReason.PERMISSION_REQUIRED, state.blocked)
+        assertEquals("the binder came from Sui", ShizukuBackend.SUI, state.blockedBackend)
         assertTrue(device.calls.isEmpty())
         assertEquals(DozeLoad.Loading, state.doze.load)
 
@@ -111,6 +113,7 @@ class ToolkitViewModelTest {
         deps.shizukuState.value = ShizukuState.Ready(2000, 13)
         assertEquals(ToolkitPhase.READY, state.status)
         assertNull(state.blocked)
+        assertNull(state.blockedBackend)
         assertTrue(state.doze.load is DozeLoad.Loaded)
         assertEquals(4, state.apps.total)
     }
@@ -122,7 +125,26 @@ class ToolkitViewModelTest {
         vm.onIntent(ToolkitIntent.Grant)
 
         assertEquals(BlockedReason.NOT_RUNNING, state.blocked)
+        assertNull("no binder, so no backend", state.blockedBackend)
         assertEquals(0, deps.grantRequests)
+    }
+
+    // SQ-29: a binder names its server; without one, the text names both Shizuku and Sui.
+    @Test
+    fun `the blocked text names the backend only when a binder is there`() {
+        assertEquals(R.string.toolkit_blocked_title_sui, blockedTitleRes(ShizukuBackend.SUI))
+        assertEquals(R.string.toolkit_blocked_title_shizuku, blockedTitleRes(ShizukuBackend.SHIZUKU))
+        assertEquals(R.string.toolkit_blocked_title, blockedTitleRes(null))
+        assertEquals(
+            R.string.toolkit_blocked_permission_required_sui,
+            blockedBodyRes(BlockedReason.PERMISSION_REQUIRED, ShizukuBackend.SUI),
+        )
+        assertEquals(
+            R.string.toolkit_blocked_permission_denied_shizuku,
+            blockedBodyRes(BlockedReason.PERMISSION_DENIED, ShizukuBackend.SHIZUKU),
+        )
+        assertEquals(R.string.toolkit_blocked_not_running, blockedBodyRes(BlockedReason.NOT_RUNNING, null))
+        assertEquals(R.string.toolkit_blocked_not_installed, blockedBodyRes(BlockedReason.NOT_INSTALLED, null))
     }
 
     @Test

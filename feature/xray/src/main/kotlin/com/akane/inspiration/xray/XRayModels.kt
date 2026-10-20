@@ -1,6 +1,7 @@
 package com.akane.inspiration.xray
 
 import androidx.compose.runtime.Immutable
+import com.akane.inspiration.ipc.ShizukuBackend
 import com.akane.inspiration.ipc.ShizukuState
 import com.akane.inspiration.ipc.toolkit.AppOp
 import com.akane.inspiration.ipc.toolkit.StandbyBucket
@@ -125,6 +126,8 @@ sealed interface ActionsState {
     /** Shizuku is not Ready. Granting happens in Cockpit or Toolkit, never here. */
     data class Blocked(
         val reason: BlockedReason,
+        /** The server whose binder [reason] was read from, named in the text; null when there is no binder. */
+        val backend: ShizukuBackend? = null,
     ) : ActionsState
 
     /** The entry has no single package to act on. */
@@ -281,7 +284,10 @@ internal fun ShizukuState.blockedReason(): BlockedReason? =
         is ShizukuState.Ready -> null
         ShizukuState.NotInstalled -> BlockedReason.NOT_INSTALLED
         ShizukuState.NotRunning -> BlockedReason.NOT_RUNNING
-        ShizukuState.PermissionRequired -> BlockedReason.PERMISSION_REQUIRED
-        ShizukuState.PermissionDenied -> BlockedReason.PERMISSION_DENIED
+        is ShizukuState.PermissionRequired -> BlockedReason.PERMISSION_REQUIRED
+        is ShizukuState.PermissionDenied -> BlockedReason.PERMISSION_DENIED
         is ShizukuState.UnsupportedServer -> BlockedReason.UNSUPPORTED_SERVER
     }
+
+/** The blocked actions card for this state, naming its backend when a binder is there; null when Ready. */
+internal fun ShizukuState.blockedActions(): ActionsState.Blocked? = blockedReason()?.let { ActionsState.Blocked(it, backend) }

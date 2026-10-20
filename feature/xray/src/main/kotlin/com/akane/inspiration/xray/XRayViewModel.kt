@@ -263,9 +263,9 @@ class XRayViewModel(
             updateDetail(uid, pkg) { it.copy(actions = ActionsState.NoPackage, overrides = persistentListOf()) }
             return
         }
-        val blocked = deps.shizukuState.value.blockedReason()
+        val blocked = deps.shizukuState.value.blockedActions()
         if (blocked != null) {
-            updateDetail(uid, pkg) { it.copy(actions = ActionsState.Blocked(blocked), overrides = persistentListOf()) }
+            updateDetail(uid, pkg) { it.copy(actions = blocked, overrides = persistentListOf()) }
             return
         }
         updateDetail(uid, pkg) { it.copy(actions = ActionsState.Loading) }
@@ -286,8 +286,8 @@ class XRayViewModel(
 
     private suspend fun readActions(pkg: String): ActionsState {
         deps.shizukuState.value
-            .blockedReason()
-            ?.let { return ActionsState.Blocked(it) }
+            .blockedActions()
+            ?.let { return it }
         return when (val outcome = attempt { deps.toolkit.appState(pkg) }) {
             is ToolkitOutcome.Done -> ActionsState.Loaded(controlsOf(outcome.value))
 

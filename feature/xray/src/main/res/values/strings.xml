@@ -110,6 +110,13 @@
     <string name="xray_blocked_not_running">Start Shizuku or Sui, then come back to this screen.</string>
     <string name="xray_blocked_permission_required">Allow Inspiration in Shizuku or Sui. You can grant access from Cockpit or Toolkit.</string>
     <string name="xray_blocked_permission_denied">Access was denied in Shizuku or Sui. You can grant it again from Cockpit or Toolkit.</string>
+    <!-- The binder is there, so the text names the server it came from -->
+    <string name="xray_blocked_title_shizuku">Shizuku isn\'t ready</string>
+    <string name="xray_blocked_title_sui">Sui isn\'t ready</string>
+    <string name="xray_blocked_permission_required_shizuku">Allow Inspiration in Shizuku. You can grant access from Cockpit or Toolkit.</string>
+    <string name="xray_blocked_permission_required_sui">Allow Inspiration in Sui. You can grant access from Cockpit or Toolkit.</string>
+    <string name="xray_blocked_permission_denied_shizuku">Access was denied in Shizuku. You can grant it again from Cockpit or Toolkit.</string>
+    <string name="xray_blocked_permission_denied_sui">Access was denied in Sui. You can grant it again from Cockpit or Toolkit.</string>
     <string name="xray_blocked_unsupported_server">Update Shizuku or Sui to change app settings from here. The version that is running is too old for Inspiration.</string>
     <string name="xray_touch_obscured">Another app is drawing over the screen. Pause it to use these controls.</string>
     <string name="xray_action_restrict_title">Restrict background activity</string>

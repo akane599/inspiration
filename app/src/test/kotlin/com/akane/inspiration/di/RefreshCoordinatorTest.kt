@@ -247,7 +247,7 @@ class RefreshCoordinatorTest {
                 coordinator {
                     if (serviceUp) RefreshResult.Refreshed(now) else RefreshResult.Failed("service_unavailable")
                 }
-            val state = MutableStateFlow<ShizukuState>(ShizukuState.PermissionDenied)
+            val state = MutableStateFlow<ShizukuState>(ShizukuState.PermissionDenied())
             // The backoff half of AppContainer.start()'s wiring; the re-run half is covered below.
             val wiring = launch { reconcileOnEachReady(state) { coordinator.clearFailureBackoff() } }
 

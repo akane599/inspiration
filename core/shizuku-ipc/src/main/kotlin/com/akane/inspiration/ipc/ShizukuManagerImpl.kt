@@ -471,10 +471,11 @@ class ShizukuManagerImpl private constructor(
             return
         }
 
+        val backend = if (facade.isSui()) ShizukuBackend.SUI else ShizukuBackend.SHIZUKU
         when (facade.checkSelfPermission()) {
             PackageManager.PERMISSION_GRANTED -> {
                 val info = ownApplicationInfo
-                val ready = ShizukuState.Ready(facade.getUid(), serverVersion)
+                val ready = ShizukuState.Ready(facade.getUid(), serverVersion, backend)
                 synchronized(bindingLock) {
                     if (!claimRefreshLocked(ticket)) return
                     applicationInfo = info
@@ -486,9 +487,9 @@ class ShizukuManagerImpl private constructor(
             else -> {
                 val unavailableState =
                     if (facade.shouldShowRequestPermissionRationale()) {
-                        ShizukuState.PermissionDenied
+                        ShizukuState.PermissionDenied(backend)
                     } else {
-                        ShizukuState.PermissionRequired
+                        ShizukuState.PermissionRequired(backend)
                     }
                 setUnavailableState(unavailableState, ticket)
             }
