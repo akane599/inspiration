@@ -15,6 +15,8 @@ import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertSame
+import org.junit.Assert.assertThrows
 import org.junit.Assert.fail
 import org.junit.Test
 
@@ -179,6 +181,23 @@ class CachedAppLabelsTest {
             }
             assertEquals(listOf(10_221), source.uidLoads)
         }
+
+    @Test
+    fun `the package manager's uid read lists the uid's packages, and none when it refuses the uid`() {
+        assertEquals(listOf("a.app", "b.app"), uidPackages { arrayOf("a.app", "b.app") })
+        assertEquals(emptyList<String>(), uidPackages { null })
+        // A UID the package manager will not answer for is named by its number, like one no package runs as (audit §3).
+        assertEquals(emptyList<String>(), uidPackages { throw SecurityException("uid 10221 is not visible") })
+    }
+
+    @Test
+    fun `the package manager's uid read lets any other failure and a cancellation through`() {
+        val died = IllegalStateException("package manager died")
+        val cancellation = CancellationException("cancelled lookup")
+
+        assertSame(died, assertThrows(IllegalStateException::class.java) { uidPackages { throw died } })
+        assertSame(cancellation, assertThrows(CancellationException::class.java) { uidPackages { throw cancellation } })
+    }
 
     private fun TestScope.labels(
         maxLabels: Int = 8,

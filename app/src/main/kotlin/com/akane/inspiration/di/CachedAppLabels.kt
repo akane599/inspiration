@@ -38,12 +38,24 @@ class PackageManagerAppLabelSource(
             null
         }
 
-    override fun loadPackagesForUid(uid: Int): List<String> = packageManager.getPackagesForUid(uid)?.toList().orEmpty()
+    override fun loadPackagesForUid(uid: Int): List<String> = uidPackages { packageManager.getPackagesForUid(uid) }
 
     private companion object {
         const val ICON_PX = 128
     }
 }
+
+/**
+ * The packages [read] lists for a UID; empty when it lists none, or when the package manager refuses the UID with a
+ * [SecurityException] (audit §3), so the UID is named by its number rather than failing the screen. Any other
+ * failure, a cancellation included, propagates.
+ */
+internal fun uidPackages(read: () -> Array<String>?): List<String> =
+    try {
+        read()?.toList().orEmpty()
+    } catch (_: SecurityException) {
+        emptyList()
+    }
 
 /**
  * [AppLabels] with bounded in-memory LRUs for cosmetic labels and icons (H15). Only what the source found is

@@ -246,10 +246,11 @@ class XRayViewModel(
             // batterystats names a UID by one of its process names ("com.app:push"), or not at all; only the UID's
             // installed packages say which app it is. The quick actions act on that package, so it is never the hint,
             // and a shared UID whose hint names none of its apps is labelled by how many share it, acting on none.
-            val identity = deps.appLabels.uidIdentity(row.uid, reported = row.packageName)
+            // A lookup that throws (audit §3) leaves the row unnamed, as Sleep Lab does, instead of failing the screen.
+            val identity = attempt { deps.appLabels.uidIdentity(row.uid, reported = row.packageName) } ?: return@map row.copy(packageName = null)
             val pkg = identity.packageName ?: return@map row.copy(packageName = null, sharedBy = identity.sharedBy)
             // Icons are not loaded here: rows load their own when composed, so an emission costs no bitmaps.
-            row.copy(packageName = pkg, label = deps.appLabels.label(pkg))
+            row.copy(packageName = pkg, label = attempt { deps.appLabels.label(pkg) })
         }
 
     // ---- detail sheet ----------------------------------------------------------------------

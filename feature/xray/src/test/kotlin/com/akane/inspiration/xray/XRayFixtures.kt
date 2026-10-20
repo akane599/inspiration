@@ -460,18 +460,28 @@ internal class FakeXRayDeps(
     override val toolkit = ToolkitActions(ToolkitGateway(FakeShizuku(device)), device.store, holdBinding = { AutoCloseable {} })
     override val appLabels: AppLabels =
         object : AppLabels {
-            override suspend fun label(packageName: String) = "Label of $packageName"
+            override suspend fun label(packageName: String): String {
+                labelFailures[packageName]?.let { throw it }
+                return "Label of $packageName"
+            }
 
             override suspend fun icon(packageName: String): Bitmap? {
                 iconLoads++
                 return null
             }
 
-            override suspend fun packagesForUid(uid: Int): List<String> = packagesByUid[uid].orEmpty()
+            override suspend fun packagesForUid(uid: Int): List<String> {
+                uidFailures[uid]?.let { throw it }
+                return packagesByUid[uid].orEmpty()
+            }
         }
 
     /** What `PackageManager` lists as running under each UID; the sample apps are installed. */
     val packagesByUid = mutableMapOf(10_001 to listOf(MAPS), 10_002 to listOf(CHATTY))
+
+    /** UIDs whose package lookup throws, and packages whose label read throws: a package manager that cannot answer. */
+    val uidFailures = mutableMapOf<Int, Exception>()
+    val labelFailures = mutableMapOf<String, Exception>()
 
     /** Icons the ViewModel asked for; rows load their own, so it should ask for none. */
     var iconLoads = 0

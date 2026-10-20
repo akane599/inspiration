@@ -10,11 +10,13 @@ import kotlinx.coroutines.test.setMain
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
 
 private const val CHATTY_UID = 10_002
+private const val MAPS_UID = 10_001
 
 /**
  * A Room error inside `ToolkitActions` (a full disk while the write-ahead PENDING row is inserted, an audit log
@@ -64,6 +66,27 @@ class XRayViewModelFailureTest {
     private fun assertNothingEscaped() = assertTrue("an exception reached the thread's handler: $uncaught", uncaught.isEmpty())
 
     private val failed = ActionNotice.Rejected(Problem.Failed(code = null))
+
+    @Test
+    fun `an owner lookup that throws leaves that row unnamed instead of crashing the screen`() {
+        deps.uidFailures[CHATTY_UID] = SecurityException("package manager refused the uid lookup")
+        deps.labelFailures[MAPS] = IllegalStateException("package manager died")
+        // A newer analysis (an equal one would be conflated away) is shaped with the failing package manager.
+        deps.analysis.value = readyOf(sampleDiff(), resolvedOf(toMs = 2 * HOUR_MS))
+
+        assertNothingEscaped()
+        assertEquals(XRayStatus.READY, state.status)
+        val chatty = state.apps.first { it.uid == CHATTY_UID }
+        assertNull("never the reported name, which the actions would act on", chatty.packageName)
+        assertNull(chatty.label)
+        val maps = state.apps.first { it.uid == MAPS_UID }
+        assertEquals("a label that cannot be read keeps the owner", MAPS, maps.packageName)
+        assertNull(maps.label)
+
+        vm.onIntent(XRayIntent.OpenApp(CHATTY_UID))
+        assertEquals(ActionsState.NoPackage, detail.actions)
+        assertNothingEscaped()
+    }
 
     @Test
     fun `a write whose write-ahead audit row cannot be stored says it failed instead of crashing`() {
