@@ -454,11 +454,11 @@ class SleepLabViewModelTest {
             assertEquals(AnalysisUi.Loading, vm.state.value.analysis)
             assertEquals("another interval's hypnogram must not linger", HypnogramUi.Loading, vm.state.value.hypnogram)
 
-            deps.analysis.value = AnalysisState.Empty
+            deps.analysis.value = AnalysisState.Empty(ReferenceKind.SinceUnplugged)
             runCurrent()
             assertEquals(AnalysisUi.Empty, vm.state.value.analysis)
 
-            deps.analysis.value = AnalysisState.Failed("boom")
+            deps.analysis.value = AnalysisState.Failed("boom", ReferenceKind.SinceUnplugged)
             runCurrent()
             assertEquals(AnalysisUi.Error, vm.state.value.analysis)
         }
@@ -762,7 +762,7 @@ class SleepLabViewModelTest {
     @Test
     fun `retry on a failed analysis recomputes even when the refresh is debounced`() =
         runTest(dispatcher) {
-            deps.analysis.value = AnalysisState.Failed("db closed")
+            deps.analysis.value = AnalysisState.Failed("db closed", ReferenceKind.SinceUnplugged)
             deps.refreshResult = RefreshResult.Debounced(NOW_MS)
             val vm = viewModel()
             visible(vm)

@@ -89,7 +89,7 @@ class AnalysisSessionTest {
             assertEquals(ReferenceKind.SinceUnplugged, first.kind)
             assertSame(first, first.forSelection(ReferenceKind.SinceUnplugged))
             assertEquals(AnalysisState.Loading, first.forSelection(ReferenceKind.Last24h))
-            assertEquals(AnalysisState.Empty, AnalysisState.Empty.forSelection(ReferenceKind.Last24h))
+            assertEquals(AnalysisState.Loading, AnalysisState.Loading.forSelection(ReferenceKind.Last24h))
 
             val slice = ReferenceKind.TimeSlice(fromWallMs = 1 * hour, toWallMs = 5 * hour)
             h.selection.select(slice)
@@ -107,7 +107,44 @@ class AnalysisSessionTest {
 
             runCurrent()
 
-            assertEquals(AnalysisState.Empty, h.session.state.value)
+            assertEquals(AnalysisState.Empty(ReferenceKind.SinceUnplugged), h.session.state.value)
+        }
+
+    @Test
+    fun `an empty result for the previous selection is loading for a new one`() =
+        runTest {
+            val h = harness(FakeSnapshotStore())
+            runCurrent()
+            val empty = h.session.state.value
+            assertEquals(AnalysisState.Empty(ReferenceKind.SinceUnplugged), empty)
+            assertSame(empty, empty.forSelection(ReferenceKind.SinceUnplugged))
+
+            // The selection is visible at once; the session's Loading for it is still a dispatcher hop away.
+            h.selection.select(ReferenceKind.Last24h)
+            assertSame(empty, h.session.state.value)
+            assertEquals(AnalysisState.Loading, h.session.state.value.forSelection(ReferenceKind.Last24h))
+
+            runCurrent()
+            assertEquals(AnalysisState.Empty(ReferenceKind.Last24h), h.session.state.value)
+            assertEquals(AnalysisState.Empty(ReferenceKind.Last24h), h.session.state.value.forSelection(ReferenceKind.Last24h))
+        }
+
+    @Test
+    fun `a failed result for the previous selection is loading for a new one`() =
+        runTest {
+            val broken = store().apply { failure = IllegalStateException("db closed") }
+            val h = harness(broken)
+            runCurrent()
+            val failed = h.session.state.value
+            assertEquals(AnalysisState.Failed("db closed", ReferenceKind.SinceUnplugged), failed)
+            assertSame(failed, failed.forSelection(ReferenceKind.SinceUnplugged))
+
+            h.selection.select(ReferenceKind.Last24h)
+            assertSame(failed, h.session.state.value)
+            assertEquals(AnalysisState.Loading, h.session.state.value.forSelection(ReferenceKind.Last24h))
+
+            runCurrent()
+            assertEquals(AnalysisState.Failed("db closed", ReferenceKind.Last24h), h.session.state.value)
         }
 
     @Test
@@ -117,7 +154,7 @@ class AnalysisSessionTest {
             val h = harness(broken)
 
             runCurrent()
-            assertEquals(AnalysisState.Failed("db closed"), h.session.state.value)
+            assertEquals(AnalysisState.Failed("db closed", ReferenceKind.SinceUnplugged), h.session.state.value)
 
             broken.failure = null
             h.ticks.emit(1)
@@ -132,7 +169,7 @@ class AnalysisSessionTest {
             val h = harness(broken)
             runCurrent()
             val failed = h.session.state.value
-            assertEquals(AnalysisState.Failed("db closed"), failed)
+            assertEquals(AnalysisState.Failed("db closed", ReferenceKind.SinceUnplugged), failed)
 
             broken.failure = null
             val gate = CompletableDeferred<Unit>().also { broken.gate = it }

@@ -331,8 +331,8 @@ class XRayViewModelTargetTest {
         val states =
             listOf(
                 AnalysisState.Loading to XRayStatus.LOADING,
-                AnalysisState.Empty to XRayStatus.EMPTY,
-                AnalysisState.Failed("read failed") to XRayStatus.FAILED,
+                AnalysisState.Empty(ReferenceKind.SinceUnplugged) to XRayStatus.EMPTY,
+                AnalysisState.Failed("read failed", ReferenceKind.SinceUnplugged) to XRayStatus.FAILED,
             )
         for ((analysis, expectedStatus) in states) {
             deps.analysis.value = suiteAnalysis(packageName = SUITE_A, totalMah = 30.0)
@@ -411,7 +411,7 @@ class XRayViewModelTargetTest {
     fun `a failed analysis received while hidden closes the retained detail when visible again`() {
         openSuite()
         vm.onIntent(XRayIntent.Hidden)
-        deps.analysis.value = AnalysisState.Failed("new interval unavailable")
+        deps.analysis.value = AnalysisState.Failed("new interval unavailable", ReferenceKind.SinceUnplugged)
 
         vm.onIntent(XRayIntent.Visible)
         vm.onIntent(XRayIntent.OpenApp(SUITE_UID))

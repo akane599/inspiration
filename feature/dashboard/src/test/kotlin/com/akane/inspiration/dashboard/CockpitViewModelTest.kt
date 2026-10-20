@@ -514,7 +514,7 @@ class CockpitViewModelTest {
     @Test
     fun `retry on a failed analysis recomputes even when the refresh is debounced`() =
         runTest(dispatcher) {
-            deps.analysis.value = AnalysisState.Failed("db closed")
+            deps.analysis.value = AnalysisState.Failed("db closed", ReferenceKind.SinceUnplugged)
             deps.refreshResult = RefreshResult.Debounced(NOW_MS)
             val gate = CompletableDeferred<Unit>().also { deps.refreshGate = it }
             val vm = viewModel()
@@ -913,11 +913,11 @@ class CockpitViewModelTest {
             assertEquals(AnalysisUi.Loading, vm.state.value.analysis)
 
             visit(vm) {
-                deps.analysis.value = AnalysisState.Empty
+                deps.analysis.value = AnalysisState.Empty(ReferenceKind.SinceUnplugged)
                 runCurrent()
                 assertEquals(AnalysisUi.Empty, vm.state.value.analysis)
 
-                deps.analysis.value = AnalysisState.Failed("boom")
+                deps.analysis.value = AnalysisState.Failed("boom", ReferenceKind.SinceUnplugged)
                 runCurrent()
                 assertEquals(AnalysisUi.Error, vm.state.value.analysis)
 

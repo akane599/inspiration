@@ -175,7 +175,7 @@ class XRayViewModel(
         if (current !is AnalysisState.Ready) closeApp()
         when (current) {
             AnalysisState.Loading -> _state.update { it.copy(status = XRayStatus.LOADING, slice = XRayMapper.slice(selected, null)) }
-            AnalysisState.Empty -> _state.update { it.copy(status = XRayStatus.EMPTY, slice = XRayMapper.slice(selected, null)) }
+            is AnalysisState.Empty -> _state.update { it.copy(status = XRayStatus.EMPTY, slice = XRayMapper.slice(selected, null)) }
             is AnalysisState.Failed -> _state.update { it.copy(status = XRayStatus.FAILED, slice = XRayMapper.slice(selected, null)) }
             is AnalysisState.Ready -> showReady(current, selected)
         }

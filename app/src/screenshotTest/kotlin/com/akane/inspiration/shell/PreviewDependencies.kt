@@ -19,6 +19,7 @@ import com.akane.inspiration.telemetry.app.RefreshResult
 import com.akane.inspiration.telemetry.capacity.ChargeSegment
 import com.akane.inspiration.telemetry.capacity.SegmentVerdict
 import com.akane.inspiration.telemetry.common.Clocks
+import com.akane.inspiration.telemetry.diff.ReferenceKind
 import com.akane.inspiration.telemetry.snapshot.BatterySnapshot
 import com.akane.inspiration.telemetry.snapshot.CaptureTrigger
 import com.akane.inspiration.telemetry.snapshot.LiveReading
@@ -48,7 +49,7 @@ internal object PreviewDependencies :
     SleepLabDependencies,
     HealthDependencies,
     ToolkitDependencies {
-    override val analysis: StateFlow<AnalysisState> = MutableStateFlow(AnalysisState.Empty)
+    override val analysis: StateFlow<AnalysisState> = MutableStateFlow(AnalysisState.Empty(ReferenceKind.SinceUnplugged))
     override val selection = AnalysisSelection()
     override val shizukuState: StateFlow<ShizukuState> = MutableStateFlow(ShizukuState.NotRunning)
     override val clocks: Clocks =

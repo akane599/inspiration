@@ -106,7 +106,7 @@ internal fun shizukuUi(state: ShizukuState): ShizukuUi =
 internal fun analysisUi(state: AnalysisState): AnalysisUi =
     when (state) {
         AnalysisState.Loading -> AnalysisUi.Loading
-        AnalysisState.Empty -> AnalysisUi.Empty
+        is AnalysisState.Empty -> AnalysisUi.Empty
         is AnalysisState.Failed -> AnalysisUi.Error
         is AnalysisState.Ready -> AnalysisUi.Ready(state.analysis.story, metricsUi(state.analysis))
     }

@@ -97,9 +97,9 @@ class XRayViewModelTest {
 
     @Test
     fun `loading, empty and failed analyses map to their own statuses`() {
-        deps.analysis.value = AnalysisState.Empty
+        deps.analysis.value = AnalysisState.Empty(ReferenceKind.SinceUnplugged)
         assertEquals(XRayStatus.EMPTY, state.status)
-        deps.analysis.value = AnalysisState.Failed("boom")
+        deps.analysis.value = AnalysisState.Failed("boom", ReferenceKind.SinceUnplugged)
         assertEquals(XRayStatus.FAILED, state.status)
         deps.analysis.value = AnalysisState.Loading
         assertEquals(XRayStatus.LOADING, state.status)
@@ -146,7 +146,7 @@ class XRayViewModelTest {
 
     @Test
     fun `retry on a failed analysis recomputes even when the capture is debounced`() {
-        start(FakeXRayDeps().apply { refreshResult = RefreshResult.Debounced(0L) }, AnalysisState.Failed("db closed"))
+        start(FakeXRayDeps().apply { refreshResult = RefreshResult.Debounced(0L) }, AnalysisState.Failed("db closed", ReferenceKind.SinceUnplugged))
         assertEquals(XRayStatus.FAILED, state.status)
         assertEquals("the on-enter refresh does not recompute", 0, deps.recomputeCalls)
 
@@ -231,7 +231,7 @@ class XRayViewModelTest {
     fun `hidden stops watching the analysis`() {
         vm.onIntent(XRayIntent.Hidden)
 
-        deps.analysis.value = AnalysisState.Empty
+        deps.analysis.value = AnalysisState.Empty(ReferenceKind.SinceUnplugged)
 
         assertEquals(XRayStatus.READY, state.status)
     }

@@ -115,7 +115,7 @@ class SleepLabViewModel(
         val slice = sliceUi(kind, current)
         when (current) {
             AnalysisState.Loading -> showNotReady(AnalysisUi.Loading, slice)
-            AnalysisState.Empty -> showNotReady(AnalysisUi.Empty, slice)
+            is AnalysisState.Empty -> showNotReady(AnalysisUi.Empty, slice)
             is AnalysisState.Failed -> showNotReady(AnalysisUi.Error, slice)
             is AnalysisState.Ready -> showReady(current.analysis, slice)
         }

@@ -27,22 +27,31 @@ import kotlinx.coroutines.withContext
 sealed interface AnalysisState {
     data object Loading : AnalysisState
 
-    /** The selected interval has no resolvable snapshot pair. */
-    data object Empty : AnalysisState
+    /** [kind], the selection it was computed for, has no resolvable snapshot pair. */
+    data class Empty(val kind: ReferenceKind) : AnalysisState
 
     /** [analysis] answers [kind], the selection it was computed for. */
     data class Ready(val analysis: IntervalAnalysis, val kind: ReferenceKind) : AnalysisState
 
-    data class Failed(val message: String) : AnalysisState
+    /** The analysis of [kind], the selection it was computed for, failed. */
+    data class Failed(val message: String, val kind: ReferenceKind) : AnalysisState
 }
 
 /**
  * This state as a screen showing [selected] must treat it. A new selection is visible at once, but the session's
  * Loading for it arrives a dispatcher hop later; until then the state is still the previous selection's result,
- * which describes another interval. A [AnalysisState.Ready] for any other selection is therefore Loading.
+ * which describes another interval. A result (Ready, Empty or Failed) for any other selection is therefore Loading.
  */
-fun AnalysisState.forSelection(selected: ReferenceKind): AnalysisState =
-    if (this is AnalysisState.Ready && kind != selected) AnalysisState.Loading else this
+fun AnalysisState.forSelection(selected: ReferenceKind): AnalysisState {
+    val answers =
+        when (this) {
+            AnalysisState.Loading -> return this
+            is AnalysisState.Empty -> kind
+            is AnalysisState.Ready -> kind
+            is AnalysisState.Failed -> kind
+        }
+    return if (answers == selected) this else AnalysisState.Loading
+}
 
 /**
  * Keeps one [AnalysisState] for the shared [selection]. Recomputes when the selection or [refreshTicks]
@@ -104,11 +113,11 @@ class AnalysisSession(
 
     private suspend fun compute(kind: ReferenceKind): AnalysisState = try {
         val analysis = withContext(dispatcher) { analyzer.analyze(kind, nowWallMs()) }
-        if (analysis == null) AnalysisState.Empty else AnalysisState.Ready(analysis, kind)
+        if (analysis == null) AnalysisState.Empty(kind) else AnalysisState.Ready(analysis, kind)
     } catch (cancelled: CancellationException) {
         throw cancelled
     } catch (error: Exception) {
-        AnalysisState.Failed(error.message ?: error.javaClass.simpleName)
+        AnalysisState.Failed(error.message ?: error.javaClass.simpleName, kind)
     }
 
     private companion object {

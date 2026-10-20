@@ -388,7 +388,7 @@ class CockpitMappersTest {
 
     @Test
     fun `no slice outside time slice mode`() {
-        assertNull(sliceUi(ReferenceKind.Last24h, AnalysisState.Empty))
+        assertNull(sliceUi(ReferenceKind.Last24h, AnalysisState.Empty(ReferenceKind.Last24h)))
         assertNotNull(sliceUi(ReferenceKind.TimeSlice(1, 2), AnalysisState.Loading))
     }
 }
