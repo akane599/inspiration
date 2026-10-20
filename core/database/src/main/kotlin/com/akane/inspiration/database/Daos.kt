@@ -173,6 +173,26 @@ interface SnapshotDao {
         toWallMs: Long,
     ): List<SnapshotEntity>
 
+    /**
+     * Where [unplugWindow] starts instead when a history plug or unplug at [atWallMs] is older than its rows: the newest
+     * screen capture with `fromWallMs <= wallMs <= atWallMs`, else the newest snapshot in that range, else [fromWallMs].
+     */
+    @Query(
+        """
+        SELECT COALESCE(
+            (SELECT wallMs FROM snapshot WHERE trigger IN ('SCREEN_ON', 'SCREEN_OFF')
+                AND wallMs >= :fromWallMs AND wallMs <= :atWallMs ORDER BY wallMs DESC LIMIT 1),
+            (SELECT wallMs FROM snapshot WHERE wallMs >= :fromWallMs AND wallMs <= :atWallMs
+                ORDER BY wallMs DESC LIMIT 1),
+            :fromWallMs
+        )
+        """,
+    )
+    suspend fun unplugWindowStartAtOrBefore(
+        fromWallMs: Long,
+        atWallMs: Long,
+    ): Long
+
     @Query("SELECT * FROM snapshot_system WHERE snapshotId = :snapshotId")
     suspend fun systemForSnapshot(snapshotId: Long): SnapshotSystemEntity?
 
@@ -243,6 +263,22 @@ interface HistoryDao {
      */
     @Query(NEWEST_OF_EACH_KIND_BEFORE_SQL)
     suspend fun newestOfEachKindBefore(beforeWallMs: Long): List<HistoryEventEntity>
+
+    /** The newest wall time of a [kind] event with `fromWallMs <= wallMs <= atWallMs`: one `(kind, wallMs)` index seek. */
+    @Query("SELECT MAX(wallMs) FROM history_event WHERE kind = :kind AND wallMs BETWEEN :fromWallMs AND :atWallMs")
+    suspend fun newestWallMs(
+        kind: String,
+        fromWallMs: Long,
+        atWallMs: Long,
+    ): Long?
+
+    /** The events of [kinds] with `fromWallMs <= wallMs <= toWallMs`, ordered like [between]. */
+    @Query("SELECT * FROM history_event WHERE kind IN (:kinds) AND wallMs BETWEEN :fromWallMs AND :toWallMs ORDER BY wallMs, id")
+    suspend fun ofKindsBetween(
+        kinds: List<String>,
+        fromWallMs: Long,
+        toWallMs: Long,
+    ): List<HistoryEventEntity>
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsertCursor(cursor: HistoryCursorEntity)

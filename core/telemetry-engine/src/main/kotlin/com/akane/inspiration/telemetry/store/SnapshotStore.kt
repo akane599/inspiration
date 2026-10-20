@@ -17,6 +17,12 @@ import com.akane.inspiration.telemetry.status.UnplugSummaryCalculator
  */
 const val SAMPLES_BETWEEN_LIMIT = 24 * 60 * 60 * 1_000 / 1_500
 
+/** The rows [SnapshotStore.unplugWindow] reads for [UnplugSummaryCalculator.compute], each list oldest first. */
+data class UnplugWindow(
+    val snapshots: List<BatterySnapshot>,
+    val history: List<HistoryEvent>,
+)
+
 interface SnapshotStore {
     /**
      * Runs [block] so that every read it makes through this store sees one state: a write or prune from elsewhere lands
@@ -89,6 +95,26 @@ interface SnapshotStore {
         fromWallMs: Long,
         toWallMs: Long,
     ): List<BatterySnapshot> = snapshotsBetween(fromWallMs, toWallMs)
+
+    /**
+     * What [UnplugSummaryCalculator] reads for a "now" at [toWallMs] from the range, read consistently: the bare
+     * snapshots of [unplugWindowSnapshots] and the history events of [UnplugSummaryCalculator.HISTORY_KINDS], oldest
+     * first, so the summary equals the one over the whole range. When the newest history plug or unplug before
+     * [toWallMs] is older than those snapshots, they start at the newest screen capture at or before it instead (else
+     * the newest snapshot at or before it). The events start at the newest history screen event at or before the
+     * first snapshot (the screen state the calculator carries forward), else at that snapshot. The default returns
+     * the whole range (for fakes); the Room store bounds it with index seeks.
+     */
+    suspend fun unplugWindow(
+        fromWallMs: Long,
+        toWallMs: Long,
+    ): UnplugWindow =
+        readConsistently {
+            UnplugWindow(
+                snapshots = snapshotsBetween(fromWallMs, toWallMs),
+                history = historyBetween(fromWallMs, toWallMs).filter { it.kind in UnplugSummaryCalculator.HISTORY_KINDS },
+            )
+        }
 
     suspend fun insertHistory(
         events: List<HistoryEvent>,

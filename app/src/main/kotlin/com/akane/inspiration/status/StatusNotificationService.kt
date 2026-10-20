@@ -109,9 +109,10 @@ class StatusNotificationService : Service() {
             // The gauge's persisted calibration gives the current that decides "Charging" its unit and sign.
             val light = LightCurrent.calibrate(source.light(), container.calibrationStore)
             val nowMs = light.clock.wallMs
-            // The rows since the last unplug; the whole retention window is read only when it holds no unplug.
-            val history = container.store.unplugWindowSnapshots(nowMs - HISTORY_WINDOW_MS, nowMs)
-            val summary = UnplugSummaryCalculator.compute(history, light.toSnapshot())
+            // The rows since the last unplug, with the battery history that times its screen and plug transitions; the
+            // whole retention window is read only when it holds no unplug.
+            val window = container.store.unplugWindow(nowMs - HISTORY_WINDOW_MS, nowMs)
+            val summary = UnplugSummaryCalculator.compute(window.snapshots, light.toSnapshot(), window.history)
             val text =
                 StatusNotificationContent.build(
                     summary,

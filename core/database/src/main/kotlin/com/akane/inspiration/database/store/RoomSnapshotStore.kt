@@ -5,6 +5,7 @@ import com.akane.inspiration.database.CaptureMissEntity
 import com.akane.inspiration.database.ChargeSessionEntity
 import com.akane.inspiration.database.HealthSampleEntity
 import com.akane.inspiration.database.HistoryCursorEntity
+import com.akane.inspiration.database.HistoryDao
 import com.akane.inspiration.database.HistoryEventEntity
 import com.akane.inspiration.database.InspirationDatabase
 import com.akane.inspiration.database.MarkerEntity
@@ -20,6 +21,7 @@ import com.akane.inspiration.database.SnapshotWakelockEntity
 import com.akane.inspiration.database.TelemetrySampleEntity
 import com.akane.inspiration.database.ToolkitActionEntity
 import com.akane.inspiration.ipc.model.HistoryEvent
+import com.akane.inspiration.ipc.model.HistoryKind
 import com.akane.inspiration.telemetry.capacity.ChargeSegment
 import com.akane.inspiration.telemetry.capacity.SegmentVerdict
 import com.akane.inspiration.telemetry.diff.BatteryStatsSession
@@ -39,6 +41,7 @@ import com.akane.inspiration.telemetry.snapshot.SourceAvailability
 import com.akane.inspiration.telemetry.snapshot.UidIdentityScope
 import com.akane.inspiration.telemetry.snapshot.UidOwnerFingerprint
 import com.akane.inspiration.telemetry.snapshot.UidSnapshot
+import com.akane.inspiration.telemetry.status.UnplugSummaryCalculator
 import com.akane.inspiration.telemetry.store.ChargeSessionRecord
 import com.akane.inspiration.telemetry.store.HISTORY_SOURCE
 import com.akane.inspiration.telemetry.store.HealthSample
@@ -48,6 +51,7 @@ import com.akane.inspiration.telemetry.store.SnapshotStore
 import com.akane.inspiration.telemetry.store.TelemetrySample
 import com.akane.inspiration.telemetry.store.ToolkitActionRecord
 import com.akane.inspiration.telemetry.store.ToolkitActionStatus
+import com.akane.inspiration.telemetry.store.UnplugWindow
 
 class RoomSnapshotStore(
     private val database: InspirationDatabase,
@@ -145,6 +149,35 @@ class RoomSnapshotStore(
         fromWallMs: Long,
         toWallMs: Long,
     ): List<BatterySnapshot> = database.snapshotDao().unplugWindow(fromWallMs, toWallMs).map { it.toBareSnapshot() }
+
+    override suspend fun unplugWindow(
+        fromWallMs: Long,
+        toWallMs: Long,
+    ): UnplugWindow =
+        database.withTransaction {
+            val snapshotDao = database.snapshotDao()
+            val historyDao = database.historyDao()
+            var rows = snapshotDao.unplugWindow(fromWallMs, toWallMs)
+            val plugWallMs = historyDao.newestWallMs(fromWallMs, toWallMs - 1, HistoryKind.PLUGGED, HistoryKind.UNPLUGGED)
+            if (plugWallMs != null && plugWallMs < (rows.firstOrNull()?.wallMs ?: Long.MAX_VALUE)) {
+                rows = snapshotDao.between(snapshotDao.unplugWindowStartAtOrBefore(fromWallMs, plugWallMs), toWallMs)
+            }
+            val firstWallMs = rows.firstOrNull()?.wallMs ?: plugWallMs ?: toWallMs
+            val historyFromWallMs =
+                historyDao.newestWallMs(fromWallMs, firstWallMs, HistoryKind.SCREEN_ON, HistoryKind.SCREEN_OFF) ?: firstWallMs
+            val kinds = UnplugSummaryCalculator.HISTORY_KINDS.map { it.toString() }
+            UnplugWindow(
+                snapshots = rows.map { it.toBareSnapshot() },
+                history = historyDao.ofKindsBetween(kinds, historyFromWallMs, toWallMs).map { it.toDomain() },
+            )
+        }
+
+    /** The newest wall time of an event of any of [kinds] in `fromWallMs..atWallMs`: one index seek per kind. */
+    private suspend fun HistoryDao.newestWallMs(
+        fromWallMs: Long,
+        atWallMs: Long,
+        vararg kinds: Int,
+    ): Long? = kinds.asList().mapNotNull { newestWallMs(it.toString(), fromWallMs, atWallMs) }.maxOrNull()
 
     override suspend fun insertHistory(
         events: List<HistoryEvent>,

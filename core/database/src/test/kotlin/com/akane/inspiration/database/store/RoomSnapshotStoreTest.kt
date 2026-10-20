@@ -1331,6 +1331,98 @@ class RoomSnapshotStoreTest {
             assertFalse((UnplugSummaryCalculator.compute(window, now) as UnplugSummary.Discharging).anchorIsUnplug)
         }
 
+    @Test
+    fun `unplugWindow adds the screen and plug history from the screen state before the window and keeps the summary`() =
+        runBlocking {
+            val base = 40L * DAY_MS
+            store.insert(statusPoint(CaptureTrigger.APP_OPEN, base - 3 * HOUR_MS, plugged = true, level = 90))
+            val screenOn = store.insert(statusPoint(CaptureTrigger.SCREEN_ON, base, plugged = true, level = 100))
+            val chargeJob = store.insert(statusPoint(CaptureTrigger.CHARGE_JOB, base + 20 * MINUTE_MS, plugged = true, level = 100))
+            val late = store.insert(statusPoint(CaptureTrigger.SCREEN_ON, base + 600 * MINUTE_MS, plugged = false, level = 87))
+            val now = statusPoint(CaptureTrigger.APP_OPEN, base + 605 * MINUTE_MS, plugged = false, level = 86)
+            val from = now.clock.wallMs - 30L * DAY_MS
+            val seed = historyEvent(HistoryKind.SCREEN_ON, base - 2 * HOUR_MS, level = 95)
+            val kept =
+                listOf(
+                    seed,
+                    historyEvent(HistoryKind.UNPLUGGED, base + 30 * MINUTE_MS, level = 100),
+                    historyEvent(HistoryKind.SCREEN_OFF, base + 60 * MINUTE_MS, level = 99),
+                    historyEvent(HistoryKind.SCREEN_ON, base + 540 * MINUTE_MS, level = 91),
+                )
+            store.insertHistory(
+                listOf(
+                    historyEvent(HistoryKind.SCREEN_OFF, base - 3 * HOUR_MS, level = 90),
+                    historyEvent(HistoryKind.LEVEL, base + 300 * MINUTE_MS, level = 95),
+                ) + kept,
+                statsStartMs = 1L,
+            )
+
+            val window = store.unplugWindow(from, now.clock.wallMs)
+
+            assertEquals(listOf(screenOn, chargeJob, late), window.snapshots.map { it.id })
+            assertEquals(kept, window.history)
+            val summary = UnplugSummaryCalculator.compute(window.snapshots, now, window.history) as UnplugSummary.Discharging
+            val whole =
+                UnplugSummaryCalculator.compute(
+                    store.snapshotsBetween(from, now.clock.wallMs),
+                    now,
+                    store.historyBetween(from, now.clock.wallMs),
+                )
+            assertEquals(whole, summary)
+            assertEquals(base + 30 * MINUTE_MS, summary.anchorWallMs)
+            assertEquals(8 / 8.0, summary.screenOffPctPerHour!!, 1e-9)
+        }
+
+    @Test
+    fun `unplugWindow reaches back to a history unplug older than its snapshots and keeps the summary`() =
+        runBlocking {
+            val base = 40L * DAY_MS
+            // No plugged row: the late disconnect is the mark, and its window starts at the screen capture before it.
+            val open = store.insert(statusPoint(CaptureTrigger.APP_OPEN, base, plugged = null, level = 100))
+            val screenOn = store.insert(statusPoint(CaptureTrigger.SCREEN_ON, base + 10 * MINUTE_MS, plugged = null, level = 99))
+            val late = store.insert(statusPoint(CaptureTrigger.POWER_DISCONNECTED, base + 300 * MINUTE_MS, plugged = false, level = 90))
+            val now = statusPoint(CaptureTrigger.APP_OPEN, base + 310 * MINUTE_MS, plugged = false, level = 89)
+            val from = now.clock.wallMs - 30L * DAY_MS
+            val kept =
+                listOf(
+                    historyEvent(HistoryKind.SCREEN_OFF, base - 30 * MINUTE_MS, level = 100),
+                    historyEvent(HistoryKind.UNPLUGGED, base + 5 * MINUTE_MS, level = 100),
+                    historyEvent(HistoryKind.SCREEN_ON, base + 9 * MINUTE_MS, level = 99),
+                )
+            store.insertHistory(listOf(historyEvent(HistoryKind.SCREEN_ON, base - HOUR_MS, level = 100)) + kept, statsStartMs = 1L)
+            assertEquals(listOf(screenOn, late), store.unplugWindowSnapshots(from, now.clock.wallMs).map { it.id })
+
+            val window = store.unplugWindow(from, now.clock.wallMs)
+
+            assertEquals(listOf(open, screenOn, late), window.snapshots.map { it.id })
+            assertEquals(kept, window.history)
+            val summary = UnplugSummaryCalculator.compute(window.snapshots, now, window.history) as UnplugSummary.Discharging
+            val whole =
+                UnplugSummaryCalculator.compute(
+                    store.snapshotsBetween(from, now.clock.wallMs),
+                    now,
+                    store.historyBetween(from, now.clock.wallMs),
+                )
+            assertEquals(whole, summary)
+            assertEquals(base + 5 * MINUTE_MS, summary.anchorWallMs)
+            assertEquals(11, summary.dropPct)
+        }
+
+    private fun historyEvent(
+        kind: Int,
+        wallMs: Long,
+        level: Int,
+    ) = HistoryEvent(
+        historyTimeMs = wallMs,
+        wallMs = wallMs,
+        kind = kind,
+        levelPct = level,
+        chargeUah = -1L,
+        temperatureDeciC = 300,
+        voltageMv = 3_900,
+        plugType = 0,
+    )
+
     private fun statusPoint(
         trigger: CaptureTrigger,
         wallMs: Long,
