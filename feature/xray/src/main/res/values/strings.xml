@@ -82,7 +82,6 @@
         <item quantity="one">%d app hidden: no baseline for this interval</item>
         <item quantity="other">%d apps hidden: no baseline for this interval</item>
     </plurals>
-    <string name="xray_app_icon_placeholder">App icon unavailable</string>
 
     <!-- App detail sheet -->
     <string name="xray_detail_components">Energy by component</string>

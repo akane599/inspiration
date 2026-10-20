@@ -82,7 +82,6 @@
         <item quantity="one">%d uygulama gizlendi: bu aralık için başlangıç değeri yok</item>
         <item quantity="other">%d uygulama gizlendi: bu aralık için başlangıç değeri yok</item>
     </plurals>
-    <string name="xray_app_icon_placeholder">Uygulama simgesi yok</string>
 
     <!-- App detail sheet -->
     <string name="xray_detail_components">Bileşene göre enerji</string>
