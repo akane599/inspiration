@@ -160,8 +160,6 @@ sealed interface AwakeCheckUi {
         val screenOffMs: Long,
         val scope: CulpritScope,
         val culprits: ImmutableList<CulpritRow>,
-        /** App wakelocks and alarms need a full snapshot at both ends (H14), so only kernel culprits are listed. */
-        val needsFullSnapshots: Boolean,
         /**
          * Apps no rule could check for the period: owner not proven at both ends, usage list truncated, counters reset
          * or package changed. The card names no single cause.

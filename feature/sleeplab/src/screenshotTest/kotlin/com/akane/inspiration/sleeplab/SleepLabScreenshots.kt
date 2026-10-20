@@ -77,9 +77,6 @@ import com.android.tools.screenshot.PreviewTest
 @PreviewTest @Preview(name = "culprit-whole-interval", showBackground = true, widthDp = 412, heightDp = 2500)
 @Composable fun SleepLabCulpritWholeInterval() = SleepLabPreviewHost(darkTheme = true, state = SleepLabPreviewData.culpritWholeInterval)
 
-@PreviewTest @Preview(name = "culprit-needs-full-snapshots", showBackground = true, widthDp = 412, heightDp = 2300)
-@Composable fun SleepLabCulpritNeedsFull() = SleepLabPreviewHost(darkTheme = true, state = SleepLabPreviewData.culpritNeedsFull)
-
 @PreviewTest @Preview(name = "culprit-not-evaluable", showBackground = true, widthDp = 412, heightDp = 2000)
 @Composable fun SleepLabCulpritNotEvaluable() = SleepLabPreviewHost(darkTheme = true, state = SleepLabPreviewData.culpritNotEvaluable)
 

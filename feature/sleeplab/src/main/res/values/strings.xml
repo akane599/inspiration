@@ -43,7 +43,6 @@
     <string name="sleeplab_culprit_kind_alarm">Wake-up alarm</string>
     <string name="sleeplab_culprit_kind_wakeup_reason">Wake-up reason</string>
     <string name="sleeplab_culprit_none">No wakelock or alarm stands out in this period\'s counters.</string>
-    <string name="sleeplab_culprit_needs_full_body">App wakelocks and alarms need a full snapshot at both ends of the period, so only kernel wakelocks are listed. Pull down to refresh, then check back as more snapshots are collected.</string>
     <!-- %1$s: the number of apps -->
     <plurals name="sleeplab_culprit_skipped_apps">
         <item quantity="one">%1$s app couldn\'t be checked for this period, so its wakelocks and alarms aren\'t counted here.</item>

@@ -338,23 +338,6 @@ class SleepLabMappersTest {
     }
 
     @Test
-    fun `without full snapshots at both ends per-app tabs say so and the kernel tab is unaffected`() {
-        val diff =
-            snapshotDiff(
-                uids = listOf(uidDelta(10_001, wakelocks = listOf(wakelock("a", 1_000, 1)), alarms = listOf(UidAlarm("t", 2)))),
-                kernel = listOf(KernelWakelock("wlan", 5_000, 3)),
-            )
-
-        assertEquals(ListUi.NeedsFullSnapshots, appWakelockRows(diff, perUidAvailable = false, labels = emptyMap()))
-        assertEquals(ListUi.NeedsFullSnapshots, alarmRows(diff, perUidAvailable = false, labels = emptyMap()))
-        assertTrue(kernelWakelockRows(diff) is ListUi.Rows)
-        assertTrue(
-            "a diff the resolver marked per-uid-less must not even look up labels",
-            visiblePackages(intervalAnalysis(resolved(perUidAvailable = false), diff)).isEmpty(),
-        )
-    }
-
-    @Test
     fun `reset battery stats make the per-app tabs unavailable`() {
         // Both ends name their battery-stats session, so an invalid one is a reset.
         val diff = snapshotDiff(batteryStatsValid = false)

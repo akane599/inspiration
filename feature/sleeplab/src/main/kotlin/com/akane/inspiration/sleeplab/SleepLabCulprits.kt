@@ -18,7 +18,6 @@ import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.semantics
 import com.akane.inspiration.designsystem.component.CardTitle
-import com.akane.inspiration.designsystem.component.EmptyState
 import com.akane.inspiration.designsystem.component.InspirationCard
 import com.akane.inspiration.designsystem.component.MetricBar
 import com.akane.inspiration.designsystem.component.MetricValue
@@ -159,7 +158,7 @@ private fun severityColor(severity: Severity): Color =
         Severity.AMBER -> MaterialTheme.statusColors.warning
     }
 
-/** The culprits with dividers; per-app ones need full snapshots at both ends, and saying so is an explicit state. */
+/** The culprits with dividers, or a line saying the rule named none. */
 @Composable
 private fun CulpritList(
     violation: AwakeCheckUi.Violation,
@@ -171,13 +170,8 @@ private fun CulpritList(
             if (index > 0) HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
             CulpritItem(culprit, explain, format)
         }
-        when {
-            violation.needsFullSnapshots -> EmptyState(
-                title = stringResource(R.string.sleeplab_needs_full_title),
-                body = stringResource(R.string.sleeplab_culprit_needs_full_body),
-                action = null,
-            )
-            violation.culprits.isEmpty() -> Text(
+        if (violation.culprits.isEmpty()) {
+            Text(
                 text = stringResource(R.string.sleeplab_culprit_none),
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,

@@ -13,7 +13,6 @@ import com.akane.inspiration.telemetry.interval.IntervalMetrics
 import com.akane.inspiration.telemetry.snapshot.SleepStats
 import com.akane.inspiration.telemetry.snapshot.SnapshotDiff
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -49,14 +48,17 @@ class SleepLabCulpritsTest {
     /** A screen-off-only interval: under the capture slack of screen-on time, no unknown time. */
     private fun screenOffMetrics(screenOnMs: Long = 0) = intervalMetrics().copy(screenOnMs = screenOnMs, screenOffMs = 8 * HOUR_MS)
 
+    /**
+     * A FULL pair. Without per-UID data at one end that end is LIGHT and has no screen-off figures, so the rule can't
+     * run at all; `SleepLabMissingSourceTest` checks that through the real differ.
+     */
     private fun analysed(
         diff: SnapshotDiff = night,
-        perUid: Boolean = true,
         metrics: IntervalMetrics = screenOffMetrics(),
     ) = intervalAnalysis(
-        resolved = resolved(perUidAvailable = perUid),
+        resolved = resolved(perUidAvailable = true),
         diff = diff,
-        report = engine.evaluate(DiagnosticInput(diff, metrics, perUid)),
+        report = engine.evaluate(DiagnosticInput(diff, metrics, true)),
     )
 
     @Test
@@ -67,7 +69,6 @@ class SleepLabCulpritsTest {
         assertEquals(0.25, ui.awakeRatio, 1e-9)
         assertEquals(8 * HOUR_MS, ui.screenOffMs)
         assertEquals(CulpritScope.SCREEN_OFF_ONLY, ui.scope)
-        assertFalse(ui.needsFullSnapshots)
         assertEquals("the invalid uid is counted, never ranked", 1, ui.skippedApps)
         assertEquals(
             listOf(
@@ -85,15 +86,6 @@ class SleepLabCulpritsTest {
         val ui = awakeCheckUi(analysed(metrics = screenOffMetrics(screenOnMs = 2 * HOUR_MS)), emptyMap()) as AwakeCheckUi.Violation
 
         assertEquals(CulpritScope.WHOLE_INTERVAL_CONTRIBUTORS, ui.scope)
-    }
-
-    @Test
-    fun `without per-uid data only the kernel culprit is listed and the card asks for full snapshots`() {
-        val ui = awakeCheckUi(analysed(perUid = false), mapOf("com.chat" to "Chat")) as AwakeCheckUi.Violation
-
-        assertTrue(ui.needsFullSnapshots)
-        assertEquals(listOf(EntryKind.KERNEL), ui.culprits.map { it.kind })
-        assertEquals("the needs-full state already says no app was checked", 0, ui.skippedApps)
     }
 
     @Test

@@ -43,7 +43,6 @@
     <string name="sleeplab_culprit_kind_alarm">Uyandıran alarm</string>
     <string name="sleeplab_culprit_kind_wakeup_reason">Uyanma nedeni</string>
     <string name="sleeplab_culprit_none">Bu dönemin sayaçlarında öne çıkan bir wakelock ya da alarm yok.</string>
-    <string name="sleeplab_culprit_needs_full_body">Uygulama wakelock\'ları ve alarmlar için dönemin iki ucunda da tam bir anlık görüntü gerekir, bu yüzden yalnızca çekirdek wakelock\'ları listelenir. Aşağı çekerek yenile, sonra daha fazla anlık görüntü toplandıkça tekrar bak.</string>
     <!-- %1$s: the number of apps -->
     <plurals name="sleeplab_culprit_skipped_apps">
         <item quantity="one">%1$s uygulama bu dönem için denetlenemedi, bu yüzden wakelock\'ları ve alarmları burada sayılmadı.</item>

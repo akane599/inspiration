@@ -9,7 +9,6 @@ import com.akane.inspiration.diagnostics.analysis.IntervalAnalysis
 import com.akane.inspiration.diagnostics.analysis.SegmentKind
 import com.akane.inspiration.diagnostics.analysis.Timeline
 import com.akane.inspiration.diagnostics.analysis.forSelection
-import com.akane.inspiration.diagnostics.dictionary.EntryKind
 import com.akane.inspiration.diagnostics.model.AwakeViolation
 import com.akane.inspiration.diagnostics.model.RuleId
 import com.akane.inspiration.diagnostics.rules.NO_AWAKE_TIME
@@ -327,9 +326,9 @@ private fun clusterRoles(count: Int): List<ClusterRole> =
 /**
  * The screen-off awake check (Rule 2) as the culprit card shows it. A rule that could not run is
  * [AwakeCheckUi.NotEvaluable] with its reason, never [AwakeCheckUi.WithinLimit]. Each culprit's owner comes from the
- * (already package-resolved) [IntervalAnalysis.diff] by UID, and [labels] maps its package to an app label. Without
- * per-UID data at both ends (H14) only the kernel culprit is kept: app wakelock and alarm figures would compare a
- * full snapshot with one that has no apps.
+ * (already package-resolved) [IntervalAnalysis.diff] by UID, and [labels] maps its package to an app label. A
+ * violation needs screen-off figures, which only a full snapshot at both ends carries, so a period without per-UID
+ * data (H14) is [AwakeCheckUi.NotEvaluable] before any culprit is read.
  */
 internal fun awakeCheckUi(
     analysis: IntervalAnalysis,
@@ -338,11 +337,9 @@ internal fun awakeCheckUi(
     val report = analysis.report
     report.notEvaluable[RuleId.AWAKE_VIOLATION]?.let { return AwakeCheckUi.NotEvaluable(awakeSkipReason(it, analysis.diff)) }
     val violation = report.insights.firstNotNullOfOrNull { it as? AwakeViolation } ?: return AwakeCheckUi.WithinLimit
-    val perUid = analysis.resolved.perUidAvailable
     val packages = analysis.diff.uids.associate { it.uid to it.packageName }
     val culprits =
         violation.culprits
-            .filter { perUid || it.kind == EntryKind.KERNEL }
             .map { culprit ->
                 val pkg = culprit.uid?.let { packages[it] }
                 CulpritRow(
@@ -361,9 +358,7 @@ internal fun awakeCheckUi(
         screenOffMs = violation.screenOffMs,
         scope = violation.culpritScope,
         culprits = culprits.toImmutableList(),
-        needsFullSnapshots = !perUid,
-        // Without per-UID data no app was checked at all, which the needs-full-snapshots state already says.
-        skippedApps = if (perUid) report.skippedInvalidUids else 0,
+        skippedApps = report.skippedInvalidUids,
     )
 }
 

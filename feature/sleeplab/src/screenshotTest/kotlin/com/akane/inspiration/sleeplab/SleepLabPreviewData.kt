@@ -327,10 +327,6 @@ internal object SleepLabPreviewData {
     val culpritWholeInterval =
         apps.copy(analysis = ui(report = awakeReport(Severity.AMBER, 0.093, CulpritScope.WHOLE_INTERVAL_CONTRIBUTORS, skipped = 2)))
 
-    /** One end has no per-app data (H14): only the kernel culprit is listed, and the card asks for full snapshots. */
-    val culpritNeedsFull =
-        apps.copy(analysis = ui(perUid = false, report = awakeReport(Severity.RED, 0.24, CulpritScope.SCREEN_OFF_ONLY)))
-
     /** Too little screen-off time to check: the card says so instead of implying the night was fine. */
     val culpritNotEvaluable =
         apps.copy(analysis = ui(report = DiagnosticReport(emptyList(), mapOf(RuleId.AWAKE_VIOLATION to NO_SCREEN_OFF_TIME), 0)))
