@@ -30,6 +30,9 @@ import org.junit.Test
 private const val CHATTY_UID = 10_002
 private const val MAPS_UID = 10_001
 
+/** A UID several packages share through `android:sharedUserId`, like the media providers' UID. */
+private const val MEDIA_UID = 10_011
+
 /**
  * The ViewModel against a real [com.akane.inspiration.telemetry.toolkit.ToolkitActions] that talks to a fake
  * device, so plan, confirmation, execute and read-back are the production ones; only the service is faked.
@@ -297,7 +300,7 @@ class XRayViewModelTest {
     }
 
     @Test
-    fun `a shared uid is named by the reported package when it owns it, else by its first package`() {
+    fun `a shared uid is named by the package its reported process belongs to`() {
         val fake =
             FakeXRayDeps().apply {
                 packagesByUid[CHATTY_UID] = listOf(CHATTY, "com.example.aardvark")
@@ -307,8 +310,46 @@ class XRayViewModelTest {
         start(fake, readyOf(diffOf(uids = uids)))
 
         assertEquals(CHATTY, state.apps.first { it.uid == CHATTY_UID }.packageName)
-        assertEquals("com.example.aardvark.maps", state.apps.first { it.uid == MAPS_UID }.packageName)
-        assertEquals("Label of com.example.aardvark.maps", state.apps.first { it.uid == MAPS_UID }.label)
+        assertEquals(MAPS, state.apps.first { it.uid == MAPS_UID }.packageName)
+        assertEquals("Label of $MAPS", state.apps.first { it.uid == MAPS_UID }.label)
+        assertEquals("a named app is not labelled as shared", listOf(0, 0), state.apps.map { it.sharedBy })
+    }
+
+    @Test
+    fun `a shared uid whose reported process names none of its apps is named and acted on as none of them`() {
+        // The media UID on the redroid device: its drain is reported under the process android.process.media.
+        val owners = listOf("com.android.providers.media", "com.android.providers.downloads", "com.android.mtp")
+        val fake = FakeXRayDeps().apply { packagesByUid[MEDIA_UID] = owners }
+        start(fake, readyOf(diffOf(uids = listOf(uidDelta(MEDIA_UID, "android.process.media", 40.0)))))
+
+        val row = state.apps.single()
+        assertNull("not the alphabetically first owner (com.android.mtp)", row.packageName)
+        assertNull(row.label)
+        assertEquals("the row says how many apps share the uid", 3, row.sharedBy)
+
+        vm.onIntent(XRayIntent.OpenApp(MEDIA_UID))
+        assertEquals(ActionsState.NoPackage, detail.actions)
+        vm.onIntent(XRayIntent.Act(ActionRequest.ForceStop))
+        assertNull(state.confirmation)
+        assertTrue("no read, plan or write for any owner", deps.device.calls.isEmpty())
+    }
+
+    @Test
+    fun `a shared uid batterystats reports without a process is named and acted on as none of its apps`() {
+        val fake = FakeXRayDeps().apply { packagesByUid[MEDIA_UID] = listOf("com.android.mtp", "com.android.providers.media") }
+        start(fake, readyOf(diffOf(uids = listOf(uidDelta(MEDIA_UID, null, 40.0)))))
+
+        assertNull(state.apps.single().packageName)
+        assertEquals(2, state.apps.single().sharedBy)
+        vm.onIntent(XRayIntent.OpenApp(MEDIA_UID))
+        assertEquals(ActionsState.NoPackage, detail.actions)
+    }
+
+    @Test
+    fun `a row is labelled as shared only when several apps run as its uid`() {
+        start(FakeXRayDeps(), readyOf(diffOf(uids = listOf(uidDelta(10_003, "com.example.gone:remote", 5.0), uidDelta(1_000, null, 4.0)))))
+
+        assertEquals(listOf(0, 0), state.apps.map { it.sharedBy })
     }
 
     @Test

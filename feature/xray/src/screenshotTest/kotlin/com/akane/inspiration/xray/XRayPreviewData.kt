@@ -163,6 +163,13 @@ internal object XRayPreviewData {
 
     val detailNoPackage = AppDetail(app = apps.last(), actions = ActionsState.NoPackage)
 
+    /** A UID five apps share whose drain batterystats tied to none of them: named by the UID, with no actions. */
+    val detailSharedUid =
+        AppDetail(
+            app = app(10_011, null, null, 9.6, 6.0, listOf("CPU" to 5.1, "WIFI" to 2.5, "MOBILE_RADIO" to 2.0)).copy(sharedBy = 5),
+            actions = ActionsState.NoPackage,
+        )
+
     val detailUnsupportedUser = AppDetail(app = chatty.copy(uid = 1_010_214), actions = ActionsState.UnsupportedUser)
 
     val confirmForceStop =

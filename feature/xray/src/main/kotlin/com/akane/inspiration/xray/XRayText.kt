@@ -54,6 +54,7 @@ internal fun timesText(count: Long): String {
 internal fun displayName(app: AppRow): String =
     app.label
         ?: app.packageName
+        ?: app.sharedBy.takeIf { it > 0 }?.let { pluralStringResource(R.plurals.xray_uid_shared, it, it, app.uid) }
         ?: systemUidLabelRes(app.uid)?.let { stringResource(it) }
         ?: stringResource(R.string.xray_uid_label, app.uid)
 

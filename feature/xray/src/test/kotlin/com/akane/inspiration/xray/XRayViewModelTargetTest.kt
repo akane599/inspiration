@@ -28,16 +28,15 @@ import kotlin.coroutines.suspendCoroutine
 private const val SUITE_UID = 10_050
 private const val PROFILE_SUITE_UID = 1_010_050 // Android user 10, same app id as the owner installation.
 
-/** The lowest package name of the shared UID: what PackageManager's fallback (`minOrNull`) answers. */
+/** The shared UID's package whose process batterystats first names as its highest drain. */
 private const val SUITE_A = "com.example.suite.a"
 
 /** The sibling package batterystats names as the UID's highest drain in a later capture. */
 private const val SUITE_B = "com.example.suite.b"
 
 /**
- * One UID can change package between analyses: batterystats first reports a shared UID without a package, so
- * the PackageManager fallback names [SUITE_A], and a later capture names [SUITE_B] (`packageChanged` stays false
- * because one side is null). A privileged write must never be retargeted: a missing UID/package closes the
+ * One UID can change package between analyses: batterystats first names a shared UID by [SUITE_A]'s process, and a
+ * later capture by [SUITE_B]'s. A privileged write must never be retargeted: a missing UID/package closes the
  * sheet and its confirmation; a write already running still finishes against the package it was pinned to.
  */
 @OptIn(ExperimentalCoroutinesApi::class)
@@ -54,7 +53,7 @@ class XRayViewModelTargetTest {
         Dispatchers.setMain(UnconfinedTestDispatcher())
         deps = FakeXRayDeps()
         deps.packagesByUid[SUITE_UID] = listOf(SUITE_A, SUITE_B)
-        deps.analysis.value = suiteAnalysis(packageName = null, totalMah = 30.0)
+        deps.analysis.value = suiteAnalysis(packageName = SUITE_A, totalMah = 30.0)
         vm = XRayViewModel(deps)
         vm.onIntent(XRayIntent.Visible)
     }
@@ -76,7 +75,7 @@ class XRayViewModelTargetTest {
 
     private fun openSuite() {
         vm.onIntent(XRayIntent.OpenApp(SUITE_UID))
-        assertEquals("precondition: the sheet is for the fallback package", SUITE_A, detail.app.packageName)
+        assertEquals("precondition: the sheet is for the reported package", SUITE_A, detail.app.packageName)
     }
 
     private fun addProfileInstallation() {

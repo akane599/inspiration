@@ -76,23 +76,36 @@ interface AppLabels {
     /**
      * The visible installed packages that run as app [uid], in any order. Empty for system and shared platform
      * UIDs (app id below 10000), which own no single app, and for UIDs no visible package owns. Screens name a
-     * UID through [packageForUid], never through this list directly.
+     * UID through [packageForUid] (or [identifyingPackage] over this list), never by picking from it directly.
      */
     suspend fun packagesForUid(uid: Int): List<String> = emptyList()
 }
 
 /**
- * The installed package that identifies app [uid]: the one rule every screen uses to name a battery-stats UID.
- * batterystats' [reported] name (`UidBatteryConsumer.getPackageWithHighestDrain()`) is a *process* name such as
- * `com.example.chat:push`, or null, so it is only a hint. Without its `:process` suffix it is the answer when it is
- * one of the UID's packages; otherwise the alphabetically first of them is, so the answer is stable between calls.
- * Null when no visible package runs as [uid] (system and shared platform UIDs included): the result is always a
- * package `PackageManager` lists for the UID, never the reported name itself.
+ * The installed package that identifies app [uid]: the one rule every screen uses to name a battery-stats UID, the
+ * [identifyingPackage] among [AppLabels.packagesForUid]. Null when no visible package runs as [uid] (system and
+ * shared platform UIDs included), or when several do and batterystats' [reported] process belongs to none of them.
  */
 suspend fun AppLabels.packageForUid(
     uid: Int,
     reported: String?,
+): String? = identifyingPackage(packagesForUid(uid), reported)
+
+/**
+ * Which of a UID's [owners] (its installed packages) identifies it. batterystats' [reported] name
+ * (`UidBatteryConsumer.getPackageWithHighestDrain()`) is a *process* name such as `com.example.chat:push`, or null,
+ * so it is only a hint. Without its `:process` suffix it names the owner it equals, else the longest owner it extends
+ * by a dotted suffix (`com.google.android.gms.persistent`), the way an app names its own extra processes. Otherwise the
+ * UID's only owner identifies it. A UID several packages share (`android:sharedUserId`) whose hint names none of them,
+ * such as the media providers' `android.process.media`, has no single app to name or act on, so the answer is null,
+ * never one owner picked by name (B-08). The answer is always one of [owners], never the reported name itself.
+ */
+fun identifyingPackage(
+    owners: Collection<String>,
+    reported: String?,
 ): String? {
-    val owners = packagesForUid(uid)
-    return reported?.substringBefore(':')?.takeIf { it in owners } ?: owners.minOrNull()
+    val process = reported?.substringBefore(':')
+    return owners.firstOrNull { it == process }
+        ?: process?.let { name -> owners.filter { name.startsWith("$it.") }.maxByOrNull { it.length } }
+        ?: owners.singleOrNull()
 }

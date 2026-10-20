@@ -83,6 +83,11 @@ data class AppRow(
     val alarms: ImmutableList<AlarmRow>,
     val dumpCountersAvailable: Boolean = true,
     val alarmsAvailable: Boolean = true,
+    /**
+     * How many installed apps share this UID when none of them can be named for it ([packageName] is null): a
+     * shared UID (`android:sharedUserId`) whose reported process belongs to none of them. Zero otherwise.
+     */
+    val sharedBy: Int = 0,
 )
 
 /**

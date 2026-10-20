@@ -191,6 +191,16 @@ fun XRayDetailRefused() = InspirationTheme(darkTheme = false) { SheetBody(XRayPr
 fun XRayDetailNoPackage() = InspirationTheme(darkTheme = false) { SheetBody(XRayPreviewData.detailNoPackage) }
 
 @PreviewTest
+@Preview(name = "detail-shared-uid", showBackground = true, widthDp = 412, heightDp = 720)
+@Composable
+fun XRayDetailSharedUid() = InspirationTheme(darkTheme = false) { SheetBody(XRayPreviewData.detailSharedUid) }
+
+@PreviewTest
+@Preview(name = "detail-shared-uid-turkish-large-font", showBackground = true, widthDp = 360, heightDp = 1240, locale = "tr", fontScale = 1.5f)
+@Composable
+fun XRayDetailSharedUidTurkishLargeFont() = InspirationTheme(darkTheme = false) { SheetBody(XRayPreviewData.detailSharedUid) }
+
+@PreviewTest
 @Preview(name = "detail-turkish", showBackground = true, widthDp = 360, heightDp = 1640, locale = "tr")
 @Composable
 fun XRayDetailTurkish() = InspirationTheme(darkTheme = false) { SheetBody(XRayPreviewData.detailWithOverride) }

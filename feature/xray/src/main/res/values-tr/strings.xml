@@ -12,6 +12,11 @@
     <string name="xray_share_percent">%%%1$s</string>
     <string name="xray_share_under_one" formatted="false">&lt;%1</string>
     <string name="xray_uid_label">UID %1$d</string>
+    <!-- A UID several apps share (android:sharedUserId) whose drain batterystats tied to none of them. -->
+    <plurals name="xray_uid_shared">
+        <item quantity="one">UID %2$d · %1$d uygulama ortak kullanıyor</item>
+        <item quantity="other">UID %2$d · %1$d uygulama ortak kullanıyor</item>
+    </plurals>
 
     <!-- Shared platform UIDs that no single app owns. -->
     <string name="xray_uid_root">Root işlemleri</string>
