@@ -37,6 +37,12 @@ data class ResolvedReference(
     val perUidAvailable: Boolean,
 )
 
+/** A wall-clock window `(fromWallMs, toWallMs]` timed by the stored battery history alone, `fromWallMs < toWallMs`. */
+data class HistoryWindow(
+    val fromWallMs: Long,
+    val toWallMs: Long,
+)
+
 class ReferenceResolver(
     private val store: SnapshotStore,
 ) {
@@ -58,6 +64,19 @@ class ReferenceResolver(
         nowWallMs: Long,
         events: List<HistoryEvent>,
     ): ResolvedReference? = resolve(kind, nowWallMs, ListedAnchors(events))
+
+    /**
+     * The newest completed screen-off period as the stored history times it, with no snapshot at either end: what
+     * [ReferenceKind.SinceScreenOff] can still measure from history alone when [resolve] finds no snapshot pair for
+     * it (no capture within [CAPTURE_SLACK_MS] of its SCREEN_ON). Null when the history holds no such period up to
+     * [nowWallMs], or when a captured period newer than it is the one [ReferenceKind.SinceScreenOff] stands for.
+     */
+    suspend fun historyScreenOff(nowWallMs: Long): HistoryWindow? {
+        val history = StoredAnchors(nowWallMs).completedScreenOff() ?: return null
+        val captured = completedScreenOffFromSnapshots(nowWallMs)
+        if (captured != null && captured.fromWallMs > history.toWallMs) return null
+        return if (history.fromWallMs < history.toWallMs) HistoryWindow(history.fromWallMs, history.toWallMs) else null
+    }
 
     private suspend fun resolve(
         kind: ReferenceKind,
@@ -269,7 +288,7 @@ class ReferenceResolver(
      * snapshot within [CAPTURE_SLACK_MS] of the history's SCREEN_ON must close it: the first one at or after it
      * (normally that broadcast's own capture, which lands after it) becomes the end, so it is inside the window,
      * else the newest one before it. With neither, no snapshot measures the period's end, and an earlier one would
-     * stand for a sliver of it, so the result is null.
+     * stand for a sliver of it, so the result is null ([historyScreenOff] then gives the history's own timing).
      */
     private suspend fun sinceScreenOff(
         anchors: HistoryAnchors,

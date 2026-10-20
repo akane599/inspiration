@@ -19,6 +19,7 @@ import com.akane.inspiration.diagnostics.analysis.forSelection
 import com.akane.inspiration.diagnostics.story.reportableDeepSleepRatio
 import com.akane.inspiration.ipc.ShizukuState
 import com.akane.inspiration.telemetry.diff.ReferenceKind
+import com.akane.inspiration.telemetry.interval.IntervalMetrics
 import com.akane.inspiration.telemetry.snapshot.LiveReading
 import kotlinx.collections.immutable.toImmutableList
 
@@ -106,10 +107,40 @@ internal fun shizukuUi(state: ShizukuState): ShizukuUi =
 internal fun analysisUi(state: AnalysisState): AnalysisUi =
     when (state) {
         AnalysisState.Loading -> AnalysisUi.Loading
-        is AnalysisState.Empty -> AnalysisUi.Empty
+        is AnalysisState.Empty -> AnalysisUi.Empty(emptyReason(state), state.historyOnly?.let(::historyOnlyMetricsUi))
         is AnalysisState.Failed -> AnalysisUi.Error
         is AnalysisState.Ready -> AnalysisUi.Ready(state.analysis.story, metricsUi(state.analysis))
     }
+
+/** Only "Since screen off" can tell a period the history times but no capture closed from one with no period at all. */
+private fun emptyReason(state: AnalysisState.Empty): EmptyReason =
+    when {
+        state.kind != ReferenceKind.SinceScreenOff -> EmptyReason.NoSnapshotPair
+        state.historyOnly != null -> EmptyReason.ScreenOffNotCaptured
+        else -> EmptyReason.NoScreenOffPeriod
+    }
+
+/**
+ * The grid figures the battery history alone supports: the level-drop rates and the screen time. The mAh figures
+ * and CPU suspend come from the counters of a snapshot pair, so they stay dashes.
+ */
+internal fun historyOnlyMetricsUi(metrics: IntervalMetrics): MetricsUi =
+    MetricsUi(
+        activePctPerHour = metrics.screenOnPctPerHour,
+        activeMahPerHour = null,
+        idlePctPerHour = metrics.screenOffPctPerHour,
+        idleMahPerHour = null,
+        deepSleepRatio = null,
+        deepSleepMs = null,
+        screenOnMs = metrics.attributedScreenOnMs(),
+        screenOffAwakeMs = null,
+    )
+
+/**
+ * History metrics count only attributed time: with unknown time or a reset in the interval their screen-on total is
+ * a partial sum, so the tile shows a dash rather than an undercount.
+ */
+private fun IntervalMetrics.attributedScreenOnMs(): Long? = screenOnMs.takeIf { unknownMs == 0L && discontinuities.isEmpty() }
 
 /**
  * The grid figures of one interval. Anything the interval cannot support stays null: a rate needs at least
@@ -135,11 +166,7 @@ internal fun metricsUi(analysis: IntervalAnalysis): MetricsUi {
         idleMahPerHour = mahPerHour(screenOff, sleep?.screenOffMs),
         deepSleepRatio = ratio,
         deepSleepMs = sleep?.deepSleepMs?.takeIf { ratio != null },
-        // History metrics count only attributed time: with unknown time or a reset in the interval their
-        // screen-on total is a partial sum, so the tile shows a dash rather than an undercount.
-        screenOnMs =
-            sleep?.screenOnMs
-                ?: metrics.screenOnMs.takeIf { metrics.unknownMs == 0L && metrics.discontinuities.isEmpty() },
+        screenOnMs = sleep?.screenOnMs ?: metrics.attributedScreenOnMs(),
         screenOffAwakeMs = sleep?.screenOffAwakeMs,
     )
 }

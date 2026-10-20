@@ -11,6 +11,7 @@ import com.akane.inspiration.telemetry.diff.ResolvedReference
 import com.akane.inspiration.telemetry.diff.SnapshotDiffer
 import com.akane.inspiration.telemetry.interval.IntervalMetrics
 import com.akane.inspiration.telemetry.interval.IntervalMetricsCalculator
+import com.akane.inspiration.telemetry.interval.historyOnlyMetrics
 import com.akane.inspiration.telemetry.interval.intervalHistory
 import com.akane.inspiration.telemetry.snapshot.SnapshotDiff
 import com.akane.inspiration.telemetry.store.SnapshotStore
@@ -57,5 +58,20 @@ class IntervalAnalyzer(
         // Stored coverage can lag the requested end, and a cached story can outlive analysis time.
         val story = storyBuilder.build(metrics, diff.sleep, report, endsNow = false)
         return IntervalAnalysis(resolved, diff, metrics, report, story)
+    }
+
+    /**
+     * What the stored history alone measures for [kind] when [analyze] finds no snapshot pair for it. Only
+     * [ReferenceKind.SinceScreenOff] has one: its period is timed by the history's SCREEN_OFF and SCREEN_ON, so a
+     * missing capture at its end leaves the screen time and level drops measurable, never the per-app or kernel
+     * figures. Null for every other kind and when the history holds no completed screen-off period.
+     */
+    suspend fun historyOnly(
+        kind: ReferenceKind,
+        nowWallMs: Long,
+    ): IntervalMetrics? {
+        if (kind != ReferenceKind.SinceScreenOff) return null
+        val window = resolver.historyScreenOff(nowWallMs) ?: return null
+        return store.historyOnlyMetrics(window.fromWallMs, window.toWallMs)
     }
 }

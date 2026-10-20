@@ -206,7 +206,7 @@ internal object CockpitPreviewData {
         CockpitState(
             reference = ReferenceUi.SinceUnplugged,
             shizuku = ShizukuUi(PulseStatus.CONNECTING, ShizukuReason.PermissionRequired, uid = null, canGrant = true),
-            analysis = AnalysisUi.Empty,
+            analysis = AnalysisUi.Empty(EmptyReason.NoSnapshotPair),
             live = null,
             chart =
                 ChartUi.Ready(
@@ -215,6 +215,30 @@ internal object CockpitPreviewData {
             slice = null,
             markerSheet = null,
             refreshing = false,
+        )
+
+    /**
+     * "Since screen off" with no capture when the screen came back on: the empty card says why, and the grid shows
+     * what the battery history alone measured over the 7 h night.
+     */
+    val historyOnly =
+        ready.copy(
+            reference = ReferenceUi.SinceScreenOff,
+            analysis =
+                AnalysisUi.Empty(
+                    EmptyReason.ScreenOffNotCaptured,
+                    historyOnly =
+                        MetricsUi(
+                            activePctPerHour = null,
+                            activeMahPerHour = null,
+                            idlePctPerHour = 0.57,
+                            idleMahPerHour = null,
+                            deepSleepRatio = null,
+                            deepSleepMs = null,
+                            screenOnMs = 0L,
+                            screenOffAwakeMs = null,
+                        ),
+                ),
         )
 
     val error =

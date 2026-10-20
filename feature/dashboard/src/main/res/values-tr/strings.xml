@@ -25,6 +25,9 @@
     <string name="cockpit_empty_title">Henüz analiz edilecek veri yok</string>
     <string name="cockpit_empty_body">Bu dönem için henüz bir çift anlık görüntü yok. Telefonu kullanmaya devam et, sonra yenile.</string>
     <string name="cockpit_empty_blocked_body">Shizuku bağlı olmadığı için henüz pil geçmişi yok. Toplamaya başlamak için izin ver.</string>
+    <string name="cockpit_empty_screen_off_body">Henüz ölçülmüş bir ekran kapalı dönemi yok. Ekran kapanıp yeniden açıldığında bir dönem ölçülür; sonra yenile.</string>
+    <string name="cockpit_history_only_title">Yalnızca pil geçmişinden</string>
+    <string name="cockpit_history_only_body">Ekran yeniden açıldığında anlık görüntü alınmadı, bu yüzden son ekran kapalı dönemi için uygulama başına kullanım ve derin uyku yok. Aşağıdaki tüketim ve ekran süresi pil geçmişinden geliyor.</string>
     <string name="cockpit_empty_refresh">Yenile</string>
     <string name="cockpit_error_title">Bu dönem analiz edilemedi</string>
     <string name="cockpit_error_body">Pil geçmişin okunurken bir sorun oluştu. Tekrar dene ya da başka bir dönem seç.</string>

@@ -1000,7 +1000,7 @@ class CockpitViewModelTest {
             visit(vm) {
                 deps.analysis.value = AnalysisState.Empty(ReferenceKind.SinceUnplugged)
                 runCurrent()
-                assertEquals(AnalysisUi.Empty, vm.state.value.analysis)
+                assertEquals(AnalysisUi.Empty(EmptyReason.NoSnapshotPair), vm.state.value.analysis)
 
                 deps.analysis.value = AnalysisState.Failed("boom", ReferenceKind.SinceUnplugged)
                 runCurrent()

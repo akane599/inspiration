@@ -1,6 +1,7 @@
 package com.akane.inspiration.diagnostics.analysis
 
 import com.akane.inspiration.telemetry.diff.ReferenceKind
+import com.akane.inspiration.telemetry.interval.IntervalMetrics
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
@@ -27,8 +28,11 @@ import kotlinx.coroutines.withContext
 sealed interface AnalysisState {
     data object Loading : AnalysisState
 
-    /** [kind], the selection it was computed for, has no resolvable snapshot pair. */
-    data class Empty(val kind: ReferenceKind) : AnalysisState
+    /**
+     * [kind], the selection it was computed for, has no resolvable snapshot pair. [historyOnly] is what the stored
+     * history alone measures for it, see [IntervalAnalyzer.historyOnly].
+     */
+    data class Empty(val kind: ReferenceKind, val historyOnly: IntervalMetrics? = null) : AnalysisState
 
     /** [analysis] answers [kind], the selection it was computed for. */
     data class Ready(val analysis: IntervalAnalysis, val kind: ReferenceKind) : AnalysisState
@@ -112,8 +116,11 @@ class AnalysisSession(
     }
 
     private suspend fun compute(kind: ReferenceKind): AnalysisState = try {
-        val analysis = withContext(dispatcher) { analyzer.analyze(kind, nowWallMs()) }
-        if (analysis == null) AnalysisState.Empty(kind) else AnalysisState.Ready(analysis, kind)
+        withContext(dispatcher) {
+            val now = nowWallMs()
+            val analysis = analyzer.analyze(kind, now)
+            if (analysis == null) AnalysisState.Empty(kind, analyzer.historyOnly(kind, now)) else AnalysisState.Ready(analysis, kind)
+        }
     } catch (cancelled: CancellationException) {
         throw cancelled
     } catch (error: Exception) {

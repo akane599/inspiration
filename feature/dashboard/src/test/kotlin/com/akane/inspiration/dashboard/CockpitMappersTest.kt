@@ -445,6 +445,42 @@ class CockpitMappersTest {
         assertFalse("permission cannot help a server that is too old", ui.canGrant)
     }
 
+    // --- Empty analysis ---
+
+    @Test
+    fun `an uncaptured screen-off period says why and keeps the history-only figures`() {
+        val ui = analysisUi(AnalysisState.Empty(ReferenceKind.SinceScreenOff, intervalMetrics(screenOnMs = 0, screenOnPctPerHour = null)))
+
+        val empty = ui as AnalysisUi.Empty
+        assertEquals(EmptyReason.ScreenOffNotCaptured, empty.reason)
+        val metrics = checkNotNull(empty.historyOnly)
+        assertEquals(0.5, checkNotNull(metrics.idlePctPerHour), 1e-9)
+        assertNull(metrics.activePctPerHour)
+        assertEquals(0L, metrics.screenOnMs)
+        assertNull("mAh needs a snapshot pair's counters", metrics.idleMahPerHour)
+        assertNull("CPU suspend needs a snapshot pair's kernel counters", metrics.deepSleepRatio)
+        assertNull(metrics.screenOffAwakeMs)
+    }
+
+    @Test
+    fun `history-only screen time is not taken from a partial history`() {
+        val metrics = historyOnlyMetricsUi(intervalMetrics(unknownMs = 30 * MIN_MS))
+
+        assertNull(metrics.screenOnMs)
+    }
+
+    @Test
+    fun `an empty since screen off with no history period and any other empty reference have their own reasons`() {
+        assertEquals(
+            AnalysisUi.Empty(EmptyReason.NoScreenOffPeriod),
+            analysisUi(AnalysisState.Empty(ReferenceKind.SinceScreenOff)),
+        )
+        assertEquals(
+            AnalysisUi.Empty(EmptyReason.NoSnapshotPair),
+            analysisUi(AnalysisState.Empty(ReferenceKind.SinceUnplugged)),
+        )
+    }
+
     // --- Slice banner ---
 
     @Test

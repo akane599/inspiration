@@ -46,11 +46,19 @@ internal fun StoryCard(
                 StoryLoading()
             }
 
-            AnalysisUi.Empty -> {
-                val blocked = shizuku.reason != ShizukuReason.Ready
+            is AnalysisUi.Empty -> {
+                val historyOnly = analysis.reason == EmptyReason.ScreenOffNotCaptured
+                val body =
+                    when {
+                        // The history is there, whatever Shizuku's state now: say why it is all there is.
+                        historyOnly -> R.string.cockpit_history_only_body
+                        shizuku.reason != ShizukuReason.Ready -> R.string.cockpit_empty_blocked_body
+                        analysis.reason == EmptyReason.NoScreenOffPeriod -> R.string.cockpit_empty_screen_off_body
+                        else -> R.string.cockpit_empty_body
+                    }
                 EmptyState(
-                    title = stringResource(R.string.cockpit_empty_title),
-                    body = stringResource(if (blocked) R.string.cockpit_empty_blocked_body else R.string.cockpit_empty_body),
+                    title = stringResource(if (historyOnly) R.string.cockpit_history_only_title else R.string.cockpit_empty_title),
+                    body = stringResource(body),
                     action =
                         if (shizuku.canGrant) {
                             EmptyStateAction(stringResource(R.string.cockpit_shizuku_grant)) { onIntent(CockpitIntent.GrantShizuku) }

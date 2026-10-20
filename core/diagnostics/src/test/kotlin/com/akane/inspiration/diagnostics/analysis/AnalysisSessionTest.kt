@@ -111,6 +111,32 @@ class AnalysisSessionTest {
         }
 
     @Test
+    fun `an empty since screen off carries what the history alone measures`() =
+        runTest {
+            // The history holds a screen-off period from 2 h to 3 h; no snapshot lies within the capture slack of its end.
+            val store =
+                FakeSnapshotStore(
+                    snapshots = listOf(lightSnapshot(wallMs = 1 * hour), lightSnapshot(wallMs = 5 * hour)),
+                    history =
+                        listOf(
+                            historyEvent(2 * hour, HistoryKind.SCREEN_OFF, level = 80),
+                            historyEvent(3 * hour, HistoryKind.SCREEN_ON, level = 79),
+                        ),
+                )
+            val h = harness(store)
+            h.selection.select(ReferenceKind.SinceScreenOff)
+
+            runCurrent()
+
+            val empty = h.session.state.value as AnalysisState.Empty
+            assertEquals(ReferenceKind.SinceScreenOff, empty.kind)
+            val metrics = empty.historyOnly!!
+            assertEquals(2 * hour, metrics.fromWallMs)
+            assertEquals(3 * hour, metrics.toWallMs)
+            assertEquals(1 * hour, metrics.screenOffMs)
+        }
+
+    @Test
     fun `an empty result for the previous selection is loading for a new one`() =
         runTest {
             val h = harness(FakeSnapshotStore())

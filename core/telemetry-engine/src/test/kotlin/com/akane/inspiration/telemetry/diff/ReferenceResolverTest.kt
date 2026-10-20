@@ -353,6 +353,42 @@ class ReferenceResolverTest {
         }
 
     @Test
+    fun `the history still times a screen-off period that no snapshot closes`() =
+        runTest {
+            val off = NOW - 45_000L
+            val on = NOW - 5_600L
+            val events = listOf(history(off, HistoryKind.SCREEN_OFF), history(on, HistoryKind.SCREEN_ON))
+            val store =
+                LoadCountingStore(
+                    listOf(snapshot(off + 26, CaptureTrigger.SCREEN_OFF, SnapshotKind.LIGHT), snapshot(NOW + 30_000L, CaptureTrigger.APP_OPEN)),
+                    events,
+                )
+            val resolver = ReferenceResolver(store)
+
+            assertNull(resolver.resolve(ReferenceKind.SinceScreenOff, NOW + 30_000L))
+            assertEquals(HistoryWindow(off, on), resolver.historyScreenOff(NOW + 30_000L))
+        }
+
+    @Test
+    fun `no history window without a completed period or when a newer captured period stands for since screen off`() =
+        runTest {
+            val stillOff = listOf(history(NOW - 2 * HOUR_MS, HistoryKind.SCREEN_ON), history(NOW - HOUR_MS, HistoryKind.SCREEN_OFF))
+            assertNull(ReferenceResolver(LoadCountingStore(emptyList(), stillOff)).historyScreenOff(NOW))
+
+            val older = listOf(history(NOW - 5 * HOUR_MS, HistoryKind.SCREEN_OFF), history(NOW - 4 * HOUR_MS, HistoryKind.SCREEN_ON))
+            val newerCaptures =
+                listOf(
+                    snapshot(NOW - 2 * HOUR_MS, CaptureTrigger.SCREEN_OFF, SnapshotKind.LIGHT),
+                    snapshot(NOW - HOUR_MS, CaptureTrigger.SCREEN_ON, SnapshotKind.LIGHT),
+                )
+            assertNull(ReferenceResolver(LoadCountingStore(newerCaptures, older)).historyScreenOff(NOW))
+            assertEquals(
+                HistoryWindow(NOW - 5 * HOUR_MS, NOW - 4 * HOUR_MS),
+                ReferenceResolver(LoadCountingStore(emptyList(), older)).historyScreenOff(NOW),
+            )
+        }
+
+    @Test
     fun `a screen-off period spanning a battery-stats reset starts at the reset`() =
         runTest {
             // Screen off while charging; at full charge the unplug resets battery stats, and the walker restates
@@ -412,6 +448,8 @@ class ReferenceResolverTest {
     /** Records every read that returns a whole snapshot; [latestClockByTrigger] reads only a clock, like Room's. */
     private class LoadCountingStore(
         private val snapshots: List<BatterySnapshot>,
+        /** The stored history, oldest first; only reads the resolver makes from the store itself see it. */
+        private val history: List<HistoryEvent> = emptyList(),
     ) : SnapshotStore {
         val loads = mutableListOf<String>()
 
@@ -476,7 +514,7 @@ class ReferenceResolverTest {
         override suspend fun historyBetween(
             fromWallMs: Long,
             toWallMs: Long,
-        ): List<HistoryEvent> = emptyList()
+        ): List<HistoryEvent> = history.filter { it.wallMs in fromWallMs..toWallMs }
 
         override suspend fun historyCursor(): Pair<Long, Long>? = null
 

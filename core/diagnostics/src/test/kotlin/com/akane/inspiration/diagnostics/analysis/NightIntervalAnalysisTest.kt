@@ -115,6 +115,36 @@ class NightIntervalAnalysisTest {
             assertTrue(RuleId.AWAKE_VIOLATION in light.report.notEvaluable)
         }
 
+    @Test
+    fun `a night no capture closes has no analysis but the history alone still measures it`() =
+        runTest {
+            // The screen-on broadcast was never captured; the app was opened 30 s into the morning and ingested history.
+            val offAt = off + 26
+            val store =
+                FakeSnapshotStore(
+                    snapshots =
+                        listOf(
+                            capture(offAt, CaptureTrigger.SCREEN_OFF, nightMs = 0),
+                            capture(on + 30_000, CaptureTrigger.APP_OPEN, nightMs = on + 30_000 - offAt, ingestedHistory = true),
+                        ),
+                    history = history,
+                )
+            val analyzer = IntervalAnalyzer(store, ruleEngine())
+
+            assertNull(analyzer.analyze(ReferenceKind.SinceScreenOff, NOW))
+            val metrics = analyzer.historyOnly(ReferenceKind.SinceScreenOff, NOW)!!
+
+            // Timed by the history's own SCREEN_OFF and SCREEN_ON, not by any capture.
+            assertEquals(off, metrics.fromWallMs)
+            assertEquals(on, metrics.toWallMs)
+            assertEquals(8 * HOUR, metrics.screenOffMs)
+            assertEquals(0L, metrics.screenOnMs)
+            assertEquals(0L, metrics.unknownMs)
+            assertEquals(30, metrics.levelDropScreenOff)
+            assertEquals(30.0 / 8, metrics.screenOffPctPerHour!!, 1e-9)
+            assertNull("only since screen off has a history-timed period", analyzer.historyOnly(ReferenceKind.SinceUnplugged, NOW))
+        }
+
     /**
      * A FULL (or LIGHT) capture [nightMs] into the night. FULL rows carry batterystats counters of one stats session
      * that grow with it: screen-off time by all of it and awake screen-off time by 30%; the app's background energy,

@@ -24,3 +24,18 @@ suspend fun SnapshotStore.intervalHistory(
     }
     return seeds + if (bound <= toWallMs) historyBetween(bound, toWallMs) else emptyList()
 }
+
+/**
+ * The metrics of `(fromWallMs, toWallMs]` from the stored history alone, with no snapshot at either end: what an
+ * interval still measures when no capture brackets it. State past the stored history horizon is unknown.
+ */
+suspend fun SnapshotStore.historyOnlyMetrics(
+    fromWallMs: Long,
+    toWallMs: Long,
+): IntervalMetrics =
+    IntervalMetricsCalculator.compute(
+        intervalHistory(fromWallMs, toWallMs),
+        fromWallMs,
+        toWallMs,
+        historyHorizonWallMs() ?: Long.MIN_VALUE,
+    )

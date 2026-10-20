@@ -63,11 +63,29 @@ data class MetricsUi(
     val screenOffAwakeMs: Long?,
 )
 
+/** Why a period has no snapshot pair; the empty story card words it. */
+enum class EmptyReason {
+    /** No pair of snapshots brackets the period yet. */
+    NoSnapshotPair,
+
+    /** "Since screen off": the history times the last screen-off period, but no capture was taken when it ended. */
+    ScreenOffNotCaptured,
+
+    /** "Since screen off": no completed screen-off period can be measured yet. */
+    NoScreenOffPeriod,
+}
+
 sealed interface AnalysisUi {
     data object Loading : AnalysisUi
 
-    /** The selected period has no snapshot pair yet. */
-    data object Empty : AnalysisUi
+    /**
+     * The selected period has no snapshot pair yet, for [reason]. [historyOnly] holds the figures the battery history
+     * alone gives for it (only with [EmptyReason.ScreenOffNotCaptured]).
+     */
+    data class Empty(
+        val reason: EmptyReason,
+        val historyOnly: MetricsUi? = null,
+    ) : AnalysisUi
 
     data object Error : AnalysisUi
 

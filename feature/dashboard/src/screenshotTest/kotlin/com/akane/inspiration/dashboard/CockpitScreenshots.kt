@@ -49,6 +49,16 @@ fun CockpitWide() = CockpitPreviewHost(darkTheme = true, state = CockpitPreviewD
 fun CockpitEmpty() = CockpitPreviewHost(darkTheme = true, state = CockpitPreviewData.empty)
 
 @PreviewTest
+@Preview(name = "history-only", showBackground = true, widthDp = 412, heightDp = 1500)
+@Composable
+fun CockpitHistoryOnly() = CockpitPreviewHost(darkTheme = true, state = CockpitPreviewData.historyOnly)
+
+@PreviewTest
+@Preview(name = "history-only-turkish", showBackground = true, widthDp = 412, heightDp = 1500, locale = "tr")
+@Composable
+fun CockpitHistoryOnlyTurkish() = CockpitPreviewHost(darkTheme = true, state = CockpitPreviewData.historyOnly)
+
+@PreviewTest
 @Preview(name = "error", showBackground = true, widthDp = 412, heightDp = 1300)
 @Composable
 fun CockpitError() = CockpitPreviewHost(darkTheme = true, state = CockpitPreviewData.error)

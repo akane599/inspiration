@@ -38,7 +38,12 @@ internal fun CockpitScreen(
     ) {
         BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
             val wide = maxWidth >= CockpitMetrics.TwoColumnMinWidth
-            val metrics = (state.analysis as? AnalysisUi.Ready)?.metrics ?: NoMetrics
+            val metrics =
+                when (val analysis = state.analysis) {
+                    is AnalysisUi.Ready -> analysis.metrics
+                    is AnalysisUi.Empty -> analysis.historyOnly ?: NoMetrics
+                    else -> NoMetrics
+                }
             Column(
                 modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(spacing.md),
                 verticalArrangement = Arrangement.spacedBy(spacing.md),
@@ -47,7 +52,7 @@ internal fun CockpitScreen(
                     reference = state.reference,
                     shizuku = state.shizuku,
                     // The empty story card already carries a "Grant access" button.
-                    showGrant = state.analysis != AnalysisUi.Empty,
+                    showGrant = state.analysis !is AnalysisUi.Empty,
                     onIntent = onIntent,
                 )
                 state.slice?.let { slice ->
