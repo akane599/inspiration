@@ -40,6 +40,7 @@ import com.akane.inspiration.telemetry.app.AppEntry
 import com.akane.inspiration.telemetry.app.AppLabels
 import com.akane.inspiration.telemetry.app.KernelCapacitySnapshot
 import com.akane.inspiration.telemetry.app.RefreshResult
+import com.akane.inspiration.telemetry.app.attempt
 import com.akane.inspiration.telemetry.calibration.PowerCalibrator
 import com.akane.inspiration.telemetry.calibration.SharedPreferencesCalibrationStore
 import com.akane.inspiration.telemetry.capture.CaptureResult
@@ -290,6 +291,20 @@ class AppContainer(
     val statusTicks: SharedFlow<Unit> get() = statusTicker.ticks
 
     fun emitStatusTick() = statusTicker.emit()
+
+    /**
+     * How long the screen has been off by the stored screen captures ([CapturePolicy.screenOffForMs]); the
+     * screen-on receiver binds the service only after a long enough period. Null when unknown or unreadable.
+     */
+    suspend fun screenOffForMs(): Long? =
+        attempt {
+            CapturePolicy.screenOffForMs(
+                lastScreenOff = store.latestClockByTrigger(CaptureTrigger.SCREEN_OFF),
+                lastScreenOn = store.latestClockByTrigger(CaptureTrigger.SCREEN_ON),
+                nowElapsedMs = clocks.elapsedRealtimeMs(),
+                bootCount = clocks.bootCount(),
+            )
+        }
 
     private val statusSettings by lazy { StatusNotificationSettings.from(appContext) }
 

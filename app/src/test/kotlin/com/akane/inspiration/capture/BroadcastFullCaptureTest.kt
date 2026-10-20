@@ -1,5 +1,6 @@
 package com.akane.inspiration.capture
 
+import android.content.Intent
 import com.akane.inspiration.ipc.model.HistoryEvent
 import com.akane.inspiration.telemetry.capacity.ChargeSegment
 import com.akane.inspiration.telemetry.capacity.SegmentVerdict
@@ -103,6 +104,59 @@ class BroadcastFullCaptureTest {
         }
     }
 
+    /**
+     * Audit R-03: a screen-off with the service cold binds it for a FULL read (bind plus read 2.5 s here, past the
+     * warm deadline), and the screen-on 100 ms later finds it warm (read 1.5 s). Each stores a FULL row without paging
+     * history (no cursor read, so no history ingest and no store tick), and the two captures do not cancel or miss
+     * each other while both reads are in flight.
+     */
+    @Test
+    fun `screen broadcasts in quick succession each store a full row without a history ingest`() = runTest {
+        val store = FakeStore(insertMs = 50)
+        val source = FakeSource(readMsByTrigger = mapOf(CaptureTrigger.SCREEN_OFF to 2_500L, CaptureTrigger.SCREEN_ON to 1_500L))
+        val capturer = SnapshotCapturer(source, store, FixedClocks)
+        for ((action, warm) in listOf(Intent.ACTION_SCREEN_OFF to false, Intent.ACTION_SCREEN_ON to true)) {
+            val screenPlan = CapturePolicy.forBroadcast(action, serviceWarm = warm, shizukuReady = true, screenOffForMs = 100L)!!
+            assertTrue(screenPlan is CapturePlan.Full)
+            BroadcastCaptureRunner { throw it }.start(
+                scope = this,
+                deadlineMs = CapturePolicy.broadcastGuardMs(screenPlan),
+                capture = { capturer.captureFor(screenPlan) },
+                finish = {},
+            )
+            delay(100)
+        }
+        advanceUntilIdle()
+
+        assertEquals(emptyList<CaptureTrigger>(), store.misses)
+        // The warm screen-on read finishes first; each row keeps its own trigger.
+        assertEquals(
+            setOf(SnapshotKind.FULL to CaptureTrigger.SCREEN_OFF, SnapshotKind.FULL to CaptureTrigger.SCREEN_ON),
+            store.saved().toSet(),
+        )
+        assertEquals(2, store.saved().size)
+        assertEquals(listOf<Pair<Long, Long>?>(null, null), source.cursors)
+        assertEquals(0, store.cursorReads)
+    }
+
+    @Test
+    fun `a bind-on-demand screen-off capture past its deadline falls back to a light row inside the receiver guard`() = runTest {
+        val bindPlan = CapturePolicy.forBroadcast(Intent.ACTION_SCREEN_OFF, serviceWarm = false, shizukuReady = true)!!
+        val store = FakeStore(insertMs = 50)
+        var finishedAtMs = -1L
+        BroadcastCaptureRunner { throw it }.start(
+            scope = this,
+            deadlineMs = CapturePolicy.broadcastGuardMs(bindPlan),
+            capture = { SnapshotCapturer(FakeSource(readMs = CapturePolicy.BROADCAST_BIND_FULL_DEADLINE_MS + 100), store, FixedClocks).captureFor(bindPlan) },
+            finish = { finishedAtMs = testScheduler.currentTime },
+        )
+        advanceUntilIdle()
+
+        assertEquals(listOf(CaptureTrigger.SCREEN_OFF), store.misses)
+        assertEquals(listOf(SnapshotKind.LIGHT to CaptureTrigger.SCREEN_OFF), store.saved())
+        assertTrue("finished at $finishedAtMs ms", finishedAtMs in 0..CapturePolicy.broadcastGuardMs(bindPlan))
+    }
+
     @Test
     fun `light plans keep the plain broadcast guard`() {
         assertEquals(
@@ -112,9 +166,17 @@ class BroadcastFullCaptureTest {
     }
 
     /** [readMs] is a cancellable wait; [blockMs] holds an IO thread, as an uninterruptible binder call does. */
-    private class FakeSource(private val readMs: Long = 0L, private val blockMs: Long = 0L) : TelemetrySource {
+    private class FakeSource(
+        private val readMs: Long = 0L,
+        private val blockMs: Long = 0L,
+        private val readMsByTrigger: Map<CaptureTrigger, Long> = emptyMap(),
+    ) : TelemetrySource {
+        /** The history cursor of every full read; null is a read that pages no history. */
+        val cursors = Collections.synchronizedList(mutableListOf<Pair<Long, Long>?>())
+
         override suspend fun full(trigger: CaptureTrigger, historyCursor: Pair<Long, Long>?): FullRead {
-            delay(readMs)
+            cursors += historyCursor
+            delay(readMsByTrigger[trigger] ?: readMs)
             if (blockMs > 0L) withContext(Dispatchers.IO) { Thread.sleep(blockMs) }
             return FullRead(
                 light = light(),
@@ -172,7 +234,9 @@ class BroadcastFullCaptureTest {
         override suspend fun snapshotsBetween(fromWallMs: Long, toWallMs: Long): List<BatterySnapshot> = emptyList()
         override suspend fun insertHistory(events: List<HistoryEvent>, statsStartMs: Long) = Unit
         override suspend fun historyBetween(fromWallMs: Long, toWallMs: Long): List<HistoryEvent> = emptyList()
-        override suspend fun historyCursor(): Pair<Long, Long>? = null
+        var cursorReads = 0
+
+        override suspend fun historyCursor(): Pair<Long, Long>? = null.also { cursorReads++ }
         override suspend fun setHistoryCursor(statsStartMs: Long, lastHistoryTimeMs: Long) = Unit
         override suspend fun addMarker(snapshotId: Long, label: String, wallMs: Long): Long = 0
         override suspend fun marker(id: Long): Pair<Long, BatterySnapshot>? = null
