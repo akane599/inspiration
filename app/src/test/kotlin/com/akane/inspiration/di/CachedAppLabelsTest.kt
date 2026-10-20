@@ -2,7 +2,7 @@ package com.akane.inspiration.di
 
 import android.graphics.Bitmap
 import com.akane.inspiration.telemetry.app.attempt
-import com.akane.inspiration.telemetry.app.packageForUid
+import com.akane.inspiration.telemetry.app.uidIdentity
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -76,11 +76,11 @@ class CachedAppLabelsTest {
     fun `a previously unowned uid resolves a newly installed owner on the same resolver`() =
         runTest {
             val labels = labels()
-            assertNull(labels.packageForUid(10_999, reported = "new.app:remote"))
+            assertNull(labels.uidIdentity(10_999, reported = "new.app:remote").packageName)
 
             source.uidPackages[10_999] = listOf("new.app")
 
-            assertEquals("new.app", labels.packageForUid(10_999, reported = "new.app:remote"))
+            assertEquals("new.app", labels.uidIdentity(10_999, reported = "new.app:remote").packageName)
             assertEquals(listOf(10_999, 10_999), source.uidLoads)
         }
 
@@ -89,17 +89,17 @@ class CachedAppLabelsTest {
         runTest {
             source.uidPackages[10_300] = listOf("z.shared", "m.shared", "q.shared")
             val labels = labels()
-            assertEquals("m.shared", labels.packageForUid(10_300, reported = "m.shared:push"))
-            assertEquals("z.shared", labels.packageForUid(10_300, reported = "z.shared:push"))
+            assertEquals("m.shared", labels.uidIdentity(10_300, reported = "m.shared:push").packageName)
+            assertEquals("z.shared", labels.uidIdentity(10_300, reported = "z.shared:push").packageName)
 
             source.uidPackages[10_300] = listOf("z.shared", "q.shared")
 
-            assertNull("a removed owner is no longer named", labels.packageForUid(10_300, reported = "m.shared:push"))
-            assertEquals("z.shared", labels.packageForUid(10_300, reported = "z.shared:push"))
+            assertNull("a removed owner is no longer named", labels.uidIdentity(10_300, reported = "m.shared:push").packageName)
+            assertEquals("z.shared", labels.uidIdentity(10_300, reported = "z.shared:push").packageName)
 
             source.uidPackages[10_300] = listOf("z.shared")
 
-            assertEquals("the last owner left names the uid", "z.shared", labels.packageForUid(10_300, reported = null))
+            assertEquals("the last owner left names the uid", "z.shared", labels.uidIdentity(10_300, reported = null).packageName)
             assertEquals(List(5) { 10_300 }, source.uidLoads)
         }
 
@@ -118,7 +118,10 @@ class CachedAppLabelsTest {
             assertEquals(emptyList<String>(), labels.packagesForUid(1_001_000))
             assertEquals(emptyList<String>(), labels.packagesForUid(1_009_999))
             assertEquals("no app id is negative", emptyList<String>(), labels.packagesForUid(-1))
-            assertNull("a platform uid is named by the uid, not by a reported package", labels.packageForUid(1_000, reported = "android"))
+            assertNull(
+                "a platform uid is named by the uid, not by a reported package",
+                labels.uidIdentity(1_000, reported = "android").packageName,
+            )
             assertEquals(emptyList<Int>(), source.uidLoads)
         }
 
@@ -128,11 +131,18 @@ class CachedAppLabelsTest {
             source.uidPackages[10_300] = listOf("z.shared", "m.shared", "q.shared")
             val labels = labels()
 
-            assertEquals("q.shared", labels.packageForUid(10_300, reported = "q.shared:push"))
-            assertEquals("a process its owner names after itself", "q.shared", labels.packageForUid(10_300, reported = "q.shared.persistent"))
-            assertNull("a shared uid whose process names none of its apps", labels.packageForUid(10_300, reported = "android.process.shared"))
-            assertNull("a shared uid with no hint", labels.packageForUid(10_300, reported = null))
-            assertNull("an unowned uid keeps no name", labels.packageForUid(10_999, reported = "gone.app:remote"))
+            assertEquals("q.shared", labels.uidIdentity(10_300, reported = "q.shared:push").packageName)
+            assertEquals(
+                "a process its owner names after itself",
+                "q.shared",
+                labels.uidIdentity(10_300, reported = "q.shared.persistent").packageName,
+            )
+            assertNull(
+                "a shared uid whose process names none of its apps",
+                labels.uidIdentity(10_300, reported = "android.process.shared").packageName,
+            )
+            assertNull("a shared uid with no hint", labels.uidIdentity(10_300, reported = null).packageName)
+            assertNull("an unowned uid keeps no name", labels.uidIdentity(10_999, reported = "gone.app:remote").packageName)
             assertEquals("one PackageManager read per lookup", listOf(10_300, 10_300, 10_300, 10_300, 10_999), source.uidLoads)
         }
 
@@ -159,11 +169,11 @@ class CachedAppLabelsTest {
             source.uidFailure = SecurityException("PackageManager unavailable")
             val labels = labels()
 
-            assertNull(attempt { labels.packageForUid(10_221, reported = "a.app") })
+            assertNull(attempt { labels.uidIdentity(10_221, reported = "a.app") })
 
             source.uidFailure = null
             source.uidPackages[10_221] = listOf("a.app")
-            assertEquals("a.app", labels.packageForUid(10_221, reported = "a.app"))
+            assertEquals("a.app", labels.uidIdentity(10_221, reported = "a.app").packageName)
             assertEquals(listOf(10_221, 10_221), source.uidLoads)
         }
 

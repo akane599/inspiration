@@ -100,12 +100,6 @@ suspend fun AppLabels.uidIdentity(
     return UidIdentity(pkg, sharedBy = if (pkg == null && owners.size > 1) owners.size else 0)
 }
 
-/** [uidIdentity]'s package alone. */
-suspend fun AppLabels.packageForUid(
-    uid: Int,
-    reported: String?,
-): String? = uidIdentity(uid, reported).packageName
-
 /**
  * Which of a UID's [owners] (its installed packages) identifies it. batterystats' [reported] name
  * (`UidBatteryConsumer.getPackageWithHighestDrain()`) is a *process* name such as `com.example.chat:push`, or null,
