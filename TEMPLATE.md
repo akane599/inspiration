@@ -28,7 +28,7 @@ Geliştireceğin uygulama:
 
 * **UI Yığını:** Jetpack Compose, Material 3 Expressive tasarım dili, gerçek AMOLED Siyah (`#000000`) tema desteği, `Canvas` ve `GraphicsLayer` tabanlı yüksek kare hızlı (120Hz) özel interaktif grafikler.
 * **Gizli API ve İzin Köprüsü:**
-* `org.lsposed.hiddenapibypass:hiddenapibypass` (`Application.attachBaseContext` içinde `HiddenApiBypass.addHiddenApiExemptions("")` çağrısı ile tüm `@UnsupportedAppUsage` ve blacklist sistem sınıflarına erişim).
+* `org.lsposed.hiddenapibypass:hiddenapibypass` (`Application.attachBaseContext` içinde `HiddenApiBypass.addHiddenApiExemptions("")` çağrısı yerine yalnızca `Sensor.getHandle()` için daraltılmış muafiyet: `addHiddenApiExemptions(AndroidSensorCatalog.GET_HANDLE_SIGNATURE)`; 0.2.4'ten beri uygulama genelinde muafiyet yoktur).
 * `dev.rikka.shizuku:api` ve `dev.rikka.shizuku:provider`.
 
 

@@ -45,6 +45,8 @@ android {
     buildTypes {
         release {
             signingConfigs.findByName("release")?.let { signingConfig = it }
+            // AGP writes META-INF/version-control-info.textproto itself; a packaging exclude does not remove it.
+            vcsInfo.include = false
             isMinifyEnabled = true
             isShrinkResources = true
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
@@ -57,9 +59,9 @@ android {
     }
     packaging {
         resources {
-            // The lite protobuf runtime needs no .proto sources, and DebugProbesKt.bin serves only the JVM
-            // coroutines debug agent.
-            excludes += listOf("**/*.proto", "DebugProbesKt.bin")
+            // The lite protobuf runtime needs no .proto sources or descriptor sets, DebugProbesKt.bin serves
+            // only the JVM coroutines debug agent.
+            excludes += listOf("**/*.proto", "**/*.proto.bin", "DebugProbesKt.bin")
         }
     }
     compileOptions {
