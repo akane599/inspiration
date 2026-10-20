@@ -105,7 +105,7 @@
     {
       "commit": null,
       "definitions": {
-        ".claude-plugin/plugin.json": "9a4de8d7488ebf4f7f3d64227f351013a6d677e7c6e8ca143a773133c346c219",
+        ".claude-plugin/plugin.json": "03e4f69721b54a1d49dd347f0b91a7b0e1936c23bcdb4258799eb70c99e8d776",
         "hooks/billing-path-check.js": "6f13ed55600216847b2ea52ddb5e2464130ce98d516cfdc4257592b099af8bef",
         "hooks/freshness-helpers.js": "2a46dc28b623d9b772a9f86eabe2ab15afd6e7452568952c5ab1fe7b460b16a1",
         "hooks/hooks.json": "4f79b305e19421591f14409a1d00262e295800b8c1a7b46b75af5cb571f35b1d",
@@ -120,7 +120,7 @@
       },
       "id": "quartermaster@eigenwise-toolshed",
       "scope": "project",
-      "version": "1.0.0"
+      "version": "1.0.1"
     },
     {
       "commit": null,
@@ -163,7 +163,7 @@
     {
       "commit": null,
       "definitions": {
-        ".claude-plugin/plugin.json": "6da6d83035a26c7a559c5b8ebf2366fb5dd18b04c92e9bca02172f7d8e02a1b8",
+        ".claude-plugin/plugin.json": "92ccafca590802e4100f269702655dc72df7a20ca4bc4835472738c6966fe2d6",
         "agents/sidequest-diagnostic-probe.md": "d3b394c3bc8f21259b0ee680c273e04f86362e30ed7ffdef617a0c9a950ca89d",
         "agents/sidequest-exec-dispatch-readonly.md": "b8872f90052a148b04333c865591842dc6fce66785abba6f5b32a6138c443d04",
         "agents/sidequest-exec-dispatch.md": "856266d8b7adf693fdaeb10eb7d26694c42f6e21d53325849e8f18430df059e7",
@@ -212,9 +212,9 @@
       },
       "id": "sidequest@eigenwise-toolshed",
       "scope": "project",
-      "version": "6.0.1"
+      "version": "6.0.2"
     }
   ],
   "policy": "Drift record; not a package resolver or shared-cache downgrade.",
-  "recorded": "20261020T010442.950827Z"
+  "recorded": "20261020T132532.511959Z"
 }

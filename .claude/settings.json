@@ -1,10 +1,5 @@
 {
   "effortLevel": "high",
-  "modelSettings": {
-    "claude-opus-5-5": {
-      "effortLevel": "high"
-    }
-  },
   "enabledPlugins": {
     "android-emulator-qa@android-claude": false,
     "android-emulator-qa@android-claude-max": false,
@@ -132,6 +127,11 @@
     ]
   },
   "model": "opus",
+  "modelSettings": {
+    "claude-opus-5-5": {
+      "effortLevel": "high"
+    }
+  },
   "permissions": {
     "allow": [
       "Bash(./gradlew:*)",
