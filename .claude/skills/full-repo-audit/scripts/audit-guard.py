@@ -7,6 +7,9 @@ from pathlib import Path
 
 PROTECTED=('.agents/skills','.codex/skills','.claude/skills','.claude/commands',
  '.codex/android-kit','.claude/kit','AGENTS.md','CLAUDE.md','PROJECT.md','MAP.md','PROGRESS.md')
+# Gitignored runtime output: gradle-check.sh writes a log per run, including the audit's own baseline.
+RUNTIME=('.claude/kit/logs','.codex/android-kit/logs')
+def runtime(rel):return any(rel==r or rel.startswith(r+'/') for r in RUNTIME)
 def digest(path):return hashlib.sha256(path.read_bytes()).hexdigest()
 def plain(path):
  if path.is_symlink():raise ValueError('Refusing symlink: '+str(path))
@@ -21,7 +24,8 @@ def inventory(root):
   paths=p.rglob('*') if p.is_dir() else [p]
   for f in paths:
    plain(f)
-   if f.is_file() and '__pycache__' not in f.parts:result[str(f.relative_to(root))]=digest(f)
+   rel_path=str(f.relative_to(root))
+   if f.is_file() and '__pycache__' not in f.parts and not runtime(rel_path):result[rel_path]=digest(f)
  return result
 
 def base(root):
