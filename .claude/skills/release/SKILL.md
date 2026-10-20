@@ -12,7 +12,7 @@ Publishing to this private repo is pre-authorized. Every other outward-facing ac
 ## Ground rules
 
 - **Signing secrets stay unseen.** Gradle reads the four `INSPIRATION_RELEASE_*` properties from `~/.gradle/gradle.properties`. Never read, print or commit that file, a keystore, `local.properties` or `.env*`. If release packaging fails over missing signing keys, tell the user; don't work around it.
-- **One certificate, forever.** Every release so far is signed with SHA-256 `1d344dd2e7269d2c6b4274881799c2d87f41d40da8ebaace7407467ec1f3de60`. A different key can't upgrade an existing install: Android refuses it, and the user's only way out is uninstalling, which loses all their data. A mismatch stops the release.
+- **One certificate, forever.** Every release from 0.2.5 on is signed with SHA-256 `88292f2344df4095f69e70db728ece8ac6ffcde4564d355a20181391d054d723`. 0.1.0–0.2.4 used a lost key (`1d344dd2…3de60`), so the upgrade check's previous tag must be v0.2.5 or later. A different key can't upgrade an existing install: Android refuses it, and the user's only way out is uninstalling, which loses all their data. A mismatch stops the release.
 - **The upgrade check uses redroid** (`ANDROID_SERIAL=localhost:5555`), which the user lets you use without asking. It uninstalls the app there, which clears the app's data on the device. It also restarts the Shizuku server once, which briefly drops other apps' Shizuku connections. Say both in the report.
 
 ## Steps

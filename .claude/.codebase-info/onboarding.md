@@ -23,7 +23,7 @@ From the repository root:
 
 The documented helper form is `bash .claude/kit/gradle-check.sh :app:assembleDebug :app:testDebugUnitTest`. When other sessions or worktrees may build too, run it through [`bash .claude/scripts/gradle-slot.sh <tasks>`](../scripts/gradle-slot.sh). That script holds one of the host-wide Gradle slots (`GRADLE_SLOTS`, default 2) and then calls `gradle-check.sh`. Screenshot references are validated with `:app:validateDebugScreenshotTest`; update references only for an intentional UI ticket with `:app:updateDebugScreenshotTest`. The design-system module has its own references: `:core:designsystem:validateDebugScreenshotTest` and, for an intentional change, `:core:designsystem:updateDebugScreenshotTest` (every preview needs an explicit `heightDp`).
 
-Release: `bash .claude/kit/gradle-check.sh :app:assembleRelease`. It is signed only when `~/.gradle/gradle.properties` has the `INSPIRATION_RELEASE_*` entries (otherwise unsigned); check with `apksigner verify --print-certs` (certificate SHA-256 `1d344dd2…3de60`). The [`release`](../skills/release/SKILL.md) skill holds the whole delivery procedure:
+Release: `bash .claude/kit/gradle-check.sh :app:assembleRelease`. It is signed only when `~/.gradle/gradle.properties` has the `INSPIRATION_RELEASE_*` entries (otherwise unsigned); check with `apksigner verify --print-certs` (certificate SHA-256 `88292f23…4d723` from 0.2.5 on; 0.1.0–0.2.4 used the lost key `1d344dd2…3de60`). The [`release`](../skills/release/SKILL.md) skill holds the whole delivery procedure:
 - version bump and full gate;
 - certificate pin check;
 - same-key in-place upgrade check from the previous GitHub release on redroid;
