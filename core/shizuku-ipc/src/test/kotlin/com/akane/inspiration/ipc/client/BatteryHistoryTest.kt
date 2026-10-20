@@ -432,6 +432,20 @@ class BatteryHistoryTest {
     }
 
     @Test
+    fun `below api 34 the history read is refused before any batterystats query`() {
+        // The history iterator is an Iterator only from API 34; the walk below it could only fail after the query.
+        for (sdkInt in 31..33) {
+            val calls = FakeBatteryStatsCalls()
+
+            val snapshot = BatteryStatsClient({ fakeBinder }, sdkInt, { 0 }) { calls }.readHistory(0L, 0L, 10)
+
+            assertUnavailable(Reasons.API, snapshot.available, snapshot.reason)
+            assertEquals("api $sdkInt sends no history query", emptyList<String>(), calls.builder.calls)
+        }
+        assertTrue(read(FakeBatteryHistory(records = levelSteps(2)), sdkInt = 34).available)
+    }
+
+    @Test
     fun `successful read closes the history exactly once`() {
         val history = FakeBatteryHistory(records = levelSteps(2))
 

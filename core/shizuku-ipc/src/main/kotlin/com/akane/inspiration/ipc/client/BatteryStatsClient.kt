@@ -76,9 +76,19 @@ class BatteryStatsClient internal constructor(
         }
     }
 
-    /** One keep-oldest history page (E3); see [BatteryHistoryExtractor]. */
+    /**
+     * One keep-oldest history page (E3); see [BatteryHistoryExtractor]. Below [API_HISTORY_ITERATOR] it is refused
+     * with [Reasons.API] before the query: system_server would build a full `BatteryUsageStats` with a history copy
+     * for a walk that can only fail there (audit B-09). The binder lookup before it is a cheap servicemanager call.
+     *
+     * Each page is its own query, re-walked from the first record. Holding one stats object and its iterator across
+     * calls would save queries only while a backlog drains (the steady state is one page per ingest), at the price of
+     * multi-MiB history buffers kept between calls, a walker paused mid-timestamp, and calls that a deadline abandoned
+     * racing the next ingest on one iterator.
+     */
     fun readHistory(statsStartMs: Long, afterHistoryTimeMs: Long, maxEvents: Int): BatteryHistorySnapshot =
         withBinder(binderSource, onFailure = { BatteryHistorySnapshot.unavailable(it) }) { binder ->
+            if (sdkInt < API_HISTORY_ITERATOR) return@withBinder BatteryHistorySnapshot.unavailable(Reasons.API)
             val history = callsFactory(binder).getBatteryHistory { configureBatteryHistoryQuery(it, sdkInt) }
             if (history == null) {
                 BatteryHistorySnapshot.unavailable(Reasons.REMOTE)
@@ -151,9 +161,10 @@ private class FrameworkQueryBuilder : BatteryUsageQueryBuilder {
 
 /**
  * History view over a `BatteryUsageStats` queried with `includeBatteryHistory()`. The iterator is
- * `Iterator<HistoryItem>` on API 34+ (android-35/36/37.0 sources, API 34 framework.jar); an older
- * shape surfaces as a [LinkageError], which the client maps to no_such_method. Fields whose type
- * differs between releases are read through [WideningIntField], never linked directly.
+ * `Iterator<HistoryItem>` on API 34+ (android-35/36/37.0 sources, API 34 framework.jar); the client
+ * does not query below [API_HISTORY_ITERATOR], and any other unexpected shape surfaces as a
+ * [LinkageError], which it maps to no_such_method. Fields whose type differs between releases are
+ * read through [WideningIntField], never linked directly.
  */
 private class FrameworkBatteryHistory(private val stats: BatteryUsageStats) : BatteryHistoryAdapter {
     private var iterator: BatteryStatsHistoryIterator? = null

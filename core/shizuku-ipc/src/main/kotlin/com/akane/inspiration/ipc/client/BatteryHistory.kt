@@ -21,6 +21,12 @@ data class HistoryRecord(
     val voltageMv: Int,
 )
 
+/**
+ * First API whose `BatteryStatsHistoryIterator` implements `Iterator<HistoryItem>` (android14-release). On API 31-33
+ * (android12/13-release) it has only `next(HistoryItem out): Boolean`, which this module does not walk.
+ */
+internal const val API_HISTORY_ITERATOR = 34
+
 /** Read-only view of a `BatteryUsageStats` queried with `includeBatteryHistory()`. */
 interface BatteryHistoryAdapter : AutoCloseable {
     val statsStartMs: Long
