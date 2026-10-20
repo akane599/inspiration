@@ -52,6 +52,9 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        // The touch guards only see an overlay under the touch point, so one covering a confirmation's text
+        // but not its button would pass. Hiding non-system overlays over this window closes that gap (R-10).
+        window.setHideOverlayWindows(true)
         // The theme is forced dark (AMOLED), so system bars use light icons on a transparent scrim.
         enableEdgeToEdge(
             statusBarStyle = SystemBarStyle.dark(Color.TRANSPARENT),
