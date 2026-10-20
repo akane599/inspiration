@@ -1,5 +1,5 @@
 # Entry Points
-*Last Updated: 2026-10-20*
+*Last Updated: 2026-10-21*
 
 ## Production entry points
 
@@ -17,7 +17,7 @@ Screens: `AppShell` ([`app/src/main/kotlin/com/akane/inspiration/shell/AppShell.
 ## Debug entry points
 
 - **`ProbeReceiver`** — [`app/src/debug/kotlin/com/akane/inspiration/debug/ProbeReceiver.kt`](../../app/src/debug/kotlin/com/akane/inspiration/debug/ProbeReceiver.kt), registered by [`app/src/debug/AndroidManifest.xml`](../../app/src/debug/AndroidManifest.xml). It accepts `PROBE_REQUEST_PERMISSION`, `PROBE`, `PROBE_CAPTURE`, `PROBE_DIFF`, and `PROBE_INSIGHTS` (the last two take the string extra `reference_kind`), performs bounded IPC/calibration/capture/diff/insight/database checks with a 10 s deadline, and emits structured `InspirationProbe` logcat output. `PROBE_INSIGHTS` logs interval metrics, insights, notEvaluable reasons, the rendered en Battery Story and top-wakelock dictionary lookups.
-  - **In-process reads:** `PROBE` reads power monitors and deviceidle in-process (`PowerStatsClient`, `DeviceIdleReader`; AIDL txns 4/5 are gone). Before that it adds its own debug-only hidden-API exemptions (`IN_PROCESS_HIDDEN_API_PREFIXES`: the batterystats/usage-stats classes plus `IPowerStatsService`, `IDeviceIdleController` and `IPowerManager`).
+  - **In-process reads:** `PROBE` reads power monitors and deviceidle in-process (`PowerStatsClient`, `DeviceIdleReader`; AIDL txns 4/5 are gone). These readers, their `BinderResult` and their models live in `:core:shizuku-ipc`'s `src/debug` source set, so release builds don't contain them. Before that it adds its own debug-only hidden-API exemptions (`IN_PROCESS_HIDDEN_API_PREFIXES`: the batterystats/usage-stats classes plus `IPowerStatsService`, `IDeviceIdleController` and `IPowerManager`).
   - **Store tick:** a saved `PROBE_CAPTURE` ticks `StoreTicks`.
   - **Access:** the receiver is debug-only and protected by `android.permission.DUMP`.
 - **`DesignGalleryActivity`** — [`app/src/debug/kotlin/com/akane/inspiration/debug/DesignGalleryActivity.kt`](../../app/src/debug/kotlin/com/akane/inspiration/debug/DesignGalleryActivity.kt), declared `exported` in the debug manifest (no intent filter, no extras). It renders `SynchronizedScrubbingChart` and `SleepHypnogram` with synthetic data from `debug/gallery/GalleryData.kt` (`GalleryDataGenerator`) for on-device interaction and frame-stat checks; `debug/gallery/RecomposeCounter.kt` (`RecompositionCounter`, inline `RecomposeCounter`) tallies recompositions and logs them under logcat tag `InspirationGallery`. Launch with `adb shell am start -n com.akane.inspiration/.debug.DesignGalleryActivity`.

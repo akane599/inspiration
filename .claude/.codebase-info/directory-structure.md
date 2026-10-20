@@ -41,20 +41,23 @@ core/
     ServiceManager,UidBatteryConsumer}.java
   shizuku-ipc/
     src/main/aidl/com/akane/inspiration/ipc/ITelemetryUserService.aidl
-    src/main/aidl/com/akane/inspiration/ipc/model/{BatteryHistorySnapshot,BgDexoptStatus,
-      HistoryEvent,ToolkitResult,...}.aidl
+    src/main/aidl/com/akane/inspiration/ipc/model/{BatteryHistorySnapshot,BatteryUsageSnapshot,
+      BgDexoptStatus,CpuTimeSnapshot,DumpResult,KernelBatterySnapshot,ToolkitResult}.aidl
     src/main/kotlin/com/akane/inspiration/ipc/
       ShizukuFacade.kt, ShizukuManager.kt, ShizukuManagerImpl.kt, ShizukuState.kt
-      client/{BatteryHistory,BatteryStatsClient,BatteryUsageAdapter,BinderResult,
-        DeviceIdleReader,PowerStatsClient,UsageParcelBudget}.kt
-      model/{BatteryHistorySnapshot,BatteryUsageSnapshot,CpuTimeSnapshot,
-        DeviceIdleSnapshot,DumpResult,DumpTarget,HistoryEvent,KernelBatterySnapshot,
-        PowerMonitorSnapshot,TelemetryValues,ToolkitResult,BgDexoptStatus}.kt
-        # DeviceIdleSnapshot/PowerMonitorSnapshot: debug-probe in-process models, no .aidl
+      client/{BatteryHistory,BatteryStatsClient,BatteryUsageAdapter,BinderCalls,
+        UsageParcelBudget}.kt
+      model/{BatteryHistorySnapshot,BatteryUsageSnapshot,CpuTimeSnapshot,DumpResult,
+        DumpTarget,KernelBatterySnapshot,TelemetryValues,ToolkitResult,BgDexoptStatus}.kt
+        # HistoryEvent is nested in BatteryHistorySnapshot.kt and travels inside its parcel
       service/TelemetryUserService.kt
       toolkit/{BgDexoptController,CommandRunner,Inspection,Toolkit,ToolkitExecutor,
         ToolkitParsers}.kt            # typed privileged write executor (txns 20-30)
+    src/debug/kotlin/com/akane/inspiration/ipc/   # debug-probe in-process reads only; no .aidl
+      client/{BinderResult,DeviceIdleReader,PowerStatsClient}.kt
+      model/{DeviceIdleSnapshot,PowerMonitorSnapshot}.kt
     src/test/kotlin/com/akane/inspiration/ipc/**/*.kt
+    src/testDebug/kotlin/com/akane/inspiration/ipc/client/{DeviceIdleReader,PowerStatsClient}Test.kt
   telemetry-engine/
     build.gradle.kts
     src/main/proto/{android/os/batterystats.proto,
@@ -112,7 +115,7 @@ core/
       component/ObscuredTouchGuard.kt
       component/format/{SystemZone,TelemetryFormat}.kt
       chart/model/{ChartLabels,ChartModels}.kt
-      chart/math/{Scales,ScrubGestureReducer,SeriesMath,TimeRanges,TimeTicks}.kt
+      chart/math/{ClockLabels,Scales,ScrubGestureReducer,SeriesMath,TimeRanges,TimeTicks}.kt
       chart/draw/{SelectionDim,TimeAxis}.kt
       chart/scrub/{ScrubChartMath,ScrubChartRenderer,ScrubChartState,ScrubGestures,
         ScrubReadout,SliceControls,SynchronizedScrubbingChart}.kt
