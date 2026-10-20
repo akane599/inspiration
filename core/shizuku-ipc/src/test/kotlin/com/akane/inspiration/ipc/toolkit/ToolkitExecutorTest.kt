@@ -197,6 +197,55 @@ class ToolkitExecutorTest {
         assertEquals(listOf(CMD, "activity", "get-standby-bucket", "--user", "0", APP), runner.calls.last())
     }
 
+    /** Answers like [device], but the standby-bucket read exits 0 with output that was not read to the end. */
+    private fun cutBucketReads(executor: ToolkitExecutor): ToolkitExecutor {
+        val base = runner.handler
+        runner.handler = { argv ->
+            val out = base(argv)
+            if ("get-standby-bucket" in argv) out.copy(truncated = true) else out
+        }
+        return executor
+    }
+
+    @Test
+    fun `a standby-bucket read not read to the end is unavailable, not a bucket`() {
+        bucket = 40
+        val executor = cutBucketReads(executor())
+
+        val result = executor.getStandbyBucket(APP)
+
+        assertEquals(ToolkitResult.refused(ToolkitCode.PARSE), result)
+        assertNull(result.afterRaw)
+    }
+
+    @Test
+    fun `setStandbyBucket refuses without writing when the current bucket read was cut`() {
+        bucket = 40
+        val executor = cutBucketReads(executor())
+
+        val result = executor.setStandbyBucket(APP, StandbyBucket.ACTIVE.code)
+
+        assertEquals(ToolkitResult.refused(ToolkitCode.PARSE), result)
+        assertTrue(runner.calls.none { "set-standby-bucket" in it })
+        assertEquals(40, bucket)
+    }
+
+    @Test
+    fun `a cut read-back after a standby-bucket write is unverified, not done`() {
+        bucket = 40
+        val executor = executor()
+        val base = runner.handler
+        var reads = 0
+        runner.handler = { argv ->
+            val out = base(argv)
+            if ("get-standby-bucket" in argv && reads++ > 0) out.copy(truncated = true) else out
+        }
+
+        val result = executor.setStandbyBucket(APP, StandbyBucket.ACTIVE.code)
+
+        assertEquals(ToolkitResult.unavailable(ToolkitCode.UNVERIFIED, before = "40"), result)
+    }
+
     @Test
     fun `forceStop pins user 0 and reads the stopped flag back`() {
         val result = executor().forceStop(APP)
@@ -1047,6 +1096,44 @@ class ToolkitExecutorTest {
         assertEquals(ToolkitCode.DOZE_CUSTOM, dozeExecutor(device).getDozeState().code)
         device.raw = null
         assertEquals(DozeProfile.STANDARD.code, dozeExecutor(device).getDozeState().code)
+    }
+
+    private val dozeRawRead = listOf(CMD, "settings", "get", "--user", "0", "global", "device_idle_constants")
+
+    /** [device], except its `device_idle_constants` reads exit 0 with only a prefix that was not read to the end. */
+    private fun cutDozeRawReads(device: FakeDozeDevice): ToolkitExecutor {
+        val executor = dozeExecutor(device)
+        runner.handler = { argv ->
+            val out = device.handle(argv)
+            if (argv == dozeRawRead) out.copy(text = out.text.take(out.text.length / 2), truncated = true) else out
+        }
+        return executor
+    }
+
+    @Test
+    fun `a doze settings read not read to the end is unavailable, not a value`() {
+        val device = FakeDozeDevice(raw = DozeProfile.BALANCED.constants)
+
+        val result = cutDozeRawReads(device).getDozeState()
+
+        assertEquals(ToolkitResult.failed(ToolkitCode.PARSE), result)
+        assertNull(result.afterRaw)
+    }
+
+    @Test
+    fun `applyDozeProfile and restoreDozeRaw refuse without writing when the current doze read was cut`() {
+        val device = FakeDozeDevice(raw = DozeProfile.BALANCED.constants)
+        val executor = cutDozeRawReads(device)
+        val balanced = checkNotNull(DozeProfile.BALANCED.constants)
+        val cutPrefix = balanced.take(balanced.length / 2)
+
+        assertEquals(ToolkitResult.refused(ToolkitCode.PARSE), executor.applyDozeProfile(DozeProfile.STANDARD.code, cutPrefix))
+        assertEquals(
+            ToolkitResult.refused(ToolkitCode.PARSE),
+            executor.restoreDozeRaw(null, cutPrefix),
+        )
+        assertTrue(device.writes.isEmpty())
+        assertEquals(DozeProfile.BALANCED.constants, device.raw)
     }
 
     // --- bg-dexopt argv ---------------------------------------------------------------------

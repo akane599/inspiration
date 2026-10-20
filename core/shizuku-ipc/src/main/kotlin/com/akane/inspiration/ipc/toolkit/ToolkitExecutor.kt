@@ -372,9 +372,10 @@ internal class ToolkitExecutor(
         return if (out.ok && !out.truncated) ToolkitParsers.appOpState(op, out.text) else null
     }
 
+    /** Null unless the output was read to the end ([CommandOutput.complete]): a cut value is never parsed. */
     private fun readBucket(pkg: String): String? {
         val out = runner.run(listOf(CMD, "activity", "get-standby-bucket", "--user", USER, pkg))
-        return if (out.ok) ToolkitParsers.standbyBucket(out.text)?.toString() else null
+        return if (out.complete) ToolkitParsers.standbyBucket(out.text)?.toString() else null
     }
 
     /** Wraps the nullable value so that "unset" (a valid read) differs from "read failed" (null). */
@@ -382,9 +383,10 @@ internal class ToolkitExecutor(
         val value: String?,
     )
 
+    /** Null unless the output was read to the end: a cut prefix would read as a custom value to compare or replay. */
     private fun readDozeRaw(): DozeRead? {
         val out = runner.run(listOf(CMD, "settings", "get", "--user", USER, "global", IDLE_KEY))
-        return if (out.ok) DozeRead(ToolkitParsers.settingValue(out.text)) else null
+        return if (out.complete) DozeRead(ToolkitParsers.settingValue(out.text)) else null
     }
 
     private fun writeDozeRaw(value: String?): CommandOutput =
