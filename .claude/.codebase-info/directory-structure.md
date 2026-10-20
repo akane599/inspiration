@@ -128,7 +128,7 @@ feature/                           # each: src/main/kotlin/com/akane/inspiration
   dashboard/                       # Cockpit{Route,ViewModel,State,Screen,Dependencies,Mappers,Format,Header,Cards,
                                    #   ChartCard,MarkerSheet}.kt
   xray/                            # XRay{Route,ViewModel,Models,Screen,Dependencies,Mapper,Detail,Text}.kt
-  sleeplab/                        # SleepLab{Route,ViewModel,State,Screen,Dependencies,Mappers,Format,Cpu,Diagnostics}.kt
+  sleeplab/                        # SleepLab{Route,ViewModel,State,Screen,Dependencies,Mappers,Format,Cpu,Diagnostics,Culprits}.kt
   health/                          # Health{Route,ViewModel,State,Screen,Dependencies,Mappers,Format,Cards,Charts}.kt
   toolkit/                         # Toolkit{Route,ViewModel,Models,Screen,Dependencies,Mapper,Text,Apps,Dialogs,
                                    #   Sections}.kt
