@@ -277,6 +277,24 @@ class XRayMapperTest {
     }
 
     @Test
+    fun `component shares never add up to more than the whole, even when the total nets out reattributed power`() {
+        // The system UID's total subtracts the system-service power AOSP reattributes to apps, which no listed
+        // component carries, so its components add up to more than its total.
+        val system = uidDelta(1_000, "android", 6.0, mapOf("CPU" to 8.0, "WAKELOCK" to 2.0))
+        // An app's total also counts components that are not listed (custom ones), so its parts are a share of it.
+        val partial = uidDelta(10_001, MAPS, 10.0, mapOf("CPU" to 4.0))
+
+        val rows = XRayMapper.apps(diffOf(uids = listOf(system, partial)), true).associateBy { it.uid }
+
+        val systemShares = rows.getValue(1_000).components.associate { it.key to it.sharePct!! }
+        assertEquals(listOf("CPU", "WAKELOCK"), systemShares.keys.toList())
+        assertEquals(80.0, systemShares.getValue("CPU"), 1e-9)
+        assertEquals(20.0, systemShares.getValue("WAKELOCK"), 1e-9)
+        assertEquals(6.0, rows.getValue(1_000).totalMah, 0.0)
+        assertEquals(40.0, rows.getValue(10_001).components.single().sharePct!!, 1e-9)
+    }
+
+    @Test
     fun `wakelocks and alarms are the busiest few, with the alarm dump used only when the stats have none`() {
         val wakelocks = (1..7).map { UidWakelock("wl$it", durationMs = it * 1000L, bgDurationMs = 0, count = it.toLong()) }
         val diff =

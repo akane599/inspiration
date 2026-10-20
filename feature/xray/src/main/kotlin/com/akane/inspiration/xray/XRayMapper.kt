@@ -110,10 +110,14 @@ object XRayMapper {
             ComponentGroup.entries
                 .map { group -> GroupSlice(group, positive.filterKeys { groupOf(it) == group }.values.sum()) }
                 .filter { it.mah > 0.0 }
+        // A share is of the larger of the total and the listed parts, the base StackedBar scales the slices by. The
+        // total also counts components that are not listed, but the system UID's nets out the power AOSP reattributes
+        // to apps (a negative component the usage read drops), leaving its parts above its total (audit B-23).
+        val shareBase = maxOf(delta.totalMah, positive.values.sum())
         val components =
             positive.entries
                 .sortedWith(compareByDescending<Map.Entry<String, Double>> { it.value }.thenBy { it.key })
-                .map { ComponentRow(it.key, it.value, it.value / delta.totalMah * PERCENT) }
+                .map { ComponentRow(it.key, it.value, it.value / shareBase * PERCENT) }
         val alarms =
             delta.wakeupAlarms
                 .takeIf { diff.validity.dumpCounters }

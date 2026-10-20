@@ -89,9 +89,15 @@ internal fun configureBatteryHistoryQuery(builder: BatteryUsageQueryBuilder, sdk
 
 internal object BatteryUsageMapper {
     /**
-     * `BatteryConsumer.POWER_COMPONENT_*` ids 0..17, identical in android-12.0.0_r34 through
-     * android-16.0.0_r4. POWER_COMPONENT_BASE (18) is newer and is not queried, because
-     * `getConsumedPower(18)` throws on releases whose component count is 18.
+     * `BatteryConsumer.POWER_COMPONENT_*` ids 0..16, identical in android-12.0.0_r34 through
+     * android-16.0.0_r4. Two ids are not queried:
+     * - REATTRIBUTED_TO_OTHER_CONSUMERS (17) is a bookkeeping offset, not energy used: AOSP's
+     *   `SystemServicePowerCalculator` sets it, negative, on the system UID only, for the system-service power it
+     *   reattributes to apps as SYSTEM_SERVICES. That UID's total (`getConsumedPower()`) nets it out, so its listed
+     *   components can add up to more than its total. A kept negative entry would make the UID invalid in any
+     *   interval where the reattributed power grew.
+     * - POWER_COMPONENT_BASE (18) is newer, and `getConsumedPower(18)` throws on releases whose component count
+     *   is 18.
      */
     val COMPONENTS: List<Pair<Int, String>> = listOf(
         0 to "SCREEN",
@@ -111,7 +117,6 @@ internal object BatteryUsageMapper {
         14 to "PHONE",
         15 to "AMBIENT_DISPLAY",
         16 to "IDLE",
-        17 to "REATTRIBUTED_TO_OTHER_CONSUMERS",
     )
 
     /** `BatteryConsumer.PROCESS_STATE_*` (SQ-1 §3); stable from API 33. */
@@ -140,7 +145,8 @@ internal object BatteryUsageMapper {
         deviceComponents = stats.deviceConsumer?.let { positiveComponents(it::componentMah) }.orEmpty(),
     )
 
-    // Zero components are dropped to keep the parcel small; an absent key means 0 mAh.
+    // Only positive components are kept: zero ones are dropped to keep the parcel small (an absent key means 0 mAh).
+    // AOSP allows a negative value only for REATTRIBUTED_TO_OTHER_CONSUMERS, which is not queried (see COMPONENTS).
     private fun positiveComponents(mah: (Int) -> Double): Map<String, Double> = COMPONENTS
         .map { (id, name) -> name to mah(id) }
         .filter { (_, value) -> value > 0.0 }

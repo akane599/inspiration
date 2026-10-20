@@ -33,15 +33,32 @@ class BatteryUsageMapperTest {
     }
 
     @Test
-    fun `components use stable names and drop zero entries`() {
+    fun `components use stable names and drop zero entries and the reattribution offset`() {
         val uid = BatteryUsageMapper.map(FakeBatteryUsage(uidConsumers = listOf(consumer)), 37, 0L, 0L).uids.single()
         assertEquals(
-            mapOf("SCREEN" to 5.0, "CPU" to 4.0, "WIFI" to 3.0, "REATTRIBUTED_TO_OTHER_CONSUMERS" to 0.5),
+            mapOf("SCREEN" to 5.0, "CPU" to 4.0, "WIFI" to 3.0),
             uid.components,
         )
         assertEquals(10_123, uid.uid)
         assertEquals("com.example.drain", uid.packageName)
         assertEquals(12.0, uid.totalMah, 0.0)
+    }
+
+    @Test
+    fun `the system uid keeps its net total while its reattributed power is no component`() {
+        // AOSP records REATTRIBUTED_TO_OTHER_CONSUMERS (17) negative on UID 1000, and its total nets it out.
+        val system =
+            FakeUidConsumer(
+                uid = 1_000,
+                packageName = "android",
+                totalMah = 6.0,
+                components = mapOf(1 to 8.0, 12 to 2.0, 17 to -4.0),
+            )
+
+        val uid = BatteryUsageMapper.map(FakeBatteryUsage(uidConsumers = listOf(system)), 35, 0L, 0L).uids.single()
+
+        assertEquals(mapOf("CPU" to 8.0, "WAKELOCK" to 2.0), uid.components)
+        assertEquals(6.0, uid.totalMah, 0.0)
     }
 
     @Test
@@ -53,8 +70,8 @@ class BatteryUsageMapperTest {
 
     @Test
     fun `component ids match the framework constants`() {
-        assertEquals(18, BatteryUsageMapper.COMPONENTS.size)
-        assertEquals((0..17).toList(), BatteryUsageMapper.COMPONENTS.map { it.first })
+        assertEquals(17, BatteryUsageMapper.COMPONENTS.size)
+        assertEquals((0..16).toList(), BatteryUsageMapper.COMPONENTS.map { it.first })
         assertEquals(listOf(1, 2, 3, 4), BatteryUsageMapper.PROCESS_STATES.map { it.first })
     }
 }
