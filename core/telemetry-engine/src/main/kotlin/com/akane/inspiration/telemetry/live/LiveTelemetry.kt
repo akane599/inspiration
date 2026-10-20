@@ -77,7 +77,12 @@ class LiveTelemetry(
         }
 
     private fun KernelRead.toReading(): LiveReading {
-        val power = calibrationInput?.let { input -> calibrator.toReading(input, calibrate(input)) }
+        val power =
+            calibrationInput?.let { input ->
+                // The charge counter cross-checks the current's unit, which settles it even while plugged in.
+                val counted = input.copy(chargeCounterUah = light.chargeCounterUah, elapsedRealtimeMs = light.clock.elapsedRealtimeMs)
+                calibrator.toReading(input, calibrate(counted))
+            }
         // A current whose unit nothing supports yet may be 1000x off: it is neither shown nor stored, never a wrong
         // number in the Health curves and roll-ups. Voltage, level and temperature do not depend on it.
         val measured = power?.takeUnless { it.currentUnitAssumed }

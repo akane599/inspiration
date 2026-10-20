@@ -6,6 +6,8 @@ import kotlin.math.abs
  * One moment of raw battery values. The sysfs and BatteryManager currents are compared with each other, so both are
  * raw (BatteryManager as reported, never rounded to mA) and read as close together as possible. [isCharging] is the
  * battery's own "charging" status only: a full battery, or one held at a charge limit, is not charging.
+ * [chargeCounterUah] and [elapsedRealtimeMs] feed the charge-counter cross-check ([ChargeCounterCheck]); without them
+ * it adds nothing.
  */
 data class CalibrationInput(
     val sysfsCurrentRaw: Long?,
@@ -14,6 +16,8 @@ data class CalibrationInput(
     val bmVoltageMv: Int?,
     val isCharging: Boolean,
     val plugged: Boolean,
+    val chargeCounterUah: Long? = null,
+    val elapsedRealtimeMs: Long? = null,
 )
 
 data class PowerCalibration(
@@ -161,6 +165,9 @@ class CalibrationEvidence(
 
     private val microvolts = Vote(start.locks.sysfsMicrovolts, guesses.sysfsMicrovolts)
 
+    // Plugged readings never feed the unit prior, so a fresh install kept on the charger learns the unit from here.
+    private val chargeCounter = ChargeCounterCheck()
+
     fun add(sample: CalibrationInput) {
         hasCurrent = hasCurrent || sample.sysfsCurrentRaw != null || sample.bmCurrentNowUa != null
         hasVoltage = hasVoltage || sample.sysfsVoltageRaw != null || sample.bmVoltageMv != null
@@ -172,6 +179,10 @@ class CalibrationEvidence(
         val batteryManager = sample.bmCurrentNowUa?.toLong()?.absoluteMagnitude()
         sysfs?.let { sysfsUnit.add(it, other = batteryManager, plugged = sample.plugged) }
         batteryManager?.let { batteryManagerUnit.add(it, other = sysfs, plugged = sample.plugged) }
+        chargeCounter.add(sample)?.let { verdict ->
+            verdict.sysfsMilliamps?.let(sysfsUnit::addCounterProof)
+            verdict.batteryManagerMilliamps?.let(batteryManagerUnit::addCounterProof)
+        }
 
         val voltageV = sample.voltageMv(voltageScale()) / MILLIVOLTS_PER_VOLT
         if (voltageV in DUAL_CELL_MIN_VOLTAGE..DUAL_CELL_MAX_VOLTAGE) dualCellVoltage = true
@@ -243,8 +254,9 @@ class CalibrationEvidence(
     /**
      * The unit of one source's current: µA by contract until shown otherwise.
      *
-     * Proof: a value over 20 A in mA can only be µA, and the other source reading a thousand times this one at a real
-     * load means mA. A prior: the live gauge runs while the screen is on, and an unplugged phone with its screen on
+     * Proof: a value over 20 A in mA can only be µA, the other source reading a thousand times this one at a real
+     * load means mA, and so does a charge counter that moved by what the mA reading predicts ([addCounterProof]),
+     * plugged or not. A prior: the live gauge runs while the screen is on, and an unplugged phone with its screen on
      * draws well over 20 mA, so an unplugged value of 50 to 20,000 means mA from the first one. Any µA proof overrides
      * the prior, and an earlier build's unit ([guess]) outweighs it. Plugged values never feed it, since a µA battery
      * held at a charge limit reads a few mA.
@@ -288,14 +300,23 @@ class CalibrationEvidence(
                     unpluggedHints++
                 }
             }
-            locked =
-                when {
-                    milliampProofs - microampProofs >= LOCK_LEAD -> true
-                    microampProofs - milliampProofs >= LOCK_LEAD -> false
-                    microampProofs == 0 && milliampProofs + unpluggedHints >= LOCK_LEAD -> true
-                    else -> null
-                }
+            locked = decision()
         }
+
+        /** One charge-counter window's proof ([ChargeCounterCheck]); like any proof, it does not re-learn a lock. */
+        fun addCounterProof(milliamps: Boolean) {
+            if (locked != null) return
+            if (milliamps) milliampProofs++ else microampProofs++
+            locked = decision()
+        }
+
+        private fun decision(): Boolean? =
+            when {
+                milliampProofs - microampProofs >= LOCK_LEAD -> true
+                microampProofs - milliampProofs >= LOCK_LEAD -> false
+                microampProofs == 0 && milliampProofs + unpluggedHints >= LOCK_LEAD -> true
+                else -> null
+            }
 
         fun scaleToMa(): Double = if (milliamps()) 1.0 else MICRO_TO_MILLI
 

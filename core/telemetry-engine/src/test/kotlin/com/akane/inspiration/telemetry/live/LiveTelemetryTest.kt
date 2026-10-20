@@ -219,6 +219,28 @@ class LiveTelemetryTest {
         }
 
     @Test
+    fun `a fresh install held plugged near zero settles a microamp kernel from the charge counter`() =
+        runTest {
+            // Held at a charge limit from the first tick: 3,000 is 3 mA in µA or 3 A in mA. Over a minute of 1.5 s
+            // ticks the charge counter gains 3 mA's worth (50 µAh), not 3 A's (50 mAh).
+            val held = lightRead().copy(plugged = true, status = "full")
+            val ticks =
+                List(41) { i ->
+                    val light =
+                        held.copy(
+                            clock = held.clock.copy(elapsedRealtimeMs = 100_000L + i * 1_500L),
+                            chargeCounterUah = 3_000_000L + (i * 1.25).toLong(),
+                        )
+                    tick(light, sysfsCurrent = 3_000, bmCurrent = 3_000)
+                }
+
+            val currents = currents(MemoryCalibrationStore(), ticks)
+
+            assertNull("unknown until the counter can tell", currents.first())
+            assertEquals(3, currents.last())
+        }
+
+    @Test
     fun `without a calibration input a full battery's current keeps its sign`() =
         runTest {
             // Held at full on the charger, the battery supplies a little of the load.
