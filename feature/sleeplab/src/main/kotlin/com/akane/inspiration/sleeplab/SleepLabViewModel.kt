@@ -16,7 +16,10 @@ import com.akane.inspiration.telemetry.diff.ResolvedReference
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -154,15 +157,39 @@ class SleepLabViewModel(
     /**
      * batterystats names a UID by one of its process names ("com.app:push"), or not at all; only the UID's installed
      * packages say which app it is. A UID with no installed package (or whose lookup failed) is shown by its UID.
-     * Nothing is cached here: [SleepLabDependencies.appLabels] keeps the bounded cache, and a later emission asks again.
+     *
+     * Only the UIDs that the tabs and the culprit card show are looked up (B-17), and a round's lookups run at once.
+     * Nothing is cached: [SleepLabDependencies.appLabels] caches labels and icons but reads UID membership fresh, so
+     * every emission asks again. The alarm list breaks ties by package, so naming the shown rows can bring an unnamed row
+     * into view; the next round names it, until every shown row is named. A UID left out of every list keeps its
+     * reported name, which nothing shows.
      */
     private suspend fun withOwnerPackages(analysis: IntervalAnalysis): IntervalAnalysis {
-        val uids =
-            analysis.diff.uids.map { uid ->
-                val pkg = attempt { deps.appLabels.packageForUid(uid.uid, reported = uid.packageName) }
-                if (pkg == uid.packageName) uid else uid.copy(packageName = pkg)
-            }
-        return analysis.copy(diff = analysis.diff.copy(uids = uids))
+        val reported = analysis.diff.uids.associate { it.uid to it.packageName }
+        val owners = HashMap<Int, String?>()
+        var named = analysis
+        while (true) {
+            val unnamed = shownUids(named).filter { it in reported && it !in owners }
+            if (unnamed.isEmpty()) return named
+            owners +=
+                coroutineScope {
+                    unnamed
+                        .map { uid -> async { uid to attempt { deps.appLabels.packageForUid(uid, reported = reported[uid]) } } }
+                        .awaitAll()
+                }
+            val uids = analysis.diff.uids.map { uid -> if (uid.uid in owners) uid.copy(packageName = owners[uid.uid]) else uid }
+            named = analysis.copy(diff = analysis.diff.copy(uids = uids))
+        }
+    }
+
+    /** The UIDs of the rows the per-app tabs and the culprit card show for [analysis], as it names them now. */
+    private fun shownUids(analysis: IntervalAnalysis): Set<Int> {
+        val shown = sleepLabAnalysis(analysis, emptyMap())
+        return buildSet {
+            shown.appWakelocks.rowsOrEmpty().mapTo(this) { it.uid }
+            shown.alarms.rowsOrEmpty().mapTo(this) { it.uid }
+            (shown.awake as? AwakeCheckUi.Violation)?.culprits.orEmpty().mapNotNullTo(this) { it.uid }
+        }
     }
 
     /** Only the packages the tabs will show are looked up; a label that cannot be read falls back to the package. */

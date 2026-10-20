@@ -248,6 +248,68 @@ class SleepLabViewModelTest {
         }
 
     @Test
+    fun `owners are read once each, only for the uids the tabs and the culprit card show`() =
+        runTest(dispatcher) {
+            // 30 apps held wakelocks (the tab shows the longest 20), 50 more held none and set no alarm, and the
+            // culprit card names one of the 10 the tab leaves out.
+            val wakelockUids = (10_100 until 10_130).toList()
+            val quietUids = (10_200 until 10_250).toList()
+            (wakelockUids + quietUids).forEach { deps.appLabels.uidPackages[it] = listOf("app.$it") }
+            val uids =
+                wakelockUids.mapIndexed { rank, uid ->
+                    uidDelta(uid, packageName = "app.$uid:push", wakelocks = listOf(wakelock("w$uid", (100L - rank) * MIN_MS, 1)))
+                } + quietUids.map { uidDelta(it) }
+            val leftOut = wakelockUids.last()
+            val violation =
+                AwakeViolation(
+                    Severity.RED,
+                    0.3,
+                    8 * HOUR_MS,
+                    CulpritScope.SCREEN_OFF_ONLY,
+                    listOf(Culprit(EntryKind.PARTIAL, "w$leftOut", leftOut, 40 * MIN_MS, 4)),
+                )
+            deps.analysis.value =
+                ready(intervalAnalysis(diff = snapshotDiff(uids = uids), report = DiagnosticReport(listOf(violation), emptyMap(), 0)))
+            val vm = viewModel()
+
+            visible(vm)
+
+            val analysis = vm.state.value.analysis as AnalysisUi.Ready
+            val tab = analysis.appWakelocks as ListUi.Rows
+            assertEquals(wakelockUids.take(MAX_ROWS), tab.rows.map { it.uid })
+            assertEquals(wakelockUids.size - MAX_ROWS, tab.hidden)
+            assertTrue("every shown row is named by its package", tab.rows.all { it.packageName == "app.${it.uid}" })
+            assertEquals("app.$leftOut", (analysis.awake as AwakeCheckUi.Violation).culprits.single().packageName)
+            assertEquals(
+                "one lookup per shown owner, not one per uid in the interval",
+                (tab.rows.map { it.uid } + leftOut).sorted(),
+                deps.appLabels.uidLooked.sorted(),
+            )
+        }
+
+    @Test
+    fun `a row that naming the shown rows brings into view is named as well`() =
+        runTest(dispatcher) {
+            // Equal wake-up counts rank by package. Unnamed, the uid reported without a name sorts first and keeps the
+            // 21st row out of view; named, it sorts last and lets that row in, which must not keep its process name.
+            deps.appLabels.uidPackages[10_100] = listOf("zzz.app")
+            val owners = (1..MAX_ROWS).map { i -> 10_100 + i to "app.${i.toString().padStart(2, '0')}" }
+            owners.forEach { (uid, pkg) -> deps.appLabels.uidPackages[uid] = listOf(pkg) }
+            val uids =
+                listOf(uidDelta(10_100, packageName = null, alarms = listOf(UidAlarm("t", 1)))) +
+                    owners.map { (uid, pkg) -> uidDelta(uid, packageName = "$pkg:push", alarms = listOf(UidAlarm("t", 1))) }
+            deps.analysis.value = ready(intervalAnalysis(diff = snapshotDiff(uids = uids)))
+            val vm = viewModel()
+
+            visible(vm)
+
+            val alarms = (vm.state.value.analysis as AnalysisUi.Ready).alarms as ListUi.Rows
+            assertEquals(owners.map { it.second }, alarms.rows.map { it.packageName })
+            assertEquals(1, alarms.hidden)
+            assertEquals("each uid is read once", uids.map { it.uid }.sorted(), deps.appLabels.uidLooked.sorted())
+        }
+
+    @Test
     fun `visible refreshes once and shapes the ready analysis with owner labels`() =
         runTest(dispatcher) {
             deps.appLabels.labels["com.chat"] = "Chat"
@@ -498,6 +560,7 @@ class SleepLabViewModelTest {
             assertEquals(ListUi.NeedsFullSnapshots, analysis.appWakelocks)
             assertEquals(ListUi.NeedsFullSnapshots, analysis.alarms)
             assertTrue("labels are not looked up for lists that are not shown", deps.appLabels.looked.isEmpty())
+            assertTrue("owners are not read for lists that are not shown", deps.appLabels.uidLooked.isEmpty())
         }
 
     @Test
