@@ -8,6 +8,7 @@ import android.content.pm.PackageManager
 import android.os.IBinder
 import android.os.RemoteException
 import android.util.Log
+import com.akane.inspiration.ipc.service.TelemetryUserService
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -538,7 +539,9 @@ class ShizukuManagerImpl private constructor(
         }
         val args =
             shizukuUserServiceArgs(
-                ComponentName(context.packageName, TELEMETRY_USER_SERVICE_CLASS),
+                // The class itself, not a string: a rename or move cannot leave Shizuku a name that no longer
+                // exists, and R8 rewrites the reference with the class (R-17).
+                ComponentName(context.packageName, TelemetryUserService::class.java.name),
                 info,
             )
         serviceArgs = args
@@ -668,8 +671,6 @@ class ShizukuManagerImpl private constructor(
          * whenever no death comes, and a slower exit is handled by the spent-stub recovery (F-17).
          */
         const val UNBIND_SETTLE_TIMEOUT_MS = 2_000L
-        const val TELEMETRY_USER_SERVICE_CLASS =
-            "com.akane.inspiration.ipc.service.TelemetryUserService"
     }
 }
 
