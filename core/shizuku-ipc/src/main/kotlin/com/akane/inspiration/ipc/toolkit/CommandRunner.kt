@@ -31,7 +31,7 @@ internal data class CommandOutput(
     val text: String,
     val timedOut: Boolean = false,
     val failedToStart: Boolean = false,
-    /** More output was produced than the retention cap kept. */
+    /** Not the whole output: more was produced than the retention cap kept, or the stream was not read to EOF. */
     val truncated: Boolean = false,
 ) {
     /** Ran and exited 0. Ignores [truncated]: a reader that needs only the head of a long dump accepts a cut. */
@@ -79,11 +79,19 @@ internal val FIXED_ENVIRONMENT: Map<String, String> = mapOf(
     "ANDROID_DATA" to "/data",
 )
 
+/** How long the reader may take to reach EOF after the child exits; a longer wait reports the output cut. */
+internal const val READER_JOIN_MS = 1_000L
+
 internal class ProcessCommandRunner(
+    private val readerJoinMs: Long = READER_JOIN_MS,
     private val processFactory: (List<String>) -> Process = ::startProcess,
 ) : CommandRunner {
+    init {
+        require(readerJoinMs > 0) { "Thread.join(0) waits forever" }
+    }
+
     override fun start(argv: List<String>): CommandProcess =
-        RealCommandProcess(processFactory(argv), retentionCapFor(argv))
+        RealCommandProcess(processFactory(argv), retentionCapFor(argv), readerJoinMs)
 
     private companion object {
         fun retentionCapFor(argv: List<String>): Int = when (argv) {
@@ -107,11 +115,20 @@ internal class ProcessCommandRunner(
  * Drains merged stdout+stderr on a reader thread for the whole process lifetime, retaining only
  * the first [retentionCap] bytes; draining continues past the cap so the child never blocks.
  * The child's stdin is closed at once: no command here reads it, and one that tried would block
- * until the timeout.
+ * until the timeout. Output is reported cut unless the reader reached EOF: a reader still blocked
+ * (descheduled, or a grandchild holding the pipe) or interrupted after the bounded join, a read
+ * error and a timeout all leave unread bytes behind, so a list read from it must fail closed.
  */
-private class RealCommandProcess(private val process: Process, private val retentionCap: Int) : CommandProcess {
+private class RealCommandProcess(
+    private val process: Process,
+    private val retentionCap: Int,
+    private val readerJoinMs: Long,
+) : CommandProcess {
     private val retained = ByteArrayOutputStream()
     private var overflow = false
+
+    /** Set by the reader at EOF; guarded by [retained] so [output] reads it with the bytes it describes. */
+    private var reachedEof = false
 
     init {
         closeQuietly(process.outputStream)
@@ -130,7 +147,7 @@ private class RealCommandProcess(private val process: Process, private val reten
         }
         if (exited) {
             try {
-                reader.join(READER_JOIN_MS)
+                reader.join(readerJoinMs)
             } catch (_: InterruptedException) {
                 Thread.currentThread().interrupt()
             }
@@ -139,7 +156,8 @@ private class RealCommandProcess(private val process: Process, private val reten
     }
 
     override fun output(timedOut: Boolean): CommandOutput {
-        val (text, truncated) = synchronized(retained) { retained.toString(Charsets.UTF_8.name()) to overflow }
+        val (text, truncated) =
+            synchronized(retained) { retained.toString(Charsets.UTF_8.name()) to (overflow || !reachedEof) }
         val exitCode = if (timedOut) -1 else exitValueOrMinusOne()
         return CommandOutput(exitCode = exitCode, text = text, timedOut = timedOut, truncated = truncated)
     }
@@ -162,7 +180,10 @@ private class RealCommandProcess(private val process: Process, private val reten
         try {
             while (true) {
                 val count = stream.read(buffer)
-                if (count < 0) return
+                if (count < 0) {
+                    synchronized(retained) { reachedEof = true }
+                    return
+                }
                 synchronized(retained) {
                     val room = retentionCap - retained.size()
                     if (room > 0) retained.write(buffer, 0, minOf(room, count))
@@ -170,7 +191,7 @@ private class RealCommandProcess(private val process: Process, private val reten
                 }
             }
         } catch (_: IOException) {
-            // The stream was closed by destroy(); whatever was retained stays.
+            // Closed by destroy() or a read error; whatever was retained stays, reported as cut.
         }
     }
 
@@ -180,9 +201,5 @@ private class RealCommandProcess(private val process: Process, private val reten
         } catch (_: IOException) {
             // Nothing useful to do.
         }
-    }
-
-    private companion object {
-        const val READER_JOIN_MS = 1_000L
     }
 }

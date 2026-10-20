@@ -3,11 +3,14 @@ package com.akane.inspiration.ipc.toolkit
 import java.io.ByteArrayInputStream
 import java.io.ByteArrayOutputStream
 import java.io.File
+import java.io.IOException
 import java.io.InputStream
 import java.io.OutputStream
+import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertThrows
 import org.junit.Assert.assertTrue
 import org.junit.Assume.assumeTrue
 import org.junit.Test
@@ -22,7 +25,37 @@ class ProcessCommandRunnerTest {
         }
     }
 
-    private class FakeProcess(output: ByteArray, private val finishes: Boolean, private val exit: Int = 0) : Process() {
+    /**
+     * Hands out [head], then blocks like a pipe whose write end is still open (a grandchild holding it,
+     * or a descheduled reader) until [close], which ends the read with an IOException as on a real pipe.
+     */
+    private class StalledStream(private val head: ByteArray) : InputStream() {
+        private val closed = CountDownLatch(1)
+        private var headSent = false
+
+        override fun read(): Int = throw UnsupportedOperationException()
+
+        override fun read(b: ByteArray, off: Int, len: Int): Int {
+            if (!headSent) {
+                headSent = true
+                head.copyInto(b, off, 0, minOf(len, head.size))
+                return minOf(len, head.size)
+            }
+            closed.await()
+            throw IOException("closed")
+        }
+
+        override fun close() = closed.countDown()
+
+        val isClosed: Boolean get() = closed.count == 0L
+    }
+
+    private class FakeProcess(
+        output: ByteArray,
+        private val finishes: Boolean,
+        private val exit: Int = 0,
+        private val stdoutOverride: InputStream? = null,
+    ) : Process() {
         val stdout = TrackedStream(output)
         val stderr = TrackedStream(ByteArray(0))
         var forcedKill = false
@@ -36,7 +69,7 @@ class ProcessCommandRunnerTest {
 
         override fun getOutputStream(): OutputStream = stdin
 
-        override fun getInputStream(): InputStream = stdout
+        override fun getInputStream(): InputStream = stdoutOverride ?: stdout
 
         override fun getErrorStream(): InputStream = stderr
 
@@ -143,6 +176,40 @@ class ProcessCommandRunnerTest {
         assertEquals(10_000L, process.requestedTimeoutMs)
         assertTrue(process.forcedKill)
         assertTrue(process.stdout.closed)
+    }
+
+    @Test
+    fun `output whose reader has not reached EOF when the join ends is never complete`() {
+        val stdout = StalledStream("com.example.launcher\n".toByteArray())
+        val process = FakeProcess(ByteArray(0), finishes = true, stdoutOverride = stdout)
+
+        val out = ProcessCommandRunner(readerJoinMs = 20L) { process }.run(listOf("x"))
+
+        assertTrue("the child exited 0", out.ok)
+        assertTrue("an undrained stream is a cut", out.truncated)
+        assertFalse("a list read before EOF is never trusted whole", out.complete)
+        assertTrue("destroy releases the stalled reader", stdout.isClosed)
+    }
+
+    @Test
+    fun `an interrupted reader join reports the output cut and keeps the interrupt`() {
+        val stdout = StalledStream("com.example.ime\n".toByteArray())
+        val process = FakeProcess(ByteArray(0), finishes = true, stdoutOverride = stdout)
+
+        Thread.currentThread().interrupt()
+        val out = try {
+            ProcessCommandRunner(readerJoinMs = 10_000L) { process }.run(listOf("x"))
+        } finally {
+            assertTrue("the interrupt is restored for the caller", Thread.interrupted())
+        }
+
+        assertFalse(out.complete)
+        assertTrue(out.truncated)
+    }
+
+    @Test
+    fun `a zero reader join is rejected because it would wait forever`() {
+        assertThrows(IllegalArgumentException::class.java) { ProcessCommandRunner(readerJoinMs = 0L) }
     }
 
     @Test
