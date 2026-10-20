@@ -63,7 +63,11 @@ internal const val API_PREFERRED_HISTORY_DURATION = 36
  */
 internal const val PREFERRED_HISTORY_DURATION_MS = 365L * 24 * 60 * 60 * 1000
 
-/** Applies D9 (docs/plans/phase-1.md) to the query builder. */
+/**
+ * Applies D9 (docs/plans/phase-1.md) to the query builder, except that [maxAgeMs] is the caller's: a FULL capture
+ * passes a few seconds so the query reuses the external-stats sync of the batterystats dump it reads first, where
+ * 0 forced a second sync on every capture (audit B-22).
+ */
 internal fun configureBatteryUsageQuery(builder: BatteryUsageQueryBuilder, sdkInt: Int, maxAgeMs: Long) {
     builder.setMaxStatsAgeMs(maxAgeMs)
     if (sdkInt >= API_PROCESS_STATE_DATA) {

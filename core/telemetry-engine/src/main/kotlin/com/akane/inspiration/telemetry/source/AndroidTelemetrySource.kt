@@ -27,6 +27,13 @@ import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 
 /**
+ * Max stats age of a FULL capture's usage query (audit B-22). The `batterystats --proto` dump, read to its end just
+ * before, runs a full external-stats sync (CPU, Wi-Fi, modem, Bluetooth controllers) before it writes; the query
+ * syncs again only when the last sync is older than this, so it reuses that one rather than forcing a second sync.
+ */
+internal const val USAGE_MAX_STATS_AGE_MS = 5_000L
+
+/**
  * [bindTimeoutMs] bounds the wait for a Ready, bound service (a cold process waits out the Shizuku binder push
  * and the service start), [dumpReadTimeoutMs] each dump read; the caller's capture deadline bounds the whole read.
  */
@@ -58,8 +65,11 @@ class AndroidTelemetrySource(
             val light = light()
             shizuku.withTelemetryService(bindTimeoutMs) { service ->
                 val identityOpening = uidIdentityReader.open()
-                val usage = binderCall { service.readBatteryUsage(0L) }
+                // Dump first: it syncs external stats, which the usage query then reuses (USAGE_MAX_STATS_AGE_MS).
+                // After a failed or timed-out dump the query syncs itself when the last sync is older than that,
+                // once any sync still in flight ends. A stats reset between the two reads is still session skew.
                 val batteryStats = readBatteryStats(service)
+                val usage = binderCall { service.readBatteryUsage(USAGE_MAX_STATS_AGE_MS) }
                 val alarm = readAlarm(service)
                 val kernel = binderCall { service.readKernelBattery() }
                 val cpu = binderCall { service.readCpuTimeInState() }
