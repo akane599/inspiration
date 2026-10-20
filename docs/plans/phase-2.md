@@ -64,7 +64,7 @@ snapshot_cpu_freq(snapshotId FK cascade, policy, freqKhz, timeMs)               
 marker(id PK autoinc, snapshotId FK restrict, label, wallMs)                                               INDEX(snapshotId)
 history_event(id PK autoinc, statsStartMs, historyTimeMs, wallMs, kind TEXT, levelPct?, chargeUah?, temperatureDeciC?, voltageMv?, plugType?)
          UNIQUE(historyTimeMs, kind, wallMs), INDEX(wallMs)   -- not session-keyed: history survives stats resets (SQ-34)
-history_cursor(id PK = 1, statsStartMs, lastHistoryTimeMs)
+history_cursor(id PK = 1, statsStartMs, lastHistoryTimeMs)   -- id 2 is the one-time rewind marker (SQ-6)
 telemetry_sample(id PK autoinc, wallMs, elapsedRealtimeMs, bootCount, currentMa?, voltageMv?, watts?, temperatureDeciC?, levelPct?, plugged?)  INDEX(wallMs)
 telemetry_hourly(hourStartWallMs PK, sampleCount, avgCurrentMa, minCurrentMa, maxCurrentMa, avgVoltageMv, avgWatts, maxTemperatureDeciC, minLevelPct, maxLevelPct)
 charge_session(id PK autoinc, statsStartMs, startHistoryTimeMs, startWallMs, endWallMs, startPct, endPct, deltaChargeUah?, integratedMah?,
