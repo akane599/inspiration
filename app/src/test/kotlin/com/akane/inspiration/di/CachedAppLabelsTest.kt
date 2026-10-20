@@ -21,14 +21,17 @@ import org.junit.Test
 @OptIn(ExperimentalCoroutinesApi::class)
 class CachedAppLabelsTest {
     private class FakeSource(
-        private val labels: Map<String, String>,
+        val labels: MutableMap<String, String>,
     ) : AppLabelSource {
         val labelLoads = mutableListOf<String>()
         val iconLoads = mutableListOf<String>()
 
+        /** Runs inside a label read, after the source answered: a package change that lands while the read is in flight. */
+        var afterLabelRead: (String) -> Unit = {}
+
         override fun loadLabel(packageName: String): String? {
             labelLoads += packageName
-            return labels[packageName]
+            return labels[packageName].also { afterLabelRead(packageName) }
         }
 
         // A Bitmap cannot be built on the JVM; null icons still exercise the cache path.
@@ -48,7 +51,7 @@ class CachedAppLabelsTest {
         }
     }
 
-    private val source = FakeSource(mapOf("a.app" to "Alpha", "b.app" to "Beta", "c.app" to "Gamma"))
+    private val source = FakeSource(mutableMapOf("a.app" to "Alpha", "b.app" to "Beta", "c.app" to "Gamma"))
 
     @Test
     fun `an app uid lists fresh distinct sorted packages on every lookup, an unowned uid included`() =
@@ -189,13 +192,50 @@ class CachedAppLabelsTest {
         }
 
     @Test
-    fun `an unknown package is labelled with its name and the miss is cached too`() =
+    fun `an unknown package is labelled with its name and read again, so a later install shows its label`() =
         runTest {
             val labels = labels()
 
             assertEquals("gone.app", labels.label("gone.app"))
             assertEquals("gone.app", labels.label("gone.app"))
-            assertEquals(listOf("gone.app"), source.labelLoads)
+            assertEquals("a miss is not remembered", listOf("gone.app", "gone.app"), source.labelLoads)
+
+            source.labels["gone.app"] = "Gone"
+            assertEquals("Gone", labels.label("gone.app"))
+            assertEquals("Gone", labels.label("gone.app"))
+            assertEquals("a found label is cached", List(3) { "gone.app" }, source.labelLoads)
+        }
+
+    @Test
+    fun `invalidating a package re-reads its label, so a renamed app shows its new name`() =
+        runTest {
+            val labels = labels()
+            assertEquals("Alpha", labels.label("a.app"))
+            assertEquals("Beta", labels.label("b.app"))
+
+            source.labels["a.app"] = "Alpha Two"
+            labels.invalidate("a.app")
+
+            assertEquals("Alpha Two", labels.label("a.app"))
+            assertEquals("Beta", labels.label("b.app"))
+            assertEquals("only the invalidated package is read again", listOf("a.app", "b.app", "a.app"), source.labelLoads)
+        }
+
+    @Test
+    fun `a label read while its package changed is returned but not kept`() =
+        runTest {
+            val labels = labels()
+            source.afterLabelRead = { pkg ->
+                // The update lands, and its broadcast invalidates the package, after the source gave the old label.
+                source.labels[pkg] = "Alpha Two"
+                labels.invalidate(pkg)
+            }
+
+            assertEquals("the read's own answer is still returned", "Alpha", labels.label("a.app"))
+            source.afterLabelRead = {}
+
+            assertEquals("the stale answer was not cached", "Alpha Two", labels.label("a.app"))
+            assertEquals(listOf("a.app", "a.app"), source.labelLoads)
         }
 
     @Test
@@ -217,33 +257,16 @@ class CachedAppLabelsTest {
         }
 
     @Test
-    fun `icons are cached separately from labels and a missing icon is cached as null`() =
+    fun `a missing icon is read again on the next lookup and a label load does not read icons`() =
         runTest {
             val labels = labels()
 
             assertNull(labels.icon("a.app"))
             assertNull(labels.icon("a.app"))
-            assertEquals(listOf("a.app"), source.iconLoads)
+            assertEquals("a missing icon is not remembered", listOf("a.app", "a.app"), source.iconLoads)
 
             labels.label("a.app")
-            assertEquals("a label load does not touch the icon cache", listOf("a.app"), source.iconLoads)
-        }
-
-    @Test
-    fun `the least recently used icon miss is evicted at the separate icon bound`() =
-        runTest {
-            val labels = labels(maxLabels = 8, maxIcons = 2)
-            labels.icon("a.app")
-            labels.icon("b.app")
-            labels.icon("a.app")
-            labels.icon("c.app") // evicts b
-
-            source.iconLoads.clear()
-            labels.icon("a.app")
-            labels.icon("c.app")
-            assertEquals("a and c are still cached", emptyList<String>(), source.iconLoads)
-
-            labels.icon("b.app")
-            assertEquals("b was evicted and reloads", listOf("b.app"), source.iconLoads)
+            labels.invalidate("a.app")
+            assertEquals("labels and invalidation never read icons", listOf("a.app", "a.app"), source.iconLoads)
         }
 }

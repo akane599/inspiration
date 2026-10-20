@@ -18,6 +18,7 @@ import com.akane.inspiration.di.StoreTicks
 import com.akane.inspiration.di.TimelineEvents
 import com.akane.inspiration.di.newApplicationScope
 import com.akane.inspiration.di.reconcileOnEachReady
+import com.akane.inspiration.di.registerPackageChangeReceiver
 import com.akane.inspiration.diagnostics.analysis.AnalysisSelection
 import com.akane.inspiration.diagnostics.analysis.AnalysisSession
 import com.akane.inspiration.diagnostics.analysis.AnalysisState
@@ -285,7 +286,14 @@ class AppContainer(
 
     // ---- app labels and the picker (H15) ---------------------------------------------------
 
-    override val appLabels: AppLabels = CachedAppLabels(PackageManagerAppLabelSource(appContext.packageManager))
+    private val cachedAppLabels = CachedAppLabels(PackageManagerAppLabelSource(appContext.packageManager))
+    override val appLabels: AppLabels = cachedAppLabels
+
+    init {
+        // The cache and its one package-change receiver live as long as this process-wide container, and are made
+        // together here, once: an install, update, change or removal drops that package's label and icon (B-18).
+        registerPackageChangeReceiver(appContext, cachedAppLabels::invalidate)
+    }
 
     // The ResolveInfoFlags overload is API 33+; the Int overload is identical for flags 0 and works on API 31+.
     @Suppress("DEPRECATION")
