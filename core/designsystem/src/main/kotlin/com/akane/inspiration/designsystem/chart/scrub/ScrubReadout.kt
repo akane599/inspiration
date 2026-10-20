@@ -13,6 +13,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
 import com.akane.inspiration.designsystem.R
+import com.akane.inspiration.designsystem.chart.math.formatClock
 import com.akane.inspiration.designsystem.chart.math.showsDates
 import com.akane.inspiration.designsystem.chart.math.valueAt
 import com.akane.inspiration.designsystem.chart.model.ScrubChartData

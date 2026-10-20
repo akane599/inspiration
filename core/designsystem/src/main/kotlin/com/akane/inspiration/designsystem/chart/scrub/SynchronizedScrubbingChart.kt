@@ -35,6 +35,7 @@ import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.unit.Dp
 import com.akane.inspiration.designsystem.R
+import com.akane.inspiration.designsystem.chart.math.formatClock
 import com.akane.inspiration.designsystem.chart.math.showsDates
 import com.akane.inspiration.designsystem.chart.model.LaneKind
 import com.akane.inspiration.designsystem.chart.model.ScrubChartData

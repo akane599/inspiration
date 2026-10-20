@@ -29,7 +29,9 @@ import com.akane.inspiration.designsystem.chart.math.TimeScale
 import com.akane.inspiration.designsystem.chart.math.ValueScale
 import com.akane.inspiration.designsystem.chart.math.contains
 import com.akane.inspiration.designsystem.chart.math.decimateMinMax
+import com.akane.inspiration.designsystem.chart.math.formatTickLabel
 import com.akane.inspiration.designsystem.chart.math.niceTimeTickSet
+import com.akane.inspiration.designsystem.chart.math.usesDateTicks
 import com.akane.inspiration.designsystem.chart.model.LaneKind
 import com.akane.inspiration.designsystem.chart.model.ScrubChartData
 import com.akane.inspiration.designsystem.chart.model.SeriesKind

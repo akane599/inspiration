@@ -1,14 +1,9 @@
 package com.akane.inspiration.designsystem.chart.scrub
 
-import com.akane.inspiration.designsystem.chart.math.isStartOfDay
 import com.akane.inspiration.designsystem.chart.model.LaneSegment
 import com.akane.inspiration.designsystem.chart.model.TimePoint
 import com.akane.inspiration.designsystem.chart.model.TimeRange
 import com.akane.inspiration.designsystem.component.format.TelemetryFormat
-import com.akane.inspiration.designsystem.component.format.TelemetryUnits
-import java.time.ZoneId
-import java.util.Locale
-import java.util.concurrent.ConcurrentHashMap
 import kotlin.math.ceil
 import kotlin.math.floor
 import kotlin.math.roundToLong
@@ -16,7 +11,6 @@ import kotlin.math.roundToLong
 /** Temperature at or above this is drawn in the critical hue. */
 internal const val CRITICAL_TEMPERATURE_C = 40f
 
-private const val DAY_MS = 24 * 60 * 60_000L
 private const val TEMPERATURE_ALIGN_C = 5f
 
 /** A connected stretch of a series that is entirely below or entirely at/above a threshold. */
@@ -120,38 +114,3 @@ internal fun laneSegmentInWindow(
     segment: LaneSegment,
     window: TimeRange,
 ): Boolean = segment.endMs > window.startMs && segment.startMs < window.endMs
-
-/** Axis tick labels switch from clock time to the date once the window covers several days. */
-internal fun TimeRange.usesDateTicks(): Boolean = durationMs > 2 * DAY_MS
-
-// One immutable format per locale, so the scrub readout builds none per frame.
-private val clockFormats = ConcurrentHashMap<Locale, TelemetryFormat>()
-
-/** Only the date and time styles are used here, which take no units. */
-private fun clockFormat(locale: Locale): TelemetryFormat = clockFormats.getOrPut(locale) { TelemetryFormat(locale, TelemetryUnits.English) }
-
-/** "21:30", or "16 Oct 21:30" with [withDate]; the date-time is joined with no-break spaces (`TelemetryFormat`). */
-internal fun formatClock(
-    tMs: Long,
-    zone: ZoneId,
-    withDate: Boolean,
-    locale: Locale,
-): String = clockFormat(locale).let { if (withDate) it.dateTime(tMs, zone) else it.time(tMs, zone) }
-
-/**
- * Chosen from the tick step, not only the window length: day-step ticks ([dayAligned]) show the date; sub-day
- * ticks show the time, except that on a multi-day window ([usesDateTicks]) a tick at the start of a day shows
- * its date, so a 2–3 day window with 12 h ticks reads "17 Oct, 12:00, 18 Oct" rather than repeating dates.
- */
-internal fun formatTickLabel(
-    tMs: Long,
-    zone: ZoneId,
-    window: TimeRange,
-    dayAligned: Boolean,
-    locale: Locale,
-): String =
-    if (dayAligned || (window.usesDateTicks() && isStartOfDay(tMs, zone))) {
-        clockFormat(locale).date(tMs, zone)
-    } else {
-        formatClock(tMs, zone, withDate = false, locale = locale)
-    }

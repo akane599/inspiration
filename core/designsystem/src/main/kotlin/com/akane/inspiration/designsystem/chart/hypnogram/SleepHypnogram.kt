@@ -50,7 +50,8 @@ import com.akane.inspiration.designsystem.chart.draw.SELECTION_DIM_ALPHA
 import com.akane.inspiration.designsystem.chart.draw.TimeTick
 import com.akane.inspiration.designsystem.chart.draw.drawTimeAxis
 import com.akane.inspiration.designsystem.chart.math.TimeScale
-import com.akane.inspiration.designsystem.chart.math.isStartOfDay
+import com.akane.inspiration.designsystem.chart.math.formatClock
+import com.akane.inspiration.designsystem.chart.math.formatTickLabel
 import com.akane.inspiration.designsystem.chart.math.niceTimeTickSet
 import com.akane.inspiration.designsystem.chart.math.overlaps
 import com.akane.inspiration.designsystem.chart.math.showsDates
@@ -62,9 +63,7 @@ import com.akane.inspiration.designsystem.component.format.rememberSystemZoneId
 import com.akane.inspiration.designsystem.component.format.rememberTelemetryFormat
 import com.akane.inspiration.designsystem.theme.telemetryColors
 import com.akane.inspiration.designsystem.theme.withTabularFigures
-import java.time.Instant
 import java.time.ZoneId
-import java.time.format.DateTimeFormatter
 import java.util.Locale
 import kotlin.math.abs
 
@@ -102,8 +101,6 @@ private const val DURATION_COLUMN_FRACTION = 0.28f
  */
 private const val MAX_CHART_FONT_SCALE = 1.2f
 private const val MIN_VISIBLE_PX = 2f
-private const val DAY_MS = 24 * 60 * 60_000L
-private const val TWO_DAYS_MS = 2 * DAY_MS
 
 /**
  * Sleep-stage hypnogram: one row per [HypnogramStage] (Awake on top, Deep idle at the bottom), segments
@@ -181,11 +178,11 @@ fun SleepHypnogram(
     val selectionDescription =
         remember(selection, data.window, zone, locale, resources, format) {
             selection?.let {
-                val formatter = clockFormatter(data.window, zone, locale)
+                val withDate = data.window.showsDates(zone)
                 resources.getString(
                     R.string.chart_a11y_selection,
-                    formatClock(formatter, it.startMs, zone),
-                    formatClock(formatter, it.endMs, zone),
+                    formatClock(it.startMs, zone, withDate, locale),
+                    formatClock(it.endMs, zone, withDate, locale),
                     format.duration(it.durationMs),
                 )
             }
@@ -309,7 +306,7 @@ private fun buildLayer(
         val sample = measure("00:00")
         val maxTicks = maxOf(2, (plotWidth / (sample.size.width + MinTickSpacing.toPx())).toInt())
         val tickSet = niceTimeTickSet(data.window, maxTicks, zone)
-        val ticks = tickSet.ticksMs.map { TimeTick(it, measure(tickLabel(it, zone, data.window, tickSet.dayAligned, locale))) }
+        val ticks = tickSet.ticksMs.map { TimeTick(it, measure(formatTickLabel(it, zone, data.window, tickSet.dayAligned, locale))) }
         val tickLength = TickLength.toPx()
         val axisHeight = tickLength + TickLabelGap.toPx() + sample.size.height
 
@@ -473,35 +470,7 @@ private fun DrawScope.drawHypnogramOverlay(
     }
 }
 
-/** A11y clock labels in [locale]: date and time when the window [showsDates] in [zone] (the scrub chart's rule), else the time. */
-internal fun clockFormatter(
-    window: TimeRange,
-    zone: ZoneId,
-    locale: Locale,
-): DateTimeFormatter = DateTimeFormatter.ofPattern(if (window.showsDates(zone)) "d MMM HH:mm" else "HH:mm", locale)
-
-/**
- * Axis tick label in [locale], chosen from the tick step rather than the window length: day-step ticks show the
- * date; sub-day ticks show the time, except that on a window of two days or more a tick at the start of a day
- * shows its date, so the days stay identifiable without widening every label.
- */
-internal fun tickLabel(
-    tMs: Long,
-    zone: ZoneId,
-    window: TimeRange,
-    dayAligned: Boolean,
-    locale: Locale,
-): String {
-    val dateTick = dayAligned || (window.durationMs >= TWO_DAYS_MS && isStartOfDay(tMs, zone))
-    return formatClock(DateTimeFormatter.ofPattern(if (dateTick) "d MMM" else "HH:mm", locale), tMs, zone)
-}
-
-private fun formatClock(
-    formatter: DateTimeFormatter,
-    tMs: Long,
-    zone: ZoneId,
-): String = formatter.format(Instant.ofEpochMilli(tMs).atZone(zone))
-
+/** A11y text in [locale]: the clock times name their dates when the window [showsDates] in [zone] (the scrub chart's rule). */
 private fun describe(
     resources: Resources,
     window: TimeRange,
@@ -510,12 +479,12 @@ private fun describe(
     stageNames: List<String>,
     durationTexts: List<String>,
 ): String {
-    val formatter = clockFormatter(window, zone, locale)
+    val withDate = window.showsDates(zone)
     val span =
         resources.getString(
             R.string.chart_a11y_window,
-            formatClock(formatter, window.startMs, zone),
-            formatClock(formatter, window.endMs, zone),
+            formatClock(window.startMs, zone, withDate, locale),
+            formatClock(window.endMs, zone, withDate, locale),
         )
     val totals =
         stageNames.indices.joinToString(", ") {

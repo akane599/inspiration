@@ -1,6 +1,9 @@
 package com.akane.inspiration.designsystem.chart.scrub
 
+import com.akane.inspiration.designsystem.chart.math.formatClock
+import com.akane.inspiration.designsystem.chart.math.formatTickLabel
 import com.akane.inspiration.designsystem.chart.math.niceTimeTickSet
+import com.akane.inspiration.designsystem.chart.math.usesDateTicks
 import com.akane.inspiration.designsystem.chart.model.LaneSegment
 import com.akane.inspiration.designsystem.chart.model.TimePoint
 import com.akane.inspiration.designsystem.chart.model.TimeRange
@@ -115,10 +118,10 @@ class ScrubChartMathTest {
     }
 
     @Test
-    fun `date ticks start past two days`() {
+    fun `date ticks start at two days`() {
         val day = 24 * 3_600_000L
-        assertFalse(TimeRange.of(0, 2 * day).usesDateTicks())
-        assertTrue(TimeRange.of(0, 2 * day + 1).usesDateTicks())
+        assertFalse(TimeRange.of(0, 2 * day - 1).usesDateTicks())
+        assertTrue(TimeRange.of(0, 2 * day).usesDateTicks())
     }
 
     @Test

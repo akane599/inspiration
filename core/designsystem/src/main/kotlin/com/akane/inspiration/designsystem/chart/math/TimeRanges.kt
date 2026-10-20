@@ -4,7 +4,8 @@ import com.akane.inspiration.designsystem.chart.model.TimeRange
 import java.time.Instant
 import java.time.ZoneId
 
-private const val DAY_MS = 24 * 60 * 60_000L
+/** One day in milliseconds: the length the charts' date rules ([showsDates], [usesDateTicks]) measure against. */
+internal const val DAY_MS = 24 * 60 * 60_000L
 
 /** True when [tMs] lies in this closed interval, ends included. */
 internal operator fun TimeRange.contains(tMs: Long): Boolean = tMs >= startMs && tMs <= endMs
