@@ -56,6 +56,8 @@ class StatusNotificationService : Service() {
     ): Int {
         val start =
             StatusStartDecision.start(
+                // onStartCommand runs on Main, like the controller's sync, so the gate needs no lock.
+                gate = StatusNotificationController.startGate,
                 enterForeground = ::enterForeground,
                 // A sticky restart bypasses the controller, so re-check here (e.g. POST_NOTIFICATIONS revoked meanwhile).
                 shouldRun = { shouldRun(container()) },

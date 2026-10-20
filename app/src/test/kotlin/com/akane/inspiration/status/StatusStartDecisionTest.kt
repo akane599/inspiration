@@ -1,16 +1,20 @@
 package com.akane.inspiration.status
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertThrows
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class StatusStartDecisionTest {
     private val calls = mutableListOf<String>()
+    private val gate = StatusStartGate()
 
     private fun start(
         foreground: Boolean,
         shouldRun: Boolean,
     ) = StatusStartDecision.start(
+        gate = gate,
         enterForeground = { foreground.also { calls += "foreground" } },
         shouldRun = { shouldRun.also { calls += "shouldRun" } },
         ensureCollector = { calls += "collector" },
@@ -49,30 +53,83 @@ class StatusStartDecisionTest {
         assertEquals(StatusStartDecision.Post.STOP, StatusStartDecision.post(stopped = false) { false })
     }
 
+    private fun sync(shouldRun: Boolean) =
+        StatusStartDecision.sync(gate, { shouldRun }, { calls += "start" }, { calls += "stop" }, { calls += "refused" })
+
     @Test
     fun `sync starts the service when it should run and stops it otherwise`() {
-        for (shouldRun in listOf(true, false)) {
-            StatusStartDecision.sync({ shouldRun }, { calls += "start" }, { calls += "stop" }, { calls += "refused" })
-        }
+        sync(shouldRun = true)
+        start(foreground = true, shouldRun = true)
+        sync(shouldRun = false)
 
-        assertEquals(listOf("start", "stop"), calls)
+        assertEquals(listOf("start", "foreground", "shouldRun", "collector", "stop"), calls)
     }
 
     @Test
-    fun `a start the platform refuses is reported, never thrown into the boot receiver`() {
+    fun `a stop is never sent while a foreground start is still pending (R-06)`() {
+        sync(shouldRun = true)
+        sync(shouldRun = false)
+
+        // stopService now would make the platform crash the app: startForegroundService without startForeground.
+        assertEquals(listOf("start"), calls)
+        assertTrue(gate.pending)
+    }
+
+    @Test
+    fun `the pending start enters the foreground, re-reads the switch and stops itself (R-06)`() {
+        sync(shouldRun = true)
+        sync(shouldRun = false)
+
+        assertEquals(StatusStartDecision.Start.NOT_STICKY, start(foreground = true, shouldRun = false))
+        assertEquals(listOf("start", "foreground", "shouldRun", "stop"), calls)
+        assertFalse(gate.pending)
+    }
+
+    @Test
+    fun `a refused foreground settles the pending start, so a later stop goes through`() {
+        sync(shouldRun = true)
+        start(foreground = false, shouldRun = true)
+        sync(shouldRun = false)
+
+        assertEquals(listOf("start", "foreground", "stop", "stop"), calls)
+        assertFalse(gate.pending)
+    }
+
+    @Test
+    fun `a start that throws in the service still settles the pending start`() {
+        sync(shouldRun = true)
+
+        assertThrows(IllegalStateException::class.java) {
+            StatusStartDecision.start(gate, { true }, { error("container") }, {}, {})
+        }
+        assertFalse(gate.pending)
+    }
+
+    @Test
+    fun `a sticky restart the controller did not ask for leaves no start pending`() {
+        start(foreground = true, shouldRun = true)
+
+        assertFalse(gate.pending)
+    }
+
+    @Test
+    fun `a start the platform refuses is reported, never thrown into the boot receiver, and is not pending`() {
         val refusal = IllegalStateException("ForegroundServiceStartNotAllowedException")
         var reported: IllegalStateException? = null
 
-        StatusStartDecision.sync({ true }, { throw refusal }, { calls += "stop" }, { reported = it })
+        StatusStartDecision.sync(gate, { true }, { throw refusal }, { calls += "stop" }, { reported = it })
 
         assertEquals(refusal, reported)
         assertEquals(emptyList<String>(), calls)
+        assertFalse(gate.pending)
+        sync(shouldRun = false)
+        assertEquals(listOf("stop"), calls)
     }
 
     @Test
     fun `sync contains only refusals`() {
         assertThrows(SecurityException::class.java) {
-            StatusStartDecision.sync({ true }, { throw SecurityException("missing permission") }, {}, {})
+            StatusStartDecision.sync(gate, { true }, { throw SecurityException("missing permission") }, {}, {})
         }
     }
 }
