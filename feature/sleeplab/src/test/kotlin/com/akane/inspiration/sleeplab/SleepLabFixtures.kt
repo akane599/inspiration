@@ -256,7 +256,8 @@ internal val TestStory = BatteryStory(listOf(StorySentence.DeepSleep(0.7)))
 internal fun intervalAnalysis(
     resolved: ResolvedReference = resolved(),
     diff: SnapshotDiff = snapshotDiff(),
-) = IntervalAnalysis(resolved, diff, intervalMetrics(), DiagnosticReport(emptyList(), emptyMap(), 0), TestStory)
+    report: DiagnosticReport = DiagnosticReport(emptyList(), emptyMap(), 0),
+) = IntervalAnalysis(resolved, diff, intervalMetrics(), report, TestStory)
 
 /** [analysis] as the session publishes it for [kind]; the default is the default selection. */
 internal fun ready(

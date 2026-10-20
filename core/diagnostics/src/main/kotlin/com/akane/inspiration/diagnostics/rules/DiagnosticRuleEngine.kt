@@ -25,6 +25,18 @@ import com.akane.inspiration.telemetry.snapshot.UidDelta
  */
 const val MIN_SCREEN_OFF_MS = 30 * 60_000L
 
+/** Rule 2 fires AMBER above this awake share of screen-off time (TEMPLATE.md §4: 8 %). */
+const val AWAKE_AMBER_RATIO = 0.08
+
+/** Rule 2 fires RED above this awake share of screen-off time. */
+const val AWAKE_RED_RATIO = 0.20
+
+/** Rule 2's [DiagnosticReport.notEvaluable] reason: no screen-off figures, or less than [MIN_SCREEN_OFF_MS] of them. */
+const val NO_SCREEN_OFF_TIME = "no_screen_off_time"
+
+/** Rule 2's [DiagnosticReport.notEvaluable] reason: screen-off time with no awake time recorded for it. */
+const val NO_AWAKE_TIME = "no_awake_time"
+
 /**
  * The four deterministic rules of docs/plans/phase-3.md F4. Every rule either returns insights
  * (possibly none: evaluable but not firing) or exactly one [DiagnosticReport.notEvaluable] reason.
@@ -110,10 +122,10 @@ class DiagnosticRuleEngine(
         validUids: List<UidDelta>,
         screenOffOnly: Boolean,
     ): Outcome {
-        val sleep = diff.sleep ?: return Outcome.NotEvaluable("no_screen_off_time")
+        val sleep = diff.sleep ?: return Outcome.NotEvaluable(NO_SCREEN_OFF_TIME)
         val screenOffMs = sleep.screenOffMs
-        if (screenOffMs == null || screenOffMs < MIN_SCREEN_OFF_MS) return Outcome.NotEvaluable("no_screen_off_time")
-        val awakeMs = sleep.screenOffAwakeMs ?: return Outcome.NotEvaluable("no_awake_time")
+        if (screenOffMs == null || screenOffMs < MIN_SCREEN_OFF_MS) return Outcome.NotEvaluable(NO_SCREEN_OFF_TIME)
+        val awakeMs = sleep.screenOffAwakeMs ?: return Outcome.NotEvaluable(NO_AWAKE_TIME)
         val ratio = awakeMs.toDouble() / screenOffMs
         val severity =
             when {
@@ -125,10 +137,7 @@ class DiagnosticRuleEngine(
         return Outcome.Insights(listOf(AwakeViolation(severity, ratio, screenOffMs, scope, culprits(diff, validUids))))
     }
 
-    /**
-     * The top three contributors of TEMPLATE.md §5 Rule 2, one per kind. They are computed on every analysis, and
-     * only the debug probe reads them until the culprit card and its one-tap fix exist ([AwakeViolation]).
-     */
+    /** The top three contributors of TEMPLATE.md §4 Rule 2, one per kind, which Sleep Lab's culprit card lists. */
     private fun culprits(
         diff: SnapshotDiff,
         validUids: List<UidDelta>,
@@ -252,9 +261,6 @@ class DiagnosticRuleEngine(
         const val VAMPIRE_DISCHARGE_FRACTION = 0.01
         const val VAMPIRE_BG_SHARE = 0.60
         const val VAMPIRE_MAX_FG_ACTIVITY_MS = 60_000L
-
-        const val AWAKE_AMBER_RATIO = 0.08
-        const val AWAKE_RED_RATIO = 0.20
 
         const val COMPONENT_SCREEN = "SCREEN"
         const val COMPONENT_MOBILE_RADIO = "MOBILE_RADIO"

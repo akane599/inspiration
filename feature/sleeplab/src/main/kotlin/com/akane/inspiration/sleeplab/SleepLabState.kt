@@ -3,6 +3,9 @@ package com.akane.inspiration.sleeplab
 import androidx.compose.runtime.Immutable
 import com.akane.inspiration.designsystem.chart.model.HypnogramData
 import com.akane.inspiration.designsystem.chart.model.TimeRange
+import com.akane.inspiration.diagnostics.dictionary.EntryKind
+import com.akane.inspiration.diagnostics.model.CulpritScope
+import com.akane.inspiration.diagnostics.model.Severity
 import kotlinx.collections.immutable.ImmutableList
 
 /** The three diagnostic tabs under the hypnogram. */
@@ -83,6 +86,62 @@ sealed interface CpuUi {
 @Immutable
 data class DeepSleepUi(val ratio: Double?, val suspendedMs: Long?)
 
+/**
+ * One of the culprit card's top contributors (TEMPLATE.md §4 Rule 2): the top partial wakelock, kernel wakelock or
+ * wake-up alarm. [durationMs] is null for an alarm, which batterystats only counts.
+ */
+@Immutable
+data class CulpritRow(
+    val kind: EntryKind,
+    val name: String,
+    /** Null for a kernel wakelock, which no app owns. */
+    val uid: Int?,
+    val packageName: String?,
+    /** The app's label, or null when the owner is unknown (shown by its UID). */
+    val appLabel: String?,
+    val durationMs: Long?,
+    val count: Long?,
+)
+
+/** Why the screen-off awake check (Rule 2) could not run for the period. */
+enum class AwakeSkipReason {
+    /** Less than the rule's minimum screen-off time, or no screen-off figures at all. */
+    ShortScreenOff,
+
+    /** The period has screen-off time but no awake time was recorded for it. */
+    NoAwakeTime,
+
+    /** A reason this build does not word; said as "couldn't check", never as a pass. */
+    Other,
+}
+
+/** The screen-off awake check (TEMPLATE.md §4 Rule 2) for the selected period, and with it the culprit card. */
+sealed interface AwakeCheckUi {
+    /** Checked and within the limit: no card. */
+    data object WithinLimit : AwakeCheckUi
+
+    /** The check could not run; the card says why, so the missing culprits never read as "all good". */
+    data class NotEvaluable(val reason: AwakeSkipReason) : AwakeCheckUi
+
+    /**
+     * The device stayed awake for too much of its screen-off time ("Suçlu Kartı"). [culprits] holds at most one per
+     * kind, in the rule's order.
+     */
+    @Immutable
+    data class Violation(
+        val severity: Severity,
+        /** Awake share of screen-off time, 0..1. */
+        val awakeRatio: Double,
+        val screenOffMs: Long,
+        val scope: CulpritScope,
+        val culprits: ImmutableList<CulpritRow>,
+        /** App wakelocks and alarms need a full snapshot at both ends (H14), so only kernel culprits are listed. */
+        val needsFullSnapshots: Boolean,
+        /** Apps no rule checked because their counters reset or their package changed. */
+        val skippedApps: Int,
+    ) : AwakeCheckUi
+}
+
 sealed interface AnalysisUi {
     data object Loading : AnalysisUi
 
@@ -98,6 +157,7 @@ sealed interface AnalysisUi {
         val alarms: ListUi<AlarmRow>,
         val cpu: CpuUi,
         val deepSleep: DeepSleepUi,
+        val awake: AwakeCheckUi,
     ) : AnalysisUi
 }
 

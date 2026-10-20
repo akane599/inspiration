@@ -18,7 +18,13 @@ import com.akane.inspiration.diagnostics.dictionary.DictionaryEntry
 import com.akane.inspiration.diagnostics.dictionary.EntryKind
 import com.akane.inspiration.diagnostics.dictionary.LocalizedText
 import com.akane.inspiration.diagnostics.dictionary.MatchType
+import com.akane.inspiration.diagnostics.model.AwakeViolation
+import com.akane.inspiration.diagnostics.model.Culprit
+import com.akane.inspiration.diagnostics.model.CulpritScope
 import com.akane.inspiration.diagnostics.model.DiagnosticReport
+import com.akane.inspiration.diagnostics.model.RuleId
+import com.akane.inspiration.diagnostics.model.Severity
+import com.akane.inspiration.diagnostics.rules.NO_SCREEN_OFF_TIME
 import com.akane.inspiration.diagnostics.story.BatteryStory
 import com.akane.inspiration.telemetry.diff.ResolvedReference
 import com.akane.inspiration.telemetry.dump.KernelWakelock
@@ -246,6 +252,7 @@ internal object SleepLabPreviewData {
     private fun analysis(
         perUid: Boolean = true,
         kernelValid: Boolean = true,
+        report: DiagnosticReport = DiagnosticReport(emptyList(), emptyMap(), 0),
     ) = IntervalAnalysis(
         resolved = resolved(perUid),
         diff = diff(kernelValid),
@@ -266,7 +273,7 @@ internal object SleepLabPreviewData {
                 screenOffPctPerHour = 0.6,
                 discontinuities = emptyList(),
             ),
-        report = DiagnosticReport(emptyList(), emptyMap(), 0),
+        report = report,
         story = BatteryStory(emptyList()),
     )
 
@@ -281,7 +288,23 @@ internal object SleepLabPreviewData {
     private fun ui(
         perUid: Boolean = true,
         kernelValid: Boolean = true,
-    ) = sleepLabAnalysis(analysis(perUid, kernelValid), labels)
+        report: DiagnosticReport = DiagnosticReport(emptyList(), emptyMap(), 0),
+    ) = sleepLabAnalysis(analysis(perUid, kernelValid, report), labels)
+
+    /** The night's top partial wakelock, kernel wakelock and wake-up alarm, as Rule 2 picks them. */
+    private val culprits =
+        listOf(
+            Culprit(EntryKind.PARTIAL, "*job*/com.example.chatly/.SyncJob", 10_101, 18 * MIN + 20_000, 41),
+            Culprit(EntryKind.KERNEL, "wlan_rx_wake", null, 11 * MIN + 30_000, 214),
+            Culprit(EntryKind.ALARM, "*walarm*:com.example.chatly.ACTION_KEEPALIVE", 10_101, null, 38),
+        )
+
+    private fun awakeReport(
+        severity: Severity,
+        ratio: Double,
+        scope: CulpritScope,
+        skipped: Int = 0,
+    ) = DiagnosticReport(listOf(AwakeViolation(severity, ratio, 9 * HOUR, scope, culprits)), emptyMap(), skipped)
 
     private val hypnogram = HypnogramUi.Ready(hypnogramData(timeline))
 
@@ -292,6 +315,21 @@ internal object SleepLabPreviewData {
     /** Per-app snapshots are missing at one end: the app lists say so, the kernel list and CPU still work. */
     val needsFull = apps.copy(analysis = ui(perUid = false))
     val needsFullAlarms = needsFull.copy(tab = SleepTab.Alarms)
+
+    /** A screen-off-only night awake a quarter of the time: the culprit card leads the screen. */
+    val culprit = apps.copy(analysis = ui(report = awakeReport(Severity.RED, 0.24, CulpritScope.SCREEN_OFF_ONLY)))
+
+    /** A period with screen-on time: the culprits are whole-interval contributors, and two apps went unchecked. */
+    val culpritWholeInterval =
+        apps.copy(analysis = ui(report = awakeReport(Severity.AMBER, 0.093, CulpritScope.WHOLE_INTERVAL_CONTRIBUTORS, skipped = 2)))
+
+    /** One end has no per-app data (H14): only the kernel culprit is listed, and the card asks for full snapshots. */
+    val culpritNeedsFull =
+        apps.copy(analysis = ui(perUid = false, report = awakeReport(Severity.RED, 0.24, CulpritScope.SCREEN_OFF_ONLY)))
+
+    /** Too little screen-off time to check: the card says so instead of implying the night was fine. */
+    val culpritNotEvaluable =
+        apps.copy(analysis = ui(report = DiagnosticReport(emptyList(), mapOf(RuleId.AWAKE_VIOLATION to NO_SCREEN_OFF_TIME), 0)))
 
     /** The device rebooted inside the period: kernel wakelocks and CPU residency cannot be compared. */
     val counterReset = apps.copy(analysis = ui(kernelValid = false), tab = SleepTab.KernelWakelocks)
@@ -346,6 +384,7 @@ internal object SleepLabPreviewData {
                     "Arka plan işi",
                     "A scheduled background job held the device awake while it ran. Frequent runs add up.",
                     "Zamanlanmış bir arka plan işi çalışırken cihazı uyanık tuttu. Sık çalışması toplamı artırır.",
+                    action = "standby_bucket",
                 ),
                 entry(
                     "partial_nlp",
@@ -399,6 +438,7 @@ internal object SleepLabPreviewData {
         titleTr: String,
         bodyEn: String,
         bodyTr: String,
+        action: String? = null,
     ) = DictionaryEntry(
         id = id,
         kinds = setOf(kind),
@@ -407,7 +447,7 @@ internal object SleepLabPreviewData {
         category = "preview",
         title = LocalizedText(titleEn, titleTr),
         body = LocalizedText(bodyEn, bodyTr),
-        action = null,
+        action = action,
     )
 }
 

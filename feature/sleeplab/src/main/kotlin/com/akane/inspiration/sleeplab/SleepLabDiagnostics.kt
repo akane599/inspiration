@@ -148,7 +148,7 @@ private fun <T> RankedList(
 }
 
 @Composable
-private fun ownerTitle(appLabel: String?, uid: Int): String =
+internal fun ownerTitle(appLabel: String?, uid: Int): String =
     appLabel
         ?: systemUidLabelRes(uid)?.let { stringResource(it) }
         ?: stringResource(R.string.sleeplab_owner_uid, uid)
@@ -238,17 +238,22 @@ private fun AlarmItem(row: AlarmRow, explanation: Explanation?) {
 }
 
 @Composable
-private fun timesText(format: TelemetryFormat, count: Long): String =
+internal fun timesText(format: TelemetryFormat, count: Long): String =
     pluralStringResource(R.plurals.sleeplab_times, count.asQuantity(), format.number(count.toDouble()))
 
-/** One ranked entry: a title and what owns it on the left, the figures on the right, then the explanation. */
+/**
+ * One ranked entry: an optional [overline] naming its kind, a title and what owns it on the left, the figures on the
+ * right, then the explanation and an optional [footer].
+ */
 @Composable
-private fun WakeItem(
+internal fun WakeItem(
     title: String,
     subtitle: String?,
     primary: String,
     secondary: String?,
     explanation: Explanation?,
+    overline: String? = null,
+    footer: @Composable (() -> Unit)? = null,
     extra: @Composable (() -> Unit)? = null,
 ) {
     val spacing = MaterialTheme.spacing
@@ -256,6 +261,9 @@ private fun WakeItem(
         modifier = Modifier.fillMaxWidth().padding(vertical = spacing.sm).semantics(mergeDescendants = true) {},
         verticalArrangement = Arrangement.spacedBy(spacing.xs),
     ) {
+        if (overline != null) {
+            Text(text = overline, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
         Row(horizontalArrangement = Arrangement.spacedBy(spacing.sm), verticalAlignment = Alignment.Top) {
             Column(modifier = Modifier.weight(1f)) {
                 Text(
@@ -287,5 +295,6 @@ private fun WakeItem(
             Text(text = explanation.title, style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurface)
             Text(text = explanation.body, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
+        footer?.invoke()
     }
 }

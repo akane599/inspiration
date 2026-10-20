@@ -43,7 +43,8 @@ import java.time.ZoneId
 /**
  * Sleep Lab, stateless: the whole screen is a function of [state] and reports through [onIntent]. [explain]
  * words a dictionary explanation for a name in the current locale. Until the analysis is ready one status card
- * stands in for everything. Once it is, the hypnogram comes first, then the tabs and the CPU card: stacked under
+ * stands in for everything. Once it is, the culprit card comes first (when the awake check fired or could not run),
+ * then the hypnogram, then the tabs and the CPU card: stacked under
  * [SleepLabMetrics.TwoColumnMinWidth], side by side above it.
  */
 @OptIn(ExperimentalMaterial3Api::class)
@@ -75,6 +76,8 @@ internal fun SleepLabScreen(
                     }
 
                     is AnalysisUi.Ready -> {
+                        // The diagnosis comes first; the hypnogram and the tabs below are its evidence.
+                        CulpritCard(analysis.awake, explain)
                         HypnogramCard(hypnogram = state.hypnogram, zone = zone, onIntent = onIntent)
                         if (wide) {
                             Row(horizontalArrangement = Arrangement.spacedBy(spacing.md)) {

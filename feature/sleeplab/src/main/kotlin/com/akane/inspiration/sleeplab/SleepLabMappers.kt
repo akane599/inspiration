@@ -9,6 +9,11 @@ import com.akane.inspiration.diagnostics.analysis.IntervalAnalysis
 import com.akane.inspiration.diagnostics.analysis.SegmentKind
 import com.akane.inspiration.diagnostics.analysis.Timeline
 import com.akane.inspiration.diagnostics.analysis.forSelection
+import com.akane.inspiration.diagnostics.dictionary.EntryKind
+import com.akane.inspiration.diagnostics.model.AwakeViolation
+import com.akane.inspiration.diagnostics.model.RuleId
+import com.akane.inspiration.diagnostics.rules.NO_AWAKE_TIME
+import com.akane.inspiration.diagnostics.rules.NO_SCREEN_OFF_TIME
 import com.akane.inspiration.diagnostics.story.reportableDeepSleepRatio
 import com.akane.inspiration.telemetry.diff.ReferenceKind
 import com.akane.inspiration.telemetry.dump.UidAlarm
@@ -212,13 +217,14 @@ internal fun alarmRows(
 private fun List<UidAlarm>.positive(): List<UidAlarm> =
     filter { it.count > 0 }.sortedWith(compareByDescending<UidAlarm> { it.count }.thenBy { it.tag })
 
-/** The packages of the rows the per-app tabs will show, so only those labels are looked up. */
+/** The packages of the rows the per-app tabs and the culprit card will show, so only those labels are looked up. */
 internal fun visiblePackages(analysis: IntervalAnalysis): List<String> {
     val diff = analysis.diff
     val perUid = analysis.resolved.perUidAvailable
     val apps = appWakelockRows(diff, perUid, emptyMap()).rowsOrEmpty().mapNotNull { it.packageName }
     val alarms = alarmRows(diff, perUid, emptyMap()).rowsOrEmpty().mapNotNull { it.packageName }
-    return (apps + alarms).distinct()
+    val culprits = (awakeCheckUi(analysis, emptyMap()) as? AwakeCheckUi.Violation)?.culprits.orEmpty().mapNotNull { it.packageName }
+    return (apps + alarms + culprits).distinct()
 }
 
 internal fun <T> ListUi<T>.rowsOrEmpty(): List<T> = if (this is ListUi.Rows<T>) rows else emptyList()
@@ -267,6 +273,58 @@ private fun clusterRoles(count: Int): List<ClusterRole> =
         else -> List(count) { ClusterRole.Generic }
     }
 
+// --- Culprit card ---
+
+/**
+ * The screen-off awake check (Rule 2) as the culprit card shows it. A rule that could not run is
+ * [AwakeCheckUi.NotEvaluable] with its reason, never [AwakeCheckUi.WithinLimit]. Each culprit's owner comes from the
+ * (already package-resolved) [IntervalAnalysis.diff] by UID, and [labels] maps its package to an app label. Without
+ * per-UID data at both ends (H14) only the kernel culprit is kept: app wakelock and alarm figures would compare a
+ * full snapshot with one that has no apps.
+ */
+internal fun awakeCheckUi(
+    analysis: IntervalAnalysis,
+    labels: Map<String, String>,
+): AwakeCheckUi {
+    val report = analysis.report
+    report.notEvaluable[RuleId.AWAKE_VIOLATION]?.let { return AwakeCheckUi.NotEvaluable(awakeSkipReason(it)) }
+    val violation = report.insights.firstNotNullOfOrNull { it as? AwakeViolation } ?: return AwakeCheckUi.WithinLimit
+    val perUid = analysis.resolved.perUidAvailable
+    val packages = analysis.diff.uids.associate { it.uid to it.packageName }
+    val culprits =
+        violation.culprits
+            .filter { perUid || it.kind == EntryKind.KERNEL }
+            .map { culprit ->
+                val pkg = culprit.uid?.let { packages[it] }
+                CulpritRow(
+                    kind = culprit.kind,
+                    name = culprit.name,
+                    uid = culprit.uid,
+                    packageName = pkg,
+                    appLabel = pkg?.let { labels[it] ?: it },
+                    durationMs = culprit.durationMs,
+                    count = culprit.count,
+                )
+            }
+    return AwakeCheckUi.Violation(
+        severity = violation.severity,
+        awakeRatio = violation.awakeRatio,
+        screenOffMs = violation.screenOffMs,
+        scope = violation.culpritScope,
+        culprits = culprits.toImmutableList(),
+        needsFullSnapshots = !perUid,
+        // Without per-UID data no app was checked at all, which the needs-full-snapshots state already says.
+        skippedApps = if (perUid) report.skippedInvalidUids else 0,
+    )
+}
+
+private fun awakeSkipReason(reason: String): AwakeSkipReason =
+    when (reason) {
+        NO_SCREEN_OFF_TIME -> AwakeSkipReason.ShortScreenOff
+        NO_AWAKE_TIME -> AwakeSkipReason.NoAwakeTime
+        else -> AwakeSkipReason.Other
+    }
+
 // --- Whole analysis ---
 
 /**
@@ -281,7 +339,7 @@ internal fun deepSleepUi(diff: SnapshotDiff): DeepSleepUi {
     return DeepSleepUi(ratio, sleep?.deepSleepMs?.takeIf { ratio != null })
 }
 
-/** Everything the three tabs and the CPU card show for one analysed interval. */
+/** Everything the culprit card, the three tabs and the CPU card show for one analysed interval. */
 internal fun sleepLabAnalysis(
     analysis: IntervalAnalysis,
     labels: Map<String, String>,
@@ -294,5 +352,6 @@ internal fun sleepLabAnalysis(
         alarms = alarmRows(diff, perUid, labels),
         cpu = cpuUi(diff),
         deepSleep = deepSleepUi(diff),
+        awake = awakeCheckUi(analysis, labels),
     )
 }

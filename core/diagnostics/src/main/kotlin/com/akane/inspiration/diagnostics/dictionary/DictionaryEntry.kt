@@ -31,9 +31,8 @@ data class DictionaryEntry(
 )
 
 /**
- * A localized explanation of a name. [category] and [action] are read only by tests today. They are kept for the
- * unbuilt culprit card (TEMPLATE.md §5 Rule 2), which groups its rows by [category], and for its one-tap Shizuku fix
- * (TEMPLATE.md §1), which [action] names (phase-3 F4–F6, phase-5 H14).
+ * A localized explanation of a name. Sleep Lab's culprit card (TEMPLATE.md §4 Rule 2) words [action] as guidance to
+ * the matching Toolkit control; nothing executes it. [category] is read only by tests today (phase-3 F4–F6).
  */
 data class Explanation(
     val id: String,

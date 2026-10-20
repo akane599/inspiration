@@ -28,6 +28,36 @@
     <string name="sleeplab_hypnogram_note_wakeups">Uyanma, ekranın açılmasını veya doze\'dan çıkışı işaretler; nedenini söylemez.</string>
     <string name="sleeplab_hypnogram_note">Çizgili alanlar ekranın açık olduğu ya da hiçbir şeyin kaydedilmediği anlamına gelir. Uyanma, ekranın açılmasını veya doze\'dan çıkışı işaretler; nedenini söylemez.</string>
 
+    <!-- Culprit card: TEMPLATE.md §4 Rule 2, screen-off awake share over 8 % -->
+    <string name="sleeplab_culprit_title">Ekran kapalıyken uyanık kaldı</string>
+    <!-- %1$s: the rule's threshold as a percentage figure, e.g. "20" -->
+    <string name="sleeplab_culprit_severity_red">Ciddi · uyanıklık %%%1$s üzerinde</string>
+    <!-- %1$s: the rule's threshold as a percentage figure, e.g. "8" -->
+    <string name="sleeplab_culprit_severity_amber">Yüksek · uyanıklık %%%1$s üzerinde</string>
+    <!-- %1$s: time awake, %2$s: total screen-off time, e.g. "50 min" and "9 h" -->
+    <string name="sleeplab_culprit_awake_detail">Ekran kapalı geçen %2$s sürenin %1$s kadarı uyanık</string>
+    <string name="sleeplab_culprit_scope_screen_off">Aşağıdaki suçlular ekran kapalıyken sayıldı.</string>
+    <string name="sleeplab_culprit_scope_whole">Bu dönemde ekranın açık olduğu süre de var, bu yüzden aşağıdaki suçlular yalnızca ekran kapalıyken değil, dönemin tamamında sayıldı.</string>
+    <string name="sleeplab_culprit_kind_partial">Uygulama wakelock\'u</string>
+    <string name="sleeplab_culprit_kind_kernel">Çekirdek wakelock\'u</string>
+    <string name="sleeplab_culprit_kind_alarm">Uyandıran alarm</string>
+    <string name="sleeplab_culprit_kind_wakeup_reason">Uyanma nedeni</string>
+    <string name="sleeplab_culprit_none">Bu dönemin sayaçlarında öne çıkan bir wakelock ya da alarm yok.</string>
+    <string name="sleeplab_culprit_needs_full_body">Uygulama wakelock\'ları ve alarmlar için dönemin iki ucunda da tam bir anlık görüntü gerekir, bu yüzden yalnızca çekirdek wakelock\'ları listelenir. Aşağı çekerek yenile, sonra daha fazla anlık görüntü toplandıkça tekrar bak.</string>
+    <!-- %1$s: the number of apps -->
+    <plurals name="sleeplab_culprit_skipped_apps">
+        <item quantity="one">%1$s uygulama, sayaçları bu dönemde sıfırlandığı için denetlenmedi.</item>
+        <item quantity="other">%1$s uygulama, sayaçları bu dönemde sıfırlandığı için denetlenmedi.</item>
+    </plurals>
+    <string name="sleeplab_culprit_action_standby_bucket">Sınırlamak için: Araçlar › Uygulama arka plan denetimi › Bekleme grubu › Nadir ya da Kısıtlı.</string>
+    <string name="sleeplab_culprit_action_wake_lock">Sınırlamak için: Araçlar › Uygulama arka plan denetimi › Wakelock\'ları kısıtla. Alarmlar ve mesajlaşma bozulabilir.</string>
+    <string name="sleeplab_culprit_action_dexopt">Araçlar › Arka plan dexopt, çalışıp çalışmadığını gösterir; başlatabilir ya da iptal edebilirsin.</string>
+    <string name="sleeplab_culprit_skipped_title">Cihazı neyin uyanık tuttuğu denetlenemedi</string>
+    <!-- %1$s: the shortest screen-off time the check needs, e.g. "30 min" -->
+    <string name="sleeplab_culprit_skipped_short">Bu dönemde ekran %1$s süreden az kapalı kaldı; telefonu neyin uyanık tuttuğunu söylemek için çok az. Gece gibi daha uzun bir dönem seç.</string>
+    <string name="sleeplab_culprit_skipped_no_awake">Pil istatistikleri bu dönemin ekran kapalı süresi için uyanık süre kaydetmedi, bu yüzden denetlenemiyor.</string>
+    <string name="sleeplab_culprit_skipped_other">Ekran kapalıyken uyanıklık denetimi bu dönem için çalıştırılamadı.</string>
+
     <!-- Diagnostics card and its tabs -->
     <string name="sleeplab_diagnostics_title">Cihazı uyanık tutanlar</string>
     <string name="sleeplab_tab_apps">Uygulama</string>

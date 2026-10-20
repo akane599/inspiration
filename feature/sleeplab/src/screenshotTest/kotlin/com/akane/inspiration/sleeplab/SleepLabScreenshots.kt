@@ -53,6 +53,24 @@ import com.android.tools.screenshot.PreviewTest
 @PreviewTest @Preview(name = "time-slice", showBackground = true, widthDp = 412, heightDp = 1900)
 @Composable fun SleepLabTimeSlice() = SleepLabPreviewHost(darkTheme = true, state = SleepLabPreviewData.slice)
 
+@PreviewTest @Preview(name = "culprit", showBackground = true, widthDp = 412, heightDp = 2500)
+@Composable fun SleepLabCulprit() = SleepLabPreviewHost(darkTheme = true, state = SleepLabPreviewData.culprit)
+
+@PreviewTest @Preview(name = "culprit-light", showBackground = true, widthDp = 412, heightDp = 2500)
+@Composable fun SleepLabCulpritLight() = SleepLabPreviewHost(darkTheme = false, state = SleepLabPreviewData.culprit)
+
+@PreviewTest @Preview(name = "culprit-whole-interval", showBackground = true, widthDp = 412, heightDp = 2500)
+@Composable fun SleepLabCulpritWholeInterval() = SleepLabPreviewHost(darkTheme = true, state = SleepLabPreviewData.culpritWholeInterval)
+
+@PreviewTest @Preview(name = "culprit-needs-full-snapshots", showBackground = true, widthDp = 412, heightDp = 2300)
+@Composable fun SleepLabCulpritNeedsFull() = SleepLabPreviewHost(darkTheme = true, state = SleepLabPreviewData.culpritNeedsFull)
+
+@PreviewTest @Preview(name = "culprit-not-evaluable", showBackground = true, widthDp = 412, heightDp = 2000)
+@Composable fun SleepLabCulpritNotEvaluable() = SleepLabPreviewHost(darkTheme = true, state = SleepLabPreviewData.culpritNotEvaluable)
+
+@PreviewTest @Preview(name = "culprit-turkish-narrow-large-font", showBackground = true, widthDp = 360, heightDp = 4000, fontScale = 1.5f, locale = "tr")
+@Composable fun SleepLabCulpritTurkishNarrowLargeFont() = SleepLabPreviewHost(darkTheme = true, state = SleepLabPreviewData.culprit)
+
 @PreviewTest @Preview(name = "empty", showBackground = true, widthDp = 412, heightDp = 800)
 @Composable fun SleepLabEmpty() = SleepLabPreviewHost(darkTheme = true, state = SleepLabPreviewData.empty)
 

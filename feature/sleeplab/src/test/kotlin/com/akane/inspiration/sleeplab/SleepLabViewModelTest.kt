@@ -4,6 +4,12 @@ import com.akane.inspiration.designsystem.chart.model.HypnogramStage
 import com.akane.inspiration.diagnostics.analysis.AnalysisState
 import com.akane.inspiration.diagnostics.analysis.SegmentKind
 import com.akane.inspiration.diagnostics.analysis.Timeline
+import com.akane.inspiration.diagnostics.dictionary.EntryKind
+import com.akane.inspiration.diagnostics.model.AwakeViolation
+import com.akane.inspiration.diagnostics.model.Culprit
+import com.akane.inspiration.diagnostics.model.CulpritScope
+import com.akane.inspiration.diagnostics.model.DiagnosticReport
+import com.akane.inspiration.diagnostics.model.Severity
 import com.akane.inspiration.telemetry.app.RefreshResult
 import com.akane.inspiration.telemetry.diff.ReferenceKind
 import com.akane.inspiration.telemetry.dump.UidAlarm
@@ -169,6 +175,23 @@ class SleepLabViewModelTest {
                     ),
             ),
     )
+
+    @Test
+    fun `the culprit card names a culprit's app by its uid's package, not the reported process name`() =
+        runTest(dispatcher) {
+            deps.appLabels.uidPackages[10_003] = listOf("com.news")
+            deps.appLabels.labels["com.news"] = "News"
+            val culprit = Culprit(EntryKind.PARTIAL, "sync", 10_003, 40 * MIN_MS, 4)
+            val violation = AwakeViolation(Severity.RED, 0.3, 8 * HOUR_MS, CulpritScope.SCREEN_OFF_ONLY, listOf(culprit))
+            deps.analysis.value =
+                ready(newsAnalysis(reported = "com.news:sync").copy(report = DiagnosticReport(listOf(violation), emptyMap(), 0)))
+            val vm = viewModel()
+
+            visible(vm)
+
+            val card = (vm.state.value.analysis as AnalysisUi.Ready).awake as AwakeCheckUi.Violation
+            assertEquals(CulpritRow(EntryKind.PARTIAL, "sync", 10_003, "com.news", "News", 40 * MIN_MS, 4), card.culprits.single())
+        }
 
     @Test
     fun `a uid reported under a process name is shown and labelled as its package`() =
