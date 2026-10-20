@@ -26,16 +26,13 @@ sealed interface RefreshResult {
 }
 
 /**
- * The kernel battery nodes already converted to the units the Health screen shows (mAh, never the raw µAh).
+ * The kernel capacity nodes already converted to the units the Health screen shows (mAh, never the raw µAh).
  * A null field means the kernel does not expose it. See [KernelUnits] for the conversions.
  */
 data class KernelCapacitySnapshot(
-    val chargeCounterMah: Double?,
     val chargeFullMah: Double?,
     val designMah: Double?,
     val cycleCount: Int?,
-    val levelPct: Int?,
-    val temperatureDeciC: Int?,
 ) {
     companion object {
         /** Null when the kernel read was unavailable. */
@@ -43,12 +40,9 @@ data class KernelCapacitySnapshot(
             if (kernel == null || !kernel.available) return null
             val capacity = KernelUnits.kernelCapacity(kernel)
             return KernelCapacitySnapshot(
-                chargeCounterMah = KernelUnits.uahToMah(kernel.chargeCounterRaw),
                 chargeFullMah = capacity.chargeFullMah,
                 designMah = capacity.designMah,
                 cycleCount = capacity.cycleCount,
-                levelPct = kernel.capacityPercent,
-                temperatureDeciC = kernel.temperatureDeciC,
             )
         }
     }

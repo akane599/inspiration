@@ -96,7 +96,7 @@ class AppContainer(
             context = appContext,
             scope = applicationScope,
         )
-    val database: InspirationDatabase = InspirationDatabase.create(appContext)
+    private val database: InspirationDatabase = InspirationDatabase.create(appContext)
     val store: SnapshotStore = RoomSnapshotStore(database, currentBootCount = { clocks.bootCount() })
     private val telemetrySource = AndroidTelemetrySource(appContext, shizukuManager, clocks)
 
@@ -192,7 +192,7 @@ class AppContainer(
     override val selection = AnalysisSelection()
 
     /** The one process-wide session, recomputed on a selection change or a store tick and shared by every screen. */
-    val analysisSession =
+    private val analysisSession =
         AnalysisSession(
             analyzer = IntervalAnalyzer(store, ruleEngine),
             selection = selection,

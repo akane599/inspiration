@@ -131,12 +131,9 @@ internal fun kernelSnapshot(
     designMah: Double? = 5_000.0,
     cycles: Int? = 212,
 ) = KernelCapacitySnapshot(
-    chargeCounterMah = 2_000.0,
     chargeFullMah = chargeFullMah,
     designMah = designMah,
     cycleCount = cycles,
-    levelPct = 50,
-    temperatureDeciC = 310,
 )
 
 internal fun liveReading(

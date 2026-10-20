@@ -2,7 +2,6 @@
 <resources>
     <!-- Units and shared values. Numbers always come from TelemetryFormat; these only carry the unit or wrapper. -->
     <string name="health_unit_mah">mAh</string>
-    <string name="health_unit_volt">V</string>
     <string name="health_percent_value" formatted="true">%1$s%%</string>
     <string name="health_chart_range" formatted="true">%1$s to %2$s</string>
 

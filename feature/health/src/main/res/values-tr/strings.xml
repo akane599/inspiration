@@ -1,7 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="health_unit_mah">mAh</string>
-    <string name="health_unit_volt">V</string>
     <string name="health_percent_value" formatted="true">%%%1$s</string>
     <string name="health_chart_range" formatted="true">%1$s ile %2$s arası</string>
 

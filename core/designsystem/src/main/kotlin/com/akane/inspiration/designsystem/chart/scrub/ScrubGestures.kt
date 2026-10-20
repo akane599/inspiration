@@ -15,7 +15,6 @@ import com.akane.inspiration.designsystem.chart.math.ScrubGestureState
 import com.akane.inspiration.designsystem.chart.math.SelectionCommit
 import com.akane.inspiration.designsystem.chart.math.TimeScale
 import com.akane.inspiration.designsystem.chart.model.TimeRange
-import kotlinx.coroutines.withTimeoutOrNull
 
 /** Horizontal room the value-axis labels take either side of the time axis. */
 internal class Gutters(
@@ -36,8 +35,9 @@ internal class ScrubGestureInputs(
 
 /**
  * One `pointerInput` with a single [awaitEachGesture] loop feeding [ScrubGestureReducer].
- * Long press is detected here with [withTimeoutOrNull]; the reducer decides everything else. A Down an ancestor
- * already consumed (a flinging scroll the press stops) starts no gesture.
+ * Long press is detected here with [androidx.compose.ui.input.pointer.AwaitPointerEventScope.withTimeoutOrNull];
+ * the reducer decides everything else. A Down an ancestor already consumed (a flinging scroll the press stops)
+ * starts no gesture.
  * Keyed only on the chart-lifetime [state] and [inputs], so a data reload (a new window) never restarts
  * the loop and cancels a gesture in progress. The window, callbacks and selection are read through
  * [inputs]; each gesture keeps the [TimeScale] built from the window current at its Down.
