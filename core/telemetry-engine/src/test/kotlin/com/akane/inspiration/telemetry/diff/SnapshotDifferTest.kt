@@ -1022,6 +1022,23 @@ class SnapshotDifferTest {
             }
         }
 
+    @Test
+    fun `resolver pairs a FULL reference whose stats start stepped within the session tolerance`() =
+        runTest {
+            // Same window as the discharge tolerance cases: 101_500 is one session with 100_000, 102_001 is not.
+            val otherSession = snapshot(id = 1, wall = 1_000, elapsed = 1_000, statsStart = 102_001)
+            val stepped = snapshot(id = 2, wall = 2_000, elapsed = 2_000, duration = 2_000, statsStart = 101_500)
+            val end = snapshot(id = 3, wall = 5_000, elapsed = 5_000, duration = 5_000)
+            val resolver = ReferenceResolver(FakeStore(listOf(otherSession, stepped, end), emptyList(), emptyMap()))
+
+            val resolved = resolver.resolve(ReferenceKind.TimeSlice(1_000, 5_000), 5_000)!!
+
+            assertEquals(stepped, resolved.ref)
+            assertEquals(end, resolved.now)
+            assertTrue(resolved.perUidAvailable)
+            assertTrue(SnapshotDiffer.diff(resolved.ref, resolved.now).validity.batteryStats)
+        }
+
     private fun snapshot(
         id: Long = 0,
         kind: SnapshotKind = SnapshotKind.FULL,
@@ -1145,7 +1162,7 @@ class SnapshotDifferTest {
         ) = snapshots
             .filterKind(kind)
             .filter { it.clock.wallMs >= wallMs }
-            .filter { statsStartMs == null || it.clock.statsStartMs == statsStartMs }
+            .filter { statsStartMs == null || BatteryStatsSession.sameStart(it.clock.statsStartMs, statsStartMs) }
             .filter { bootCount == null || it.clock.bootCount == bootCount }
             .minByOrNull { it.clock.wallMs }
 

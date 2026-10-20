@@ -22,6 +22,7 @@ import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
@@ -133,6 +134,25 @@ class ReferenceResolverTest {
             assertEquals(unplug, resolved.ref)
             assertEquals(screenOn, resolved.now)
             assertFalse(resolved.perUidAvailable)
+        }
+
+    @Test
+    fun `the full reference lookup keeps a stats start stepped within the session tolerance`() =
+        runTest {
+            // A wall-clock step shifts the reported stats start; the store matches the end's session within
+            // BatteryStatsSession.START_TOLERANCE_MS, so the earlier row just past it is a different session.
+            val outside = STATS_START + BatteryStatsSession.START_TOLERANCE_MS + 1
+            val otherSession = snapshot(NOW - 20 * HOUR_MS, CaptureTrigger.APP_OPEN, statsStartMs = outside)
+            val stepped = snapshot(NOW - 19 * HOUR_MS, CaptureTrigger.APP_OPEN, statsStartMs = STATS_START + 1_500L)
+            val end = snapshot(NOW - 1_000L, CaptureTrigger.APP_OPEN)
+            val store = LoadCountingStore(listOf(otherSession, stepped, end))
+
+            val resolved = ReferenceResolver(store).resolve(ReferenceKind.Last24h, NOW, emptyList())!!
+
+            assertEquals(stepped, resolved.ref)
+            assertEquals(end, resolved.now)
+            assertTrue(resolved.perUidAvailable)
+            assertEquals(listOf("lastAtOrBefore", "firstAtOrAfter"), store.loads)
         }
 
     /*
@@ -429,11 +449,12 @@ class ReferenceResolverTest {
         kind: SnapshotKind = SnapshotKind.FULL,
         ingestedHistory: Boolean = false,
         plugged: Boolean = false,
+        statsStartMs: Long = STATS_START,
     ) = BatterySnapshot(
         id = wallMs,
         kind = kind,
         trigger = trigger,
-        clock = SnapshotClock(wallMs, wallMs, wallMs, 1, 10L, null),
+        clock = SnapshotClock(wallMs, wallMs, wallMs, 1, statsStartMs, null),
         battery = BatteryState(60, plugged, "discharging", 300, 4_000, -200, 1_000_000L, null),
         system = null,
         uids = emptyList(),
@@ -477,7 +498,7 @@ class ReferenceResolverTest {
                 snapshots
                     .filter {
                         it.clock.wallMs >= wallMs && (kind == null || it.kind == kind) &&
-                            (statsStartMs == null || it.clock.statsStartMs == statsStartMs) &&
+                            (statsStartMs == null || BatteryStatsSession.sameStart(it.clock.statsStartMs, statsStartMs)) &&
                             (bootCount == null || it.clock.bootCount == bootCount)
                     }.minByOrNull { it.clock.wallMs },
             )
@@ -572,5 +593,6 @@ class ReferenceResolverTest {
     private companion object {
         const val HOUR_MS = 60L * 60_000L
         const val NOW = 1_790_000_000_000L
+        const val STATS_START = 10L
     }
 }
