@@ -12,10 +12,10 @@
 
     <!-- Hapın yanındaki Shizuku durumu -->
     <string name="cockpit_shizuku_active">Binder aktif · UID %1$d</string>
-    <string name="cockpit_shizuku_permission_required">Shizuku izni gerekli</string>
-    <string name="cockpit_shizuku_permission_denied">Shizuku izni reddedildi</string>
-    <string name="cockpit_shizuku_not_running">Shizuku çalışmıyor</string>
-    <string name="cockpit_shizuku_not_installed">Shizuku yüklü değil</string>
+    <string name="cockpit_shizuku_permission_required">Shizuku/Sui izni gerekli</string>
+    <string name="cockpit_shizuku_permission_denied">Shizuku/Sui izni reddedildi</string>
+    <string name="cockpit_shizuku_not_running">Shizuku/Sui çalışmıyor</string>
+    <string name="cockpit_shizuku_not_installed">Shizuku/Sui yüklü değil</string>
     <string name="cockpit_shizuku_unsupported_server">Shizuku\'yu güncelleyin</string>
     <string name="cockpit_shizuku_grant">İzin ver</string>
 
@@ -24,7 +24,7 @@
     <string name="cockpit_story_loading">Pilin analiz ediliyor…</string>
     <string name="cockpit_empty_title">Henüz analiz edilecek veri yok</string>
     <string name="cockpit_empty_body">Bu dönem için henüz bir çift anlık görüntü yok. Telefonu kullanmaya devam et, sonra yenile.</string>
-    <string name="cockpit_empty_blocked_body">Shizuku bağlı olmadığı için henüz pil geçmişi yok. Toplamaya başlamak için izin ver.</string>
+    <string name="cockpit_empty_blocked_body">Shizuku/Sui bağlı olmadığı için henüz pil geçmişi yok. Toplamaya başlamak için izin ver.</string>
     <string name="cockpit_empty_screen_off_body">Henüz ölçülmüş bir ekran kapalı dönemi yok. Ekran kapanıp yeniden açıldığında bir dönem ölçülür; sonra yenile.</string>
     <string name="cockpit_history_only_title">Yalnızca pil geçmişinden</string>
     <string name="cockpit_history_only_body">Ekran yeniden açıldığında anlık görüntü alınmadı, bu yüzden son ekran kapalı dönemi için uygulama başına kullanım ve derin uyku yok. Aşağıdaki tüketim ve ekran süresi pil geçmişinden geliyor.</string>
@@ -67,8 +67,8 @@
     <string name="cockpit_marker_in_use">Kullanımda</string>
     <string name="cockpit_markers_loading">İşaretleyiciler yükleniyor…</string>
     <string name="cockpit_markers_empty">Henüz işaretleyici yok.</string>
-    <string name="cockpit_markers_failed">Olmadı. Shizuku\'nun bağlı olduğunu kontrol edip tekrar dene.</string>
+    <string name="cockpit_markers_failed">Olmadı. Shizuku/Sui\'nin bağlı olduğunu kontrol edip tekrar dene.</string>
 
     <!-- Snackbar -->
-    <string name="cockpit_refresh_failed">Yenilenemedi. Shizuku çalışıyor mu?</string>
+    <string name="cockpit_refresh_failed">Yenilenemedi. Shizuku/Sui çalışıyor mu?</string>
 </resources>

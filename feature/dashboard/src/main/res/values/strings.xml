@@ -13,10 +13,10 @@
     <!-- Shizuku status next to the pill -->
     <!-- %1$d: the UID Shizuku runs as -->
     <string name="cockpit_shizuku_active">Binder active · UID %1$d</string>
-    <string name="cockpit_shizuku_permission_required">Shizuku permission needed</string>
-    <string name="cockpit_shizuku_permission_denied">Shizuku permission denied</string>
-    <string name="cockpit_shizuku_not_running">Shizuku not running</string>
-    <string name="cockpit_shizuku_not_installed">Shizuku not installed</string>
+    <string name="cockpit_shizuku_permission_required">Shizuku or Sui permission needed</string>
+    <string name="cockpit_shizuku_permission_denied">Shizuku or Sui permission denied</string>
+    <string name="cockpit_shizuku_not_running">Shizuku or Sui not running</string>
+    <string name="cockpit_shizuku_not_installed">Shizuku or Sui not installed</string>
     <!-- Shizuku runs, but its version is too old for Inspiration -->
     <string name="cockpit_shizuku_unsupported_server">Update Shizuku</string>
     <string name="cockpit_shizuku_grant">Grant access</string>
@@ -26,7 +26,7 @@
     <string name="cockpit_story_loading">Analysing your battery…</string>
     <string name="cockpit_empty_title">Nothing to analyse yet</string>
     <string name="cockpit_empty_body">There is no pair of snapshots for this period yet. Keep using your phone, then refresh.</string>
-    <string name="cockpit_empty_blocked_body">Shizuku isn\'t connected, so there is no battery history yet. Grant access to start collecting it.</string>
+    <string name="cockpit_empty_blocked_body">Shizuku or Sui isn\'t connected, so there is no battery history yet. Grant access to start collecting it.</string>
     <string name="cockpit_empty_screen_off_body">No screen-off period has been measured yet. One is measured after the screen turns off and on again; then refresh.</string>
     <string name="cockpit_history_only_title">From battery history only</string>
     <string name="cockpit_history_only_body">No snapshot was taken when the screen came back on, so per-app use and deep sleep aren\'t available for the last screen-off period. Its drain and screen time below come from battery history.</string>
@@ -74,8 +74,8 @@
     <string name="cockpit_marker_in_use">In use</string>
     <string name="cockpit_markers_loading">Loading markers…</string>
     <string name="cockpit_markers_empty">No markers yet.</string>
-    <string name="cockpit_markers_failed">That didn\'t work. Check that Shizuku is connected, then try again.</string>
+    <string name="cockpit_markers_failed">That didn\'t work. Check that Shizuku or Sui is connected, then try again.</string>
 
     <!-- Snackbar -->
-    <string name="cockpit_refresh_failed">Couldn\'t refresh. Is Shizuku running?</string>
+    <string name="cockpit_refresh_failed">Couldn\'t refresh. Is Shizuku or Sui running?</string>
 </resources>
