@@ -65,6 +65,17 @@ class ChargeCounterCheckTest {
     }
 
     @Test
+    fun `the shared counter floor takes only a counter over 20,000 as microamp hours`() {
+        // The same rule the cross-check uses is what every other counter reader gets: a mAh kernel's counter is null.
+        assertNull(microampHourCounter(null))
+        assertNull(microampHourCounter(0L))
+        assertNull(microampHourCounter(3_000L))
+        assertNull(microampHourCounter(MIN_MICROAMP_HOUR_COUNTER))
+        assertEquals(MIN_MICROAMP_HOUR_COUNTER + 1, microampHourCounter(MIN_MICROAMP_HOUR_COUNTER + 1))
+        assertEquals(3_000_000L, microampHourCounter(3_000_000L))
+    }
+
+    @Test
     fun `a charge counter jump never reads a microamp kernel as milliamps`() {
         val evidence = CalibrationEvidence()
         // A gauge re-learning its capacity moves the counter 40 mAh in one tick, far beyond what 20 A could add.

@@ -11,6 +11,7 @@ import com.akane.inspiration.diagnostics.analysis.TimelinePoint
 import com.akane.inspiration.diagnostics.analysis.TimelineSegment
 import com.akane.inspiration.ipc.ShizukuBackend
 import com.akane.inspiration.ipc.ShizukuState
+import com.akane.inspiration.telemetry.calibration.MIN_MICROAMP_HOUR_COUNTER
 import com.akane.inspiration.telemetry.diff.ReferenceKind
 import com.akane.inspiration.telemetry.snapshot.SleepStats
 import org.junit.Assert.assertEquals
@@ -297,6 +298,26 @@ class CockpitMappersTest {
 
         assertEquals(42L, remainingMs(reading, 42L))
         assertNull(remainingMs(reading, null))
+    }
+
+    @Test
+    fun `a counter too small to be in uAh is not extrapolated and keeps the system estimate`() {
+        // A mAh kernel's 3,000 read as uAh would be 36 s left at 300 mA on a well-charged battery.
+        val mahKernel = liveReading(currentMa = -300, chargeCounterUah = 3_000)
+
+        assertEquals(8 * HOUR_MS, remainingMs(mahKernel, systemEstimateMs = 8 * HOUR_MS))
+        assertNull(remainingMs(mahKernel, systemEstimateMs = null))
+        assertEquals(8 * HOUR_MS, liveUi(mahKernel, systemEstimateMs = 8 * HOUR_MS).remainingMs)
+    }
+
+    @Test
+    fun `time left uses the engine's own counter floor`() {
+        assertEquals(7L, remainingMs(liveReading(currentMa = -300, chargeCounterUah = MIN_MICROAMP_HOUR_COUNTER), 7L))
+        // One µAh over the floor is trusted: 20,001 µAh at 300 mA is 240,012 ms.
+        assertEquals(
+            240_012L,
+            remainingMs(liveReading(currentMa = -300, chargeCounterUah = MIN_MICROAMP_HOUR_COUNTER + 1), 7L),
+        )
     }
 
     @Test

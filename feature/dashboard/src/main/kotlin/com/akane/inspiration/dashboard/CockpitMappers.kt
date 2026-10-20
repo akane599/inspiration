@@ -18,6 +18,7 @@ import com.akane.inspiration.diagnostics.analysis.TimelinePoint
 import com.akane.inspiration.diagnostics.analysis.forSelection
 import com.akane.inspiration.diagnostics.story.reportableDeepSleepRatio
 import com.akane.inspiration.ipc.ShizukuState
+import com.akane.inspiration.telemetry.calibration.microampHourCounter
 import com.akane.inspiration.telemetry.diff.ReferenceKind
 import com.akane.inspiration.telemetry.interval.IntervalMetrics
 import com.akane.inspiration.telemetry.snapshot.LiveReading
@@ -204,7 +205,7 @@ private fun GaugeChargeState.toChargeState(): ChargeState =
 
 /**
  * Time to empty whenever the battery is not charging: `chargeCounterUah / |currentMa|` while it drains, else the
- * system's own estimate. On a charger only a drain past [CHARGING_DRAIN_DEADBAND_MA] counts: a held battery has no
+ * system's own estimate. Only a counter the engine reads as µAh ([microampHourCounter]) is extrapolated. On a charger only a drain past [CHARGING_DRAIN_DEADBAND_MA] counts: a held battery has no
  * time to empty (its few mA would extrapolate to days), and the system's discharge estimate was made off the charger.
  * [systemEstimateMs] must already be checked for age by the caller. A time left a drain past the deadband gave
  * ([previous], the last reading's) holds until the drain is [DEADBAND_HYSTERESIS_MA] back inside it.
@@ -223,9 +224,10 @@ internal fun remainingMs(
     val drainCounted = previous?.chargeState == GaugeChargeState.PluggedNotCharging && previous.remainingMs != null
     val minDrainMa = if (onCharger) deadbandHeldBy(drainCounted) else 1
     val drainMa = reading.currentMa?.let { -it }?.takeIf { it >= minDrainMa }
-    val counterUah = reading.chargeCounterUah
+    // The engine's own floor: a mAh kernel's counter read as µAh would show minutes left on a full battery.
+    val counterUah = microampHourCounter(reading.chargeCounterUah)
     val extrapolated =
-        if (drainMa != null && counterUah != null && counterUah > 0) {
+        if (drainMa != null && counterUah != null) {
             counterUah * UAH_PER_MA_TO_MS / drainMa
         } else {
             null
