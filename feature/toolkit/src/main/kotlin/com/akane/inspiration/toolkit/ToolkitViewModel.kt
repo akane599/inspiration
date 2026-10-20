@@ -30,6 +30,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
@@ -168,7 +169,9 @@ class ToolkitViewModel(
         coroutineScope {
             // A read that throws (a Room error from the audit log) stops only its own card; the rest stays usable.
             launch { attempt { deps.toolkit.activeOverrides().collect { showOverrides(it) } } }
-            launch { attempt { deps.toolkit.bgDexoptStatus().collect { status -> setDexopt { it.copy(status = status) } } } }
+            launch {
+                attempt { deps.toolkit.bgDexoptStatus().collect { status -> setDexopt { it.copy(status = status).settledCancel() } } }
+            }
             load()
         }
     }
@@ -742,23 +745,50 @@ class ToolkitViewModel(
         if (_state.value.status != ToolkitPhase.READY || dexopt.busy) return
         if (dexopt.status is BgDexoptStatus.Running || dexopt.status == BgDexoptStatus.Unknown) return
         if (dexopt.status == BgDexoptStatus.Unsupported) return
-        setDexopt { it.copy(busy = true, notice = null) }
+        setDexopt { it.copy(busy = true, notice = null, cancelAwaiting = false) }
         viewModelScope.launch {
             val outcome = attempt { deps.toolkit.startBgDexopt() }
             setDexopt { it.copy(busy = false, notice = dexoptNotice(outcome, Change.DexoptStarted)) }
         }
     }
 
-    /** Cancel is system-side and idempotent, so it is offered for an UNKNOWN job as well as a RUNNING one. */
+    /**
+     * Cancel is system-side and idempotent, so it is offered for an UNKNOWN job as well as a RUNNING one. An accepted
+     * cancel is not yet a stopped job: it may have stopped a job ours waits behind, or our client may outlive it. So
+     * "cancelled" is said only once a fresh status read (or a later poll) is Cancelled or Idle; Unknown says the
+     * cancel could not be confirmed.
+     */
     private fun cancelDexopt() {
         val dexopt = _state.value.dexopt
         if (_state.value.status != ToolkitPhase.READY || dexopt.busy) return
         if (dexopt.status !is BgDexoptStatus.Running && dexopt.status != BgDexoptStatus.Unknown) return
-        setDexopt { it.copy(busy = true, notice = null) }
+        setDexopt { it.copy(busy = true, notice = null, cancelAwaiting = false) }
         viewModelScope.launch {
             val outcome = attempt { deps.toolkit.cancelBgDexopt() }
-            setDexopt { it.copy(busy = false, notice = dexoptNotice(outcome, Change.DexoptCancelled)) }
+            if (outcome !is ToolkitOutcome.Done) {
+                setDexopt { it.copy(busy = false, notice = dexoptNotice(outcome, Change.DexoptCancelled)) }
+                return@launch
+            }
+            // The collector's last status may predate the cancel; read one that does not.
+            val after = attempt { deps.toolkit.bgDexoptStatus().first() }
+            setDexopt { section ->
+                section.copy(busy = false, status = after ?: section.status, cancelAwaiting = true).settledCancel()
+            }
         }
+    }
+
+    /** Settles an accepted cancel's notice once the status is no longer Running; see [cancelDexopt]. */
+    private fun DexoptSection.settledCancel(): DexoptSection {
+        val status = status
+        if (!cancelAwaiting || status == null || status is BgDexoptStatus.Running) return this
+        val notice =
+            when (status) {
+                BgDexoptStatus.Idle, is BgDexoptStatus.Cancelled -> ToolkitNotice.Applied(Change.DexoptCancelled)
+                BgDexoptStatus.Unknown -> ToolkitNotice.Rejected(Problem.DexoptCancelUnconfirmed)
+                // Our job ended on its own before the cancel reached it; the status line says so.
+                else -> null
+            }
+        return copy(cancelAwaiting = false, notice = notice)
     }
 
     /** A null [outcome] is a call that threw instead of answering (the job's audit row could not be stored, say). */

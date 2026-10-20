@@ -35,6 +35,9 @@ sealed interface Problem {
     data class Failed(
         val code: Int?,
     ) : Problem
+
+    /** A bg-dexopt cancel went out, but our job's status then read Unknown: it may still be running. */
+    data object DexoptCancelUnconfirmed : Problem
 }
 
 /** The change a successful action made, for the result line. */
@@ -256,12 +259,17 @@ data class ResetReport(
 
 // ---- bg-dexopt -------------------------------------------------------------------------------
 
-/** [status] is null until the first read. [busy] is a start or cancel call in flight. */
+/**
+ * [status] is null until the first read. [busy] is a start or cancel call in flight. [cancelAwaiting] is a cancel
+ * the service accepted whose outcome the status has not settled yet: only our job's exit confirms it, so its
+ * notice waits for a status that is no longer Running.
+ */
 @Immutable
 data class DexoptSection(
     val status: BgDexoptStatus? = null,
     val busy: Boolean = false,
     val notice: ToolkitNotice? = null,
+    val cancelAwaiting: Boolean = false,
 )
 
 // ---- requests, confirmation ------------------------------------------------------------------

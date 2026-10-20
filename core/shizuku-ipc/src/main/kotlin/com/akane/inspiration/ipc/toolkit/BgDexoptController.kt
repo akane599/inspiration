@@ -44,7 +44,7 @@ internal fun bgDexoptCancelArgv(sdkInt: Int): List<String>? =
  * status stays UNKNOWN with reason UNSUPPORTED_API.
  *
  * A cancel is confirmed only by our client's exit. While the client outlives a cancel and its wind-down, the
- * cancel is sent again, up to [CANCEL_ATTEMPTS] in all ([cancelIfRunning]: as many as fit its budget); a client
+ * cancel is sent again, up to [CANCEL_ATTEMPTS] in all ([cancelIfRunning]: as many as return within its budget); a client
  * still alive after that is reported UNKNOWN.
  *
  * The unplug/cap guard lives only in this process, so two things keep it honest across service
@@ -158,6 +158,11 @@ internal class BgDexoptController(
      * then cancels a job of ours within [SHUTDOWN_CANCEL_TIMEOUT_MS] in all, sending the cancel again while
      * our client outlives it. Before the worker has started our client nothing of ours runs, so no cancel is
      * sent: it could only stop the system's own job.
+     *
+     * Only our client is waited on. On API 33 `cancel-bg-dexopt-job` returns only once the job it stopped has
+     * wound down, so waiting on the cancel's own client spent the whole budget there and never saw ours exit.
+     * A cancel is sent again only after the previous one has returned (its job ended and ours may have begun),
+     * and one still pending when the hook returns is killed with it: the request already reached system_server.
      */
     fun cancelIfRunning() {
         val running =
@@ -172,14 +177,32 @@ internal class BgDexoptController(
         // Without a cancel command nothing was ever started here, so the state is never RUNNING.
         val argv = cancelArgv ?: return
         val deadline = elapsedMs() + SHUTDOWN_CANCEL_TIMEOUT_MS
-        repeat(CANCEL_ATTEMPTS) {
-            val left = deadline - elapsedMs()
-            if (left <= 0) return
-            runner.run(argv, left)
-            val wait = minOf(deadline - elapsedMs(), WAIT_SLICE_MS)
-            if (wait <= 0 || running.awaitExit(wait)) return
+        var sent = 0
+        var pending: CommandProcess? = null
+        try {
+            while (true) {
+                // Null before the first cancel and after one that could not be spawned.
+                if (sent < CANCEL_ATTEMPTS && pending?.awaitExit(0L) != false) {
+                    sent += 1
+                    pending?.destroy()
+                    pending = startQuietly(argv)
+                }
+                val wait = minOf(deadline - elapsedMs(), WAIT_SLICE_MS)
+                if (wait <= 0 || running.awaitExit(wait)) return
+            }
+        } finally {
+            pending?.destroy()
         }
     }
+
+    private fun startQuietly(argv: List<String>): CommandProcess? =
+        try {
+            runner.start(argv)
+        } catch (_: IOException) {
+            null
+        } catch (_: SecurityException) {
+            null
+        }
 
     private fun runJob() {
         val process =

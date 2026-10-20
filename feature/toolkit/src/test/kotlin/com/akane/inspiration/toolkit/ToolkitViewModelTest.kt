@@ -1,6 +1,7 @@
 package com.akane.inspiration.toolkit
 
 import com.akane.inspiration.ipc.ShizukuState
+import com.akane.inspiration.ipc.model.BgDexoptReason
 import com.akane.inspiration.ipc.model.BgDexoptState
 import com.akane.inspiration.ipc.toolkit.AppOp
 import com.akane.inspiration.ipc.toolkit.DozeProfile
@@ -1267,6 +1268,58 @@ class ToolkitViewModelTest {
         assertEquals(ToolkitNotice.Applied(Change.DexoptCancelled), state.dexopt.notice)
         val status = state.dexopt.status
         assertTrue(status is BgDexoptStatus.Cancelled && status.reason == BgDexoptCancelReason.USER)
+    }
+
+    @Test
+    fun `a cancel after which the job reads unknown does not say dexopt was cancelled`() {
+        start()
+        vm.onIntent(ToolkitIntent.StartDexopt)
+        // Our client outlived every cancel: the service cannot confirm the job stopped.
+        device.dexoptAfterCancel = { ServiceDexopt(BgDexoptState.UNKNOWN, it.startedAtMs, 0, -1, BgDexoptReason.USER) }
+
+        vm.onIntent(ToolkitIntent.CancelDexopt)
+
+        assertEquals(1, device.writes.count { it == "cancelBgDexopt" })
+        assertEquals(BgDexoptStatus.Unknown, state.dexopt.status)
+        assertEquals(ToolkitNotice.Rejected(Problem.DexoptCancelUnconfirmed), state.dexopt.notice)
+        assertFalse(state.dexopt.busy)
+    }
+
+    @Test
+    fun `a cancel says dexopt was cancelled only once the running job's status settles to cancelled`() {
+        start()
+        vm.onIntent(ToolkitIntent.StartDexopt)
+        // The cancel was accepted, but our client has not exited yet.
+        device.dexoptAfterCancel = { it }
+
+        vm.onIntent(ToolkitIntent.CancelDexopt)
+
+        assertTrue(state.dexopt.status is BgDexoptStatus.Running)
+        assertNull("nothing is claimed while the job still runs", state.dexopt.notice)
+        assertFalse(state.dexopt.busy)
+
+        device.dexopt = ServiceDexopt(BgDexoptState.CANCELLED, device.dexopt.startedAtMs, 1L, 0, BgDexoptReason.USER)
+        scheduler.advanceTimeBy(10_000)
+        scheduler.runCurrent()
+
+        assertTrue(state.dexopt.status is BgDexoptStatus.Cancelled)
+        assertEquals(ToolkitNotice.Applied(Change.DexoptCancelled), state.dexopt.notice)
+    }
+
+    @Test
+    fun `a cancel whose running job later reads unknown says the cancel was not confirmed`() {
+        start()
+        vm.onIntent(ToolkitIntent.StartDexopt)
+        device.dexoptAfterCancel = { it }
+        vm.onIntent(ToolkitIntent.CancelDexopt)
+        assertNull(state.dexopt.notice)
+
+        device.dexopt = ServiceDexopt(BgDexoptState.UNKNOWN, device.dexopt.startedAtMs, 0, -1, BgDexoptReason.USER)
+        scheduler.advanceTimeBy(10_000)
+        scheduler.runCurrent()
+
+        assertEquals(BgDexoptStatus.Unknown, state.dexopt.status)
+        assertEquals(ToolkitNotice.Rejected(Problem.DexoptCancelUnconfirmed), state.dexopt.notice)
     }
 
     @Test

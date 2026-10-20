@@ -166,6 +166,10 @@ internal fun problemText(problem: Problem): String =
         is Problem.Failed -> {
             problem.code?.let { stringResource(R.string.toolkit_failed_code, it) } ?: stringResource(R.string.toolkit_failed)
         }
+
+        Problem.DexoptCancelUnconfirmed -> {
+            stringResource(R.string.toolkit_notice_dexopt_cancel_unconfirmed)
+        }
     }
 
 /** A sentence starts with a capital letter, in the current locale's rules (Turkish `i` becomes `İ`). */

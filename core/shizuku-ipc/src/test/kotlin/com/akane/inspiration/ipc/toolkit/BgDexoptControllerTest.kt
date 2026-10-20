@@ -28,6 +28,15 @@ class BgDexoptControllerTest {
 
     /** The wait each cancel command was given. */
     private val cancelWaits = mutableListOf<Long>()
+
+    /**
+     * True: a cancel's own `cmd` client does not return within any wait, although the cancel has already stopped
+     * our pass (API 33 `cancel-bg-dexopt-job` waits for the stopped job to wind down before it returns).
+     */
+    private var cancelClientLingers = false
+
+    /** Cancel clients killed by the controller. */
+    private var cancelsKilled = 0
     private var userCancelNote: (() -> Unit)? = null
     private lateinit var job: FakeJob
 
@@ -91,12 +100,18 @@ class BgDexoptControllerTest {
                     object : CommandProcess {
                         override fun awaitExit(timeoutMs: Long): Boolean {
                             cancelWaits += timeoutMs
+                            if (cancelClientLingers) {
+                                clock.nowMs += timeoutMs
+                                return false
+                            }
                             return !cancelOutput.timedOut
                         }
 
                         override fun output(timedOut: Boolean) = cancelOutput
 
-                        override fun destroy() = Unit
+                        override fun destroy() {
+                            cancelsKilled += 1
+                        }
                     }
                 }
 
@@ -133,6 +148,8 @@ class BgDexoptControllerTest {
         threads.clear()
         calls.clear()
         cancelWaits.clear()
+        cancelClientLingers = false
+        cancelsKilled = 0
         probes = 0
         userCancelNote = null
         clock.nowMs = 1_000L
@@ -232,8 +249,39 @@ class BgDexoptControllerTest {
             assertEquals("API $sdk", 1, shell.cancels)
             assertEquals("API $sdk: only our own pass ran", 1, shell.passes)
             assertFalse("API $sdk", shell.running)
-            val budgetMs = BgDexoptController.SHUTDOWN_CANCEL_TIMEOUT_MS
-            assertTrue("API $sdk: cancel waits $cancelWaits", cancelWaits.single() in 1L..budgetMs)
+            assertTrue("API $sdk: no wait on the cancel's own client: $cancelWaits", cancelWaits.all { it == 0L })
+            assertEquals("API $sdk", BgDexoptState.CANCELLED, controller.status().state)
+        }
+    }
+
+    @Test
+    fun `the destroy hook returns once our client exits while the cancel's own client still waits (API 33)`() {
+        for (sdk in 33..36) {
+            onApi(sdk)
+            // API 33 cancel-bg-dexopt-job returns only after the stopped job has wound down.
+            cancelClientLingers = true
+            val controller = controller()
+            var destroyed = false
+            var hookMs = -1L
+            userCancelNote = {
+                if (!destroyed) {
+                    destroyed = true
+                    val before = clock.nowMs
+                    controller.cancelIfRunning() // the service is destroyed while the worker supervises
+                    hookMs = clock.nowMs - before
+                }
+            }
+
+            controller.tryStart()
+            threads.single().run()
+
+            assertEquals("API $sdk", 1, shell.cancels)
+            assertFalse("API $sdk: our pass was stopped", shell.running)
+            assertTrue(
+                "API $sdk: the hook took $hookMs ms of its ${BgDexoptController.SHUTDOWN_CANCEL_TIMEOUT_MS} ms budget",
+                hookMs in 0L until BgDexoptController.WAIT_SLICE_MS,
+            )
+            assertEquals("API $sdk: the pending cancel client is not left behind", 1, cancelsKilled)
             assertEquals("API $sdk", BgDexoptState.CANCELLED, controller.status().state)
         }
     }

@@ -75,6 +75,7 @@
     <string name="toolkit_dexopt_unsupported">Needs Android 13 or later. Android 12 can\'t stop a dexopt run once it has started, so it couldn\'t be cancelled when you unplug.</string>
     <string name="toolkit_notice_dexopt_started">Dexopt started.</string>
     <string name="toolkit_notice_dexopt_cancelled">Dexopt cancelled.</string>
+    <string name="toolkit_notice_dexopt_cancel_unconfirmed">The cancel was sent, but it couldn\'t be confirmed. Dexopt may still be running.</string>
 
     <!-- Overrides -->
     <string name="toolkit_overrides_title">Changes made by Inspiration</string>

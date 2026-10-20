@@ -198,8 +198,9 @@ class TelemetryUserServiceToolkitTest {
             assertEquals("API $sdk: cancel runs before the exit hook", listOf("pass", "cancel", "exit"), h.events)
             assertEquals("API $sdk: our pass was cancelled", 1, h.shell.cancels)
             assertFalse("API $sdk", h.shell.running)
-            val budgetMs = BgDexoptController.SHUTDOWN_CANCEL_TIMEOUT_MS
-            assertTrue("API $sdk: cancel wait ${h.cancelWaits} is bounded", h.cancelWaits.single() in 1L..budgetMs)
+            // From API 33 a cancel's own client may wait for the stopped job to wind down; only ours confirms.
+            assertTrue("API $sdk: no wait on the cancel's own client: ${h.cancelWaits}", h.cancelWaits.all { it == 0L })
+            assertTrue("API $sdk: the hook's wait stayed within its budget", h.elapsedMs <= BgDexoptController.SHUTDOWN_CANCEL_TIMEOUT_MS)
             assertEquals("API $sdk", BgDexoptState.CANCELLED, h.service.getBgDexoptStatus().state)
         }
     }

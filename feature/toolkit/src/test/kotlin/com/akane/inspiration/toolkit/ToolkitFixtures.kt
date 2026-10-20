@@ -98,6 +98,12 @@ internal class FakeDevice {
     var dexoptUnsupported = false
 
     /**
+     * What an accepted cancel leaves the service reporting, from the job's status before it; null: CANCELLED by the
+     * user at once. Only our client's exit confirms a cancel, so the job may still read RUNNING, or UNKNOWN.
+     */
+    var dexoptAfterCancel: ((ServiceDexopt) -> ServiceDexopt)? = null
+
+    /**
      * Protected apps (rule d: a role holder, the keyboard, an accessibility service...), as the service treats them:
      * reads are refused with DENY_PROTECTED but carry the value, only a write that lifts a restriction goes through,
      * and force-stop is refused.
@@ -270,7 +276,8 @@ internal class FakeDevice {
                     if (dexoptUnsupported) {
                         ToolkitResult.refused(ToolkitCode.UNSUPPORTED_API)
                     } else {
-                        dexopt = ServiceDexopt(BgDexoptState.CANCELLED, dexopt.startedAtMs, now(), 0, BgDexoptReason.USER)
+                        dexopt = dexoptAfterCancel?.invoke(dexopt)
+                            ?: ServiceDexopt(BgDexoptState.CANCELLED, dexopt.startedAtMs, now(), 0, BgDexoptReason.USER)
                         ToolkitResult.done()
                     }
                 }

@@ -75,6 +75,7 @@
     <string name="toolkit_dexopt_unsupported">Android 13 veya üstü gerekir. Android 12 başlamış bir dexopt\'u durduramaz; bu yüzden şarjdan çıkarınca iptal edilemezdi.</string>
     <string name="toolkit_notice_dexopt_started">Dexopt başlatıldı.</string>
     <string name="toolkit_notice_dexopt_cancelled">Dexopt iptal edildi.</string>
+    <string name="toolkit_notice_dexopt_cancel_unconfirmed">İptal gönderildi ancak doğrulanamadı. Dexopt hâlâ çalışıyor olabilir.</string>
 
     <!-- Overrides -->
     <string name="toolkit_overrides_title">Inspiration\'ın yaptığı değişiklikler</string>
