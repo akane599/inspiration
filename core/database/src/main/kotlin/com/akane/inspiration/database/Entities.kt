@@ -252,7 +252,12 @@ data class MarkerEntity(
 
 @Entity(
     tableName = "history_event",
-    indices = [Index(value = ["wallMs"]), Index(value = ["historyTimeMs", "kind", "wallMs"], unique = true)],
+    indices = [
+        Index(value = ["wallMs"]),
+        Index(value = ["historyTimeMs", "kind", "wallMs"], unique = true),
+        // The newest event of each kind is an index seek per kind, not a scan of the history before it (audit R-15).
+        Index(value = ["kind", "wallMs"]),
+    ],
 )
 data class HistoryEventEntity(
     @PrimaryKey(autoGenerate = true) val id: Long = 0,

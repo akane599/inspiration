@@ -41,8 +41,8 @@ class ReferenceResolver(
     private val store: SnapshotStore,
 ) {
     /**
-     * Reads only the history events the boundary needs (the newest of a kind, the newest screen-off period), never
-     * the whole retained history (audit R-15).
+     * Reads only the history events the boundary needs (audit R-15): the newest event of each kind (index seeks per
+     * kind in the Room store) and, for [ReferenceKind.SinceScreenOff], the events of the newest screen-off period.
      */
     suspend fun resolve(
         kind: ReferenceKind,
@@ -113,9 +113,9 @@ class ReferenceResolver(
     }
 
     /**
-     * Anchors read from the store with targeted queries: the newest event of each kind up to [nowWallMs] (one
-     * query, read once), and for the screen-off period only the events from the newest SCREEN_OFF before the
-     * newest SCREEN_ON to that SCREEN_ON.
+     * Anchors read from the store with targeted queries: the newest event of each kind up to [nowWallMs] (read
+     * once), and for the screen-off period the newest SCREEN_OFF before the newest SCREEN_ON (a second newest-of-kind
+     * read, only when the newest SCREEN_OFF is not already before it) plus the events from there to that SCREEN_ON.
      */
     private inner class StoredAnchors(
         private val nowWallMs: Long,

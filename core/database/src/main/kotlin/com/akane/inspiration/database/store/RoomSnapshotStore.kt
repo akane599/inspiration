@@ -168,8 +168,12 @@ class RoomSnapshotStore(
         return runs
     }
 
+    // Of a tie, the first stored row: what the scanning default (and the pre-index query) returned.
     override suspend fun lastHistoryOfEachKindBefore(wallMs: Long): List<HistoryEvent> =
-        database.historyDao().lastOfEachKindBefore(wallMs).map { it.toDomain() }
+        database.historyDao().newestOfEachKindBefore(wallMs).distinctBy { it.kind }.map { it.toDomain() }
+
+    override suspend fun newestHistoryOfEachKindBefore(wallMs: Long): List<HistoryEvent> =
+        database.historyDao().newestOfEachKindBefore(wallMs).map { it.toDomain() }
 
     override suspend fun historyHorizonWallMs(): Long? =
         database.snapshotDao().newestWallMsWithCompleteSource(SnapshotKind.FULL.name, HISTORY_SOURCE)

@@ -94,10 +94,10 @@ interface SnapshotStore {
         listOf((historyCursor()?.first ?: 0L) to historyBetween(0L, Long.MAX_VALUE))
 
     /**
-     * The newest event of each kind strictly before [wallMs], oldest first: at most one per kind, so the cost
-     * does not grow with the history before the bound. Events at one wall time keep their stored order, so a RESET
-     * stays ahead of the screen and doze state it restates. The default scans everything before it (for fakes);
-     * the Room store answers it in one query.
+     * The newest event of each kind with `0 <= wallMs <` [wallMs], oldest first: at most one per kind (of events
+     * of one kind at one wall time, the first stored). Events at one wall time keep their stored order, so a RESET
+     * stays ahead of the screen and doze state it restates. The default scans everything before the bound (for
+     * fakes); the Room store answers it with index seeks per kind, so its cost does not grow with that history.
      */
     suspend fun lastHistoryOfEachKindBefore(wallMs: Long): List<HistoryEvent> =
         historyBetween(0L, wallMs - 1)
@@ -108,6 +108,19 @@ interface SnapshotStore {
             // Room's `ORDER BY wallMs, id`: the position in `historyBetween` stands in for the row id.
             .sortedWith(compareBy({ it.value.wallMs }, { it.index }))
             .map { it.value }
+
+    /**
+     * Like [lastHistoryOfEachKindBefore], but every event at each kind's newest wall time (all of a tie), ordered by
+     * wall time, then stored order. The default reads each of those wall times on top of
+     * [lastHistoryOfEachKindBefore]; the Room store answers it in one query of index seeks.
+     */
+    suspend fun newestHistoryOfEachKindBefore(wallMs: Long): List<HistoryEvent> {
+        val newest = lastHistoryOfEachKindBefore(wallMs)
+        return newest.map { it.wallMs }.distinct().sorted().flatMap { wall ->
+            val kinds = newest.filter { it.wallMs == wall }.mapTo(HashSet()) { it.kind }
+            historyBetween(wall, wall).filter { it.kind in kinds }
+        }
+    }
 
     /**
      * The wall time up to which the stored battery history is known to be complete: the newest snapshot that

@@ -48,8 +48,8 @@ class IntervalAnalyzer(
         // broadcast endpoint must not stretch it. An endpoint that ingested history itself needs no further read.
         val horizon =
             if (resolved.now.ingestedHistory()) resolved.now.clock.wallMs else store.historyHorizonWallMs() ?: Long.MIN_VALUE
-        // The interval's own history and the state it opens in, never the whole retained history (audit R-15); events
-        // past now were never part of it.
+        // The interval's own history and the newest events it opens in (audit R-15; see intervalHistory for the one
+        // case that reads back to a SHUTDOWN); events past now were never part of it.
         val events = store.intervalHistory(resolved.coveredFromWallMs, minOf(nowWallMs, resolved.coveredToWallMs))
         val metrics =
             IntervalMetricsCalculator.compute(events, resolved.coveredFromWallMs, resolved.coveredToWallMs, horizon)

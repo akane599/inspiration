@@ -152,7 +152,7 @@ class InspirationDatabaseTest {
                 old.execSQL("INSERT INTO battery_health_sample VALUES (1, 4800, 5000, NULL, 4700)")
                 old.version = 4
             }
-            // Production builder runs 4->5 and Room validates the migrated schema against fresh v5 entities.
+            // Production builder runs 4->5->6 and Room validates the migrated schema against the current entities.
             database = InspirationDatabase.create(context, databaseName)
             val row = requireNotNull(database.snapshotDao().byId(42))
             assertEquals(2, row.truncatedUids)
@@ -245,7 +245,7 @@ class InspirationDatabaseTest {
                 0.0,
             )
             val sqlite = database.openHelper.readableDatabase
-            assertEquals(5, sqlite.version)
+            assertEquals(6, sqlite.version)
             val freshName = "$databaseName-fresh"
             val fresh = InspirationDatabase.create(context, freshName)
             try {
@@ -270,6 +270,47 @@ class InspirationDatabaseTest {
             assertTrue(database.snapshotDao().uidsForSnapshot(42).isEmpty())
             assertTrue(database.snapshotDao().componentsForSnapshot(42).isEmpty())
         }
+
+    @Test
+    fun `version five databases gain the history kind index and keep their events`() =
+        runBlocking {
+            database.close()
+            context.openOrCreateDatabase(databaseName, 0, null).use { old ->
+                createExportedSchema(old, version = 5)
+                val rows =
+                    listOf(
+                        "(1, 10, 100, 1000, '1', 80)",
+                        "(2, 10, 101, 2000, '1', 79)",
+                        "(3, 10, 102, 2000, '1', 78)",
+                        "(4, 10, 103, 2000, '2', 77)",
+                        "(5, 10, 104, 3000, '5', 76)",
+                        "(6, 10, 105, -1, '5', 75)",
+                    )
+                old.execSQL(
+                    "INSERT INTO history_event (id, statsStartMs, historyTimeMs, wallMs, kind, levelPct) VALUES " +
+                        rows.joinToString(),
+                )
+                assertFalse(HISTORY_KIND_INDEX in old.rawQuery("PRAGMA index_list(history_event)", null).strings("name"))
+                old.version = 5
+            }
+
+            // The production builder runs 5->6, then Room validates the migrated schema against the current entities.
+            database = InspirationDatabase.create(context, databaseName)
+
+            val sqlite = database.openHelper.readableDatabase
+            assertEquals(6, sqlite.version)
+            assertEquals(listOf("kind", "wallMs"), sqlite.query("PRAGMA index_info(`$HISTORY_KIND_INDEX`)").strings("name"))
+            assertEquals(6, database.historyDao().between(-1, Long.MAX_VALUE).size)
+            // Every row at each kind's newest wall time before the bound, ties included, unknown wall times never.
+            assertEquals(listOf(2L, 3L, 4L, 5L), database.historyDao().newestOfEachKindBefore(Long.MAX_VALUE).map { it.id })
+            assertEquals(listOf(1L), database.historyDao().newestOfEachKindBefore(2_000L).map { it.id })
+            assertNewestOfEachKindSeeksTheIndex()
+        }
+
+    @Test
+    fun `newest of each kind seeks the history kind index instead of scanning history`() {
+        assertNewestOfEachKindSeeksTheIndex()
+    }
 
     @Test
     fun `latestByTrigger searches the trigger index instead of scanning snapshots`() {
@@ -544,6 +585,22 @@ class InspirationDatabaseTest {
         }
     }
 
+    /**
+     * `HistoryDao.newestOfEachKindBefore` reads `history_event` only through index seeks (audit R-15): the distinct
+     * kinds, each kind's newest wall time and that wall time's rows. Only the CTEs and the small result are scanned.
+     */
+    private fun assertNewestOfEachKindSeeksTheIndex() {
+        val plan =
+            database.openHelper.readableDatabase
+                .query("EXPLAIN QUERY PLAN $NEWEST_OF_EACH_KIND_BEFORE_SQL", arrayOf<Any?>(1_000L))
+                .strings("detail")
+        println("newestOfEachKindBefore plan:\n" + plan.joinToString("\n"))
+        val historyReads = plan.filter { it.contains(" history_event") || it.contains(" h ") || it.endsWith(" h") }
+        assertTrue(plan.toString(), historyReads.size >= 3)
+        assertTrue(plan.toString(), historyReads.all { it.startsWith("SEARCH") && HISTORY_KIND_INDEX in it })
+        assertFalse(plan.toString(), plan.any { it.startsWith("SCAN history_event") || it.startsWith("SCAN h") })
+    }
+
     private fun Cursor.strings(column: String): List<String> =
         use { cursor ->
             buildList { while (cursor.moveToNext()) add(cursor.getString(cursor.getColumnIndexOrThrow(column))) }
@@ -552,5 +609,6 @@ class InspirationDatabaseTest {
     private companion object {
         const val DAY_MS = 24L * 60L * 60L * 1_000L
         const val TRIGGER_INDEX = "index_snapshot_trigger_wallMs"
+        const val HISTORY_KIND_INDEX = "index_history_event_kind_wallMs"
     }
 }

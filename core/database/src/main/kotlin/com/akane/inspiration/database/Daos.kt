@@ -235,17 +235,14 @@ interface HistoryDao {
     ): List<HistoryEventEntity>
 
     /**
-     * The newest event of each `kind` with `0 <= wallMs < beforeWallMs`, oldest first: at most one row per kind,
-     * however much history precedes the bound. Rows with an unknown wall time (`wallMs = -1`) are never seeds.
-     * (SQLite returns the bare `id` of the row that holds each group's `MAX(wallMs)`.)
+     * Every event at each `kind`'s newest wall time with `0 <= wallMs < beforeWallMs` (all of a tie), ordered by
+     * `wallMs, id`. Rows with an unknown wall time (`wallMs = -1`) are never included. Each step seeks the
+     * `(kind, wallMs)` index: the recursive CTE walks the distinct kinds (the next larger kind each time), a
+     * `MAX(wallMs)` per kind reads one index entry, and the join fetches that wall time's rows; nothing scans the
+     * history before the bound.
      */
-    @Query(
-        "SELECT * FROM history_event WHERE id IN " +
-            "(SELECT id FROM (SELECT id, MAX(wallMs) FROM history_event " +
-            "WHERE wallMs >= 0 AND wallMs < :beforeWallMs GROUP BY kind)) " +
-            "ORDER BY wallMs, id",
-    )
-    suspend fun lastOfEachKindBefore(beforeWallMs: Long): List<HistoryEventEntity>
+    @Query(NEWEST_OF_EACH_KIND_BEFORE_SQL)
+    suspend fun newestOfEachKindBefore(beforeWallMs: Long): List<HistoryEventEntity>
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsertCursor(cursor: HistoryCursorEntity)
@@ -253,6 +250,19 @@ interface HistoryDao {
     @Query("SELECT * FROM history_cursor WHERE id = :id")
     suspend fun cursor(id: Int = HistoryCursorEntity.SINGLETON_ID): HistoryCursorEntity?
 }
+
+/** [HistoryDao.newestOfEachKindBefore]'s query; the database tests check its plan. */
+internal const val NEWEST_OF_EACH_KIND_BEFORE_SQL =
+    "WITH RECURSIVE kinds(kind) AS (" +
+        "SELECT MIN(kind) FROM history_event " +
+        "UNION ALL SELECT (SELECT MIN(h.kind) FROM history_event h WHERE h.kind > kinds.kind) " +
+        "FROM kinds WHERE kinds.kind IS NOT NULL), " +
+        "newest(kind, wallMs) AS (SELECT kinds.kind, (SELECT MAX(h.wallMs) FROM history_event h " +
+        "WHERE h.kind = kinds.kind AND h.wallMs >= 0 AND h.wallMs < :beforeWallMs) " +
+        "FROM kinds WHERE kinds.kind IS NOT NULL) " +
+        "SELECT history_event.* FROM newest JOIN history_event " +
+        "ON history_event.kind = newest.kind AND history_event.wallMs = newest.wallMs " +
+        "ORDER BY history_event.wallMs, history_event.id"
 
 @Dao
 interface TelemetryDao {

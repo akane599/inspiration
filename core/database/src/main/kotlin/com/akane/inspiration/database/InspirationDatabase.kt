@@ -28,7 +28,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         HealthSampleEntity::class,
         ToolkitActionEntity::class,
     ],
-    version = 5,
+    version = 6,
     exportSchema = true,
 )
 abstract class InspirationDatabase : RoomDatabase() {
@@ -61,7 +61,7 @@ abstract class InspirationDatabase : RoomDatabase() {
                     InspirationDatabase::class.java,
                     name,
                 ).setJournalMode(JournalMode.WRITE_AHEAD_LOGGING)
-                .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5)
+                .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6)
                 .build()
 
         val MIGRATION_1_2: Migration =
@@ -104,6 +104,14 @@ abstract class InspirationDatabase : RoomDatabase() {
                     db.execSQL("ALTER TABLE `snapshot` ADD COLUMN `uidIdentityReaderEpoch` TEXT")
                     db.execSQL("ALTER TABLE `snapshot` ADD COLUMN `uidIdentityPackageChangeSequence` INTEGER")
                     db.execSQL("ALTER TABLE `snapshot_uid` ADD COLUMN `ownerInstallFingerprint` TEXT")
+                }
+            }
+
+        /** `HistoryDao.newestOfEachKindBefore` seeks this index once per kind instead of scanning `history_event`. */
+        val MIGRATION_5_6: Migration =
+            object : Migration(5, 6) {
+                override fun migrate(db: SupportSQLiteDatabase) {
+                    db.execSQL("CREATE INDEX IF NOT EXISTS `index_history_event_kind_wallMs` ON `history_event` (`kind`, `wallMs`)")
                 }
             }
 
