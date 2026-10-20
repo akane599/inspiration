@@ -79,6 +79,17 @@ internal class FakeDevice {
     /** While set and not completed, every service call suspends: a test completes it to let an in-flight call finish. */
     var gate: CompletableDeferred<Unit>? = null
 
+    private var replyHold: Pair<String, CompletableDeferred<Unit>>? = null
+
+    /** The reply of a call that already read the device, waiting for its hold ([holdNextReply]). */
+    var heldReply: CompletableDeferred<Unit>? = null
+
+    /**
+     * A reply that arrives late: the next [method] call reads the device at once, but its answer reaches the caller only
+     * when the returned hold completes, so a later call can read (and report) a newer state first.
+     */
+    fun holdNextReply(method: String): CompletableDeferred<Unit> = CompletableDeferred<Unit>().also { replyHold = method to it }
+
     /** `device_idle_constants`; null is unset. */
     var dozeRaw: String? = null
 
@@ -161,6 +172,12 @@ internal class FakeDevice {
         ) { _, method, args ->
             if (method.name == "getApiVersion") return@newProxyInstance ToolkitApi.VERSION
             calls += method.name
+            replyHold?.let { (held, hold) ->
+                if (held == method.name) {
+                    replyHold = null
+                    heldReply = hold
+                }
+            }
             when (method.name) {
                 "getAppOps" -> {
                     val pkg = args[0] as String
@@ -306,7 +323,13 @@ private class FakeShizuku(
         block: suspend (ITelemetryUserService) -> T,
     ): T? {
         device.gate?.await()
-        return if (device.serviceUp) block(device.service) else null
+        if (!device.serviceUp) return null
+        val reply = block(device.service)
+        device.heldReply?.let { hold ->
+            device.heldReply = null
+            hold.await()
+        }
+        return reply
     }
 
     override fun holdBinding(): AutoCloseable = AutoCloseable {}

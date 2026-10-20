@@ -676,6 +676,87 @@ class XRayViewModelTest {
         assertNull(detail.notice)
     }
 
+    // ---- writes in flight (B-12) ------------------------------------------------------------
+
+    /** Confirms a restriction of Chatty whose write then waits, under the toolkit lock, for its audit row. */
+    private fun startHeldRestriction(): CompletableDeferred<Unit> {
+        openChatty()
+        vm.onIntent(XRayIntent.Act(ActionRequest.SetRestricted(true)))
+        val insert = CompletableDeferred<Unit>()
+        deps.device.store.insertGate = insert
+        vm.onIntent(XRayIntent.ConfirmPending)
+        assertTrue(detail.busy)
+        assertTrue("precondition: nothing written yet", deps.device.writes.isEmpty())
+        return insert
+    }
+
+    private fun release(insert: CompletableDeferred<Unit>) {
+        deps.device.store.insertGate = null
+        insert.complete(Unit)
+    }
+
+    @Test
+    fun `a sheet reopened while its write runs shows it busy and takes no second write`() {
+        val insert = startHeldRestriction()
+
+        vm.onIntent(XRayIntent.CloseApp)
+        openChatty()
+        assertTrue("the controls were read again", detail.actions is ActionsState.Loaded)
+        assertTrue("the reopened sheet shows the write still running", detail.busy)
+        vm.onIntent(XRayIntent.Act(ActionRequest.SetBucket(StandbyBucket.WORKING_SET)))
+        release(insert)
+
+        assertEquals(listOf("setAppOp"), deps.device.writes)
+        assertEquals("the write reports on the reopened sheet of its app", ActionNotice.Applied(Change.Restricted), detail.notice)
+        assertTrue(controls.restricted)
+        assertFalse(detail.busy)
+    }
+
+    @Test
+    fun `another app's sheet is not held by a write in flight`() {
+        val insert = startHeldRestriction()
+
+        vm.onIntent(XRayIntent.OpenApp(MAPS_UID))
+
+        assertFalse(detail.busy)
+        release(insert)
+        assertEquals(listOf("setAppOp"), deps.device.writes)
+        assertNull("Chatty's result is not shown on Maps' sheet", detail.notice)
+    }
+
+    @Test
+    fun `a controls read started during a write never replaces the write's own read-back`() {
+        val insert = startHeldRestriction()
+        val lateReply = deps.device.holdNextReply("getAppOps")
+        // The screen comes back while the write runs: the sheet is read again, and that read answers late.
+        vm.onIntent(XRayIntent.Hidden)
+        vm.onIntent(XRayIntent.Visible)
+
+        release(insert)
+        assertTrue("precondition: the write's read-back is shown", controls.restricted)
+        lateReply.complete(Unit)
+
+        assertTrue("the read from before the write landed is not shown over it", controls.restricted)
+        assertEquals(ActionNotice.Applied(Change.Restricted), detail.notice)
+        assertFalse(detail.busy)
+    }
+
+    @Test
+    fun `a controls read started before a restore never replaces the restore's read-back`() {
+        val id = restrictChatty()
+        val lateReply = deps.device.holdNextReply("getAppOps")
+        vm.onIntent(XRayIntent.ReloadActions)
+        assertEquals(ActionsState.Loading, detail.actions)
+
+        vm.onIntent(XRayIntent.Act(ActionRequest.Restore(id)))
+        assertEquals(ActionNotice.Applied(Change.Restored), detail.notice)
+        assertFalse("precondition: the restore's read-back is shown", controls.restricted)
+        lateReply.complete(Unit)
+
+        assertFalse("the read from before the restore is not shown over it", controls.restricted)
+        assertFalse(detail.busy)
+    }
+
     // ---- Shizuku not ready ------------------------------------------------------------------
 
     @Test

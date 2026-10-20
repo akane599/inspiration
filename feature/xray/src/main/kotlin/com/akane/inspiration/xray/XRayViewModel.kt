@@ -24,6 +24,7 @@ import com.akane.inspiration.telemetry.toolkit.ToolkitOutcome
 import com.akane.inspiration.telemetry.toolkit.ToolkitPlan
 import kotlinx.collections.immutable.persistentListOf
 import kotlinx.collections.immutable.toImmutableList
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.ensureActive
@@ -44,6 +45,12 @@ private val CALL_FAILED = ActionNotice.Rejected(Problem.Failed(code = null))
 /** A write waiting for its confirmation, pinned to the app the dialog named when it was planned. */
 private data class PendingAction(
     val request: ActionRequest,
+    val uid: Int,
+    val pkg: String,
+)
+
+/** An app a sheet acts on: the full UID and the package the sheet named. */
+private data class AppTarget(
     val uid: Int,
     val pkg: String,
 )
@@ -76,6 +83,20 @@ class XRayViewModel(
 
     /** The user asked to capture (Retry) while this refresh ran (main thread only, like every intent). */
     private var retryWaiting = false
+
+    /**
+     * Writes still running, by the app they were pinned to (main thread only). A write outlives its sheet, so a sheet
+     * opened again for that app shows it busy until the write reports there, and takes no second write meanwhile (B-12).
+     */
+    private val writes = HashMap<AppTarget, Job>()
+
+    /**
+     * The newest read of each app's controls that is still to answer (main thread only), numbered from [readCount].
+     * Only that read's answer is shown: a read that started before a write's own read-back must never replace it when
+     * its reply comes late (B-12). A read of another app never supersedes this app's.
+     */
+    private val controlsReads = HashMap<AppTarget, Long>()
+    private var readCount = 0L
 
     fun onIntent(intent: XRayIntent) {
         when (intent) {
@@ -236,9 +257,16 @@ class XRayViewModel(
         val app = _state.value.apps.firstOrNull { it.uid == uid } ?: return
         cancelPlanning()
         pending = null
-        _state.update { it.copy(detail = AppDetail(app = app, actions = ActionsState.Loading), confirmation = null) }
+        val busy = writing(app.uid, app.packageName)
+        _state.update { it.copy(detail = AppDetail(app = app, actions = ActionsState.Loading, busy = busy), confirmation = null) }
         reloadDetail()
     }
+
+    /** Whether a write pinned to [uid] and [pkg] is still running. */
+    private fun writing(
+        uid: Int,
+        pkg: String?,
+    ): Boolean = pkg != null && writes[AppTarget(uid, pkg)]?.isActive == true
 
     private fun closeApp() {
         controlsJob?.cancel()
@@ -255,6 +283,8 @@ class XRayViewModel(
         controlsJob?.cancel()
         overridesJob?.cancel()
         val pkg = detail.app.packageName
+        // Whatever this shows supersedes every read of the app already under way, a write's read-back included.
+        if (pkg != null) controlsReads[AppTarget(uid, pkg)] = ++readCount
         if (!isOwnerUser(uid)) {
             updateDetail(uid, pkg) {
                 it.copy(actions = ActionsState.UnsupportedUser, overrides = persistentListOf(), busy = false, notice = null)
@@ -273,7 +303,7 @@ class XRayViewModel(
         updateDetail(uid, pkg) { it.copy(actions = ActionsState.Loading) }
         controlsJob =
             viewModelScope.launch {
-                val actions = readActions(pkg)
+                val actions = readControls(uid, pkg) ?: return@launch
                 updateDetail(uid, pkg) { it.copy(actions = actions) }
             }
         overridesJob =
@@ -284,6 +314,20 @@ class XRayViewModel(
                     updateDetail(uid, pkg) { it.copy(overrides = rows.toImmutableList()) }
                 }
             }
+    }
+
+    /** [readActions], or null when a newer read of the same app's controls started meanwhile: its answer is the one to show. */
+    private suspend fun readControls(
+        uid: Int,
+        pkg: String,
+    ): ActionsState? {
+        val target = AppTarget(uid, pkg)
+        val read = ++readCount
+        controlsReads[target] = read
+        val actions = readActions(pkg)
+        if (controlsReads[target] != read) return null
+        controlsReads.remove(target)
+        return actions
     }
 
     private suspend fun readActions(pkg: String): ActionsState {
@@ -350,7 +394,7 @@ class XRayViewModel(
         val detail = _state.value.detail ?: return
         if (!isOwnerUser(detail.app.uid)) return
         val pkg = detail.app.packageName ?: return
-        if (detail.busy || _state.value.confirmation != null) return
+        if (detail.busy || writing(detail.app.uid, pkg) || _state.value.confirmation != null) return
         if (deps.shizukuState.value.blockedReason() != null) return
         // The Toolkit screen's rule too: a change needs the controls on screen, a restore only a restorable change of
         // this app that read-back still lists (a protected app's controls cannot be read, but it takes that undo).
@@ -368,9 +412,8 @@ class XRayViewModel(
                         updateDetail(uid, pkg) { it.copy(busy = false, notice = CALL_FAILED) }
                     }
 
-                    // The write is its own job, so leaving cancels a plan but never a write already in flight.
                     ToolkitPlan.Ready -> {
-                        viewModelScope.launch { executeContained(uid, request, pkg, confirmed = false) }
+                        launchWrite(uid, request, pkg, confirmed = false)
                     }
 
                     is ToolkitPlan.NeedsConfirmation -> {
@@ -405,7 +448,31 @@ class XRayViewModel(
         pending = null
         _state.update { it.copy(confirmation = null) }
         updateDetail(uid, pkg) { it.copy(busy = true, notice = null) }
-        viewModelScope.launch { executeContained(uid, request, pkg, confirmed = true) }
+        launchWrite(uid, request, pkg, confirmed = true)
+    }
+
+    /**
+     * Runs the write as a job of its own, so leaving cancels a plan but never a write already in flight; it is tracked
+     * by its target until it ends ([writing]).
+     */
+    private fun launchWrite(
+        uid: Int,
+        request: ActionRequest,
+        pkg: String,
+        confirmed: Boolean,
+    ) {
+        val target = AppTarget(uid, pkg)
+        // Started once tracked: on Main.immediate the body may run to its end inside start().
+        val job =
+            viewModelScope.launch(start = CoroutineStart.LAZY) {
+                try {
+                    executeContained(uid, request, pkg, confirmed)
+                } finally {
+                    if (writes[target] === coroutineContext[Job]) writes.remove(target)
+                }
+            }
+        writes[target] = job
+        job.start()
     }
 
     private fun dismissConfirmation() {
@@ -442,8 +509,8 @@ class XRayViewModel(
             return
         }
         if (attempt { execute(uid, request, pkg, confirmed) } != null) return
-        val actions = readActions(pkg)
-        updateDetail(uid, pkg) { it.copy(busy = false, notice = CALL_FAILED, actions = actions) }
+        val actions = readControls(uid, pkg)
+        updateDetail(uid, pkg) { it.copy(busy = false, notice = CALL_FAILED, actions = actions ?: it.actions) }
     }
 
     private suspend fun execute(
@@ -474,9 +541,9 @@ class XRayViewModel(
                     noticeOf(deps.toolkit.restore(request.actionId, confirmed)) { Change.Restored }
                 }
             }
-        // Whatever happened, the controls show what the system reports now.
-        val actions = readActions(pkg)
-        updateDetail(uid, pkg) { it.copy(busy = false, notice = notice, actions = actions) }
+        // Whatever happened, the controls show what the system reports now (or what a newer read of them reports).
+        val actions = readControls(uid, pkg)
+        updateDetail(uid, pkg) { it.copy(busy = false, notice = notice, actions = actions ?: it.actions) }
     }
 
     private fun modeOf(request: ActionRequest.SetRestricted) = if (request.restricted) AppOpMode.IGNORE else AppOpMode.ALLOW

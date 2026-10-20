@@ -97,6 +97,9 @@ class ToolkitViewModel(
     private var generation = 0L
     private var planning = false
 
+    /** How many reads of the open sheet's controls were started (main thread only); see [showControls]. */
+    private var controlsReads = 0L
+
     private fun invalidatePlanning() {
         generation++
         pending = null
@@ -378,7 +381,12 @@ class ToolkitViewModel(
         detailJob = viewModelScope.launch { showControls(app.packageName) }
     }
 
+    /**
+     * Reads [pkg]'s controls for its open sheet. Only the newest read started is shown: a sheet read again by a visit
+     * while a write runs must not replace the write's own read-back when its reply comes late (B-12).
+     */
     private suspend fun showControls(pkg: String) {
+        val read = ++controlsReads
         val controls =
             when (val outcome = attempt { deps.toolkit.appState(pkg) }) {
                 is ToolkitOutcome.Done -> ControlsState.Loaded(ToolkitMapper.controls(outcome.value))
@@ -388,6 +396,7 @@ class ToolkitViewModel(
 
                 else -> ControlsState.Unavailable(ToolkitMapper.problem(outcome))
             }
+        if (read != controlsReads) return
         _state.update { current ->
             val detail = current.detail
             if (detail != null && detail.app.packageName == pkg) current.copy(detail = detail.copy(controls = controls)) else current

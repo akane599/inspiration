@@ -211,6 +211,17 @@ internal class FakeDevice {
     /** When set, every service call suspends until it completes: a slow Binder round trip a test can release. */
     var gate: CompletableDeferred<Unit>? = null
 
+    private var replyHold: Pair<String, CompletableDeferred<Unit>>? = null
+
+    /** The reply of a call that already read the device, waiting for its hold ([holdNextReply]). */
+    var heldReply: CompletableDeferred<Unit>? = null
+
+    /**
+     * A reply that arrives late: the next [method] call reads the device at once, but its answer reaches the caller only
+     * when the returned hold completes, so a later call can read (and report) a newer state first.
+     */
+    fun holdNextReply(method: String): CompletableDeferred<Unit> = CompletableDeferred<Unit>().also { replyHold = method to it }
+
     private fun refusal() = refuseWith?.let { ToolkitResult.refused(it) }
 
     /** [lifts]: the write only lifts a restriction, which a protected app still takes. */
@@ -234,6 +245,12 @@ internal class FakeDevice {
         ) { _, method, args ->
             if (method.name == "getApiVersion") return@newProxyInstance ToolkitApi.VERSION
             calls += method.name
+            replyHold?.let { (held, hold) ->
+                if (held == method.name) {
+                    replyHold = null
+                    heldReply = hold
+                }
+            }
             when (method.name) {
                 "getAppOps" -> {
                     read(appOps())
@@ -292,7 +309,12 @@ private class FakeShizuku(
         block: suspend (ITelemetryUserService) -> T,
     ): T? {
         device.gate?.await()
-        return block(service)
+        val reply = block(service)
+        device.heldReply?.let { hold ->
+            device.heldReply = null
+            hold.await()
+        }
+        return reply
     }
 
     override fun holdBinding(): AutoCloseable = AutoCloseable {}
@@ -310,6 +332,9 @@ internal class MemoryStore : SnapshotStore {
     /** When set, an audit insert throws it, as Room does on a full disk (`SQLiteFullException` is a RuntimeException). */
     var insertFailure: RuntimeException? = null
 
+    /** When set, an audit insert suspends until it completes: a write held before its privileged call, under the toolkit lock. */
+    var insertGate: CompletableDeferred<Unit>? = null
+
     /** When set, an audit update throws it (the row of a write already sent cannot be settled). */
     var updateFailure: RuntimeException? = null
 
@@ -318,6 +343,7 @@ internal class MemoryStore : SnapshotStore {
 
     override suspend fun insertToolkitAction(record: ToolkitActionRecord): Long {
         insertFailure?.let { throw it }
+        insertGate?.await()
         val id = rows.size + 1L
         rows += record.copy(id = id)
         return id

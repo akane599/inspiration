@@ -293,6 +293,30 @@ class ToolkitViewModelTest {
         assertNull(detail.notice)
     }
 
+    // B-12: the visit's read of the open sheet started before the write landed; its answer arrives after the read-back.
+    @Test
+    fun `a controls read started during a write never replaces the write's own read-back`() {
+        start()
+        open(CHATTY)
+        act(ToolkitRequest.SetAppOp(AppOp.RUN_ANY_IN_BACKGROUND, ignored = true))
+        val gate = CompletableDeferred<Unit>()
+        device.store.insertGate = gate
+        confirm() // the write is under way, held at its audit row
+        val lateReply = device.holdNextReply("getAppOps")
+        vm.onIntent(ToolkitIntent.Hidden)
+        vm.onIntent(ToolkitIntent.Visible)
+
+        device.store.insertGate = null
+        gate.complete(Unit)
+        val restricted = { controls.ops.first { it.op == AppOp.RUN_ANY_IN_BACKGROUND }.ignored }
+        assertTrue("precondition: the write's read-back is shown", restricted())
+        lateReply.complete(Unit)
+
+        assertTrue("the read from before the write landed is not shown over it", restricted())
+        assertEquals(ToolkitNotice.Applied(Change.AppOpSet(AppOp.RUN_ANY_IN_BACKGROUND, true)), detail.notice)
+        assertFalse(state.busy)
+    }
+
     @Test
     fun `a stale refusal that arrives while hidden is reported, not silently dropped`() {
         start { device.dozeStaleOnce = true }
