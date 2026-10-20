@@ -179,7 +179,8 @@ internal fun CacheDrawScope.buildScrubRenderer(c: ScrubRenderConfig): ScrubRende
     for (lane in c.data.lanes) {
         val i = lane.kind.ordinal
         for (segment in lane.segments) {
-            val x0 = scale.toX(segment.startMs).coerceIn(0f, plotWidth)
+            if (!laneSegmentInWindow(segment, c.data.window)) continue
+            val x0 =scale.toX(segment.startMs).coerceIn(0f, plotWidth)
             val x1 = maxOf(scale.toX(segment.endMs).coerceIn(0f, plotWidth), x0 + minLaneWidth).coerceAtMost(plotWidth)
             if (x1 <= x0) continue
             val corner = minOf(radius, (x1 - x0) / 2f)

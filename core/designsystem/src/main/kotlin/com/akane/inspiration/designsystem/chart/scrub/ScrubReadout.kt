@@ -13,6 +13,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
 import com.akane.inspiration.designsystem.R
+import com.akane.inspiration.designsystem.chart.math.showsDates
 import com.akane.inspiration.designsystem.chart.math.valueAt
 import com.akane.inspiration.designsystem.chart.model.ScrubChartData
 import com.akane.inspiration.designsystem.chart.model.SeriesKind
@@ -52,7 +53,7 @@ internal fun ScrubReadout(
             .firstOrNull { it.kind == SeriesKind.TEMPERATURE_C }
             ?.points
             .orEmpty()
-    val withDate = data.window.spansDays()
+    val withDate = data.window.showsDates(zone)
     val title: String
     val values: List<String>
     when {

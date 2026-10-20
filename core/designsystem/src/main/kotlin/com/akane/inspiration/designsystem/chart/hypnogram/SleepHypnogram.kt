@@ -53,6 +53,7 @@ import com.akane.inspiration.designsystem.chart.math.TimeScale
 import com.akane.inspiration.designsystem.chart.math.isStartOfDay
 import com.akane.inspiration.designsystem.chart.math.niceTimeTickSet
 import com.akane.inspiration.designsystem.chart.math.overlaps
+import com.akane.inspiration.designsystem.chart.math.showsDates
 import com.akane.inspiration.designsystem.chart.model.HypnogramData
 import com.akane.inspiration.designsystem.chart.model.HypnogramStage
 import com.akane.inspiration.designsystem.chart.model.TimeRange
@@ -62,7 +63,6 @@ import com.akane.inspiration.designsystem.component.format.rememberTelemetryForm
 import com.akane.inspiration.designsystem.theme.telemetryColors
 import com.akane.inspiration.designsystem.theme.withTabularFigures
 import java.time.Instant
-import java.time.LocalDate
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import java.util.Locale
@@ -473,23 +473,12 @@ private fun DrawScope.drawHypnogramOverlay(
     }
 }
 
-/**
- * A11y clock labels in [locale]: date and time whenever the window's ends fall on different local dates in [zone] (or
- * it spans a day or more), else the time. A threshold on the length alone read a 26 h window as "08:00 to 10:00".
- */
+/** A11y clock labels in [locale]: date and time when the window [showsDates] in [zone] (the scrub chart's rule), else the time. */
 internal fun clockFormatter(
     window: TimeRange,
     zone: ZoneId,
     locale: Locale,
-): DateTimeFormatter {
-    val withDate = window.durationMs >= DAY_MS || localDate(window.startMs, zone) != localDate(window.endMs, zone)
-    return DateTimeFormatter.ofPattern(if (withDate) "d MMM HH:mm" else "HH:mm", locale)
-}
-
-private fun localDate(
-    tMs: Long,
-    zone: ZoneId,
-): LocalDate = Instant.ofEpochMilli(tMs).atZone(zone).toLocalDate()
+): DateTimeFormatter = DateTimeFormatter.ofPattern(if (window.showsDates(zone)) "d MMM HH:mm" else "HH:mm", locale)
 
 /**
  * Axis tick label in [locale], chosen from the tick step rather than the window length: day-step ticks show the

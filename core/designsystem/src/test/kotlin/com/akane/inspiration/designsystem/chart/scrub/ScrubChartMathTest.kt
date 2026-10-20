@@ -1,6 +1,7 @@
 package com.akane.inspiration.designsystem.chart.scrub
 
 import com.akane.inspiration.designsystem.chart.math.niceTimeTickSet
+import com.akane.inspiration.designsystem.chart.model.LaneSegment
 import com.akane.inspiration.designsystem.chart.model.TimePoint
 import com.akane.inspiration.designsystem.chart.model.TimeRange
 import org.junit.Assert.assertEquals
@@ -101,11 +102,21 @@ class ScrubChartMathTest {
     }
 
     @Test
-    fun `window flags flip at one and two days`() {
+    fun `a lane segment is drawn only when it has time inside the window`() {
+        val window = TimeRange.of(1_000, 2_000)
+        assertTrue(laneSegmentInWindow(LaneSegment(1_200, 1_400), window))
+        assertTrue("clipped at the start", laneSegmentInWindow(LaneSegment(500, 1_001), window))
+        assertTrue("clipped at the end", laneSegmentInWindow(LaneSegment(1_999, 3_000), window))
+        assertTrue("an instant inside is widened, not dropped", laneSegmentInWindow(LaneSegment(1_500, 1_500), window))
+        assertFalse("wholly before: no sliver at the left edge", laneSegmentInWindow(LaneSegment(100, 900), window))
+        assertFalse("ends at the window start", laneSegmentInWindow(LaneSegment(500, 1_000), window))
+        assertFalse("starts at the window end", laneSegmentInWindow(LaneSegment(2_000, 2_500), window))
+        assertFalse("wholly after", laneSegmentInWindow(LaneSegment(2_100, 2_500), window))
+    }
+
+    @Test
+    fun `date ticks start past two days`() {
         val day = 24 * 3_600_000L
-        assertFalse(TimeRange.of(0, day - 1).spansDays())
-        assertTrue("an exact 24 h window shows dates", TimeRange.of(0, day).spansDays())
-        assertTrue(TimeRange.of(0, day + 1).spansDays())
         assertFalse(TimeRange.of(0, 2 * day).usesDateTicks())
         assertTrue(TimeRange.of(0, 2 * day + 1).usesDateTicks())
     }

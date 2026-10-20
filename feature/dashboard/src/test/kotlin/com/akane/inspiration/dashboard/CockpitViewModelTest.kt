@@ -688,6 +688,50 @@ class CockpitViewModelTest {
         }
 
     @Test
+    fun `a slice the sliding window has left behind ends on the next chart read`() =
+        runTest(dispatcher) {
+            val vm = viewModel()
+            visit(vm) {
+                vm.onIntent(CockpitIntent.CommitBrush(NOW_MS - 23 * HOUR_MS - 50 * MIN_MS, NOW_MS - 23 * HOUR_MS - 40 * MIN_MS))
+                runCurrent()
+                assertNotNull(vm.state.value.slice)
+
+                // An hour later the window starts at NOW - 23 h: the slice lies wholly before it.
+                deps.clocks.wall = NOW_MS + HOUR_MS
+                deps.timelineResult = null
+                deps.lastRefreshWallMs.value = deps.clocks.wall
+                runCurrent()
+                assertNotNull("a failed read keeps the shown window, and the slice drawn on it", vm.state.value.slice)
+
+                deps.timelineResult = emptyTimeline(from = NOW_MS - 23 * HOUR_MS, to = NOW_MS + HOUR_MS)
+                deps.lastRefreshWallMs.value = deps.clocks.wall + 1
+                runCurrent()
+
+                assertEquals(ReferenceKind.SinceUnplugged, deps.selection.selected.value)
+                assertNull(vm.state.value.slice)
+            }
+        }
+
+    @Test
+    fun `a slice the sliding window still overlaps is kept as drawn`() =
+        runTest(dispatcher) {
+            val vm = viewModel()
+            val slice = ReferenceKind.TimeSlice(NOW_MS - 23 * HOUR_MS - 50 * MIN_MS, NOW_MS - 23 * HOUR_MS)
+            visit(vm) {
+                vm.onIntent(CockpitIntent.CommitBrush(slice.fromWallMs, slice.toWallMs))
+                runCurrent()
+
+                deps.clocks.wall = NOW_MS + 30 * MIN_MS
+                deps.timelineResult = emptyTimeline(from = NOW_MS - 23 * HOUR_MS - 30 * MIN_MS, to = NOW_MS + 30 * MIN_MS)
+                deps.lastRefreshWallMs.value = deps.clocks.wall
+                runCurrent()
+
+                assertEquals(slice, deps.selection.selected.value)
+                assertEquals(slice.fromWallMs, vm.state.value.slice?.requested?.startMs)
+            }
+        }
+
+    @Test
     fun `picking a reference from the pill selects it`() =
         runTest(dispatcher) {
             val vm = viewModel()

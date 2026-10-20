@@ -102,10 +102,12 @@ internal object ScrubPreviewData {
                     LineSeries.of(SeriesKind.BATTERY_PERCENT, curve(batteryKeys, ripple = 0.3f)),
                     LineSeries.of(SeriesKind.TEMPERATURE_C, curve(temperatureKeys, ripple = 0.25f)),
                 ),
+            // The window starts at hour 0. A segment wholly before it (deep sleep, -3 to -1) or ending at its start
+            // (screen on, -1 to 0) has nothing to draw: no minimum-width sliver may appear at the left edge.
             lanes =
                 listOf(
-                    lane(LaneKind.SCREEN_ON, 7.0 to 8.7, 12.2 to 13.0, 13.5 to 17.3, 18.5 to 19.2, 20.0 to 21.4),
-                    lane(LaneKind.DEEP_SLEEP, 0.7 to 2.2, 2.4 to 4.6, 4.8 to 6.4),
+                    lane(LaneKind.SCREEN_ON, -1.0 to 0.0, 7.0 to 8.7, 12.2 to 13.0, 13.5 to 17.3, 18.5 to 19.2, 20.0 to 21.4),
+                    lane(LaneKind.DEEP_SLEEP, -3.0 to -1.0, 0.7 to 2.2, 2.4 to 4.6, 4.8 to 6.4),
                     lane(LaneKind.AWAKE, 2.2 to 2.4, 4.6 to 4.8, 6.4 to 7.0, 0.0 to 0.7),
                     lane(LaneKind.CHARGING, 21.5 to 24.0),
                 ).toImmutableList(),

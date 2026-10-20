@@ -35,6 +35,7 @@ import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.unit.Dp
 import com.akane.inspiration.designsystem.R
+import com.akane.inspiration.designsystem.chart.math.showsDates
 import com.akane.inspiration.designsystem.chart.model.LaneKind
 import com.akane.inspiration.designsystem.chart.model.ScrubChartData
 import com.akane.inspiration.designsystem.chart.model.SeriesKind
@@ -255,18 +256,19 @@ private fun ScrubPlot(
             )
         }
 
+    val withDate = data.window.showsDates(zone)
     val windowDescription =
         stringResource(
             R.string.chart_a11y_window,
-            formatClock(data.window.startMs, zone, data.window.spansDays(), locale),
-            formatClock(data.window.endMs, zone, data.window.spansDays(), locale),
+            formatClock(data.window.startMs, zone, withDate, locale),
+            formatClock(data.window.endMs, zone, withDate, locale),
         )
     val selectionDescription =
         if (selection != null) {
             stringResource(
                 R.string.chart_a11y_selection,
-                formatClock(selection.startMs, zone, data.window.spansDays(), locale),
-                formatClock(selection.endMs, zone, data.window.spansDays(), locale),
+                formatClock(selection.startMs, zone, withDate, locale),
+                formatClock(selection.endMs, zone, withDate, locale),
                 durationText(selection.durationMs),
             )
         } else {

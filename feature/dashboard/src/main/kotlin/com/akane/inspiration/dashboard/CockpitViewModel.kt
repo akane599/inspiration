@@ -264,6 +264,8 @@ class CockpitViewModel(
             withContext(shapingDispatcher) {
                 attempt { deps.timeline(to - CHART_WINDOW_MS, to) }?.let(::scrubChartData)
             }
+        // A failed read keeps the shown chart, and with it the window the slice was checked against.
+        if (chart != null) endSliceOutside(chart.window)
         _state.update {
             when {
                 chart != null -> it.copy(chart = ChartUi.Ready(chart))
@@ -271,6 +273,16 @@ class CockpitViewModel(
                 else -> it.copy(chart = ChartUi.Failed)
             }
         }
+    }
+
+    /**
+     * The time slice is a brush on this chart. Once the sliding [window] has left all of it behind, the chart has
+     * nothing of it to show or adjust, so the slice ends and the default reference returns, rather than the screen
+     * describing a period the chart no longer covers. A slice the window still overlaps is kept as the user drew it.
+     */
+    private fun endSliceOutside(window: TimeRange) {
+        val slice = deps.selection.selected.value as? ReferenceKind.TimeSlice ?: return
+        if (slice.toWallMs <= window.startMs || slice.fromWallMs >= window.endMs) deps.selection.clearSlice()
     }
 
     private fun commitBrush(

@@ -1,6 +1,7 @@
 package com.akane.inspiration.designsystem.chart.scrub
 
 import com.akane.inspiration.designsystem.chart.math.isStartOfDay
+import com.akane.inspiration.designsystem.chart.model.LaneSegment
 import com.akane.inspiration.designsystem.chart.model.TimePoint
 import com.akane.inspiration.designsystem.chart.model.TimeRange
 import com.akane.inspiration.designsystem.component.format.TelemetryFormat
@@ -110,8 +111,15 @@ internal fun interpolateAt(
     return (values[lo - 1] + (values[lo] - values[lo - 1]) * fraction).toFloat()
 }
 
-/** True when the window spans a day or more, so readouts need the date as well as the time. */
-internal fun TimeRange.spansDays(): Boolean = durationMs >= DAY_MS
+/**
+ * True when [segment] has time inside [window], so its lane bar is drawn (widened to the minimum width when brief).
+ * A segment wholly before or after the window, or only touching an end, is skipped: widening it would draw a sliver
+ * at the plot's edge for a period the chart does not show. The hypnogram clips its segments by the same rule.
+ */
+internal fun laneSegmentInWindow(
+    segment: LaneSegment,
+    window: TimeRange,
+): Boolean = segment.endMs > window.startMs && segment.startMs < window.endMs
 
 /** Axis tick labels switch from clock time to the date once the window covers several days. */
 internal fun TimeRange.usesDateTicks(): Boolean = durationMs > 2 * DAY_MS
