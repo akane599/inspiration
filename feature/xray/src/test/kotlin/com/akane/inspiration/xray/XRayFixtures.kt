@@ -12,9 +12,11 @@ import com.akane.inspiration.ipc.ShizukuManager
 import com.akane.inspiration.ipc.ShizukuState
 import com.akane.inspiration.ipc.model.HistoryEvent
 import com.akane.inspiration.ipc.model.ToolkitApi
+import com.akane.inspiration.ipc.model.ToolkitCode
 import com.akane.inspiration.ipc.model.ToolkitResult
 import com.akane.inspiration.ipc.toolkit.AppOp
 import com.akane.inspiration.ipc.toolkit.AppOpMode
+import com.akane.inspiration.ipc.toolkit.RestrictionLift
 import com.akane.inspiration.ipc.toolkit.StandbyBucket
 import com.akane.inspiration.telemetry.app.AppLabels
 import com.akane.inspiration.telemetry.app.RefreshResult
@@ -196,6 +198,12 @@ internal class FakeDevice {
 
     /** When set, reads still answer but every write answers this refusal code. */
     var refuseWritesWith: Int? = null
+
+    /**
+     * A protected app (a role holder, the keyboard...), as the service treats one: reads are refused with DENY_PROTECTED
+     * but carry the value, only a write that lifts a restriction goes through, and force-stop is refused.
+     */
+    var protectedApp = false
     val calls = mutableListOf<String>()
     val writes = mutableListOf<String>()
     val store = MemoryStore()
@@ -205,7 +213,14 @@ internal class FakeDevice {
 
     private fun refusal() = refuseWith?.let { ToolkitResult.refused(it) }
 
-    private fun writeRefusal() = refuseWritesWith?.let { ToolkitResult.refused(it) } ?: refusal()
+    /** [lifts]: the write only lifts a restriction, which a protected app still takes. */
+    private fun writeRefusal(lifts: Boolean) =
+        refuseWritesWith?.let { ToolkitResult.refused(it) }
+            ?: refusal()
+            ?: if (protectedApp && !lifts) ToolkitResult.refused(ToolkitCode.DENY_PROTECTED) else null
+
+    private fun read(value: String) =
+        refusal() ?: if (protectedApp) ToolkitResult.protectedRead(ToolkitCode.DENY_PROTECTED, value, ToolkitCode.OK) else ToolkitResult.done(after = value)
 
     private fun appOps() =
         AppOp.entries.joinToString(",") { op ->
@@ -221,18 +236,18 @@ internal class FakeDevice {
             calls += method.name
             when (method.name) {
                 "getAppOps" -> {
-                    refusal() ?: ToolkitResult.done(after = appOps())
+                    read(appOps())
                 }
 
                 "getStandbyBucket" -> {
-                    refusal() ?: ToolkitResult.done(after = bucket.toString())
+                    read(bucket.toString())
                 }
 
                 "setAppOp" -> {
                     writes += "setAppOp"
-                    writeRefusal() ?: run {
+                    val mode = AppOpMode.fromCode(args[2] as Int)!!
+                    writeRefusal(lifts = RestrictionLift.appOp(mode)) ?: run {
                         val before = runAnyInBackground
-                        val mode = AppOpMode.fromCode(args[2] as Int)!!
                         check(AppOp.fromCode(args[1] as Int) == AppOp.RUN_ANY_IN_BACKGROUND)
                         runAnyInBackground = mode.argv
                         ToolkitResult.done(before = before, after = runAnyInBackground)
@@ -241,16 +256,17 @@ internal class FakeDevice {
 
                 "setStandbyBucket" -> {
                     writes += "setStandbyBucket"
-                    writeRefusal() ?: run {
+                    val target = StandbyBucket.fromCode(args[1] as Int)!!
+                    writeRefusal(lifts = RestrictionLift.bucket(target, bucket)) ?: run {
                         val before = bucket
-                        bucket = StandbyBucket.fromCode(args[1] as Int)!!.rawValue
+                        bucket = target.rawValue
                         ToolkitResult.done(before = before.toString(), after = bucket.toString())
                     }
                 }
 
                 "forceStop" -> {
                     writes += "forceStop"
-                    writeRefusal() ?: ToolkitResult.done(before = "stopped=false", after = "stopped=true")
+                    writeRefusal(lifts = false) ?: ToolkitResult.done(before = "stopped=false", after = "stopped=true")
                 }
 
                 else -> {

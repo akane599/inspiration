@@ -14,10 +14,12 @@ import com.akane.inspiration.telemetry.app.RefreshResult
 import com.akane.inspiration.telemetry.app.attempt
 import com.akane.inspiration.telemetry.app.packageForUid
 import com.akane.inspiration.telemetry.diff.ReferenceKind
+import com.akane.inspiration.telemetry.toolkit.AdmissionRequest
 import com.akane.inspiration.telemetry.toolkit.AppToolkitState
 import com.akane.inspiration.telemetry.toolkit.Override
 import com.akane.inspiration.telemetry.toolkit.OverrideKind
 import com.akane.inspiration.telemetry.toolkit.ToolkitAction
+import com.akane.inspiration.telemetry.toolkit.ToolkitAdmission
 import com.akane.inspiration.telemetry.toolkit.ToolkitOutcome
 import com.akane.inspiration.telemetry.toolkit.ToolkitPlan
 import kotlinx.collections.immutable.persistentListOf
@@ -349,9 +351,11 @@ class XRayViewModel(
         if (!isOwnerUser(detail.app.uid)) return
         val pkg = detail.app.packageName ?: return
         if (detail.busy || _state.value.confirmation != null) return
-        if (detail.actions !is ActionsState.Loaded || deps.shizukuState.value.blockedReason() != null) return
-        // A restore only ever targets a change of this app that read-back still shows.
-        if (request is ActionRequest.Restore && detail.overrides.none { it.actionId == request.actionId }) return
+        if (deps.shizukuState.value.blockedReason() != null) return
+        // The Toolkit screen's rule too: a change needs the controls on screen, a restore only a restorable change of
+        // this app that read-back still lists (a protected app's controls cannot be read, but it takes that undo).
+        val admission = if (request is ActionRequest.Restore) AdmissionRequest.Restore(request.actionId) else AdmissionRequest.AppChange
+        if (!ToolkitAdmission.admits(admission, controlsShown = detail.actions is ActionsState.Loaded, listed = detail.overrides)) return
         val uid = detail.app.uid
         updateDetail(uid, pkg) { it.copy(busy = true, notice = null) }
         planJob =

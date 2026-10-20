@@ -807,6 +807,40 @@ class ToolkitViewModelTest {
             assertTrue(state.overrides.isEmpty())
         }
 
+    // B-06: X-Ray and this screen admit a restore by one rule, which needs no readable controls.
+    @Test
+    fun `a restriction on an app that became protected is restored while its open sheet cannot read the app`() {
+        start()
+        restrict(MAPS)
+        device.protectedPackages += MAPS
+        open(MAPS)
+        assertEquals(ControlsState.Unavailable(Problem.Refused(ToolkitRefusal.PROTECTED_APP)), detail.controls)
+        val override = state.overrides.single()
+        assertTrue(override.restorable)
+
+        act(ToolkitRequest.Restore(override.actionId))
+
+        assertNull(state.confirmation)
+        assertEquals("allow", device.app(MAPS).ops[AppOp.RUN_ANY_IN_BACKGROUND])
+        assertEquals(ToolkitNotice.Applied(Change.Restored), state.overridesNotice)
+        assertTrue(state.overrides.isEmpty())
+        assertFalse(state.busy)
+    }
+
+    @Test
+    fun `an app change is not taken while the open sheet cannot read the app`() {
+        start { device.protectedPackages += MAPS }
+        open(MAPS)
+        val writes = device.writes.size
+
+        act(ToolkitRequest.SetAppOp(AppOp.RUN_ANY_IN_BACKGROUND, ignored = false))
+        act(ToolkitRequest.ForceStop)
+
+        assertNull(state.confirmation)
+        assertEquals(writes, device.writes.size)
+        assertFalse(state.busy)
+    }
+
     @Test
     fun `ignoring wakelocks needs a warned confirmation and nothing is written before it`() {
         start()

@@ -8,6 +8,7 @@ import com.akane.inspiration.ipc.toolkit.DozeProfile
 import com.akane.inspiration.ipc.toolkit.StandbyBucket
 import com.akane.inspiration.telemetry.store.ToolkitActionStatus
 import com.akane.inspiration.telemetry.toolkit.BgDexoptStatus
+import com.akane.inspiration.telemetry.toolkit.ListedOverride
 import com.akane.inspiration.telemetry.toolkit.OverrideKind
 import com.akane.inspiration.telemetry.toolkit.ToolkitRefusal
 import com.akane.inspiration.telemetry.toolkit.ToolkitUnavailable
@@ -192,14 +193,14 @@ sealed interface OverrideWhat {
  */
 @Immutable
 data class OverrideItem(
-    val actionId: Long,
+    override val actionId: Long,
     val kind: OverrideKind,
     val label: String?,
     val what: OverrideWhat,
     val sinceMs: Long,
-    val restorable: Boolean,
-    val unverified: ToolkitRefusal? = null,
-)
+    override val restorable: Boolean,
+    override val unverified: ToolkitRefusal? = null,
+) : ListedOverride
 
 /** What an audit row did, decoded from its stored strings; an unknown value is [Other]. */
 sealed interface HistoryWhat {

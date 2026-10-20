@@ -5,6 +5,7 @@ import com.akane.inspiration.ipc.ShizukuBackend
 import com.akane.inspiration.ipc.ShizukuState
 import com.akane.inspiration.ipc.toolkit.AppOp
 import com.akane.inspiration.ipc.toolkit.StandbyBucket
+import com.akane.inspiration.telemetry.toolkit.ListedOverride
 import com.akane.inspiration.telemetry.toolkit.OverrideKind
 import com.akane.inspiration.telemetry.toolkit.ToolkitRefusal
 import com.akane.inspiration.telemetry.toolkit.ToolkitUnavailable
@@ -153,14 +154,14 @@ sealed interface ActionsState {
  */
 @Immutable
 data class OverrideRow(
-    val actionId: Long,
+    override val actionId: Long,
     val kind: OverrideKind,
     val appOp: AppOp?,
     val bucket: StandbyBucket?,
     val sinceMs: Long,
-    val restorable: Boolean,
-    val unverified: ToolkitRefusal? = null,
-)
+    override val restorable: Boolean,
+    override val unverified: ToolkitRefusal? = null,
+) : ListedOverride
 
 /** The change an action made, for the result line. */
 sealed interface Change {

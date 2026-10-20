@@ -587,6 +587,85 @@ class XRayViewModelTest {
         assertEquals("ignore", deps.device.runAnyInBackground)
     }
 
+    /** Restricts Chatty from its sheet and returns the audit row of that change. */
+    private fun restrictChatty(): Long {
+        openChatty()
+        vm.onIntent(XRayIntent.Act(ActionRequest.SetRestricted(true)))
+        vm.onIntent(XRayIntent.ConfirmPending)
+        assertEquals(ActionNotice.Applied(Change.Restricted), detail.notice)
+        return detail.overrides.single().actionId
+    }
+
+    // B-06: the undo of our restriction is the one write a protected app takes; its sheet cannot read the app.
+    @Test
+    fun `a restriction of ours on an app that became protected is restored from its sheet`() {
+        val id = restrictChatty()
+        deps.device.protectedApp = true // it became the default SMS app, say
+        vm.onIntent(XRayIntent.ReloadActions)
+        assertEquals(ActionsState.Unavailable(Problem.Refused(ToolkitRefusal.PROTECTED_APP)), detail.actions)
+        assertTrue("the override is offered with an enabled Restore", detail.overrides.single().restorable && !detail.busy)
+
+        vm.onIntent(XRayIntent.Act(ActionRequest.Restore(id)))
+
+        assertNull(state.confirmation)
+        assertEquals(listOf("setAppOp", "setAppOp"), deps.device.writes)
+        assertEquals("allow", deps.device.runAnyInBackground)
+        assertEquals("the restore's own result replaces the old one", ActionNotice.Applied(Change.Restored), detail.notice)
+        assertTrue(detail.overrides.isEmpty())
+        assertEquals(ActionsState.Unavailable(Problem.Refused(ToolkitRefusal.PROTECTED_APP)), detail.actions)
+        assertFalse(detail.busy)
+    }
+
+    @Test
+    fun `a restore tapped while the controls are still loading runs and the controls show its read-back`() {
+        val id = restrictChatty()
+        val gate = CompletableDeferred<Unit>()
+        deps.device.gate = gate
+        vm.onIntent(XRayIntent.ReloadActions)
+        assertEquals(ActionsState.Loading, detail.actions)
+
+        vm.onIntent(XRayIntent.Act(ActionRequest.Restore(id)))
+        assertTrue("the restore was taken", detail.busy)
+        assertNull("the previous result is not left standing", detail.notice)
+        deps.device.gate = null
+        gate.complete(Unit)
+
+        assertEquals("allow", deps.device.runAnyInBackground)
+        assertEquals(ActionNotice.Applied(Change.Restored), detail.notice)
+        assertFalse(controls.restricted)
+        assertTrue(detail.overrides.isEmpty())
+        assertFalse(detail.busy)
+    }
+
+    @Test
+    fun `a restore tapped after the controls failed to read is answered, not dropped`() {
+        val id = restrictChatty()
+        deps.device.refuseWith = ToolkitCode.CALLER
+        vm.onIntent(XRayIntent.ReloadActions)
+        assertEquals(ActionsState.Unavailable(Problem.Refused(ToolkitRefusal.CALLER)), detail.actions)
+        assertTrue(detail.overrides.single().restorable)
+
+        vm.onIntent(XRayIntent.Act(ActionRequest.Restore(id)))
+
+        assertEquals("the plan reads the app itself and says why it cannot", ActionNotice.Rejected(Problem.Refused(ToolkitRefusal.CALLER)), detail.notice)
+        assertEquals(listOf("setAppOp"), deps.device.writes)
+        assertFalse(detail.busy)
+    }
+
+    @Test
+    fun `an app change is not taken while the controls are not shown`() {
+        restrictChatty()
+        deps.device.protectedApp = true
+        vm.onIntent(XRayIntent.ReloadActions)
+
+        vm.onIntent(XRayIntent.Act(ActionRequest.SetRestricted(false)))
+        vm.onIntent(XRayIntent.Act(ActionRequest.SetBucket(StandbyBucket.WORKING_SET)))
+
+        assertNull(state.confirmation)
+        assertEquals(listOf("setAppOp"), deps.device.writes)
+        assertFalse(detail.busy)
+    }
+
     @Test
     fun `restoring an id that is not one of this app's changes is ignored`() {
         openChatty()

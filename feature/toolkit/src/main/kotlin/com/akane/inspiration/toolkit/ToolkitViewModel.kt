@@ -11,11 +11,13 @@ import com.akane.inspiration.ipc.toolkit.AppOpMode
 import com.akane.inspiration.telemetry.app.AppEntry
 import com.akane.inspiration.telemetry.app.attempt
 import com.akane.inspiration.telemetry.store.ToolkitActionRecord
+import com.akane.inspiration.telemetry.toolkit.AdmissionRequest
 import com.akane.inspiration.telemetry.toolkit.BgDexoptStatus
 import com.akane.inspiration.telemetry.toolkit.DozeState
 import com.akane.inspiration.telemetry.toolkit.Override
 import com.akane.inspiration.telemetry.toolkit.SeenDoze
 import com.akane.inspiration.telemetry.toolkit.ToolkitAction
+import com.akane.inspiration.telemetry.toolkit.ToolkitAdmission
 import com.akane.inspiration.telemetry.toolkit.ToolkitOutcome
 import com.akane.inspiration.telemetry.toolkit.ToolkitPlan
 import com.akane.inspiration.telemetry.toolkit.ToolkitRefusal
@@ -437,28 +439,20 @@ class ToolkitViewModel(
         }
     }
 
-    /** Only requests the visible screen could have produced are acted on. */
+    /** Only requests the visible screen could have produced are acted on: X-Ray's rule for the app and override ones. */
     private fun accepts(
         request: ToolkitRequest,
         state: ToolkitState,
-    ): Boolean =
-        when (request) {
-            is ToolkitRequest.ApplyDoze -> {
-                state.doze.load is DozeLoad.Loaded
+    ): Boolean {
+        val admission =
+            when (request) {
+                is ToolkitRequest.ApplyDoze -> return state.doze.load is DozeLoad.Loaded
+                is ToolkitRequest.SetAppOp, is ToolkitRequest.SetBucket, ToolkitRequest.ForceStop -> AdmissionRequest.AppChange
+                is ToolkitRequest.Restore -> AdmissionRequest.Restore(request.actionId)
+                ToolkitRequest.ResetAll -> AdmissionRequest.ResetAll
             }
-
-            is ToolkitRequest.SetAppOp, is ToolkitRequest.SetBucket, ToolkitRequest.ForceStop -> {
-                state.detail?.controls is ControlsState.Loaded
-            }
-
-            is ToolkitRequest.Restore -> {
-                state.overrides.any { it.actionId == request.actionId && it.restorable }
-            }
-
-            ToolkitRequest.ResetAll -> {
-                state.overrides.isNotEmpty()
-            }
-        }
+        return ToolkitAdmission.admits(admission, controlsShown = state.detail?.controls is ControlsState.Loaded, listed = state.overrides)
+    }
 
     private fun actionOf(request: ToolkitRequest): ToolkitAction? {
         val pkg =
