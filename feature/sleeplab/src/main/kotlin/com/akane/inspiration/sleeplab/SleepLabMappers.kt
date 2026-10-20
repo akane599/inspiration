@@ -126,10 +126,24 @@ internal fun sliceUi(
 private fun <T> ranked(
     items: List<T>,
     comparator: Comparator<T>,
+    excluded: Int = 0,
 ): ListUi.Rows<T> {
     val sorted = items.sortedWith(comparator)
-    return ListUi.Rows(sorted.take(MAX_ROWS).toImmutableList(), hidden = (sorted.size - MAX_ROWS).coerceAtLeast(0))
+    return ListUi.Rows(
+        sorted.take(MAX_ROWS).toImmutableList(),
+        hidden = (sorted.size - MAX_ROWS).coerceAtLeast(0),
+        excluded = excluded,
+    )
 }
+
+/** The UIDs the per-app tabs keep: a valid delta whose package did not change, as the rule engine checks them. */
+private fun SnapshotDiff.checkedUids() = uids.filter { it.valid && !it.packageChanged }
+
+/**
+ * The UIDs the per-app tabs leave out, counted as the rule engine counts `DiagnosticReport.skippedInvalidUids`, so
+ * the tabs, the culprit card and X-Ray state one number for the period.
+ */
+private fun SnapshotDiff.excludedUids() = uids.count { !it.valid || it.packageChanged }
 
 private fun SnapshotDiff.perUidState(perUidAvailable: Boolean): ListUi<Nothing>? =
     when {
@@ -139,9 +153,9 @@ private fun SnapshotDiff.perUidState(perUidAvailable: Boolean): ListUi<Nothing>?
     }
 
 /**
- * Partial wakelocks per app, longest first. A uid whose deltas went negative (counters reset under it) is left
- * out rather than shown as a wrong number. [labels] maps package names to app labels; a package missing from it
- * is shown by its package name.
+ * Partial wakelocks per app, longest first. A uid the period could not check (owner unproven, counters reset under
+ * it, package changed) is left out rather than shown as a wrong number, and counted in [ListUi.Rows.excluded].
+ * [labels] maps package names to app labels; a package missing from it is shown by its package name.
  */
 internal fun appWakelockRows(
     diff: SnapshotDiff,
@@ -151,7 +165,7 @@ internal fun appWakelockRows(
     diff.perUidState(perUidAvailable)?.let { return it }
     if (!diff.validity.dumpCounters) return ListUi.Unavailable
     val rows =
-        diff.uids.filter { it.valid && !it.packageChanged }.flatMap { uid ->
+        diff.checkedUids().flatMap { uid ->
             uid.partialWakelocks.filter { it.durationMs > 0 || it.count > 0 }.map {
                 AppWakelockRow(
                     uid = uid.uid,
@@ -169,6 +183,7 @@ internal fun appWakelockRows(
             .thenByDescending { it.count }
             .thenBy { it.name }
             .thenBy { it.uid },
+        excluded = diff.excludedUids(),
     )
 }
 
@@ -188,6 +203,7 @@ internal fun kernelWakelockRows(diff: SnapshotDiff): ListUi<KernelWakelockRow> {
 /**
  * Wake-up alarms per app, most wake-ups first, each with its busiest tags. The counts come from batterystats;
  * only when a uid has none is the alarm dump's own counter used instead. The two overlap, so they are never added.
+ * Uids the period could not check are left out and counted in [ListUi.Rows.excluded], as in [appWakelockRows].
  */
 internal fun alarmRows(
     diff: SnapshotDiff,
@@ -197,7 +213,7 @@ internal fun alarmRows(
     diff.perUidState(perUidAvailable)?.let { return it }
     if (!diff.validity.dumpCounters && !diff.validity.alarmDumpCounters) return ListUi.Unavailable
     val rows =
-        diff.uids.filter { it.valid && !it.packageChanged }.mapNotNull { uid ->
+        diff.checkedUids().mapNotNull { uid ->
             val tags = uid.wakeupAlarms.positive().ifEmpty { uid.alarmDumpWakeups.positive() }
             if (tags.isEmpty()) {
                 null
@@ -211,7 +227,11 @@ internal fun alarmRows(
                 )
             }
         }
-    return ranked(rows, compareByDescending<AlarmRow> { it.wakeups }.thenBy { it.packageName.orEmpty() }.thenBy { it.uid })
+    return ranked(
+        rows,
+        compareByDescending<AlarmRow> { it.wakeups }.thenBy { it.packageName.orEmpty() }.thenBy { it.uid },
+        excluded = diff.excludedUids(),
+    )
 }
 
 private fun List<UidAlarm>.positive(): List<UidAlarm> =

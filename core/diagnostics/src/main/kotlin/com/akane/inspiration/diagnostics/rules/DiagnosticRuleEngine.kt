@@ -39,6 +39,14 @@ const val NO_SCREEN_OFF_TIME = "no_screen_off_time"
 const val NO_AWAKE_TIME = "no_awake_time"
 
 /**
+ * Night Vampire's and Sensor Leak's [DiagnosticReport.notEvaluable] reason: the interval has application UIDs but
+ * none could be checked (owner not proven at both ends, usage list truncated, counters reset or package changed), so
+ * the rule saw no app at all. Never an all-clear (audit B-03). The excluded UIDs stay counted in
+ * [DiagnosticReport.skippedInvalidUids].
+ */
+const val APPS_UNPROVEN = "apps_unproven"
+
+/**
  * The four deterministic rules of docs/plans/phase-3.md F4. Every rule either returns insights
  * (possibly none: evaluable but not firing) or exactly one [DiagnosticReport.notEvaluable] reason.
  */
@@ -49,13 +57,15 @@ class DiagnosticRuleEngine(
         val diff = input.diff
         val validUids = diff.uids.filter { it.valid && !it.packageChanged }
         val screenOffOnly = isScreenOffOnly(input)
+        // Rules that scan only valid app UIDs would find nothing and read as "no anomaly" (audit B-03).
+        val appsUnproven = diff.uids.any { isApplicationUid(it.uid) } && validUids.none { isApplicationUid(it.uid) }
 
         val outcomes =
             listOf(
-                RuleId.NIGHT_VAMPIRE to nightVampire(input, validUids),
+                RuleId.NIGHT_VAMPIRE to nightVampire(input, validUids, appsUnproven),
                 RuleId.AWAKE_VIOLATION to awakeViolation(diff, validUids, screenOffOnly),
                 RuleId.MODEM_DRAIN to modemDrain(diff),
-                RuleId.SENSOR_LEAK to sensorLeak(input, validUids, screenOffOnly),
+                RuleId.SENSOR_LEAK to sensorLeak(input, validUids, appsUnproven, screenOffOnly),
             )
         val insights = outcomes.flatMap { (_, outcome) -> (outcome as? Outcome.Insights)?.items.orEmpty() }
         val notEvaluable =
@@ -99,9 +109,11 @@ class DiagnosticRuleEngine(
     private fun nightVampire(
         input: DiagnosticInput,
         validUids: List<UidDelta>,
+        appsUnproven: Boolean,
     ): Outcome {
         gate(input.diff, input.perUidAvailable)?.let { return it }
         if (!input.diff.validity.dumpCounters) return Outcome.NotEvaluable("source_absent")
+        if (appsUnproven) return Outcome.NotEvaluable(APPS_UNPROVEN)
         val minMah = maxOf(MIN_VAMPIRE_MAH, VAMPIRE_DISCHARGE_FRACTION * (input.diff.dischargedMah ?: 0.0))
         val items =
             validUids.mapNotNull { uid ->
@@ -208,6 +220,7 @@ class DiagnosticRuleEngine(
     private fun sensorLeak(
         input: DiagnosticInput,
         validUids: List<UidDelta>,
+        appsUnproven: Boolean,
         screenOffOnly: Boolean,
     ): Outcome {
         gate(input.diff, input.perUidAvailable)?.let { return it }
@@ -215,6 +228,7 @@ class DiagnosticRuleEngine(
         val metrics = input.metrics
         if (!screenOffOnly || metrics == null) return Outcome.NotEvaluable("not_screen_off_interval")
         if (input.diff.uids.none { it.sensors.isNotEmpty() }) return Outcome.NotEvaluable("source_absent")
+        if (appsUnproven) return Outcome.NotEvaluable(APPS_UNPROVEN)
 
         val motionThresholdMs = maxOf(MOTION_MIN_MS.toDouble(), MOTION_SCREEN_OFF_FRACTION * metrics.screenOffMs)
         val items =

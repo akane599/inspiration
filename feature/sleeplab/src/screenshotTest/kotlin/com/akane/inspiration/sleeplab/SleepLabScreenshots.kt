@@ -38,6 +38,12 @@ import com.android.tools.screenshot.PreviewTest
 @PreviewTest @Preview(name = "needs-full-snapshots", showBackground = true, widthDp = 412, heightDp = 1700)
 @Composable fun SleepLabNeedsFull() = SleepLabPreviewHost(darkTheme = true, state = SleepLabPreviewData.needsFull)
 
+@PreviewTest @Preview(name = "apps-unchecked", showBackground = true, widthDp = 412, heightDp = 1700)
+@Composable fun SleepLabAppsUnchecked() = SleepLabPreviewHost(darkTheme = true, state = SleepLabPreviewData.appsUnchecked)
+
+@PreviewTest @Preview(name = "apps-unchecked-alarms", showBackground = true, widthDp = 412, heightDp = 1700)
+@Composable fun SleepLabAppsUncheckedAlarms() = SleepLabPreviewHost(darkTheme = true, state = SleepLabPreviewData.appsUncheckedAlarms)
+
 @PreviewTest @Preview(name = "counter-reset", showBackground = true, widthDp = 412, heightDp = 1700)
 @Composable fun SleepLabCounterReset() = SleepLabPreviewHost(darkTheme = true, state = SleepLabPreviewData.counterReset)
 

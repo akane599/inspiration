@@ -97,6 +97,16 @@ class NightVampireRuleTest {
         )
         assertEquals(listOf(10_002), report.insights.filterIsInstance<NightVampire>().map { it.subjectUid })
         assertEquals(2, report.skippedInvalidUids)
+        assertTrue("one app was checked", RuleId.NIGHT_VAMPIRE !in report.notEvaluable)
+    }
+
+    @Test
+    fun noValidAppIsNotEvaluableRatherThanQuiet() {
+        val report = engine.evaluate(
+            inputOf(diffOf(uids = listOf(uidDelta(1_000, totalMah = 5.0, bgMah = 4.5), uidDelta(10_001, totalMah = 5.0, bgMah = 4.5, valid = false)))),
+        )
+        assertEquals(APPS_UNPROVEN, report.notEvaluable[RuleId.NIGHT_VAMPIRE])
+        assertTrue(report.insights.none { it is NightVampire })
     }
 
     @Test

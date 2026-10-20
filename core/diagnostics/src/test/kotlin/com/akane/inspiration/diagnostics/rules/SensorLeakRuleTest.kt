@@ -170,7 +170,8 @@ class SensorLeakRuleTest {
                 metricsOf(),
             ),
         )
-        assertTrue(RuleId.SENSOR_LEAK !in report.notEvaluable)
+        // The source is there; what is missing is an app the rule could check (B-03), which is not a pass either.
+        assertEquals(APPS_UNPROVEN, report.notEvaluable[RuleId.SENSOR_LEAK])
         assertTrue(report.insights.isEmpty())
     }
 

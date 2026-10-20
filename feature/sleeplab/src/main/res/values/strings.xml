@@ -46,8 +46,8 @@
     <string name="sleeplab_culprit_needs_full_body">App wakelocks and alarms need a full snapshot at both ends of the period, so only kernel wakelocks are listed. Pull down to refresh, then check back as more snapshots are collected.</string>
     <!-- %1$s: the number of apps -->
     <plurals name="sleeplab_culprit_skipped_apps">
-        <item quantity="one">%1$s app wasn\'t checked because its counters reset during the period.</item>
-        <item quantity="other">%1$s apps weren\'t checked because their counters reset during the period.</item>
+        <item quantity="one">%1$s app couldn\'t be checked for this period, so its wakelocks and alarms aren\'t counted here.</item>
+        <item quantity="other">%1$s apps couldn\'t be checked for this period, so their wakelocks and alarms aren\'t counted here.</item>
     </plurals>
     <string name="sleeplab_culprit_action_standby_bucket">To limit it: Toolkit › App background control › Standby bucket › Rare or Restricted.</string>
     <string name="sleeplab_culprit_action_wake_lock">To limit it: Toolkit › App background control › Restrict wakelocks. Alarms and messaging may break.</string>
@@ -68,6 +68,11 @@
     <string name="sleeplab_caption_alarms">Apps that woke the device with alarms, most wake-ups first.</string>
 
     <string name="sleeplab_list_empty">Nothing recorded for this period.</string>
+    <!-- %1$s: the number of apps left out of the list because their counters can't be compared for the period -->
+    <plurals name="sleeplab_list_excluded">
+        <item quantity="one">%1$s app couldn\'t be checked for this period.</item>
+        <item quantity="other">%1$s apps couldn\'t be checked for this period.</item>
+    </plurals>
     <string name="sleeplab_needs_full_title">Needs full snapshots</string>
     <string name="sleeplab_needs_full_body">Per-app lists need a full snapshot at both ends of the period. Pull down to refresh, then check back as more snapshots are collected.</string>
     <string name="sleeplab_apps_unavailable_title">Counters were reset</string>

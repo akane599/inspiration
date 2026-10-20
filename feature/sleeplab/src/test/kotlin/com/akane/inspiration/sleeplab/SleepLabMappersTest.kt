@@ -8,6 +8,9 @@ import com.akane.inspiration.diagnostics.analysis.AnalysisState
 import com.akane.inspiration.diagnostics.analysis.SegmentKind
 import com.akane.inspiration.diagnostics.analysis.Timeline
 import com.akane.inspiration.diagnostics.analysis.TimelineSegment
+import com.akane.inspiration.diagnostics.model.SensorKind
+import com.akane.inspiration.diagnostics.rules.DiagnosticInput
+import com.akane.inspiration.diagnostics.rules.DiagnosticRuleEngine
 import com.akane.inspiration.telemetry.diff.ReferenceKind
 import com.akane.inspiration.telemetry.diff.SnapshotDiffer
 import com.akane.inspiration.telemetry.dump.KernelWakelock
@@ -21,7 +24,9 @@ import com.akane.inspiration.telemetry.snapshot.SleepStats
 import com.akane.inspiration.telemetry.snapshot.SnapshotKind
 import com.akane.inspiration.telemetry.snapshot.SourceAvailability
 import org.junit.Assert.assertEquals
+import kotlinx.collections.immutable.persistentListOf
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -352,6 +357,68 @@ class SleepLabMappersTest {
 
         assertEquals(ListUi.Unavailable, appWakelockRows(diff, perUidAvailable = true, labels = emptyMap()))
         assertEquals(ListUi.Unavailable, alarmRows(diff, perUidAvailable = true, labels = emptyMap()))
+    }
+
+    /** Audit B-03: apps the period could not check are not "nothing recorded". */
+    @Test
+    fun `per-app tabs that left every app out are not an empty period`() {
+        val diff =
+            snapshotDiff(
+                uids =
+                    listOf(
+                        uidDelta(10_001, valid = false, wakelocks = listOf(wakelock("unproven", 99_000, 9)), alarms = listOf(UidAlarm("t", 3))),
+                        uidDelta(10_002, wakelocks = listOf(wakelock("old owner", 5_000, 2))).copy(packageChanged = true),
+                    ),
+            )
+
+        val nothingRecorded = ListUi.Rows(persistentListOf<Nothing>(), hidden = 0)
+        assertNotEquals(nothingRecorded, appWakelockRows(diff, true, emptyMap()))
+        assertNotEquals(nothingRecorded, alarmRows(diff, true, emptyMap()))
+        val twoLeftOut = ListUi.Rows(persistentListOf<Nothing>(), hidden = 0, excluded = 2)
+        assertEquals(twoLeftOut, appWakelockRows(diff, true, emptyMap()))
+        assertEquals(twoLeftOut, alarmRows(diff, true, emptyMap()))
+        assertEquals("kernel wakelocks belong to no app", 0, (kernelWakelockRows(diff) as ListUi.Rows).excluded)
+    }
+
+    @Test
+    fun `per-app tabs with rows still count the apps they left out`() {
+        val diff =
+            snapshotDiff(
+                uids =
+                    listOf(
+                        uidDelta(10_001, wakelocks = listOf(wakelock("sync", 5_000, 2)), alarms = listOf(UidAlarm("t", 2))),
+                        uidDelta(10_002, valid = false, wakelocks = listOf(wakelock("unproven", 99_000, 9))),
+                    ),
+            )
+
+        val apps = appWakelockRows(diff, true, emptyMap()) as ListUi.Rows
+        val alarms = alarmRows(diff, true, emptyMap()) as ListUi.Rows
+
+        assertEquals(listOf("sync"), apps.rows.map { it.name })
+        assertEquals(1, apps.excluded)
+        assertEquals(listOf(10_001), alarms.rows.map { it.uid })
+        assertEquals(1, alarms.excluded)
+    }
+
+    @Test
+    fun `a night whose app owners were never proven says so in both per-app tabs`() {
+        // SnapshotDiffer marks every app UID invalid when either end lacks the UID-identity proof.
+        val diff =
+            snapshotDiff(
+                uids =
+                    listOf(
+                        uidDelta(1_000, "android", wakelocks = listOf(wakelock("system", 2_000, 1))),
+                        uidDelta(10_001, valid = false, wakelocks = listOf(wakelock("sync", 40 * MIN_MS, 3)), alarms = listOf(UidAlarm("t", 30))),
+                        uidDelta(10_002, valid = false, alarms = listOf(UidAlarm("poll", 12))),
+                    ),
+            )
+        val report = DiagnosticRuleEngine { SensorKind.OTHER }.evaluate(DiagnosticInput(diff, intervalMetrics(), true))
+
+        val ui = sleepLabAnalysis(intervalAnalysis(diff = diff, report = report), emptyMap())
+
+        assertEquals(report.skippedInvalidUids, (ui.appWakelocks as ListUi.Rows).excluded)
+        assertEquals(listOf(1_000), (ui.appWakelocks as ListUi.Rows).rows.map { it.uid })
+        assertEquals(ListUi.Rows(persistentListOf<Nothing>(), hidden = 0, excluded = 2), ui.alarms)
     }
 
     @Test

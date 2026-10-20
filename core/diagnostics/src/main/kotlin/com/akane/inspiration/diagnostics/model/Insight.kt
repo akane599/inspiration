@@ -80,7 +80,9 @@ data class SensorLeak(
 
 /**
  * [skippedInvalidUids] counts the UIDs no rule considered because their delta was invalid or their package changed
- * (phase-3 F4/F5). Sleep Lab's culprit card (TEMPLATE.md §4 Rule 2) states it, so it never implies it saw every app.
+ * (phase-3 F4/F5). Sleep Lab's culprit card (TEMPLATE.md §4 Rule 2) and app tabs and X-Ray state it, so no screen
+ * implies it saw every app. When every application UID is among them, the per-app rules report
+ * [com.akane.inspiration.diagnostics.rules.APPS_UNPROVEN] instead of an empty result (audit B-03).
  */
 data class DiagnosticReport(
     val insights: List<Insight>,

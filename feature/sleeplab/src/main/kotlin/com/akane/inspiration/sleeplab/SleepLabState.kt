@@ -48,9 +48,13 @@ sealed interface ListUi<out T> {
     /** The counters cannot be compared across this interval (reset or reboot). */
     data object Unavailable : ListUi<Nothing>
 
-    /** [rows] ranked, at most [MAX_ROWS] of them; [hidden] more existed and are not shown. */
+    /**
+     * [rows] ranked, at most [MAX_ROWS] of them; [hidden] more existed and are not shown. [excluded] apps could not be
+     * checked for the period (owner not proven at both ends, usage list truncated, counters reset or package changed),
+     * so an empty list with exclusions is not "nothing recorded" (audit B-03). Always 0 for kernel wakelocks.
+     */
     @Immutable
-    data class Rows<T>(val rows: ImmutableList<T>, val hidden: Int) : ListUi<T>
+    data class Rows<T>(val rows: ImmutableList<T>, val hidden: Int, val excluded: Int = 0) : ListUi<T>
 }
 
 /** Which kind of core the cluster most likely is, by policy order; [Generic] when the order says nothing. */
@@ -137,7 +141,10 @@ sealed interface AwakeCheckUi {
         val culprits: ImmutableList<CulpritRow>,
         /** App wakelocks and alarms need a full snapshot at both ends (H14), so only kernel culprits are listed. */
         val needsFullSnapshots: Boolean,
-        /** Apps no rule checked because their counters reset or their package changed. */
+        /**
+         * Apps no rule could check for the period: owner not proven at both ends, usage list truncated, counters reset
+         * or package changed. The card names no single cause.
+         */
         val skippedApps: Int,
     ) : AwakeCheckUi
 }

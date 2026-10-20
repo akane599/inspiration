@@ -41,6 +41,7 @@ import com.akane.inspiration.telemetry.snapshot.SnapshotClock
 import com.akane.inspiration.telemetry.snapshot.SnapshotDiff
 import com.akane.inspiration.telemetry.snapshot.SnapshotKind
 import com.akane.inspiration.telemetry.snapshot.UidDelta
+import com.akane.inspiration.telemetry.snapshot.isApplicationUid
 import java.time.Instant
 import java.time.ZoneId
 import java.util.Locale
@@ -253,9 +254,10 @@ internal object SleepLabPreviewData {
         perUid: Boolean = true,
         kernelValid: Boolean = true,
         report: DiagnosticReport = DiagnosticReport(emptyList(), emptyMap(), 0),
+        diff: SnapshotDiff = diff(kernelValid),
     ) = IntervalAnalysis(
         resolved = resolved(perUid),
-        diff = diff(kernelValid),
+        diff = diff,
         metrics =
             IntervalMetrics(
                 fromWallMs = dayStart,
@@ -289,7 +291,8 @@ internal object SleepLabPreviewData {
         perUid: Boolean = true,
         kernelValid: Boolean = true,
         report: DiagnosticReport = DiagnosticReport(emptyList(), emptyMap(), 0),
-    ) = sleepLabAnalysis(analysis(perUid, kernelValid, report), labels)
+        diff: SnapshotDiff = diff(kernelValid),
+    ) = sleepLabAnalysis(analysis(perUid, kernelValid, report, diff), labels)
 
     /** The night's top partial wakelock, kernel wakelock and wake-up alarm, as Rule 2 picks them. */
     private val culprits =
@@ -330,6 +333,19 @@ internal object SleepLabPreviewData {
     /** Too little screen-off time to check: the card says so instead of implying the night was fine. */
     val culpritNotEvaluable =
         apps.copy(analysis = ui(report = DiagnosticReport(emptyList(), mapOf(RuleId.AWAKE_VIOLATION to NO_SCREEN_OFF_TIME), 0)))
+
+    /**
+     * No app's owner was proven at both ends (a missed identity budget or a truncated usage list): the app tab keeps
+     * only the platform UID's row and counts the apps it left out, and the alarm tab says so instead of "nothing".
+     */
+    val appsUnchecked =
+        apps.copy(
+            analysis =
+                ui(
+                    diff = diff().let { d -> d.copy(uids = d.uids.map { if (isApplicationUid(it.uid)) it.copy(valid = false) else it }) },
+                ),
+        )
+    val appsUncheckedAlarms = appsUnchecked.copy(tab = SleepTab.Alarms)
 
     /** The device rebooted inside the period: kernel wakelocks and CPU residency cannot be compared. */
     val counterReset = apps.copy(analysis = ui(kernelValid = false), tab = SleepTab.KernelWakelocks)

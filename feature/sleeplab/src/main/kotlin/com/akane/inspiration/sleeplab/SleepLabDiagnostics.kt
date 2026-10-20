@@ -101,6 +101,11 @@ internal fun DiagnosticsCard(
     }
 }
 
+/** "N apps couldn't be checked for this period", without naming one cause for all of them. */
+@Composable
+private fun excludedAppsText(count: Int): String =
+    pluralStringResource(R.plurals.sleeplab_list_excluded, count, rememberTelemetryFormat().number(count.toDouble()))
+
 /** A tab's rows with dividers, or the designed state that explains why there are none. */
 @Composable
 private fun <T> RankedList(
@@ -121,8 +126,14 @@ private fun <T> RankedList(
             action = null,
         )
         is ListUi.Rows -> if (list.rows.isEmpty()) {
+            // Apps the period could not check are not "nothing recorded" (audit B-03).
             Text(
-                text = stringResource(R.string.sleeplab_list_empty),
+                text =
+                    if (list.excluded > 0) {
+                        excludedAppsText(list.excluded)
+                    } else {
+                        stringResource(R.string.sleeplab_list_empty)
+                    },
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.padding(vertical = MaterialTheme.spacing.md),
@@ -137,6 +148,14 @@ private fun <T> RankedList(
                     val format = rememberTelemetryFormat()
                     Text(
                         text = pluralStringResource(R.plurals.sleeplab_rows_hidden, list.hidden, format.number(list.hidden.toDouble())),
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(top = MaterialTheme.spacing.sm),
+                    )
+                }
+                if (list.excluded > 0) {
+                    Text(
+                        text = excludedAppsText(list.excluded),
                         style = MaterialTheme.typography.labelMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier.padding(top = MaterialTheme.spacing.sm),

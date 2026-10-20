@@ -8,6 +8,8 @@ import com.akane.inspiration.diagnostics.model.RuleId
 import com.akane.inspiration.diagnostics.model.SensorLeak
 import com.akane.inspiration.diagnostics.model.insightOrder
 import com.akane.inspiration.diagnostics.sensor.GPS_SENSOR_HANDLE
+import com.akane.inspiration.diagnostics.story.BatteryStoryBuilder
+import com.akane.inspiration.diagnostics.story.StorySentence
 import com.akane.inspiration.telemetry.diff.SnapshotDiffer
 import com.akane.inspiration.telemetry.dump.KernelWakelock
 import com.akane.inspiration.telemetry.snapshot.SnapshotKind
@@ -106,6 +108,9 @@ class DiagnosticRuleEngineTest {
             val truncated = report(refTruncated, nowTruncated)
             assertEquals(1, truncated.skippedInvalidUids)
             assertTrue(truncated.insights.none { it is NightVampire || it is SensorLeak })
+            // Its only app was left out, so the per-app rules checked nothing: not evaluable, never a pass (B-03).
+            assertEquals(APPS_UNPROVEN, truncated.notEvaluable[RuleId.NIGHT_VAMPIRE])
+            assertEquals(APPS_UNPROVEN, truncated.notEvaluable[RuleId.SENSOR_LEAK])
             val culprits =
                 truncated.insights
                     .filterIsInstance<AwakeViolation>()
@@ -118,6 +123,8 @@ class DiagnosticRuleEngineTest {
         val unknownIdentity = report(0, 0, identityKnown = false)
         assertEquals(1, unknownIdentity.skippedInvalidUids)
         assertTrue(unknownIdentity.insights.none { it is NightVampire || it is SensorLeak })
+        assertEquals(APPS_UNPROVEN, unknownIdentity.notEvaluable[RuleId.NIGHT_VAMPIRE])
+        assertEquals(APPS_UNPROVEN, unknownIdentity.notEvaluable[RuleId.SENSOR_LEAK])
         assertEquals(
             listOf("independent kernel"),
             unknownIdentity.insights
@@ -165,6 +172,8 @@ class DiagnosticRuleEngineTest {
         val changed = evaluate(true)
         assertEquals(1, changed.skippedInvalidUids)
         assertTrue(changed.insights.none { it is NightVampire || it is SensorLeak })
+        assertEquals(APPS_UNPROVEN, changed.notEvaluable[RuleId.NIGHT_VAMPIRE])
+        assertEquals(APPS_UNPROVEN, changed.notEvaluable[RuleId.SENSOR_LEAK])
         assertTrue(
             changed.insights
                 .filterIsInstance<AwakeViolation>()
@@ -245,6 +254,79 @@ class DiagnosticRuleEngineTest {
                 ),
             )
         assertEquals(2, report.skippedInvalidUids)
+    }
+
+    /**
+     * Audit B-03: when no application UID could be checked (owner unproven, usage truncated, counters reset or package
+     * changed), the per-app rules saw no app at all. That is not an all-clear, so the story must not say "No anomalies".
+     */
+    @Test
+    fun noCheckableAppMakesThePerAppRulesNotEvaluableAndWithholdsTheAllClear() {
+        val diff =
+            diffOf(
+                uids =
+                    listOf(
+                        // A platform UID needs no owner proof; its sensor rows show the sensor source is present.
+                        uidDelta(1_000, totalMah = 30.0, sensors = listOf(sensor(ACCEL_HANDLE, 5 * MIN))),
+                        // Two apps that would fire Night Vampire and Sensor Leak, had their identity been proven.
+                        uidDelta(10_123, totalMah = 80.0, bgMah = 79.0, valid = false, sensors = listOf(sensor(GPS_SENSOR_HANDLE, 2 * HOUR))),
+                        uidDelta(10_456, totalMah = 40.0, cachedMah = 35.0, valid = false),
+                    ),
+                components = mapOf("SCREEN" to 10.0, "MOBILE_RADIO" to 1.0),
+                sleep = sleepStats(screenOffMs = 8 * HOUR, screenOffAwakeMs = 10 * MIN),
+                dischargedMah = 500.0,
+            )
+        val metrics = metricsOf(screenOffMs = 8 * HOUR)
+
+        val report = engine.evaluate(inputOf(diff, metrics))
+        val story = BatteryStoryBuilder().build(metrics, diff.sleep, report, endsNow = false)
+
+        assertTrue(
+            "no app was checked (notEvaluable=${report.notEvaluable}), yet the story says: ${story.sentences}",
+            story.sentences.none { it is StorySentence.Anomalies },
+        )
+        assertEquals(2, report.skippedInvalidUids)
+        assertTrue(report.insights.isEmpty())
+        assertEquals(
+            mapOf(RuleId.NIGHT_VAMPIRE to APPS_UNPROVEN, RuleId.SENSOR_LEAK to APPS_UNPROVEN),
+            report.notEvaluable,
+        )
+    }
+
+    @Test
+    fun oneCheckableAppKeepsThePerAppRulesEvaluable() {
+        val diff =
+            diffOf(
+                uids =
+                    listOf(
+                        uidDelta(10_123, totalMah = 80.0, bgMah = 79.0, valid = false, sensors = listOf(sensor(GPS_SENSOR_HANDLE, 2 * HOUR))),
+                        uidDelta(10_456, totalMah = 3.0, bgMah = 0.5, sensors = listOf(sensor(ACCEL_HANDLE, MIN))),
+                    ),
+            )
+
+        val report = engine.evaluate(inputOf(diff, metricsOf(screenOffMs = 8 * HOUR)))
+
+        assertEquals(1, report.skippedInvalidUids)
+        assertTrue(RuleId.NIGHT_VAMPIRE !in report.notEvaluable)
+        assertTrue(RuleId.SENSOR_LEAK !in report.notEvaluable)
+    }
+
+    @Test
+    fun aDiffWithoutAppUidsHasNoAppToProve() {
+        // Platform UIDs only, including system in user 10 with counters that went negative: none of them is an app.
+        val diff =
+            diffOf(
+                uids =
+                    listOf(
+                        uidDelta(1_000, sensors = listOf(sensor(ACCEL_HANDLE, MIN))),
+                        uidDelta(1_001_000, valid = false, sensors = listOf(sensor(ACCEL_HANDLE, MIN))),
+                    ),
+            )
+
+        val report = engine.evaluate(inputOf(diff, metricsOf(screenOffMs = 8 * HOUR)))
+
+        assertTrue(RuleId.NIGHT_VAMPIRE !in report.notEvaluable)
+        assertTrue(RuleId.SENSOR_LEAK !in report.notEvaluable)
     }
 
     @Test

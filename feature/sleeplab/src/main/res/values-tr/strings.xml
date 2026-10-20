@@ -46,8 +46,8 @@
     <string name="sleeplab_culprit_needs_full_body">Uygulama wakelock\'ları ve alarmlar için dönemin iki ucunda da tam bir anlık görüntü gerekir, bu yüzden yalnızca çekirdek wakelock\'ları listelenir. Aşağı çekerek yenile, sonra daha fazla anlık görüntü toplandıkça tekrar bak.</string>
     <!-- %1$s: the number of apps -->
     <plurals name="sleeplab_culprit_skipped_apps">
-        <item quantity="one">%1$s uygulama, sayaçları bu dönemde sıfırlandığı için denetlenmedi.</item>
-        <item quantity="other">%1$s uygulama, sayaçları bu dönemde sıfırlandığı için denetlenmedi.</item>
+        <item quantity="one">%1$s uygulama bu dönem için denetlenemedi, bu yüzden wakelock\'ları ve alarmları burada sayılmadı.</item>
+        <item quantity="other">%1$s uygulama bu dönem için denetlenemedi, bu yüzden wakelock\'ları ve alarmları burada sayılmadı.</item>
     </plurals>
     <string name="sleeplab_culprit_action_standby_bucket">Sınırlamak için: Araçlar › Uygulama arka plan denetimi › Bekleme grubu › Nadir ya da Kısıtlı.</string>
     <string name="sleeplab_culprit_action_wake_lock">Sınırlamak için: Araçlar › Uygulama arka plan denetimi › Wakelock\'ları kısıtla. Alarmlar ve mesajlaşma bozulabilir.</string>
@@ -68,6 +68,11 @@
     <string name="sleeplab_caption_alarms">Cihazı alarmlarla uyandıran uygulamalar, en çok uyandıran başta.</string>
 
     <string name="sleeplab_list_empty">Bu dönem için kayıt yok.</string>
+    <!-- %1$s: the number of apps left out of the list because their counters can't be compared for the period -->
+    <plurals name="sleeplab_list_excluded">
+        <item quantity="one">%1$s uygulama bu dönem için denetlenemedi.</item>
+        <item quantity="other">%1$s uygulama bu dönem için denetlenemedi.</item>
+    </plurals>
     <string name="sleeplab_needs_full_title">Tam anlık görüntüler gerekli</string>
     <string name="sleeplab_needs_full_body">Uygulama listeleri için dönemin iki ucunda da tam bir anlık görüntü gerekir. Aşağı çekerek yenile, sonra daha fazla anlık görüntü toplandıkça tekrar bak.</string>
     <string name="sleeplab_apps_unavailable_title">Sayaçlar sıfırlandı</string>
