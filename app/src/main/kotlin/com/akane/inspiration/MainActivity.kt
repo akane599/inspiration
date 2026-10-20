@@ -32,8 +32,6 @@ class MainActivity : ComponentActivity() {
     override fun onStart() {
         super.onStart()
         val app = application as InspirationApplication
-        // Access granted in the Shizuku app sends no callback; re-read it before the app-open capture needs it.
-        app.appContainer.shizukuManager.refresh()
         app.captureAppOpen()
         syncStatusNotification(app.appContainer)
     }

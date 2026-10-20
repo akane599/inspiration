@@ -55,7 +55,12 @@ class InspirationApplication : Application() {
     /** Delegates to the container's one debounced, mutex-guarded refresh (H7). */
     fun captureAppOpen() {
         ChargingCaptureScheduler.ensureScheduled(this)
-        appContainer.applicationScope.launch { appContainer.refresh() }
+        appContainer.applicationScope.launch {
+            // Access granted in the Shizuku app sends no callback, so it is re-read before the capture needs it.
+            // The re-read makes binder calls, which is why it runs here and not on Main in onStart (R-08).
+            appContainer.shizukuManager.refresh()
+            appContainer.refresh()
+        }
     }
 
     private companion object {

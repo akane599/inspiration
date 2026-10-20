@@ -23,6 +23,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 import rikka.shizuku.Shizuku
+import java.util.concurrent.atomic.AtomicLong
 
 class ShizukuManagerImpl private constructor(
     private val context: Context,
@@ -105,6 +106,30 @@ class ShizukuManagerImpl private constructor(
     private var spentStubGeneration = NO_GENERATION
     private var settleTimeout: Job? = null
     private var idleUnbind: Job? = null
+
+    /**
+     * Binds and unbinds decided under [bindingLock], in decision order. Each is a two-way binder call into the
+     * Shizuku server, so one drainer issues them on [ioDispatcher] with the lock released (R-08): Main
+     * ([holdBinding], [refresh], the settle post) never waits for the server, and neither does a thread that only
+     * wants the lock. A single drainer keeps the order, so a bind decided after an unbind never reaches the server
+     * first. The state is updated when a transaction is decided; the drainer re-checks it before a bind.
+     */
+    private val pendingTransactions = ArrayDeque<ServiceTransaction>()
+    private var draining = false
+
+    /** Bumped by each transport loss: a transaction decided before one cannot report that loss again. */
+    private var transportEpoch = 0
+
+    /**
+     * [refresh] runs on IO while Shizuku's listeners refresh on Main. Each read takes a ticket, and only a newer
+     * ticket than the last applied one (or a transport loss) may publish its state, so a slower, older read can
+     * never overwrite a newer one.
+     */
+    private val refreshTickets = AtomicLong()
+    private var appliedRefreshTicket = 0L
+
+    /** This app's own package cannot change while the process lives; a failed read is retried next time. */
+    private val ownApplicationInfo by lazy(LazyThreadSafetyMode.PUBLICATION) { applicationInfoProvider.load() }
 
     private val userServiceConnection =
         object : ServiceConnection {
@@ -296,6 +321,7 @@ class ShizukuManagerImpl private constructor(
             mutableTelemetryService.value?.let { it to serviceGeneration }
         }
 
+    /** Safe on Main: it only decides under [bindingLock]; the bind itself is issued on [ioDispatcher]. */
     override fun holdBinding(): AutoCloseable {
         synchronized(bindingLock) {
             bindingHolders += 1
@@ -410,19 +436,21 @@ class ShizukuManagerImpl private constructor(
         }
     }
 
+    /** Reads Shizuku outside [bindingLock]: these are binder calls too, and only the result is published under it. */
     private fun refreshState() {
+        val ticket = refreshTickets.incrementAndGet()
         // The binder decides, not the manager app: Sui (root) hands ShizukuProvider a binder with no manager app
         // installed (N-08). The manager app only tells NotInstalled from NotRunning while this process has never
         // had a binder; after one, its absence is a stopped server.
         if (!facade.pingBinder()) {
             val canReturn = binderSeen || managerApp.isInstalled()
-            setUnavailableState(if (canReturn) ShizukuState.NotRunning else ShizukuState.NotInstalled)
+            setUnavailableState(if (canReturn) ShizukuState.NotRunning else ShizukuState.NotInstalled, ticket)
             return
         }
         binderSeen = true
         if (facade.isPreV11()) {
             logUnsupportedVersion("Shizuku versions before v11 are unsupported")
-            setUnavailableState(ShizukuState.NotRunning)
+            setUnavailableState(ShizukuState.NotRunning, ticket)
             return
         }
         // Checked before the permission: granting cannot help an old server. -1 means the server neither sent its
@@ -430,16 +458,18 @@ class ShizukuManagerImpl private constructor(
         val serverVersion = facade.getVersion()
         if (serverVersion in 0 until MIN_SERVER_VERSION) {
             logUnsupportedVersion("Shizuku server API $serverVersion is unsupported; v$MIN_SERVER_VERSION+ is required")
-            setUnavailableState(ShizukuState.UnsupportedServer(serverVersion))
+            setUnavailableState(ShizukuState.UnsupportedServer(serverVersion), ticket)
             return
         }
 
         when (facade.checkSelfPermission()) {
             PackageManager.PERMISSION_GRANTED -> {
-                val info = applicationInfoProvider.load()
+                val info = ownApplicationInfo
+                val ready = ShizukuState.Ready(facade.getUid(), serverVersion)
                 synchronized(bindingLock) {
+                    if (!claimRefreshLocked(ticket)) return
                     applicationInfo = info
-                    mutableState.value = ShizukuState.Ready(facade.getUid(), serverVersion)
+                    mutableState.value = ready
                     bindIfRequiredLocked()
                 }
             }
@@ -451,13 +481,23 @@ class ShizukuManagerImpl private constructor(
                     } else {
                         ShizukuState.PermissionRequired
                     }
-                setUnavailableState(unavailableState)
+                setUnavailableState(unavailableState, ticket)
             }
         }
     }
 
-    private fun setUnavailableState(newState: ShizukuState) {
+    private fun claimRefreshLocked(ticket: Long): Boolean {
+        if (ticket <= appliedRefreshTicket) return false
+        appliedRefreshTicket = ticket
+        return true
+    }
+
+    private fun setUnavailableState(
+        newState: ShizukuState,
+        ticket: Long,
+    ) {
         synchronized(bindingLock) {
+            if (!claimRefreshLocked(ticket)) return
             applicationInfo = null
             unbindTelemetryServiceLocked()
             mutableTelemetryService.value = null
@@ -465,8 +505,13 @@ class ShizukuManagerImpl private constructor(
         }
     }
 
-    /** Owners keep their counts and still release normally after transport loss. */
+    /**
+     * Owners keep their counts and still release normally after transport loss. A refresh that started before the
+     * loss may have read the dead server, so it is not published; the next binder's refresh is.
+     */
     private fun transportLostLocked() {
+        transportEpoch += 1
+        appliedRefreshTicket = maxOf(appliedRefreshTicket, refreshTickets.get())
         serviceBound = false
         serviceArgs = null
         serviceGeneration += 1
@@ -498,24 +543,17 @@ class ShizukuManagerImpl private constructor(
             )
         serviceArgs = args
         serviceBound = true
-        try {
-            facade.bindUserService(args, userServiceConnection)
-        } catch (_: RuntimeException) {
-            transportLostLocked()
-        }
+        enqueueTransactionLocked(ServiceTransaction(bind = true, args, transportEpoch))
     }
 
     private fun unbindTelemetryServiceLocked() {
         idleUnbind?.cancel()
         idleUnbind = null
         val args = serviceArgs ?: return
-        if (serviceBound) {
-            try {
-                facade.unbindUserService(args, userServiceConnection, true)
-            } catch (_: RuntimeException) {
-                transportLostLocked()
-                return
-            }
+        // A bind still queued never reached Shizuku: dropping it leaves no process or connection stub to wait for.
+        val bindIssued = !pendingTransactions.removeAll { it.bind && it.args === args }
+        if (serviceBound && bindIssued) {
+            enqueueTransactionLocked(ServiceTransaction(bind = false, args, transportEpoch))
             stubCleanupFence = true
             // Any owed death now arrives as the awaited one: the shared stub's died() fires once for both.
             unboundDeathOwed = false
@@ -534,6 +572,60 @@ class ShizukuManagerImpl private constructor(
         serviceArgs = null
         serviceGeneration += 1
         mutableTelemetryService.value = null
+    }
+
+    private class ServiceTransaction(
+        val bind: Boolean,
+        val args: Shizuku.UserServiceArgs,
+        val transportEpoch: Int,
+    )
+
+    private fun enqueueTransactionLocked(transaction: ServiceTransaction) {
+        pendingTransactions.addLast(transaction)
+        if (draining) return
+        draining = true
+        scope.launch(ioDispatcher) { drainTransactions() }
+    }
+
+    /** Issues [pendingTransactions] one at a time with [bindingLock] released. */
+    private fun drainTransactions() {
+        try {
+            while (true) {
+                val transaction = synchronized(bindingLock) { nextTransactionLocked() } ?: return
+                try {
+                    if (transaction.bind) {
+                        facade.bindUserService(transaction.args, userServiceConnection)
+                    } else {
+                        facade.unbindUserService(transaction.args, userServiceConnection, true)
+                    }
+                } catch (_: RuntimeException) {
+                    synchronized(bindingLock) {
+                        // A loss handled since (perhaps with a new server up by now) must not be reported again.
+                        if (transaction.transportEpoch == transportEpoch) transportLostLocked()
+                    }
+                }
+            }
+        } catch (t: Throwable) {
+            synchronized(bindingLock) { draining = false } // the next decision starts a new drainer
+            throw t
+        }
+    }
+
+    /**
+     * Ends the drain (clearing [draining] under the same lock as the empty check, so no decision is stranded) or
+     * returns the next transaction. A bind whose binding has ended since (unbound, disconnected or lost) would bind
+     * for nobody and is dropped. An unbind is always issued: the order guarantees no later bind precedes it, and
+     * removing a service the server no longer knows is harmless.
+     */
+    private fun nextTransactionLocked(): ServiceTransaction? {
+        while (true) {
+            val next = pendingTransactions.removeFirstOrNull()
+            if (next == null) {
+                draining = false
+                return null
+            }
+            if (!next.bind || next.args === serviceArgs) return next
+        }
     }
 
     private inner class BindingHolder : AutoCloseable {
