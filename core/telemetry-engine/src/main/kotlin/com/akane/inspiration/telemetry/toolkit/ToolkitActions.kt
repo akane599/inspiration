@@ -1118,21 +1118,12 @@ class ToolkitActions internal constructor(
     /** [closesChain] for the row itself: nothing it left can still be an override (see [legacyDefaultRestore]). */
     private fun endsOwnChain(row: ToolkitActionRecord): Boolean = closesChain(row) && !legacyDefaultRestore(row)
 
-    /**
-     * Compare observed state, not just writable modes: app-op reads can also report e.g. "foreground".
-     * Only equal known raw values match: `allow` and `default` are different states (Android restricts
-     * background work under `default`), and a missing app-op value stays unknown. This does not make
-     * observed-only modes replayable; [restoreAction] still requires [modeOf].
-     */
+    /** See [ToolkitAuditLog.sameState]; [restoreAction] still requires [modeOf]. */
     private fun sameState(
         kind: String,
         current: String?,
         original: String?,
-    ): Boolean {
-        if (kind != KIND_APPOP) return norm(current) == norm(original)
-        val raw = norm(current) ?: return false
-        return raw == norm(original)
-    }
+    ): Boolean = ToolkitAuditLog.sameState(kind, current, original)
 
     // ---- active overrides ------------------------------------------------------------------
 
@@ -1148,30 +1139,11 @@ class ToolkitActions internal constructor(
             .filter { it.kind in OVERRIDE_KINDS && changedTarget(it) }
             .sortedByDescending { it.id }
 
-    /**
-     * Chain membership comes from the values read back around a write, not from how the write was reported:
-     * DONE and RESTORED rows changed their target, and so did a FAILED row that [landedElsewhere]. Such a
-     * write is still reported as not effective, but the device was changed, so overrides, Reset all and
-     * restore must see it, and a chain it continues must not break at it.
-     */
-    private fun changedTarget(row: ToolkitActionRecord): Boolean =
-        when (row.status) {
-            ToolkitActionStatus.DONE, ToolkitActionStatus.RESTORED -> true
-            ToolkitActionStatus.FAILED -> landedElsewhere(row)
-            else -> false
-        }
+    /** See [ToolkitAuditLog.changedTarget], which the store's retention SQL mirrors. */
+    private fun changedTarget(row: ToolkitActionRecord): Boolean = ToolkitAuditLog.changedTarget(row)
 
-    /**
-     * A FAILED override row whose known `after` is not its known `before`: the target moved to a third value
-     * (NOT_EFFECTIVE, e.g. a standby bucket clamped to the app's minimum). A doze `before` of null is "unset";
-     * a null `after` is unknown (a FAILED doze reply does not tell unset from unread).
-     */
-    private fun landedElsewhere(row: ToolkitActionRecord): Boolean {
-        if (row.status != ToolkitActionStatus.FAILED || row.kind !in OVERRIDE_KINDS) return false
-        val after = norm(row.afterRaw) ?: return false
-        if (row.kind != KIND_DOZE && row.beforeRaw == null) return false
-        return after != norm(row.beforeRaw) && !sameState(row.kind, after, row.beforeRaw)
-    }
+    /** See [ToolkitAuditLog.landedElsewhere]. */
+    private fun landedElsewhere(row: ToolkitActionRecord): Boolean = ToolkitAuditLog.landedElsewhere(row)
 
     private suspend fun computeOverrides(): List<Override> = computeOverrides(overrideRows(), unsettledRows())
 
@@ -1952,7 +1924,7 @@ class ToolkitActions internal constructor(
         const val OP_RESTORE_RAW = "restore_raw"
         const val OP_BG_DEXOPT = "bg_dexopt"
 
-        val OVERRIDE_KINDS = setOf(KIND_APPOP, KIND_BUCKET, KIND_DOZE)
+        val OVERRIDE_KINDS = ToolkitAuditLog.OVERRIDE_KINDS
 
         /**
          * Read refusals that prove the target is gone or off limits for good (see [refusedVerdict]). A protected app
@@ -1974,8 +1946,8 @@ class ToolkitActions internal constructor(
         /** Refusals of a protected (rule d) or undecidable package, whose reads still carry the value (see [packageRead]). */
         val PROTECTION_CODES = setOf(ToolkitCode.DENY_PROTECTED, ToolkitCode.PROTECTION_UNKNOWN)
 
-        /** Unset and empty are the same `device_idle_constants` state. */
-        fun norm(raw: String?): String? = raw?.takeIf { it.isNotEmpty() }
+        /** See [ToolkitAuditLog.norm]. */
+        fun norm(raw: String?): String? = ToolkitAuditLog.norm(raw)
 
         /**
          * The write that puts a recorded original back. `ignore` and `allow` are what this surface sets; a

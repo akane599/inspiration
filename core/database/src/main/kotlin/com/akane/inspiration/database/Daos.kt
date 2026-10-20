@@ -7,6 +7,7 @@ import androidx.room.Query
 import androidx.room.Transaction
 import androidx.room.Update
 import com.akane.inspiration.telemetry.store.RETENTION_WINDOW_MS
+import com.akane.inspiration.telemetry.store.ToolkitActionStatusCodes
 import com.akane.inspiration.telemetry.toolkit.ToolkitAuditLog
 
 @Dao
@@ -302,9 +303,9 @@ interface ToolkitActionDao {
      * this keeps a superset of those, the toolkit decides exactly.
      */
     @Query(
-        "DELETE FROM toolkit_action WHERE status != 'pending' " +
-            "AND NOT (status IN ('done', 'restored') AND kind IN $OVERRIDE_KINDS_SQL) " +
-            "AND NOT (status = 'failed' AND kind IN $OVERRIDE_KINDS_SQL AND afterRaw IS NOT NULL " +
+        "DELETE FROM toolkit_action WHERE status != $PENDING_SQL " +
+            "AND NOT (status IN ($DONE_SQL, $RESTORED_SQL) AND kind IN $OVERRIDE_KINDS_SQL) " +
+            "AND NOT (status = $FAILED_SQL AND kind IN $OVERRIDE_KINDS_SQL AND afterRaw IS NOT NULL " +
             "AND afterRaw != '' AND (beforeRaw IS NULL OR afterRaw != beforeRaw)) " +
             "AND id NOT IN (SELECT id FROM toolkit_action ORDER BY id DESC LIMIT :keep)",
     )
@@ -318,7 +319,7 @@ interface ToolkitActionDao {
     }
 
     /** Settled rows only: a PENDING row is never deleted, whatever the caller passes. */
-    @Query("DELETE FROM toolkit_action WHERE status != 'pending' AND id IN (:ids)")
+    @Query("DELETE FROM toolkit_action WHERE status != $PENDING_SQL AND id IN (:ids)")
     suspend fun deleteSettledChunk(ids: List<Long>): Int
 
     /** Deletes the settled rows [ids] in one transaction, in chunks under SQLite's bound-argument limit. */
@@ -336,6 +337,12 @@ interface ToolkitActionDao {
 /** The override kinds as an SQL list, from the values the toolkit writes. */
 private const val OVERRIDE_KINDS_SQL =
     "('" + ToolkitAuditLog.KIND_APP_OP + "', '" + ToolkitAuditLog.KIND_BUCKET + "', '" + ToolkitAuditLog.KIND_DOZE + "')"
+
+/** Status literals for the retention SQL, from the persisted [ToolkitActionStatusCodes]. */
+private const val PENDING_SQL = "'" + ToolkitActionStatusCodes.PENDING + "'"
+private const val DONE_SQL = "'" + ToolkitActionStatusCodes.DONE + "'"
+private const val RESTORED_SQL = "'" + ToolkitActionStatusCodes.RESTORED + "'"
+private const val FAILED_SQL = "'" + ToolkitActionStatusCodes.FAILED + "'"
 
 @Dao
 interface ChargeSessionDao {

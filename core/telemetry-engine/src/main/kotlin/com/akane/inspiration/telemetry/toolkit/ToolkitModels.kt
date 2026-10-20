@@ -5,6 +5,7 @@ import com.akane.inspiration.ipc.toolkit.AppOpMode
 import com.akane.inspiration.ipc.toolkit.DozeProfile
 import com.akane.inspiration.ipc.toolkit.StandbyBucket
 import com.akane.inspiration.telemetry.store.ToolkitActionRecord
+import com.akane.inspiration.telemetry.store.ToolkitActionStatus
 
 /**
  * A typed privileged action. There is deliberately no Intent, URI or free-form command input: a caller
@@ -223,6 +224,54 @@ object ToolkitAuditLog {
 
     /** The newest rows always kept as display history; older ones go once no override chain needs them. */
     const val RETAINED_ROWS = 500
+
+    /** The kinds whose writes form override chains. */
+    val OVERRIDE_KINDS = setOf(KIND_APP_OP, KIND_BUCKET, KIND_DOZE)
+
+    /** Unset and empty are the same `device_idle_constants` state. */
+    fun norm(raw: String?): String? = raw?.takeIf { it.isNotEmpty() }
+
+    /**
+     * Compare observed state, not just writable modes: app-op reads can also report e.g. "foreground".
+     * Only equal known raw values match: `allow` and `default` are different states (Android restricts
+     * background work under `default`), and a missing app-op value stays unknown. This does not make
+     * observed-only modes replayable; `ToolkitActions.restoreAction` still requires `modeOf`.
+     */
+    fun sameState(
+        kind: String,
+        current: String?,
+        original: String?,
+    ): Boolean {
+        if (kind != KIND_APP_OP) return norm(current) == norm(original)
+        val raw = norm(current) ?: return false
+        return raw == norm(original)
+    }
+
+    /**
+     * Chain membership comes from the values read back around a write, not from how the write was reported:
+     * DONE and RESTORED rows changed their target, and so did a FAILED row that [landedElsewhere]. Such a
+     * write is still reported as not effective, but the device was changed, so overrides, Reset all and
+     * restore must see it, and a chain it continues must not break at it. The store's retention SQL keeps a
+     * superset of the override-kind rows this accepts.
+     */
+    fun changedTarget(row: ToolkitActionRecord): Boolean =
+        when (row.status) {
+            ToolkitActionStatus.DONE, ToolkitActionStatus.RESTORED -> true
+            ToolkitActionStatus.FAILED -> landedElsewhere(row)
+            else -> false
+        }
+
+    /**
+     * A FAILED override row whose known `after` is not its known `before`: the target moved to a third value
+     * (NOT_EFFECTIVE, e.g. a standby bucket clamped to the app's minimum). A doze `before` of null is "unset";
+     * a null `after` is unknown (a FAILED doze reply does not tell unset from unread).
+     */
+    fun landedElsewhere(row: ToolkitActionRecord): Boolean {
+        if (row.status != ToolkitActionStatus.FAILED || row.kind !in OVERRIDE_KINDS) return false
+        val after = norm(row.afterRaw) ?: return false
+        if (row.kind != KIND_DOZE && row.beforeRaw == null) return false
+        return after != norm(row.beforeRaw) && !sameState(row.kind, after, row.beforeRaw)
+    }
 }
 
 /** One [resetAll][ToolkitActions.resetAll] item: what was restored and how it went. */

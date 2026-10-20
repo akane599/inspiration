@@ -48,17 +48,27 @@ data class ChargeSessionRecord(
     val rejectReason: String?,
 )
 
+/** The persisted [ToolkitActionStatus.code] values as compile-time constants, so the store's retention SQL is built from them. */
+object ToolkitActionStatusCodes {
+    const val PENDING = "pending"
+    const val DONE = "done"
+    const val REFUSED = "refused"
+    const val FAILED = "failed"
+    const val RESTORED = "restored"
+    const val CANCELLED = "cancelled"
+}
+
 /**
  * Lifecycle of an audited toolkit write. [code] is the persisted form: an explicit constant that must
  * never change, independent of the enum's name or ordinal.
  */
 enum class ToolkitActionStatus(val code: String) {
-    PENDING("pending"),
-    DONE("done"),
-    REFUSED("refused"),
-    FAILED("failed"),
-    RESTORED("restored"),
-    CANCELLED("cancelled"),
+    PENDING(ToolkitActionStatusCodes.PENDING),
+    DONE(ToolkitActionStatusCodes.DONE),
+    REFUSED(ToolkitActionStatusCodes.REFUSED),
+    FAILED(ToolkitActionStatusCodes.FAILED),
+    RESTORED(ToolkitActionStatusCodes.RESTORED),
+    CANCELLED(ToolkitActionStatusCodes.CANCELLED),
     ;
 
     companion object {
