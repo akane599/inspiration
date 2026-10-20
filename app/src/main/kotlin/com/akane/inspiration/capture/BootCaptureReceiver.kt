@@ -32,6 +32,8 @@ class BootCaptureReceiver : BroadcastReceiver() {
 /**
  * The light capture each action of [BootCaptureReceiver] records; null for any other action. An app update is
  * not a reboot: recorded as BOOT it would wipe the known screen state of the "since unplug" summary (audit N-14).
+ * Nor is every BOOT_COMPLETED: the capturer stores one with no reboot since the newest capture (Android 15 sends it
+ * when a force-stopped app leaves the stopped state) as [CaptureTrigger.STOPPED_STATE_EXIT].
  */
 internal object BootCapturePlan {
     fun forAction(action: String?): CaptureTrigger? =

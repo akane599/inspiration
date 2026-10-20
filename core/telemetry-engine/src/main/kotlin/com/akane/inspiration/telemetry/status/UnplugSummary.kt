@@ -2,6 +2,7 @@ package com.akane.inspiration.telemetry.status
 
 import com.akane.inspiration.telemetry.snapshot.BatterySnapshot
 import com.akane.inspiration.telemetry.snapshot.CaptureTrigger
+import com.akane.inspiration.telemetry.snapshot.SnapshotClock
 
 /**
  * Battery use since the device was last unplugged, derived from stored snapshots only (no Shizuku read).
@@ -107,15 +108,14 @@ object UnplugSummaryCalculator {
     }
 
     /**
-     * Whether [to], the capture after [from] in wall-clock order, ran in the same boot. The boot count alone misses
-     * a reboot when BOOT_COUNT was unreadable (0 on both sides), so elapsedRealtime running backwards counts as a
-     * new boot too. A backward wall-clock step can also put a later capture of one boot first; the state between
-     * the two is then unknown as well, which only drops what could not be attributed.
+     * Whether [to], the capture after [from] in wall-clock order, ran in the same boot ([SnapshotClock.sameBootAs]).
+     * A backward wall-clock step can also put a later capture of one boot first; the state between the two is then
+     * unknown as well, which only drops what could not be attributed.
      */
     private fun sameBoot(
         from: BatterySnapshot,
         to: BatterySnapshot,
-    ): Boolean = from.clock.bootCount == to.clock.bootCount && to.clock.elapsedRealtimeMs >= from.clock.elapsedRealtimeMs
+    ): Boolean = to.clock.sameBootAs(from.clock)
 
     private fun screenAfter(
         current: Screen?,

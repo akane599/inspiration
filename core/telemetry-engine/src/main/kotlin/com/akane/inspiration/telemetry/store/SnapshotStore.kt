@@ -33,7 +33,10 @@ interface SnapshotStore {
      */
     suspend fun byId(id: Long): BatterySnapshot?
 
-    /** The newest snapshot, of one [kind] or of either. Read by the debug probe and the store tests (kept, audit §3). */
+    /**
+     * The newest snapshot, of one [kind] or of either. Read by the debug probe, the store tests and a BOOT capture
+     * telling a reboot from a stopped-state exit.
+     */
     suspend fun latest(kind: SnapshotKind? = null): BatterySnapshot?
 
     /**

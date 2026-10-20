@@ -469,6 +469,70 @@ class SnapshotCapturerTest {
             assertEquals(300, store.snapshots.single().battery.currentMa)
         }
 
+    @Test
+    fun `a BOOT capture that continues the newest capture's boot is stored as a stopped-state exit`() =
+        runTest {
+            // Android 15 sends BOOT_COMPLETED when a force-stopped app leaves the stopped state: no reboot between.
+            val store = FakeStore()
+            SnapshotCapturer(FakeSource(lightClock = clock(elapsedMs = 60_000, bootCount = 7)), store, TestClocks())
+                .captureLight(CaptureTrigger.SCREEN_OFF)
+
+            SnapshotCapturer(FakeSource(lightClock = clock(elapsedMs = 90_000, bootCount = 7)), store, TestClocks())
+                .captureLight(CaptureTrigger.BOOT)
+
+            assertEquals(listOf(CaptureTrigger.SCREEN_OFF, CaptureTrigger.STOPPED_STATE_EXIT), store.snapshots.map { it.trigger })
+        }
+
+    @Test
+    fun `a BOOT capture after a reboot stays BOOT`() =
+        runTest {
+            val afterOtherBootCount = clock(elapsedMs = 90_000, bootCount = 8)
+            // BOOT_COUNT unreadable on both sides: elapsedRealtime running backwards is the reboot.
+            val afterElapsedReset = clock(elapsedMs = 30_000, bootCount = 0)
+            val previous = listOf(clock(elapsedMs = 60_000, bootCount = 7), clock(elapsedMs = 60_000, bootCount = 0))
+
+            for ((before, after) in previous.zip(listOf(afterOtherBootCount, afterElapsedReset))) {
+                val store = FakeStore()
+                SnapshotCapturer(FakeSource(lightClock = before), store, TestClocks()).captureLight(CaptureTrigger.SCREEN_OFF)
+                SnapshotCapturer(FakeSource(lightClock = after), store, TestClocks()).captureLight(CaptureTrigger.BOOT)
+
+                assertEquals(CaptureTrigger.BOOT, store.snapshots.last().trigger)
+            }
+        }
+
+    @Test
+    fun `a BOOT capture with nothing stored before it stays BOOT`() =
+        runTest {
+            val store = FakeStore()
+            SnapshotCapturer(FakeSource(), store, TestClocks()).captureLight(CaptureTrigger.BOOT)
+
+            assertEquals(CaptureTrigger.BOOT, store.snapshots.single().trigger)
+        }
+
+    @Test
+    fun `only a BOOT capture is relabelled`() =
+        runTest {
+            val store = FakeStore()
+            val capturer = SnapshotCapturer(FakeSource(), store, TestClocks())
+
+            capturer.captureLight(CaptureTrigger.SCREEN_OFF)
+            capturer.captureLight(CaptureTrigger.PACKAGE_REPLACED)
+
+            assertEquals(listOf(CaptureTrigger.SCREEN_OFF, CaptureTrigger.PACKAGE_REPLACED), store.snapshots.map { it.trigger })
+        }
+
+    private fun clock(
+        elapsedMs: Long,
+        bootCount: Int,
+    ) = com.akane.inspiration.telemetry.snapshot.SnapshotClock(
+        wallMs = 1_000_000 + elapsedMs,
+        elapsedRealtimeMs = elapsedMs,
+        uptimeMs = elapsedMs,
+        bootCount = bootCount,
+        statsStartMs = null,
+        statsDurationMs = null,
+    )
+
     private fun calibrationStore(locks: CalibrationLocks) =
         object : CalibrationStore {
             override fun load(): CalibrationStart = CalibrationStart(locks)
@@ -525,6 +589,9 @@ class SnapshotCapturerTest {
         private val batteryStats: DumpParse<DumpSnapshot> = DumpParse.Unavailable("not_needed"),
         private val alarm: DumpParse<AlarmDump> = DumpParse.Unavailable("not_needed"),
         private val lightCurrentMa: Int? = -100,
+        private val lightClock: com.akane.inspiration.telemetry.snapshot.SnapshotClock =
+            com.akane.inspiration.telemetry.snapshot
+                .SnapshotClock(1, 2, 3, 4, null, null),
     ) : TelemetrySource {
         val receivedCursors = mutableListOf<Pair<Long, Long>?>()
         private var fullReadCount = 0
@@ -548,9 +615,7 @@ class SnapshotCapturerTest {
 
         override fun light(): LightRead =
             LightRead(
-                clock =
-                    com.akane.inspiration.telemetry.snapshot
-                        .SnapshotClock(1, 2, 3, 4, null, null),
+                clock = lightClock,
                 levelPct = 70,
                 plugged = false,
                 status = "discharging",
@@ -576,7 +641,8 @@ class SnapshotCapturerTest {
 
         override suspend fun byId(id: Long): BatterySnapshot? = null
 
-        override suspend fun latest(kind: SnapshotKind?): BatterySnapshot? = null
+        override suspend fun latest(kind: SnapshotKind?): BatterySnapshot? =
+            snapshots.filter { kind == null || it.kind == kind }.maxByOrNull { it.clock.wallMs }
 
         override suspend fun firstAtOrAfter(
             wallMs: Long,

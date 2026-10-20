@@ -106,8 +106,23 @@ class SnapshotCapturer(
 
     suspend fun captureLight(trigger: CaptureTrigger): CaptureResult {
         val read = LightCurrent.calibrate(source.light(), calibrationStore)
-        val id = store.insert(read.toSnapshot(trigger))
+        val id = store.insert(read.toSnapshot(storedTrigger(trigger, read.clock)))
         return CaptureResult.Saved(id, SnapshotKind.LIGHT)
+    }
+
+    /**
+     * [CaptureTrigger.STOPPED_STATE_EXIT] for a [CaptureTrigger.BOOT] capture whose [clock] continues the boot of the
+     * newest stored capture (Android 15 sends BOOT_COMPLETED when a force-stopped app leaves the stopped state); any
+     * other trigger as is. Only the label: readers find boots from the clocks. A capture that ran in the new boot
+     * before BOOT_COMPLETED arrived also labels a real reboot so.
+     */
+    private suspend fun storedTrigger(
+        trigger: CaptureTrigger,
+        clock: SnapshotClock,
+    ): CaptureTrigger {
+        if (trigger != CaptureTrigger.BOOT) return trigger
+        val previous = store.latest()?.clock ?: return trigger
+        return if (clock.sameBootAs(previous)) CaptureTrigger.STOPPED_STATE_EXIT else trigger
     }
 
     private suspend fun missed(

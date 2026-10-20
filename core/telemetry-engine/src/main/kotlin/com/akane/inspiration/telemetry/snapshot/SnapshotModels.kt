@@ -20,6 +20,12 @@ enum class CaptureTrigger {
     /** This app was updated (`MY_PACKAGE_REPLACED`): not a reboot, so it says nothing about the screen state. */
     PACKAGE_REPLACED,
     MARKER,
+
+    /**
+     * A `BOOT_COMPLETED` with no reboot since the newest stored capture: Android 15 sends it when a force-stopped
+     * app leaves the stopped state. Like [PACKAGE_REPLACED], it says nothing about the screen state.
+     */
+    STOPPED_STATE_EXIT,
 }
 
 enum class SnapshotKind {
@@ -34,7 +40,14 @@ data class SnapshotClock(
     val bootCount: Int,
     val statsStartMs: Long?,
     val statsDurationMs: Long?,
-)
+) {
+    /**
+     * Whether this capture, taken after [previous], ran in the same boot. The boot count alone misses a reboot when
+     * BOOT_COUNT was unreadable (0 on both sides), so elapsedRealtime running backwards counts as a new boot too.
+     */
+    fun sameBootAs(previous: SnapshotClock): Boolean =
+        bootCount == previous.bootCount && elapsedRealtimeMs >= previous.elapsedRealtimeMs
+}
 
 data class BatterySnapshot(
     val id: Long,
