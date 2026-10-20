@@ -71,7 +71,7 @@ core/
       diff/{BatteryStatsSession,ReferenceResolver,SnapshotDiffer}.kt
       dump/{DumpModels,DumpParser,DumpReader}.kt
       interval/{IntervalHistory,IntervalMetrics}.kt
-      app/AppFacingModels.kt       # RefreshResult, KernelCapacitySnapshot, AppEntry, AppLabels, packageForUid, identifyingPackage
+      app/AppFacingModels.kt       # RefreshResult, KernelCapacitySnapshot, AppEntry, AppLabels, uidIdentity/UidIdentity, packageForUid, identifyingPackage
       app/Attempt.kt               # shared attempt {} for feature ViewModels
       live/{KernelUnits,LiveTelemetry}.kt
       snapshot/{SnapshotModels,UidIdentity}.kt
