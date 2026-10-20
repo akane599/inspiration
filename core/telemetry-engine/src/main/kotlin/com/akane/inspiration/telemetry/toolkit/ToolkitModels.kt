@@ -264,7 +264,8 @@ object ToolkitAuditLog {
     /**
      * A FAILED override row whose known `after` is not its known `before`: the target moved to a third value
      * (NOT_EFFECTIVE, e.g. a standby bucket clamped to the app's minimum). A doze `before` of null is "unset";
-     * a null `after` is unknown (a FAILED doze reply does not tell unset from unread).
+     * a null `after` is unknown (a FAILED doze reply does not tell unset from unread), or not the write's: an unsent
+     * write and a PENDING row reconciled too late to credit its read-back to it (B-01) record none.
      */
     fun landedElsewhere(row: ToolkitActionRecord): Boolean {
         if (row.status != ToolkitActionStatus.FAILED || row.kind !in OVERRIDE_KINDS) return false

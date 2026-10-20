@@ -40,7 +40,11 @@ object ToolkitClientCode {
     const val NO_SERVICE = 101
     const val STALE_SERVICE = 102
 
-    /** A PENDING row whose effect cannot be read back (force-stop), so it is never reported as done. */
+    /**
+     * A PENDING row settled without crediting it with a read-back, so it is never reported as done and never joins a
+     * chain: its effect cannot be read back (force-stop), or the read-back came too late to tell its write from a later
+     * change (B-01, see `ToolkitActions.promptReadBack`).
+     */
     const val UNVERIFIED = 103
 
     /**
@@ -199,7 +203,8 @@ class ToolkitActions internal constructor(
      * The production constructor. [supervisorScope] outlives any screen: it runs the bounded supervisor that
      * releases the dexopt binding hold when the job ends, whether or not anything is collecting. [nowMs] is the
      * wall clock for the audit rows; [elapsedMs] is a monotonic clock (elapsedRealtime in the app) for the hold
-     * deadline, so a wall-clock change cannot end or stretch the hold.
+     * deadline, so a wall-clock change cannot end or stretch the hold. It also times a reconcile against the write it
+     * settles, and as the time since boot it marks a row of an earlier boot as late (see `promptReadBack`).
      */
     constructor(
         gateway: ToolkitGateway,
@@ -222,6 +227,13 @@ class ToolkitActions internal constructor(
 
     /** Guarded by [mutex]: a prior job's status/cancel cannot settle a start still awaiting admission. */
     private val dexoptStartsInFlight = mutableSetOf<Long>()
+
+    /**
+     * Guarded by [mutex]: when, on [elapsedMs], this process inserted each override row that may still be PENDING, so
+     * [promptReadBack] times this process's rows on a clock nobody can set. Entries of settled rows are dropped by
+     * [forgetSettled].
+     */
+    private val pendingSince = HashMap<Long, Long>()
 
     /** Bumped when the log or the real state may have changed; drives [history] and [activeOverrides]. */
     private val changes = MutableStateFlow(0L)
@@ -373,13 +385,16 @@ class ToolkitActions internal constructor(
      * Finalizes rows left PENDING by a crash or kill, a lost reply, or a write the service could not verify
      * (those of an override target are also settled before that target is used again). The state is read back: DONE when it matches the
      * intended `after`, otherwise FAILED (a job whose status is gone is CANCELLED instead; a FAILED override row
-     * whose read-back left its `before` stays in its chain, see [changedTarget]). A row whose
+     * whose read-back left its `before` stays in its chain, see [changedTarget]). Only a prompt read-back is credited
+     * to the write ([promptReadBack]); a later one settles the row FAILED as unverified with no `after`, so a value the
+     * platform or another tool set meanwhile is never listed or written over. A row whose
      * state cannot be read (service unreachable, or a dexopt status that is UNKNOWN or still RUNNING, or unsupported
      * while the job could still be within its cap) stays PENDING and is retried on the next call.
      */
     suspend fun reconcile() {
         mutex.withLock {
             val pending = audit.pending()
+            forgetSettled(pending)
             var dexoptDone = false
             for (row in pending) {
                 if (row.kind == KIND_DEXOPT) {
@@ -807,7 +822,10 @@ class ToolkitActions internal constructor(
         beforeRaw: String?,
     ): ToolkitActionRecord {
         val record = spec.record(ToolkitActionStatus.PENDING, nowMs(), restoresId, beforeRaw)
-        return record.copy(id = audit.insert(record))
+        val insertedAt = elapsedMs()
+        val inserted = record.copy(id = audit.insert(record))
+        if (spec.kind in OVERRIDE_KINDS) pendingSince[inserted.id] = insertedAt
+        return inserted
     }
 
     /**
@@ -1483,14 +1501,28 @@ class ToolkitActions internal constructor(
      * a restriction the user removed. Rows that cannot be read back yet stay PENDING.
      */
     private suspend fun reconcileTargets(key: String?) {
-        val rows = audit.pending().filter { it.kind in OVERRIDE_KINDS && (key == null || targetKey(it) == key) }
+        val pending = audit.pending()
+        forgetSettled(pending)
+        val rows = pending.filter { it.kind in OVERRIDE_KINDS && (key == null || targetKey(it) == key) }
         var settled = false
         for (row in rows) settled = reconcileRow(row) || settled
         // Only a real settlement bumps: activeOverrides re-runs on every bump, so an unreachable row must not.
         if (settled) changes.value += 1
     }
 
-    /** Returns false when the row could not be read back and stays PENDING. */
+    /** Keeps [pendingSince] to the rows still PENDING ([pending] is every one of them); only those are reconciled. */
+    private fun forgetSettled(pending: List<ToolkitActionRecord>) {
+        if (pendingSince.isEmpty()) return
+        val ids = pending.mapTo(HashSet()) { it.id }
+        pendingSince.keys.retainAll(ids)
+    }
+
+    /**
+     * Returns false when the row could not be read back and stays PENDING. A value read back is credited to the
+     * write (DONE, or FAILED with that `after`, which keeps a clamped write in its chain) only when [promptReadBack]
+     * holds. Otherwise the row is settled as unverified with no `after`, as a write known never to have been sent is
+     * (N-07): the write may never have run, so the value is not ours, and Reset all and Restore must not write over it.
+     */
     private suspend fun reconcileRow(row: ToolkitActionRecord): Boolean {
         val now = nowMs()
         val action = intendedAction(row)
@@ -1505,27 +1537,64 @@ class ToolkitActions internal constructor(
             }
 
             is Verdict.Matched -> {
-                audit.update(
-                    row.copy(status = ToolkitActionStatus.DONE, endedAt = now, code = ToolkitCode.OK, afterRaw = verdict.current),
-                )
-                val original = row.restoresId?.let { id -> audit.recent(MAX_ROWS).firstOrNull { it.id == id } }
-                if (original != null && (original.status == ToolkitActionStatus.DONE || landedElsewhere(original))) {
-                    audit.update(original.copy(status = ToolkitActionStatus.RESTORED))
+                if (promptReadBack(row, now)) {
+                    audit.update(
+                        row.copy(status = ToolkitActionStatus.DONE, endedAt = now, code = ToolkitCode.OK, afterRaw = verdict.current),
+                    )
+                    val original = row.restoresId?.let { id -> audit.recent(MAX_ROWS).firstOrNull { it.id == id } }
+                    if (original != null && (original.status == ToolkitActionStatus.DONE || landedElsewhere(original))) {
+                        audit.update(original.copy(status = ToolkitActionStatus.RESTORED))
+                    }
+                } else {
+                    audit.update(unattributed(row, now))
                 }
             }
 
             is Verdict.Mismatch -> {
-                audit.update(
-                    row.copy(
-                        status = ToolkitActionStatus.FAILED,
-                        endedAt = now,
-                        code = ToolkitCode.NOT_EFFECTIVE,
-                        afterRaw = verdict.current,
-                    ),
-                )
+                if (promptReadBack(row, now)) {
+                    audit.update(
+                        row.copy(
+                            status = ToolkitActionStatus.FAILED,
+                            endedAt = now,
+                            code = ToolkitCode.NOT_EFFECTIVE,
+                            afterRaw = verdict.current,
+                        ),
+                    )
+                } else {
+                    audit.update(unattributed(row, now))
+                }
             }
         }
         return true
+    }
+
+    /** [row] settled without a read-back of its own: FAILED, unverified, no `after`, so it is no chain link. */
+    private fun unattributed(
+        row: ToolkitActionRecord,
+        now: Long,
+    ): ToolkitActionRecord =
+        row.copy(status = ToolkitActionStatus.FAILED, endedAt = now, code = ToolkitClientCode.UNVERIFIED, afterRaw = null)
+
+    /**
+     * Whether a read-back made at [now] (wall clock) is [row]'s own outcome (B-01). Right after the write it is: what
+     * the write left, clamped or not. Later it may be anything the platform, the user or another tool has set since,
+     * and a write that never ran looks the same, so only a read-back within [RECONCILE_ATTRIBUTION_MS] of the write
+     * counts. The row stores only the wall clock, which can be set at any time, so the check fails safe: a negative
+     * wall age or one past the window is late. A row this process inserted is also timed on [elapsedMs] since its
+     * insert ([pendingSince]), so a wall clock set back over a long outage cannot pass it. A row an earlier process
+     * inserted (one killed mid-write) has only its wall age, which must also fit in the time since boot: a row of an
+     * earlier boot is late. [elapsedMs] is elapsedRealtime in the app; a clock that counts less (one that stops in deep
+     * sleep) only makes more rows late.
+     */
+    private fun promptReadBack(
+        row: ToolkitActionRecord,
+        now: Long,
+    ): Boolean {
+        val age = now - row.startedAt
+        if (age !in 0..RECONCILE_ATTRIBUTION_MS) return false
+        val sinceBoot = elapsedMs()
+        val insertedAt = pendingSince[row.id] ?: return age <= sinceBoot
+        return sinceBoot - insertedAt in 0..RECONCILE_ATTRIBUTION_MS
     }
 
     private suspend fun verify(action: ToolkitAction): Verdict =
@@ -1955,6 +2024,16 @@ class ToolkitActions internal constructor(
         /** The service's own job cap (`BgDexoptController.CAP_MS`), plus slack for its wind-down. */
         const val DEXOPT_CAP_MS = 60L * 60_000L
         const val DEXOPT_CAP_MARGIN_MS = 2L * 60_000L
+
+        /**
+         * How long after a write a read-back is still that write's own outcome ([promptReadBack]). A lost reply is
+         * read back on the next toolkit use or Ready: the write waits up to the gateway's bind deadline (5 s,
+         * `ToolkitGateway.DEFAULT_BIND_TIMEOUT_MS`) and its command up to its timeout (10 s plus 1 s to join the
+         * reader, `CommandRunner`), and the read-back again as much, about 32 s in all. The rest is slack for the
+         * service's own checks before the write, which normally take milliseconds. Platform drift, and an outage that
+         * waits for the user to restart Shizuku, take far longer.
+         */
+        const val RECONCILE_ATTRIBUTION_MS = 60_000L
 
         /** The hold supervisor outlives every screen: a failure in it (a Room error settling a dexopt row) is logged, never a crash. */
         fun defaultSupervisorScope(): CoroutineScope =

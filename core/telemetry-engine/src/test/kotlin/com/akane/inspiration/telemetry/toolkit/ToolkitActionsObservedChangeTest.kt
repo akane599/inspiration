@@ -27,7 +27,9 @@ class ToolkitActionsObservedChangeTest {
     private val audit = FakeAudit()
     private val holds = FakeHolds()
     private var clock = 10_000L
-    private val actions = ToolkitActions(backend, audit, holds::hold, nowMs = { clock++ })
+
+    /** The phone booted at wall-clock 0 and the wall clock was never set: time since boot is [clock]. */
+    private val actions = ToolkitActions(backend, audit, holds::hold, nowMs = { clock++ }, elapsedMs = { clock })
 
     private val active = StandbyBucket.ACTIVE.rawValue
     private val working = StandbyBucket.WORKING_SET.rawValue
@@ -134,13 +136,15 @@ class ToolkitActionsObservedChangeTest {
         }
 
     @Test
-    fun aReconciledWriteThatLandedOnAThirdValueStaysInItsChain() =
+    fun aPromptlyReconciledWriteThatLandedOnAThirdValueStaysInItsChain() =
         runTest {
-            backend.buckets[PKG] = frequent // RARE was issued from ACTIVE and clamped; the reply was lost
+            // RARE was issued from ACTIVE five seconds ago, in this boot, and clamped; the app died before the reply.
+            // A read-back this soon is the write's own outcome (a late one is not, see ToolkitActionsLateReconcileTest).
+            backend.buckets[PKG] = frequent
             val id =
                 audit.insert(
                     ToolkitActionRecord(
-                        startedAt = 1L,
+                        startedAt = clock - 5_000L,
                         kind = "bucket",
                         pkg = PKG,
                         op = "standby_bucket",
@@ -231,7 +235,7 @@ class ToolkitActionsObservedChangeTest {
                 assertEquals(ToolkitActionStatus.PENDING, pending.status)
                 backend.afterWrite = {}
                 backend.unavailableAfterWrite = null
-                val recreated = ToolkitActions(backend, audit, holds::hold, nowMs = { clock++ })
+                val recreated = ToolkitActions(backend, audit, holds::hold, nowMs = { clock++ }, elapsedMs = { clock })
                 recreated.reconcile()
 
                 assertEquals(ToolkitActionStatus.FAILED, audit.byId(pending.id).status)
