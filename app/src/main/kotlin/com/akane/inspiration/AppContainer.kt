@@ -4,6 +4,7 @@ import android.content.Context
 import android.content.Intent
 import androidx.core.app.NotificationManagerCompat
 import com.akane.inspiration.capture.CapturePolicy
+import com.akane.inspiration.capture.HistoryPageCounter
 import com.akane.inspiration.capture.captureMarker
 import com.akane.inspiration.dashboard.CockpitDependencies
 import com.akane.inspiration.database.InspirationDatabase
@@ -96,10 +97,13 @@ class AppContainer(
     val database: InspirationDatabase = InspirationDatabase.create(appContext)
     val store: SnapshotStore = RoomSnapshotStore(database, currentBootCount = { clocks.bootCount() })
     private val telemetrySource = AndroidTelemetrySource(appContext, shizukuManager, clocks)
+
+    /** What the capturer writes through: a missed app-open or marker capture ticks for the pages it stored. */
+    private val historyPages = HistoryPageCounter(store)
     val capturer =
         SnapshotCapturer(
             source = telemetrySource,
-            store = store,
+            store = historyPages,
             clocks = clocks,
         )
     private val liveTelemetry =
@@ -128,7 +132,10 @@ class AppContainer(
 
     // ---- refresh (H7) ----------------------------------------------------------------------
 
-    /** Ticked by every capture that ingests the battery history: the app-open refresh, a marker, the charge job. */
+    /**
+     * Ticked by every capture that ingests the battery history: the app-open refresh, a marker, the charge job. A
+     * missed app-open or marker capture ticks too when it stored history pages before it missed ([historyPages]).
+     */
     val storeTicks = StoreTicks(clocks::wallMs)
 
     private val refreshCoordinator =
@@ -154,12 +161,18 @@ class AppContainer(
     override suspend fun refresh(): RefreshResult = refreshCoordinator.refresh()
 
     private suspend fun captureFull(): RefreshResult =
-        when (val result = capturer.captureFull(CaptureTrigger.APP_OPEN, FULL_CAPTURE_DEADLINE_MS, ingestHistory = true)) {
+        when (
+            val result =
+                historyPages.withMissTick(storeTicks::tick) {
+                    capturer.captureFull(CaptureTrigger.APP_OPEN, FULL_CAPTURE_DEADLINE_MS, ingestHistory = true)
+                }
+        ) {
             // The coordinator prunes, updates the status and ticks after it (see [refreshCoordinator]).
             is CaptureResult.Saved -> {
                 RefreshResult.Refreshed(clocks.wallMs())
             }
 
+            // Ticked already when the capture stored history pages before it missed.
             is CaptureResult.Missed -> {
                 RefreshResult.Failed(result.reason)
             }
@@ -227,7 +240,11 @@ class AppContainer(
 
     override suspend fun createMarker(label: String): Long? =
         captureMarker(
-            capture = { capturer.captureFull(CaptureTrigger.MARKER, FULL_CAPTURE_DEADLINE_MS, ingestHistory = true) },
+            capture = {
+                historyPages.withMissTick(storeTicks::tick) {
+                    capturer.captureFull(CaptureTrigger.MARKER, FULL_CAPTURE_DEADLINE_MS, ingestHistory = true)
+                }
+            },
             addMarker = { snapshotId -> store.addMarker(snapshotId, label, clocks.wallMs()) },
             onHistoryStored = storeTicks::tick,
         )

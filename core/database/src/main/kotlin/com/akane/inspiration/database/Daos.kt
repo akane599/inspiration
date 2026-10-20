@@ -304,10 +304,15 @@ interface TelemetryDao {
     @Insert
     suspend fun insertSamples(samples: List<TelemetrySampleEntity>): List<Long>
 
-    @Query("SELECT * FROM telemetry_sample WHERE wallMs BETWEEN :fromWallMs AND :toWallMs ORDER BY wallMs, id")
+    /** The newest [limit] samples with `fromWallMs <= wallMs <= toWallMs`, ordered by `wallMs, id`. */
+    @Query(
+        "SELECT * FROM (SELECT * FROM telemetry_sample WHERE wallMs BETWEEN :fromWallMs AND :toWallMs " +
+            "ORDER BY wallMs DESC, id DESC LIMIT :limit) ORDER BY wallMs, id",
+    )
     suspend fun between(
         fromWallMs: Long,
         toWallMs: Long,
+        limit: Int,
     ): List<TelemetrySampleEntity>
 
     /**

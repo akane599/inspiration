@@ -43,6 +43,7 @@ import com.akane.inspiration.telemetry.status.UnplugSummaryCalculator
 import com.akane.inspiration.telemetry.store.ChargeSessionRecord
 import com.akane.inspiration.telemetry.store.HealthSample
 import com.akane.inspiration.telemetry.store.Marker
+import com.akane.inspiration.telemetry.store.SAMPLES_BETWEEN_LIMIT
 import com.akane.inspiration.telemetry.store.SnapshotStore
 import com.akane.inspiration.telemetry.store.TelemetrySample
 import com.akane.inspiration.telemetry.store.ToolkitActionRecord
@@ -776,6 +777,20 @@ class RoomSnapshotStoreTest {
             assertNull(samples[1].thermalStatus)
             assertNull(samples[1].currentMa)
             assertTrue(store.samplesBetween(from = 500L, to = 600L).isEmpty())
+        }
+
+    @Test
+    fun `samplesBetween returns at most the limit, the newest ones, oldest first`() =
+        runBlocking {
+            val count = SAMPLES_BETWEEN_LIMIT + 2
+            store.insertSamples((1..count).map { LiveReading(it.toLong(), it.toLong(), 1, -10, 4_000, 0.4, 300, 50, true) })
+
+            val samples = store.samplesBetween(from = 0L, to = Long.MAX_VALUE)
+
+            assertEquals(SAMPLES_BETWEEN_LIMIT, samples.size)
+            assertEquals("the two oldest are dropped", 3L, samples.first().wallMs)
+            assertEquals(count.toLong(), samples.last().wallMs)
+            assertTrue(samples.zipWithNext().all { (a, b) -> a.wallMs < b.wallMs })
         }
 
     @Test

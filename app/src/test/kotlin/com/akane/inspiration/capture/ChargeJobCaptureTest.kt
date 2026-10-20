@@ -221,7 +221,7 @@ class ChargeJobCaptureTest {
         }
     }
 
-    private class CountingSource(
+    internal class CountingSource(
         private val history: List<HistoryEvent>,
         private val clock: SnapshotClock = SnapshotClock(7_000, 2, 3, BOOT, null, null),
     ) : TelemetrySource {
@@ -256,7 +256,7 @@ class ChargeJobCaptureTest {
             )
     }
 
-    private object FixedClocks : Clocks {
+    internal object FixedClocks : Clocks {
         override fun wallMs(): Long = 7_000L
 
         override fun elapsedRealtimeMs(): Long = 2L
@@ -279,7 +279,7 @@ class ChargeJobCaptureTest {
         override fun bootCount(): Int = BOOT
     }
 
-    private class FakeStore(
+    internal class FakeStore(
         private val snapshots: MutableList<BatterySnapshot> = mutableListOf(),
     ) : SnapshotStore {
         val history = mutableListOf<HistoryEvent>()
@@ -407,7 +407,7 @@ class ChargeJobCaptureTest {
         }
     }
 
-    private companion object {
+    internal companion object {
         const val BOOT = 4
         const val DEADLINE_MS = 10_000L
         const val YEAR_MS = 365L * 24L * 60L * 60_000L

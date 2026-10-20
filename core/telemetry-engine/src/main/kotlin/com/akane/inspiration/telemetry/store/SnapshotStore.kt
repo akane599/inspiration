@@ -10,6 +10,13 @@ import com.akane.inspiration.telemetry.snapshot.SnapshotClock
 import com.akane.inspiration.telemetry.snapshot.SnapshotKind
 import com.akane.inspiration.telemetry.status.UnplugSummaryCalculator
 
+/**
+ * The most samples one [SnapshotStore.samplesBetween] read returns: a day of one live collector at its fastest 1.5 s
+ * period. Samples are stored only while plugged in and a screen collects, so a real window stays under it; two
+ * collectors over a long charge could pass it, and then the read keeps the newest.
+ */
+const val SAMPLES_BETWEEN_LIMIT = 24 * 60 * 60 * 1_000 / 1_500
+
 interface SnapshotStore {
     suspend fun insert(snapshot: BatterySnapshot): Long
 
@@ -150,7 +157,7 @@ interface SnapshotStore {
 
     suspend fun insertSamples(samples: List<LiveReading>)
 
-    /** Samples with `from <= wallMs <= to`, oldest first. */
+    /** Samples with `from <= wallMs <= to`, oldest first: at most [SAMPLES_BETWEEN_LIMIT], the newest of them. */
     suspend fun samplesBetween(
         from: Long,
         to: Long,

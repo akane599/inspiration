@@ -489,7 +489,7 @@ class InspirationDatabaseTest {
             maintenance.prune(MaintenanceDao.RETENTION_MS + hour + 10)
             maintenance.prune(MaintenanceDao.RETENTION_MS + hour + 20)
             assertNull(database.telemetryDao().hourly(hour))
-            assertEquals(2, database.telemetryDao().between(hour, hour + MaintenanceDao.HOUR_MS).size)
+            assertEquals(2, database.telemetryDao().between(hour, hour + MaintenanceDao.HOUR_MS, limit = Int.MAX_VALUE).size)
 
             maintenance.prune(MaintenanceDao.RETENTION_MS + hour + MaintenanceDao.HOUR_MS)
             val aggregate = database.telemetryDao().hourly(hour)!!
@@ -497,7 +497,7 @@ class InspirationDatabaseTest {
             assertEquals(20.0, aggregate.avgCurrentMa!!, 0.0)
             assertEquals(10, aggregate.minCurrentMa)
             assertEquals(30, aggregate.maxCurrentMa)
-            assertTrue(database.telemetryDao().between(hour, hour + MaintenanceDao.HOUR_MS).isEmpty())
+            assertTrue(database.telemetryDao().between(hour, hour + MaintenanceDao.HOUR_MS, limit = Int.MAX_VALUE).isEmpty())
             maintenance.prune(MaintenanceDao.RETENTION_MS + hour + MaintenanceDao.HOUR_MS + 10)
             assertEquals(aggregate, database.telemetryDao().hourly(hour))
         }

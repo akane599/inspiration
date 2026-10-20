@@ -43,6 +43,7 @@ import com.akane.inspiration.telemetry.store.ChargeSessionRecord
 import com.akane.inspiration.telemetry.store.HISTORY_SOURCE
 import com.akane.inspiration.telemetry.store.HealthSample
 import com.akane.inspiration.telemetry.store.Marker
+import com.akane.inspiration.telemetry.store.SAMPLES_BETWEEN_LIMIT
 import com.akane.inspiration.telemetry.store.SnapshotStore
 import com.akane.inspiration.telemetry.store.TelemetrySample
 import com.akane.inspiration.telemetry.store.ToolkitActionRecord
@@ -217,7 +218,7 @@ class RoomSnapshotStore(
     override suspend fun samplesBetween(
         from: Long,
         to: Long,
-    ): List<TelemetrySample> = database.telemetryDao().between(from, to).map { it.toDomain() }
+    ): List<TelemetrySample> = database.telemetryDao().between(from, to, SAMPLES_BETWEEN_LIMIT).map { it.toDomain() }
 
     override suspend fun chargeSessions(): List<ChargeSessionRecord> = database.chargeSessionDao().all().map { it.toDomain() }
 
