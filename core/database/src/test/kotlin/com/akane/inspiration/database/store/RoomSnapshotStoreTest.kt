@@ -144,7 +144,7 @@ class RoomSnapshotStoreTest {
                 )
             val secondaryId = store.insert(secondary)
             assertEquals(secondary.copy(id = secondaryId), store.byId(secondaryId))
-            assertTrue(store.unplugWindowSnapshots(0, Long.MAX_VALUE).all { it.uidIdentityScope == null && it.uids.isEmpty() })
+            assertTrue(store.unplugWindow(0, Long.MAX_VALUE).snapshots.all { it.uidIdentityScope == null && it.uids.isEmpty() })
             assertTrue(store.snapshotsBetween(0, Long.MAX_VALUE).all { it.uidIdentityScope == null && it.uids.isEmpty() })
             val sql = database.openHelper.writableDatabase
             for (column in listOf(
@@ -1205,7 +1205,7 @@ class RoomSnapshotStoreTest {
         }
 
     @Test
-    fun `unplugWindowSnapshots starts at the screen capture before the last plugged row and keeps the summary`() =
+    fun `unplugWindow starts its snapshots at the screen capture before the last plugged row and keeps the summary`() =
         runBlocking {
             val base = 40L * DAY_MS
             store.insert(statusPoint(CaptureTrigger.APP_OPEN, base, plugged = false, level = 95))
@@ -1218,7 +1218,7 @@ class RoomSnapshotStoreTest {
             val now = statusPoint(CaptureTrigger.APP_OPEN, base + 240 * MINUTE_MS, plugged = false, level = 92)
             val from = now.clock.wallMs - 30L * DAY_MS
 
-            val window = store.unplugWindowSnapshots(from, now.clock.wallMs)
+            val window = store.unplugWindow(from, now.clock.wallMs).snapshots
 
             assertEquals(listOf(screenOff, connected, chargeJob, unplug, screenOn, screenOffAgain), window.map { it.id })
             val summary = UnplugSummaryCalculator.compute(window, now) as UnplugSummary.Discharging
@@ -1229,7 +1229,7 @@ class RoomSnapshotStoreTest {
         }
 
     @Test
-    fun `unplugWindowSnapshots falls back to the newest disconnect and ignores marks outside the range`() =
+    fun `unplugWindow falls back to the newest disconnect and ignores marks outside the range`() =
         runBlocking {
             val base = 40L * DAY_MS
             val to = base + 240 * MINUTE_MS
@@ -1243,7 +1243,7 @@ class RoomSnapshotStoreTest {
             val atNow = store.insert(statusPoint(CaptureTrigger.POWER_CONNECTED, to, plugged = true, level = 84))
             val now = statusPoint(CaptureTrigger.APP_OPEN, to, plugged = false, level = 84)
 
-            val window = store.unplugWindowSnapshots(from, to)
+            val window = store.unplugWindow(from, to).snapshots
 
             assertEquals(listOf(screenOn, unplug, later, atNow), window.map { it.id })
             val summary = UnplugSummaryCalculator.compute(window, now) as UnplugSummary.Discharging
@@ -1252,11 +1252,11 @@ class RoomSnapshotStoreTest {
         }
 
     @Test
-    fun `unplugWindowSnapshots keeps the screen state across a BOOT row of the same boot`() =
+    fun `unplugWindow keeps the screen state across a BOOT row of the same boot`() =
         runBlocking { assertUpdateKeepsScreenState(CaptureTrigger.BOOT) }
 
     @Test
-    fun `unplugWindowSnapshots keeps the screen state across an app update`() =
+    fun `unplugWindow keeps the screen state across an app update`() =
         runBlocking { assertUpdateKeepsScreenState(CaptureTrigger.PACKAGE_REPLACED) }
 
     /** An app update while charging, recorded as [updateTrigger] (0.2.3 used BOOT) in the same boot. */
@@ -1270,7 +1270,7 @@ class RoomSnapshotStoreTest {
         val now = statusPoint(CaptureTrigger.APP_OPEN, base + 150 * MINUTE_MS, plugged = false, level = 94)
         val from = now.clock.wallMs - 30L * DAY_MS
 
-        val window = store.unplugWindowSnapshots(from, now.clock.wallMs)
+        val window = store.unplugWindow(from, now.clock.wallMs).snapshots
 
         assertEquals(listOf(screenOff, updated, unplug), window.map { it.id })
         assertEquals(updateTrigger, window[1].trigger)
@@ -1281,7 +1281,7 @@ class RoomSnapshotStoreTest {
     }
 
     @Test
-    fun `unplugWindowSnapshots forgets the screen state at a reboot the boot count misses`() =
+    fun `unplugWindow forgets the screen state at a reboot the boot count misses`() =
         runBlocking {
             val base = 40L * DAY_MS
 
@@ -1308,7 +1308,7 @@ class RoomSnapshotStoreTest {
             val now = point(CaptureTrigger.APP_OPEN, 150, elapsedMinute = 122, plugged = false, level = 94)
             val from = now.clock.wallMs - 30L * DAY_MS
 
-            val window = store.unplugWindowSnapshots(from, now.clock.wallMs)
+            val window = store.unplugWindow(from, now.clock.wallMs).snapshots
 
             assertEquals(listOf(screenOff, chargeJob, rebooted), window.map { it.id })
             val summary = UnplugSummaryCalculator.compute(window, now) as UnplugSummary.Discharging
@@ -1319,7 +1319,7 @@ class RoomSnapshotStoreTest {
         }
 
     @Test
-    fun `unplugWindowSnapshots reads the whole range when it holds no unplug`() =
+    fun `unplugWindow reads the whole range when it holds no unplug`() =
         runBlocking {
             val to = 40L * DAY_MS
             val from = to - 30L * DAY_MS
@@ -1329,7 +1329,7 @@ class RoomSnapshotStoreTest {
             store.insert(statusPoint(CaptureTrigger.APP_OPEN, to - HOUR_MS, plugged = null, level = 80))
             val now = statusPoint(CaptureTrigger.APP_OPEN, to, plugged = false, level = 79)
 
-            val window = store.unplugWindowSnapshots(from, to)
+            val window = store.unplugWindow(from, to).snapshots
 
             assertEquals(store.snapshotsBetween(from, to), window)
             assertEquals(3, window.size)
@@ -1395,7 +1395,7 @@ class RoomSnapshotStoreTest {
                     historyEvent(HistoryKind.SCREEN_ON, base + 9 * MINUTE_MS, level = 99),
                 )
             store.insertHistory(listOf(historyEvent(HistoryKind.SCREEN_ON, base - HOUR_MS, level = 100)) + kept, statsStartMs = 1L)
-            assertEquals(listOf(screenOn, late), store.unplugWindowSnapshots(from, now.clock.wallMs).map { it.id })
+            assertEquals(listOf(screenOn, late), database.snapshotDao().unplugWindow(from, now.clock.wallMs).map { it.id })
 
             val window = store.unplugWindow(from, now.clock.wallMs)
 

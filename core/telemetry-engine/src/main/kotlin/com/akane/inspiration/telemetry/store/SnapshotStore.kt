@@ -84,26 +84,16 @@ interface SnapshotStore {
     ): List<BatterySnapshot>
 
     /**
-     * The newest part of [snapshotsBetween] that [UnplugSummaryCalculator] needs for a "now" at [toWallMs], so the
-     * summary equals the one over the whole range. The newest plugged-in snapshot before [toWallMs] marks the
-     * unplug (else the newest [CaptureTrigger.POWER_DISCONNECTED] capture before it). The part starts at the
-     * newest screen capture at or before that mark, which fixes the screen state the calculator carries forward,
-     * else at the mark; with no mark it is the whole range. The default returns the whole range (for
-     * fakes); the Room store bounds it in SQL.
-     */
-    suspend fun unplugWindowSnapshots(
-        fromWallMs: Long,
-        toWallMs: Long,
-    ): List<BatterySnapshot> = snapshotsBetween(fromWallMs, toWallMs)
-
-    /**
-     * What [UnplugSummaryCalculator] reads for a "now" at [toWallMs] from the range, read consistently: the bare
-     * snapshots of [unplugWindowSnapshots] and the history events of [UnplugSummaryCalculator.HISTORY_KINDS], oldest
-     * first, so the summary equals the one over the whole range. When the newest history plug or unplug before
-     * [toWallMs] is older than those snapshots, they start at the newest screen capture at or before it instead (else
-     * the newest snapshot at or before it). The events start at the newest history screen event at or before the
-     * first snapshot (the screen state the calculator carries forward), else at that snapshot. The default returns
-     * the whole range (for fakes); the Room store bounds it with index seeks.
+     * What [UnplugSummaryCalculator] reads for a "now" at [toWallMs] from the range, read consistently: the newest
+     * part of the bare [snapshotsBetween] it needs and the history events of [UnplugSummaryCalculator.HISTORY_KINDS],
+     * oldest first, so the summary equals the one over the whole range. The newest plugged-in snapshot before
+     * [toWallMs] marks the unplug (else the newest [CaptureTrigger.POWER_DISCONNECTED] capture before it). The
+     * snapshots start at the newest screen capture at or before that mark, which fixes the screen state the
+     * calculator carries forward, else at the mark; with no mark they are the whole range. When the newest history
+     * plug or unplug before [toWallMs] is older than those snapshots, they start at the newest screen capture at or
+     * before it instead (else the newest snapshot at or before it). The events start at the newest history screen
+     * event at or before the first snapshot (the screen state the calculator carries forward), else at that snapshot.
+     * The default returns the whole range (for fakes); the Room store bounds it with index seeks.
      */
     suspend fun unplugWindow(
         fromWallMs: Long,

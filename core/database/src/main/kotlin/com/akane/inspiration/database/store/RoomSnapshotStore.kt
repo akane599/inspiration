@@ -147,11 +147,6 @@ class RoomSnapshotStore(
         toWallMs: Long,
     ): List<BatterySnapshot> = database.snapshotDao().between(fromWallMs, toWallMs).map { it.toBareSnapshot() }
 
-    override suspend fun unplugWindowSnapshots(
-        fromWallMs: Long,
-        toWallMs: Long,
-    ): List<BatterySnapshot> = database.snapshotDao().unplugWindow(fromWallMs, toWallMs).map { it.toBareSnapshot() }
-
     override suspend fun unplugWindow(
         fromWallMs: Long,
         toWallMs: Long,

@@ -140,7 +140,7 @@ interface SnapshotDao {
 
     /**
      * The newest part of [between] that the status summary needs for a "now" at [toWallMs] (see
-     * `SnapshotStore.unplugWindowSnapshots`). `mark` is the newest plugged-in row before now, else the newest
+     * `SnapshotStore.unplugWindow`). `mark` is the newest plugged-in row before now, else the newest
      * POWER_DISCONNECTED capture before now, else [fromWallMs]; the rows start at the newest screen capture at
      * or before `mark` (whose trigger fixes the screen state), else at `mark`. A BOOT row is no start: the
      * calculator resets the state where a new boot starts (the boot count changes or elapsedRealtime runs
