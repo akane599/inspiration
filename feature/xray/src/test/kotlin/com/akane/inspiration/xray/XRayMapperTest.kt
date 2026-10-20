@@ -254,6 +254,17 @@ class XRayMapperTest {
     }
 
     @Test
+    fun `hidden apps are the report's skipped uids, and none where no app can be listed at all`() {
+        assertEquals(3, XRayMapper.hiddenApps(sampleDiff(), perUidAvailable = true, skippedInvalidUids = 3))
+        assertEquals(0, XRayMapper.hiddenApps(sampleDiff(), perUidAvailable = true, skippedInvalidUids = 0))
+        assertEquals(0, XRayMapper.hiddenApps(sampleDiff(), perUidAvailable = false, skippedInvalidUids = 3))
+        assertEquals(
+            0,
+            XRayMapper.hiddenApps(diffOf(uids = sampleDiff().uids, batteryStats = false), perUidAvailable = true, skippedInvalidUids = 3),
+        )
+    }
+
+    @Test
     fun `an app's components are grouped into the bar's hues and ranked in the detail`() {
         val app = XRayMapper.apps(sampleDiff(), true).first { it.packageName == CHATTY }
 

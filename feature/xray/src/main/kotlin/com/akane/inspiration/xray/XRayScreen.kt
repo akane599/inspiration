@@ -32,6 +32,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.heading
@@ -364,11 +365,13 @@ private fun LazyGridScope.appsTab(
                     body = stringResource(R.string.xray_apps_none_body),
                 )
             }
+            hiddenAppsNote(state.hiddenApps)
         }
 
         else -> {
             fullWidth { CardTitle(stringResource(R.string.xray_apps_heading)) }
             fullWidth { GroupLegend() }
+            hiddenAppsNote(state.hiddenApps)
             val top =
                 state.apps
                     .first()
@@ -378,6 +381,18 @@ private fun LazyGridScope.appsTab(
                 AppCard(app = app, top = top, loadIcon = loadIcon, onClick = { onIntent(XRayIntent.OpenApp(app.uid)) })
             }
         }
+    }
+}
+
+/** Says how many apps the list leaves out for lack of a baseline, so a short list is not read as complete. */
+private fun LazyGridScope.hiddenAppsNote(count: Int) {
+    if (count <= 0) return
+    fullWidth {
+        Text(
+            text = pluralStringResource(R.plurals.xray_apps_hidden_no_baseline, count, count),
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
     }
 }
 

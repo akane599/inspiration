@@ -230,6 +230,8 @@ data class XRayState(
     val perUidAvailable: Boolean = true,
     val breakdownAvailable: Boolean = true,
     val apps: ImmutableList<AppRow> = persistentListOf(),
+    /** Apps left out of [apps] because the interval has no usable baseline for them; the screen says how many. */
+    val hiddenApps: Int = 0,
     val slice: SliceInfo? = null,
     val refreshing: Boolean = false,
     val detail: AppDetail? = null,

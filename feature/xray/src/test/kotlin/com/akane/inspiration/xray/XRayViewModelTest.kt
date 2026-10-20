@@ -96,6 +96,18 @@ class XRayViewModelTest {
     }
 
     @Test
+    fun `the state counts the apps hidden for lack of a baseline from the report's skipped uids`() {
+        assertEquals(0, state.hiddenApps)
+
+        deps.analysis.value = readyOf(sampleDiff(), skippedInvalidUids = 3)
+        assertEquals(3, state.hiddenApps)
+        assertEquals(listOf(CHATTY_UID, MAPS_UID), state.apps.map { it.uid })
+
+        deps.analysis.value = readyOf(sampleDiff(), resolvedOf(perUidAvailable = false), skippedInvalidUids = 3)
+        assertEquals(0, state.hiddenApps)
+    }
+
+    @Test
     fun `loading, empty and failed analyses map to their own statuses`() {
         deps.analysis.value = AnalysisState.Empty(ReferenceKind.SinceUnplugged)
         assertEquals(XRayStatus.EMPTY, state.status)

@@ -67,6 +67,17 @@ object XRayMapper {
             .map { toRow(it, sum, diff) }
     }
 
+    /**
+     * How many apps [apps] leaves out for want of a usable baseline: the diagnostic report's skipped UIDs (invalid
+     * delta or changed package) for the same diff. Zero where no app could be listed at all, since the screen
+     * already explains that case.
+     */
+    fun hiddenApps(
+        diff: SnapshotDiff,
+        perUidAvailable: Boolean,
+        skippedInvalidUids: Int,
+    ): Int = if (perUidAvailable && diff.validity.batteryStats) skippedInvalidUids.coerceAtLeast(0) else 0
+
     /** The slice banner's data; null unless the selection is a time slice. [resolved] is null while no interval resolves. */
     fun slice(
         selected: ReferenceKind,

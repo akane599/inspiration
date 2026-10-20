@@ -73,6 +73,10 @@
     <string name="xray_apps_unavailable_body">The battery statistics of this interval can\'t be trusted per app, for example after a statistics reset.</string>
     <string name="xray_apps_none_title">No app readings to report</string>
     <string name="xray_apps_none_body">There are no per-app energy figures to show for this interval. This does not mean apps used no energy.</string>
+    <plurals name="xray_apps_hidden_no_baseline">
+        <item quantity="one">%d app hidden: no baseline for this interval</item>
+        <item quantity="other">%d apps hidden: no baseline for this interval</item>
+    </plurals>
     <string name="xray_app_icon_placeholder">App icon unavailable</string>
 
     <!-- App detail sheet -->

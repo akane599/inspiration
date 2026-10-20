@@ -97,7 +97,12 @@ fun XRayAppsWide() = InspirationTheme(darkTheme = false) { Screen(Apps) }
 fun XRayAppsLargeFont() = InspirationTheme(darkTheme = false) { Screen(Apps) }
 
 @PreviewTest
-@Preview(name = "apps-needs-snapshots-slice", showBackground = true, widthDp = 412, heightDp = 580)
+@Preview(name = "apps-hidden-no-baseline", showBackground = true, widthDp = 412, heightDp = 820)
+@Composable
+fun XRayAppsHiddenNoBaseline() = InspirationTheme(darkTheme = false) { Screen(Apps.copy(hiddenApps = 3)) }
+
+@PreviewTest
+@Preview(name = "apps-needs-snapshots-slice",showBackground = true, widthDp = 412, heightDp = 580)
 @Composable
 fun XRayAppsNeedSnapshots() = InspirationTheme(darkTheme = false) { Screen(XRayPreviewData.needsSnapshots) }
 

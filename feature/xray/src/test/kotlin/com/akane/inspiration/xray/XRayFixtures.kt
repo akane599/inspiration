@@ -140,6 +140,7 @@ internal fun readyOf(
     diff: SnapshotDiff,
     resolved: ResolvedReference = resolvedOf(),
     kind: ReferenceKind = ReferenceKind.SinceUnplugged,
+    skippedInvalidUids: Int = 0,
 ): AnalysisState.Ready =
     AnalysisState.Ready(
         IntervalAnalysis(
@@ -162,7 +163,7 @@ internal fun readyOf(
                     null,
                     emptyList(),
                 ),
-            report = DiagnosticReport(emptyList(), emptyMap(), 0),
+            report = DiagnosticReport(emptyList(), emptyMap(), skippedInvalidUids),
             story = BatteryStory(emptyList()),
         ),
         kind,

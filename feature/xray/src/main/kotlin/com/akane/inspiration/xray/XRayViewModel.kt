@@ -189,6 +189,7 @@ class XRayViewModel(
         val diff = ready.analysis.diff
         val components = XRayMapper.components(diff).toImmutableList()
         val apps = withIdentities(XRayMapper.apps(diff, resolved.perUidAvailable)).toImmutableList()
+        val hiddenApps = XRayMapper.hiddenApps(diff, resolved.perUidAvailable, ready.analysis.report.skippedInvalidUids)
         val detail = _state.value.detail
         if (detail != null && apps.none { it.uid == detail.app.uid && it.packageName == detail.app.packageName }) {
             // Close through the lifecycle boundary too: stale controls, plans and confirmations must not survive.
@@ -202,6 +203,7 @@ class XRayViewModel(
                 perUidAvailable = resolved.perUidAvailable,
                 breakdownAvailable = diff.validity.batteryStats,
                 apps = apps,
+                hiddenApps = hiddenApps,
                 slice = slice,
                 detail =
                     current.detail?.let { detail ->

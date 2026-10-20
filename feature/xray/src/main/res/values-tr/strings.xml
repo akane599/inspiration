@@ -73,6 +73,10 @@
     <string name="xray_apps_unavailable_body">Bu aralığın pil istatistiklerine, örneğin istatistik sıfırlamasından sonra, uygulama başına güvenilemiyor.</string>
     <string name="xray_apps_none_title">Raporlanabilir uygulama verisi yok</string>
     <string name="xray_apps_none_body">Bu aralık için raporlanabilir uygulama enerji verisi yok. Bu, uygulamaların hiç enerji kullanmadığı anlamına gelmez.</string>
+    <plurals name="xray_apps_hidden_no_baseline">
+        <item quantity="one">%d uygulama gizlendi: bu aralık için başlangıç değeri yok</item>
+        <item quantity="other">%d uygulama gizlendi: bu aralık için başlangıç değeri yok</item>
+    </plurals>
     <string name="xray_app_icon_placeholder">Uygulama simgesi yok</string>
 
     <!-- App detail sheet -->
