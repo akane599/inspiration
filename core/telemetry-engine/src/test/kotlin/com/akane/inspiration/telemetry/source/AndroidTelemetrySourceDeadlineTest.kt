@@ -52,14 +52,12 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.async
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.cancelAndJoin
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.TestCoroutineScheduler
 import kotlinx.coroutines.withTimeout
-import kotlinx.coroutines.withTimeoutOrNull
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
@@ -81,103 +79,103 @@ import java.util.concurrent.atomic.AtomicInteger
  * The real AndroidTelemetrySource + SnapshotCapturer against a service whose calls block like Binder
  * transactions: the calling thread is held and an interrupt does not end the call. A capture deadline must still
  * release its caller on time, and history pages read before it must be kept so a large backlog makes progress.
- * Real threads and time; deadlines are scaled down from the 10 s production capture deadline.
+ * Blocking calls hold real IO threads on latches until each test's cleanup; deadlines run on virtual time
+ * ([TestCoroutineScheduler]), so no assertion depends on how fast a loaded host dispatches.
  */
 @OptIn(ExperimentalCoroutinesApi::class)
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [35])
 class AndroidTelemetrySourceDeadlineTest {
     @Test
-    fun `a standalone kernel deadline includes acquisition and releases service use while transact is blocked`() =
-        runBlocking {
-            val fixture = KernelFixture(connectImmediately = false)
-            val telemetry = source(fixture.manager)
-            val startedNs = System.nanoTime()
-            val call = async(Dispatchers.Default) { telemetry.kernelBatterySnapshot(KERNEL_DEADLINE_MS) }
-            try {
-                assertTrue("the manager must acquire a service use", fixture.facade.bound.await(2L, TimeUnit.SECONDS))
-                delay(KERNEL_ACQUISITION_MS)
-                fixture.facade.connect()
-                assertTrue("the Binder transaction must start before the deadline", fixture.transaction.entered.await(2L, TimeUnit.SECONDS))
+    fun `a standalone kernel deadline includes acquisition and releases service use while transact is blocked`() {
+        val fixture = KernelFixture(connectImmediately = false)
+        val telemetry = source(fixture.manager)
+        val call = fixture.scope.async { telemetry.kernelBatterySnapshot(KERNEL_DEADLINE_MS) }
+        try {
+            assertTrue("the manager must acquire a service use", fixture.scheduler.runCurrentUntil { fixture.facade.bound.count == 0L })
+            fixture.scheduler.advanceTimeBy(KERNEL_ACQUISITION_MS)
+            fixture.facade.connect()
+            assertTrue("the Binder transaction must start", fixture.scheduler.runCurrentUntil { fixture.transaction.entered.count == 0L })
 
-                assertNotNull(
-                    "the caller must finish before the blocked transaction is released",
-                    withTimeoutOrNull(KERNEL_DEADLINE_MS + KERNEL_SLACK_MS) {
-                        call.join()
-                        true
-                    },
-                )
-                assertNull(call.await())
-                val tookMs = elapsedMs(startedNs)
-                assertTrue(
-                    "acquisition and read must share $KERNEL_DEADLINE_MS ms, not get separate budgets: $tookMs ms",
-                    tookMs < KERNEL_DEADLINE_MS + KERNEL_SLACK_MS,
-                )
-                assertEquals("native work remains blocked", 1L, fixture.transaction.finished.count)
-                fixture.scheduler.advanceUntilIdle()
-                assertEquals("the real manager released its last active service use", 1, fixture.facade.unbinds.get())
-            } finally {
-                fixture.transaction.release.countDown()
-                call.cancelAndJoin()
-                fixture.close()
-            }
+            // Acquisition took KERNEL_ACQUISITION_MS of the budget; the read may only have what is left of it.
+            fixture.scheduler.advanceTimeBy(KERNEL_DEADLINE_MS - KERNEL_ACQUISITION_MS - 1)
+            fixture.scheduler.runCurrent()
+            assertTrue("the shared deadline has not passed yet", call.isActive)
+            fixture.scheduler.advanceTimeBy(1)
+            assertTrue(
+                "acquisition and read must share $KERNEL_DEADLINE_MS ms, not get separate budgets, and the caller " +
+                    "must not wait for the blocked transaction",
+                fixture.scheduler.runCurrentUntil { call.isCompleted },
+            )
+            assertNull(call.getCompleted())
+            assertEquals("native work remains blocked", 1L, fixture.transaction.finished.count)
+            fixture.scheduler.advanceUntilIdle()
+            assertEquals("the real manager released its last active service use", 1, fixture.facade.unbinds.get())
+        } finally {
+            fixture.transaction.release.countDown()
+            call.cancel()
+            fixture.close()
         }
+    }
 
     @Test
-    fun `cancelling a live kernel reading promptly releases the real manager refcount`() =
-        runBlocking {
-            val fixture = KernelFixture()
-            val holder = fixture.manager.holdBinding()
-            val call = async(Dispatchers.Default) { source(fixture.manager).kernelReading() }
-            try {
-                assertTrue("the Binder transaction must be in flight", fixture.transaction.entered.await(2L, TimeUnit.SECONDS))
-                call.cancel()
-                assertNotNull(
-                    "cancellation must complete without waiting for native Binder work",
-                    withTimeoutOrNull(KERNEL_SLACK_MS) {
-                        call.join()
-                        true
-                    },
-                )
-                assertTrue(call.isCancelled)
-                assertEquals(1L, fixture.transaction.finished.count)
+    fun `cancelling a live kernel reading promptly releases the real manager refcount`() {
+        val fixture = KernelFixture()
+        val holder = fixture.manager.holdBinding()
+        val call = fixture.scope.async { source(fixture.manager).kernelReading() }
+        try {
+            assertTrue(
+                "the Binder transaction must be in flight",
+                fixture.scheduler.runCurrentUntil { fixture.transaction.entered.count == 0L },
+            )
+            call.cancel()
+            // The transaction blocks until the finally below, so any bound tells a prompt release from waiting.
+            assertTrue(
+                "cancellation must complete without waiting for native Binder work",
+                fixture.scheduler.runCurrentUntil { call.isCompleted },
+            )
+            assertTrue(call.isCancelled)
+            assertEquals(1L, fixture.transaction.finished.count)
 
-                holder.close()
-                fixture.scheduler.advanceUntilIdle()
-                assertEquals("no active service user may keep the binding after the holder closes", 1, fixture.facade.unbinds.get())
-                assertNull(fixture.manager.telemetryService.value)
-                assertEquals("unbind did not need the transaction to finish", 1L, fixture.transaction.finished.count)
-            } finally {
-                fixture.transaction.release.countDown()
-                call.cancelAndJoin()
-                holder.close()
-                fixture.close()
-            }
+            holder.close()
+            fixture.scheduler.advanceUntilIdle()
+            assertEquals("no active service user may keep the binding after the holder closes", 1, fixture.facade.unbinds.get())
+            assertNull(fixture.manager.telemetryService.value)
+            assertEquals("unbind did not need the transaction to finish", 1L, fixture.transaction.finished.count)
+        } finally {
+            fixture.transaction.release.countDown()
+            call.cancel()
+            holder.close()
+            fixture.close()
         }
+    }
 
     @Test
-    fun `an outer kernel deadline is not swallowed as an unavailable result`() =
-        runBlocking {
-            val fixture = KernelFixture()
-            val call =
-                async(Dispatchers.Default) {
-                    runCatching {
-                        withTimeout(KERNEL_DEADLINE_MS) {
-                            source(fixture.manager).kernelBatterySnapshot(KERNEL_DEADLINE_MS * 10)
-                        }
+    fun `an outer kernel deadline is not swallowed as an unavailable result`() {
+        val fixture = KernelFixture()
+        val call =
+            fixture.scope.async {
+                runCatching {
+                    withTimeout(KERNEL_DEADLINE_MS) {
+                        source(fixture.manager).kernelBatterySnapshot(KERNEL_DEADLINE_MS * 10)
                     }
                 }
-            try {
-                assertTrue(fixture.transaction.entered.await(2L, TimeUnit.SECONDS))
-                val result = withTimeout(KERNEL_DEADLINE_MS + KERNEL_SLACK_MS) { call.await() }
-                assertTrue("only the helper's own timeout becomes null", result.exceptionOrNull() is CancellationException)
-                assertEquals(1L, fixture.transaction.finished.count)
-            } finally {
-                fixture.transaction.release.countDown()
-                call.cancelAndJoin()
-                fixture.close()
             }
+        try {
+            assertTrue(fixture.scheduler.runCurrentUntil { fixture.transaction.entered.count == 0L })
+            fixture.scheduler.advanceTimeBy(KERNEL_DEADLINE_MS)
+            assertTrue(
+                "the outer deadline must end the call while the transaction blocks",
+                fixture.scheduler.runCurrentUntil { call.isCompleted },
+            )
+            assertTrue("only the helper's own timeout becomes null", call.getCompleted().exceptionOrNull() is CancellationException)
+            assertEquals(1L, fixture.transaction.finished.count)
+        } finally {
+            fixture.transaction.release.countDown()
+            call.cancel()
+            fixture.close()
         }
+    }
 
     @Test
     fun `a cancellation raised by the kernel boundary is propagated rather than swallowed`() =
@@ -196,49 +194,60 @@ class AndroidTelemetrySourceDeadlineTest {
         }
 
     @Test
-    fun `a capture deadline releases the caller while a binder call still blocks`() =
-        runBlocking {
-            val store = MemoryStore()
-            val service = BlockingService(usageMs = 1_500L)
-            val capturer = SnapshotCapturer(source(service), store, FixedClocks)
-
-            val startedNs = System.nanoTime()
-            val result = capturer.captureFull(CaptureTrigger.MARKER, deadlineMs = DEADLINE_MS, ingestHistory = false)
-            val tookMs = elapsedMs(startedNs)
-
+    fun `a capture deadline releases the caller while a binder call still blocks`() {
+        val store = MemoryStore()
+        val service = BlockingService(blockUsage = true)
+        val capturer = SnapshotCapturer(source(service), store, FixedClocks)
+        val caller = VirtualCaller()
+        val call = caller.scope.async { capturer.captureFull(CaptureTrigger.MARKER, deadlineMs = DEADLINE_MS, ingestHistory = false) }
+        try {
+            assertTrue("the usage read must start", caller.scheduler.runCurrentUntil { service.entered.count == 0L })
+            caller.scheduler.advanceTimeBy(DEADLINE_MS)
             assertTrue(
-                "captureFull(deadlineMs = $DEADLINE_MS) returned after $tookMs ms: it waited for the blocking usage read",
-                tookMs < DEADLINE_MS + SLACK_MS,
+                "captureFull(deadlineMs = $DEADLINE_MS) must return at its deadline, not wait for the blocking usage read",
+                caller.scheduler.runCurrentUntil { call.isCompleted },
             )
-            assertTrue(result is CaptureResult.Missed)
+            assertTrue(call.getCompleted() is CaptureResult.Missed)
             assertEquals(listOf(CaptureTrigger.MARKER), store.misses.toList())
+            assertEquals("the usage read still blocks", 1L, service.finished.count)
+        } finally {
+            service.release.countDown()
+            caller.close()
         }
+    }
 
     @Test
-    fun `the ingest deadline bounds the read even while history pages are in flight`() =
-        runBlocking {
-            val service = BlockingService(pageMs = PAGE_MS)
-            val capturer = SnapshotCapturer(source(service), MemoryStore(), FixedClocks)
-
-            val startedNs = System.nanoTime()
-            capturer.ingestHistory(CaptureTrigger.CHARGE_JOB, deadlineMs = DEADLINE_MS)
-            val tookMs = elapsedMs(startedNs)
-
+    fun `the ingest deadline bounds the read even while history pages are in flight`() {
+        val service = BlockingService(blockHistoryFrom = 1)
+        val capturer = SnapshotCapturer(source(service), MemoryStore(), FixedClocks)
+        val caller = VirtualCaller()
+        val call = caller.scope.async { capturer.ingestHistory(CaptureTrigger.CHARGE_JOB, deadlineMs = DEADLINE_MS) }
+        try {
+            assertTrue("a history page must be in flight", caller.scheduler.runCurrentUntil { service.entered.count == 0L })
+            caller.scheduler.advanceTimeBy(DEADLINE_MS)
             assertTrue(
-                "ingestHistory(deadlineMs = $DEADLINE_MS) returned after $tookMs ms: it waited for " +
-                    "${service.historyRequests.size} blocking history pages ($PAGE_MS ms each)",
-                tookMs < DEADLINE_MS + PAGE_MS + SLACK_MS,
+                "ingestHistory(deadlineMs = $DEADLINE_MS) must return at its deadline, not wait for the blocking history page",
+                caller.scheduler.runCurrentUntil { call.isCompleted },
             )
+            assertNull("a read that missed its deadline is not kept", call.getCompleted().read)
+            assertEquals("the history page still blocks", 1L, service.finished.count)
+        } finally {
+            service.release.countDown()
+            caller.close()
         }
+    }
 
     @Test
-    fun `history pages read before the deadline are persisted and the next ingest resumes from them`() =
-        runBlocking {
-            val service = BlockingService(pageMs = PAGE_MS)
-            val store = MemoryStore()
-            val capturer = SnapshotCapturer(source(service), store, FixedClocks)
-
-            capturer.ingestHistory(CaptureTrigger.CHARGE_JOB, deadlineMs = DEADLINE_MS)
+    fun `history pages read before the deadline are persisted and the next ingest resumes from them`() {
+        val service = BlockingService(blockHistoryFrom = 1)
+        val store = MemoryStore()
+        val capturer = SnapshotCapturer(source(service), store, FixedClocks)
+        val caller = VirtualCaller()
+        try {
+            val first = caller.scope.async { capturer.ingestHistory(CaptureTrigger.CHARGE_JOB, deadlineMs = DEADLINE_MS) }
+            assertTrue("the second history page must be in flight", caller.scheduler.runCurrentUntil { service.entered.count == 0L })
+            caller.scheduler.advanceTimeBy(DEADLINE_MS)
+            assertTrue(caller.scheduler.runCurrentUntil { first.isCompleted })
 
             assertNotNull(
                 "${service.historyRequests.size} history pages were requested inside the $DEADLINE_MS ms deadline, " +
@@ -250,9 +259,14 @@ class AndroidTelemetrySourceDeadlineTest {
             assertEquals("the cursor is the last persisted event", store.history.maxOf { it.historyTimeMs }, cursor.second)
 
             service.historyRequests.clear()
-            capturer.ingestHistory(CaptureTrigger.CHARGE_JOB, deadlineMs = DEADLINE_MS)
+            caller.scope.async { capturer.ingestHistory(CaptureTrigger.CHARGE_JOB, deadlineMs = DEADLINE_MS) }
+            assertTrue("the next ingest must request a page", caller.scheduler.runCurrentUntil { service.historyRequests.isNotEmpty() })
             assertEquals("the next ingest pages on from the cursor", cursor.second, service.historyRequests.first())
+        } finally {
+            service.release.countDown()
+            caller.close()
         }
+    }
 
     @Test
     @Config(shadows = [PipeOs::class])
@@ -506,7 +520,27 @@ class AndroidTelemetrySourceDeadlineTest {
         }
     }
 
-    private fun elapsedMs(startedNs: Long) = (System.nanoTime() - startedNs) / 1_000_000
+    /**
+     * Runs the tasks due at the current virtual time until [done]. Blocking service calls run on real IO threads and
+     * resume their callers onto this scheduler from there, so the check repeats; real time only bounds a hang.
+     */
+    private fun TestCoroutineScheduler.runCurrentUntil(done: () -> Boolean): Boolean {
+        val endNs = System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(HANG_GUARD_MS)
+        while (true) {
+            runCurrent()
+            if (done()) return true
+            if (System.nanoTime() - endNs >= 0L) return false
+            Thread.sleep(1L)
+        }
+    }
+
+    /** A caller on virtual time: its capture deadline expires only when the test advances [scheduler]. */
+    private class VirtualCaller : AutoCloseable {
+        val scheduler = TestCoroutineScheduler()
+        val scope = CoroutineScope(SupervisorJob() + StandardTestDispatcher(scheduler))
+
+        override fun close() = scope.cancel()
+    }
 
     private fun source(
         service: ITelemetryUserService,
@@ -525,14 +559,20 @@ class AndroidTelemetrySourceDeadlineTest {
         clocks = clocks,
     )
 
-    /** Real manager + AIDL proxy, with virtual time only for its 3 s idle-unbind cleanup. */
+    /**
+     * Real manager + AIDL proxy on virtual time: its 3 s idle-unbind cleanup, the service-use block it runs on its IO
+     * dispatcher, and the deadlines of calls the test starts in [scope] all run on [scheduler], so any deadline in
+     * the chain expires only when the test advances it. The transaction itself still blocks a real IO thread, via
+     * the source's own dispatcher.
+     */
     private class KernelFixture(
         connectImmediately: Boolean = true,
     ) : AutoCloseable {
         val transaction = LatchKernelTransaction()
         val facade = KernelFacade(transaction, connectImmediately)
         val scheduler = TestCoroutineScheduler()
-        private val scope = CoroutineScope(SupervisorJob() + StandardTestDispatcher(scheduler))
+        private val dispatcher = StandardTestDispatcher(scheduler)
+        val scope = CoroutineScope(SupervisorJob() + dispatcher)
         val manager: ShizukuManagerImpl
 
         init {
@@ -543,7 +583,7 @@ class AndroidTelemetrySourceDeadlineTest {
                     applicationInfo = ApplicationInfo().apply { packageName = "moe.shizuku.privileged.api" }
                 },
             )
-            manager = ShizukuManagerImpl(context, facade.api, scope)
+            manager = ShizukuManagerImpl(context, facade.api, scope, ioDispatcher = dispatcher)
             manager.start()
             check(manager.state.value is ShizukuState.Ready)
         }
@@ -666,16 +706,21 @@ class AndroidTelemetrySourceDeadlineTest {
 
     /**
      * Every history page is full (truncated), as on a large first-ingest backlog, so paging continues until its
-     * page cap. Each blocking call ignores interrupts the way a Binder transaction does.
+     * page cap. The usage read with [blockUsage], and history pages from index [blockHistoryFrom] on, block until
+     * [release], ignoring interrupts the way a Binder transaction does.
      */
     private class BlockingService(
-        private val usageMs: Long = 0L,
-        private val pageMs: Long = 0L,
+        private val blockUsage: Boolean = false,
+        private val blockHistoryFrom: Int = Int.MAX_VALUE,
     ) : ITelemetryUserService.Default() {
         val historyRequests: MutableList<Long> = Collections.synchronizedList(mutableListOf())
+        private val historyCalls = AtomicInteger()
+        val entered = CountDownLatch(1)
+        val release = CountDownLatch(1)
+        val finished = CountDownLatch(1)
 
         override fun readBatteryUsage(maxAgeMs: Long): BatteryUsageSnapshot {
-            blockUninterruptibly(usageMs)
+            if (blockUsage) blockUninterruptibly()
             return BatteryUsageSnapshot.unavailable("not_under_test")
         }
 
@@ -687,7 +732,7 @@ class AndroidTelemetrySourceDeadlineTest {
             maxEvents: Int,
         ): BatteryHistorySnapshot {
             historyRequests += afterHistoryTimeMs
-            blockUninterruptibly(pageMs)
+            if (historyCalls.getAndIncrement() >= blockHistoryFrom) blockUninterruptibly()
             val time = afterHistoryTimeMs + 10L
             return BatteryHistorySnapshot(
                 available = true,
@@ -699,19 +744,22 @@ class AndroidTelemetrySourceDeadlineTest {
             )
         }
 
-        private fun blockUninterruptibly(ms: Long) {
-            val endNs = System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(ms)
+        private fun blockUninterruptibly() {
+            entered.countDown()
             var interrupted = false
-            while (true) {
-                val leftNs = endNs - System.nanoTime()
-                if (leftNs <= 0L) break
-                try {
-                    TimeUnit.NANOSECONDS.sleep(leftNs)
-                } catch (_: InterruptedException) {
-                    interrupted = true
+            try {
+                while (true) {
+                    try {
+                        release.await()
+                        break
+                    } catch (_: InterruptedException) {
+                        interrupted = true
+                    }
                 }
+            } finally {
+                finished.countDown()
+                if (interrupted) Thread.currentThread().interrupt()
             }
-            if (interrupted) Thread.currentThread().interrupt()
         }
     }
 
@@ -854,10 +902,14 @@ class AndroidTelemetrySourceDeadlineTest {
     private companion object {
         const val KERNEL_DEADLINE_MS = 800L
         const val KERNEL_ACQUISITION_MS = 600L
-        const val KERNEL_SLACK_MS = 300L
-        const val PAGE_MS = 150L
         const val DEADLINE_MS = 400L
-        const val SLACK_MS = 400L
+
+        /**
+         * Real time allowed for work that is not waiting on a deadline, such as a dispatch to an IO thread.
+         * Blocked calls stay blocked until a test's finally, so this bounds only a hang and needs no tuning to the
+         * host; it stays below the 5 s default bind timeout, which would otherwise end a wait of its own.
+         */
+        const val HANG_GUARD_MS = 4_000L
         const val STATS_START_MS = 77L
     }
 }
