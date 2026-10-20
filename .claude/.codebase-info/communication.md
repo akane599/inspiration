@@ -1,5 +1,5 @@
 # Communication
-*Last Updated: 2026-10-19*
+*Last Updated: 2026-10-20*
 
 ## AIDL contract
 
@@ -28,7 +28,10 @@ Typed Phase 5 toolkit actions are txns 20–30: `setAppOp`, `getAppOps`, `setSta
 **History paging.** The service returns at most 4,096 fixed-size events per page. A page reports `truncated` so the caller can request the next page. The capture path:
 - pages at most eight times, and persists each page as soon as it is read;
 - skips events that the retention prune would delete now (`retentionNowMs − RETENTION_WINDOW_MS`), so a relabelled session that is paged again from 0 cannot bring pruned rows back out of order (audit N-13);
+- also skips already-seen positions below the stored prune watermark (`history_watermark`, Room v7), so a row an earlier prune deleted stays out under a lower later cutoff (SQ-8);
 - advances a persisted cursor that only moves forward within a stats session.
+
+Each available page goes through one `SnapshotStore.persistHistoryPage` call that judges, stores, advances the cursor and raises the watermark atomically, returning the kept count; `HistoryPageCounter` ticks `StoreTicks` only when that count is above 0.
 
 **RESET records** (`HistoryKind.RESET`, audit N-01) carry the plug state at the reset in `plugType`. The reset's screen state and any doze entry follow it as events at the same history time. Rows ingested before this change have none, so a bare RESET's screen state counts as unknown.
 

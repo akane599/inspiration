@@ -27,7 +27,7 @@ Source of truth: [`gradle/libs.versions.toml`](../../gradle/libs.versions.toml),
 | `com.google.protobuf:protobuf-javalite` / `protoc` | 4.36.2 | Lite runtime and protoc for the trimmed vendored batterystats and alarm schemas in `:core:telemetry-engine`. Phase 3 added signal-strength, scanning, radio-active and UID sensor fields, numbered per AOSP android-15.0.0_r36. `powermanagerservice.proto` and the unused `protobuf-kotlin-lite` entry were removed |
 | `com.google.devtools.ksp` | 2.3.12 | Room compiler integration in `:core:database` |
 | `com.google.protobuf` Gradle plugin | 0.10.0 | Lite Java code generation for telemetry proto sources |
-| `androidx.room` runtime / compiler / testing | 2.8.5 (the redundant `room-ktx` was removed) | WAL database, schema v6 with numbered migrations (nullable capture-time UID identity proof, v6 history index), DAOs, and repository tests in `:core:database` |
+| `androidx.room` runtime / compiler / testing | 2.8.5 (the redundant `room-ktx` was removed) | WAL database, schema v7 with numbered migrations (nullable capture-time UID identity proof, v6 history index, v7 history watermark), DAOs, and repository tests in `:core:database` |
 | `org.robolectric:robolectric` | 4.16.1 | JVM Room/DAO tests, `:core:diagnostics` tests (org.json, resources) and `:core:designsystem`'s `ObscuredTouchGuardUiTest` (real `MotionEvent`s) |
 | `androidx.test:core` | 1.7.0 | Room test application context support |
 | AndroidX Compose UI / Runtime / Material3 | BOM-managed | UI shell and feature convention dependencies |

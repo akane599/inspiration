@@ -23,7 +23,7 @@ The second independent audit's remediation (N-01–N-28, release 0.2.4) adds:
 
 The third audit's remediation (R-01–R-21, branch `remediate/audit-2026-10-20`) adds proven-zero baselines for UIDs new to a complete reference, FULL screen-off captures that bind the service on demand, Room schema v6 with newest-of-kind history seeks, post-dispatch-safe toolkit outcomes, a queued Shizuku bind/unbind drainer, the status-start gate, and one shared touch guard in `:core:designsystem` with hidden overlay windows.
 
-The 2026-10-20 board follow-ups (SQ-1–SQ-23) add consistent multi-read analysis transactions, a `STOPPED_STATE_EXIT` capture label for Android 15 stopped-state boot broadcasts, a history-only "Since screen off" with an Empty reason, a one-time history-cursor rewind for existing installs, one shared charge-state rule and calibration store for the gauge and the status notification, a plugged-in charge-counter unit check, one 24 h chart date rule, confirmed-only bg-dexopt cancels, an X-Ray count of apps hidden for lack of a baseline, and Sleep Lab's culprit card for the screen-off awake rule (SQ-17).
+The 2026-10-20 board follow-ups (SQ-1–SQ-23) add consistent multi-read analysis transactions, a `STOPPED_STATE_EXIT` capture label for Android 15 stopped-state boot broadcasts, a history-only "Since screen off" with an Empty reason, a one-time history-cursor rewind for existing installs, one shared charge-state rule and calibration store for the gauge and the status notification, a plugged-in charge-counter unit check, one 24 h chart date rule, confirmed-only bg-dexopt cancels, an X-Ray count of apps hidden for lack of a baseline, Sleep Lab's culprit card for the screen-off awake rule (SQ-17), and a stored history prune watermark in Room v7 so pruned events can't be re-ingested (SQ-8).
 
 | Doc | What |
 |---|---|
@@ -34,7 +34,7 @@ The 2026-10-20 board follow-ups (SQ-1–SQ-23) add consistent multi-read analysi
 | [patterns.md](patterns.md) | Availability, validity, merge, persistence, binder-call deadlines, monotonic time, test-double, chart draw-phase/static-overlay, MVI/visibility, failure containment, refresh and toolkit-write conventions |
 | [tech-landscape.md](tech-landscape.md) | Toolchain, dependency catalog, protobuf, Room, Inter fonts, and test/screenshot infrastructure |
 | [directory-structure.md](directory-structure.md) | Source tree, excluding generated output |
-| [database.md](database.md) | Room schema v6 and migrations (incl. nullable UID ownership proof, signal columns, `snapshot_uid_sensor`, `toolkit_action`, the trigger index), boot/elapsed trigger ordering, DAOs, WAL setup, retention, and snapshot-store mapping |
+| [database.md](database.md) | Room schema v7 and migrations (incl. the `history_watermark` prune watermark, nullable UID ownership proof, signal columns, `snapshot_uid_sensor`, `toolkit_action`, the trigger index), boot/elapsed trigger ordering, DAOs, WAL setup, retention, and snapshot-store mapping |
 | [onboarding.md](onboarding.md) | Build, test, the redroid-only device (no KVM, no emulator), probes (incl. `PROBE_INSIGHTS`), design gallery launch, the `device-probe` and `release` skills, the Gradle slot script, and Shizuku workflow |
 
 ## Map maintenance
