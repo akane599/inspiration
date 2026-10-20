@@ -66,7 +66,7 @@ class SnapshotDifferTest {
     }
 
     @Test
-    fun `complete membership keeps 40 to 50 but a newly observed uid has no proven baseline`() {
+    fun `complete membership keeps 40 to 50 and proves a zero baseline for a newly observed uid`() {
         val diff =
             SnapshotDiffer.diff(
                 snapshot(elapsed = 1_000, uids = listOf(uid(totalMah = 40.0))),
@@ -82,10 +82,56 @@ class SnapshotDifferTest {
             )
 
         assertTrue(diff.uids.first().valid)
-        assertFalse(diff.uids.last().valid)
+        assertTrue(diff.uids.last().valid)
+        assertFalse(diff.uids.last().packageChanged)
         assertEquals(10.0, diff.uids.first().totalMah, 0.0)
         assertEquals(2.0, diff.uids.last().totalMah, 0.0)
         assertFalse(diff.validity.problems.contains("truncated_uid_usage"))
+        assertTrue(diff.validity.problems.none { it.startsWith("uid_identity") })
+    }
+
+    @Test
+    fun `a uid absent from the reference is a zero baseline only when the reference membership is complete`() {
+        val ref =
+            snapshot(elapsed = 1_000, uids = listOf(uid(totalMah = 40.0)))
+                .copy(availability = mapOf("usage" to SourceAvailability(true, null)))
+        val now =
+            snapshot(
+                elapsed = 2_000,
+                duration = 2_000,
+                uids = listOf(uid(totalMah = 50.0), uid(uid = 10_002, totalMah = 2.0)),
+            ).copy(availability = mapOf("usage" to SourceAvailability(true, null)))
+        val scope = requireNotNull(ref.uidIdentityScope)
+
+        val proven = SnapshotDiffer.diff(ref, now).uids.single { it.uid == 10_002 }
+        assertTrue(proven.valid)
+        assertEquals(2.0, proven.totalMah, 0.0)
+
+        val unproven =
+            mapOf(
+                "light reference" to (ref.copy(kind = SnapshotKind.LIGHT) to now),
+                "usage unavailable on the reference" to
+                    (ref.copy(availability = mapOf("usage" to SourceAvailability(false, "timeout"))) to now),
+                "truncated reference" to (ref.copy(truncatedUids = 1) to now),
+                "unknown reference scope" to (ref.copy(uidIdentityScope = null) to now),
+                "malformed reference scope" to (ref.copy(uidIdentityScope = scope.copy(readerEpoch = "")) to now),
+                "other user serial" to (ref to now.copy(uidIdentityScope = scope.copy(userSerial = 8))),
+                "other user" to (ref to now.copy(uidIdentityScope = scope.copy(userId = 1))),
+                "other boot" to (ref to now.copy(clock = now.clock.copy(bootCount = 2))),
+                "missing current fingerprint" to
+                    (
+                        ref to
+                            now.copy(
+                                uids = now.uids.map { if (it.uid == 10_002) it.copy(ownerInstallFingerprint = null) else it },
+                            )
+                    ),
+            )
+        for ((case, endpoints) in unproven) {
+            val result = SnapshotDiffer.diff(endpoints.first, endpoints.second)
+            val delta = result.uids.single { it.uid == 10_002 }
+            assertFalse(case, delta.valid)
+            assertFalse(case, delta.packageChanged)
+        }
     }
 
     @Test

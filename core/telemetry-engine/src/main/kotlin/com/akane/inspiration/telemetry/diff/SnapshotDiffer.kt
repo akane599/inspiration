@@ -11,6 +11,7 @@ import com.akane.inspiration.telemetry.snapshot.CpuFreqTime
 import com.akane.inspiration.telemetry.snapshot.DiffValidity
 import com.akane.inspiration.telemetry.snapshot.SleepStats
 import com.akane.inspiration.telemetry.snapshot.SnapshotDiff
+import com.akane.inspiration.telemetry.snapshot.SnapshotKind
 import com.akane.inspiration.telemetry.snapshot.UidDelta
 import com.akane.inspiration.telemetry.snapshot.UidOwnerFingerprint
 import com.akane.inspiration.telemetry.snapshot.UidSnapshot
@@ -221,6 +222,11 @@ object SnapshotDiffer {
         val refByUid = ref.uids.map { it.comparable() }.associateBy(UidSnapshot::uid)
         val nowByUid = now.uids.map { it.comparable() }.associateBy(UidSnapshot::uid)
         val sameNamespace = sameUidNamespace(ref, now)
+        // The capturer stores a known scope only for an untruncated usage read, which lists every UID
+        // with accrued usage. A UID absent from such a reference therefore had nothing to subtract.
+        val refMembershipComplete =
+            ref.kind == SnapshotKind.FULL && ref.sourceAvailable("usage") &&
+                ref.truncatedUids == 0 && ref.uidIdentityScope?.isKnown() == true
         return (refByUid.keys + nowByUid.keys).sorted().map { uid ->
             val previous = refByUid[uid]
             val current = nowByUid[uid]
@@ -231,7 +237,10 @@ object SnapshotDiffer {
             val currentFingerprint = UidOwnerFingerprint.known(current?.ownerInstallFingerprint)
             val knownOwners = comparableScope && previousFingerprint != null && currentFingerprint != null
             val packageChanged = applicationUid && knownOwners && previousFingerprint != currentFingerprint
-            val identityValid = !applicationUid || (knownOwners && previousFingerprint == currentFingerprint)
+            val provenZeroBaseline =
+                previous == null && comparableScope && refMembershipComplete && currentFingerprint != null
+            val identityValid =
+                !applicationUid || (knownOwners && previousFingerprint == currentFingerprint) || provenZeroBaseline
             if (!identityValid) problems += if (packageChanged) "uid_identity_changed:$uid" else "uid_identity_unknown:$uid"
             if (current == null) {
                 UidDelta(
@@ -256,7 +265,8 @@ object SnapshotDiffer {
                 )
             } else {
                 // The highest-drain package is only a display hint. Never reset to a zero baseline
-                // on hint rotation or unknown identity: application output requires proof at both endpoints.
+                // on hint rotation or unknown identity: application output requires proof at both endpoints,
+                // or a complete reference membership that proves the absent UID started from zero.
                 val baseline = previous
                 val delta =
                     UidDelta(
