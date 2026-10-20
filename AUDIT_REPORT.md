@@ -63,7 +63,7 @@ No CRITICAL or HIGH findings.
 ### MEDIUM
 
 - **[B-01] [MEDIUM] A late toolkit reconcile records a drifted value as Inspiration's change; Reset all then overwrites
-  a system-managed value**
+  a system-managed value** [FIXED in 74709d4, c6ef75c, 29c7853]
   - **Category:** Logic Bug (privileged write path)
   - **Location:**
     - `core/telemetry-engine/src/main/kotlin/com/akane/inspiration/telemetry/toolkit/ToolkitActions.kt:1494-1529`
@@ -145,7 +145,7 @@ No CRITICAL or HIGH findings.
       confirmation.
 
 - **[B-02] [MEDIUM] A history ingest that stops at the 8-page cap is recorded as complete, so analytics treat unread
-  history as known**
+  history as known** [FIXED in c3ad262, 0a71747]
   - **Category:** Logic Bug (data integrity of derived analytics)
   - **Location:**
     - `core/telemetry-engine/src/main/kotlin/com/akane/inspiration/telemetry/source/AndroidTelemetrySource.kt:211-233`,
@@ -214,7 +214,7 @@ No CRITICAL or HIGH findings.
     - Consider continuing the drain in a follow-up ingest right away instead of waiting for the next trigger.
 
 - **[B-03] [MEDIUM] When no application UID could be checked, the per-app rules count as "evaluated", the story says
-  "No anomalies detected" and Sleep Lab shows "Nothing recorded"**
+  "No anomalies detected" and Sleep Lab shows "Nothing recorded"** [FIXED in e92484a]
   - **Category:** Logic Bug
   - **Location:**
     - `core/diagnostics/src/main/kotlin/com/akane/inspiration/diagnostics/rules/DiagnosticRuleEngine.kt:47-49,68,98-116,207-244`
@@ -261,7 +261,7 @@ No CRITICAL or HIGH findings.
     - Reword `sleeplab_culprit_skipped_apps` (en/tr) so it does not assert a reset.
 
 - **[B-04] [MEDIUM] Sleep Lab states a specific but wrong reason when a data source is missing ("less than 30 min
-  screen-off", "the device restarted")**
+  screen-off", "the device restarted")** [FIXED in 7f81656]
   - **Category:** Logic Bug
   - **Location:**
     - `core/diagnostics/src/main/kotlin/com/akane/inspiration/diagnostics/rules/DiagnosticRuleEngine.kt:34-35,125-127`
@@ -323,7 +323,7 @@ No CRITICAL or HIGH findings.
     mapping.
 
 - **[B-05] [MEDIUM] The Cockpit level line has no carry-in point at either window edge, so chart readouts go blank in
-  normal use**
+  normal use** [FIXED in f2774b0]
   - **Category:** Logic Bug
   - **Location:**
     - `core/diagnostics/src/main/kotlin/com/akane/inspiration/diagnostics/analysis/TimelineBuilder.kt:47-70,95-103`
@@ -370,7 +370,7 @@ No CRITICAL or HIGH findings.
     ```
 
 - **[B-06] [MEDIUM] X-Ray shows an enabled "Restore" that silently does nothing whenever the app's controls can't be
-  read (protected apps included)**
+  read (protected apps included)** [FIXED in 9707e88]
   - **Category:** Logic Bug
   - **Location:**
     - `feature/xray/src/main/kotlin/com/akane/inspiration/xray/XRayViewModel.kt:347-356` (the guard at line 352),
@@ -423,7 +423,7 @@ No CRITICAL or HIGH findings.
     `ToolkitViewModel.accepts()`.
 
 - **[B-07] [MEDIUM] Cockpit time-to-empty treats any positive charge counter as µAh; a device reporting mAh shows
-  "0 min left" on a full battery**
+  "0 min left" on a full battery** [FIXED in 8ffe4a9]
   - **Category:** Logic Bug
   - **Location:**
     - `feature/dashboard/src/main/kotlin/com/akane/inspiration/dashboard/CockpitMappers.kt:226-235`
@@ -459,7 +459,7 @@ No CRITICAL or HIGH findings.
 
 ### LOW
 
-- **[B-08] [LOW] A shared-UID drain is labelled, and acted on, as the alphabetically first owner package**
+- **[B-08] [LOW] A shared-UID drain is labelled, and acted on, as the alphabetically first owner package** [FIXED in fc542e5, 6b25375]
   - **Category:** Logic Bug
   - **Location:**
     - `core/telemetry-engine/src/main/kotlin/com/akane/inspiration/telemetry/app/AppFacingModels.kt:86-98`
@@ -491,7 +491,7 @@ No CRITICAL or HIGH findings.
     A null result gives `ActionsState.NoPackage`; label such rows "Shared by N apps".
 
 - **[B-09] [LOW] History ingest issues avoidable full `BatteryUsageStats` queries (every page, and on API 31–33 where
-  the walk can only fail)**
+  the walk can only fail)** [FIXED in c177bdc; the per-page query is kept, see the Remediation log]
   - **Category:** Performance
   - **Location:**
     - `core/shizuku-ipc/src/main/kotlin/com/akane/inspiration/ipc/client/BatteryStatsClient.kt:80-116,152-178`
@@ -522,7 +522,7 @@ No CRITICAL or HIGH findings.
     successive pages from it instead of re-querying. Alternatively, raise the page size so the steady state is one
     query.
 
-- **[B-10] [LOW] Shizuku state refresh makes synchronous binder calls on the main thread**
+- **[B-10] [LOW] Shizuku state refresh makes synchronous binder calls on the main thread** [FIXED in 56a229d, b8baefc]
   - **Category:** Concurrency (main-thread IPC)
   - **Location:**
     - `core/shizuku-ipc/src/main/kotlin/com/akane/inspiration/ipc/ShizukuManagerImpl.kt:175-178,194-211,219-228,433-497`
@@ -562,7 +562,7 @@ No CRITICAL or HIGH findings.
     The existing ticket ordering already serializes concurrent refreshes. The debug `ProbeReceiver` must then await the
     state instead of reading it right after `start()`.
 
-- **[B-11] [LOW] Tapping the Cockpit chart to stop a fling clears the app-wide time slice**
+- **[B-11] [LOW] Tapping the Cockpit chart to stop a fling clears the app-wide time slice** [FIXED in 76b4e48]
   - **Category:** Logic Bug (gesture handling)
   - **Location:**
     - `core/designsystem/src/main/kotlin/com/akane/inspiration/designsystem/chart/scrub/ScrubGestures.kt:54`,
@@ -591,7 +591,7 @@ No CRITICAL or HIGH findings.
     if (down.isConsumed) return@awaitEachGesture
     ```
 
-- **[B-12] [LOW] X-Ray write jobs are untracked: a reopened sheet re-enables controls during an in-flight write**
+- **[B-12] [LOW] X-Ray write jobs are untracked: a reopened sheet re-enables controls during an in-flight write** [FIXED in a2ca89a]
   - **Category:** Concurrency
   - **Location:** `feature/xray/src/main/kotlin/com/akane/inspiration/xray/XRayViewModel.kt:232-247`, `:250-285`,
     `:369`, `:404`, `:440-443`, `:474-475`
@@ -622,7 +622,7 @@ No CRITICAL or HIGH findings.
     ```
 
 - **[B-13] [LOW] RefreshCoordinator: a failure cleared on Shizuku Ready can be written back, so the promised re-run
-  returns the cached failure**
+  returns the cached failure** [FIXED in 8a8879d]
   - **Category:** Concurrency
   - **Location:**
     - `app/src/main/kotlin/com/akane/inspiration/di/RefreshCoordinator.kt:66-69`, `:77-81`, `:90-91`, `:101`,
@@ -649,7 +649,7 @@ No CRITICAL or HIGH findings.
     val failure = lastFailure?.takeIf { it.epoch == backoffEpoch }
     ```
 
-- **[B-14] [LOW] Charge & Health waits up to 2 s for the kernel read before showing purely local data**
+- **[B-14] [LOW] Charge & Health waits up to 2 s for the kernel read before showing purely local data** [FIXED in a34ca23]
   - **Category:** Performance (latency)
   - **Location:**
     - `feature/health/src/main/kotlin/com/akane/inspiration/health/HealthViewModel.kt:372-379`
@@ -666,7 +666,7 @@ No CRITICAL or HIGH findings.
   - **Concrete fix:** inside `coroutineScope` in `load()`, start
     `val kernel = async { attempt { deps.kernelBattery() } }`, run the Room reads, then `kernel.await()`.
 
-- **[B-15] [LOW] The Health live curve freezes after a backwards wall-clock step**
+- **[B-15] [LOW] The Health live curve freezes after a backwards wall-clock step** [FIXED in 96baaaf]
   - **Category:** Logic Bug
   - **Location:** `feature/health/src/main/kotlin/com/akane/inspiration/health/HealthViewModel.kt:94-101`, `:245`,
     `:267`, `:307-316`, `:330-335`
@@ -682,7 +682,7 @@ No CRITICAL or HIGH findings.
     back but elapsed time moved forward in the same boot, call `live.clear()`, re-anchor `observedPlugMs`, and add the
     point.
 
-- **[B-16] [LOW] The rule engine classifies app UIDs by raw value, so per-user platform UIDs are treated as apps**
+- **[B-16] [LOW] The rule engine classifies app UIDs by raw value, so per-user platform UIDs are treated as apps** [FIXED in aa059f1]
   - **Category:** Logic Bug
   - **Location:**
     - `core/diagnostics/src/main/kotlin/com/akane/inspiration/diagnostics/rules/DiagnosticRuleEngine.kt:107`, `:220`,
@@ -703,7 +703,7 @@ No CRITICAL or HIGH findings.
   - **Concrete fix:** use one shared helper, `uid % 100_000 >= FIRST_APP_UID` (the same helper as in B-03), at both
     sites.
 
-- **[B-17] [LOW] Sleep Lab makes one uncached PackageManager IPC per UID on every analysis emission**
+- **[B-17] [LOW] Sleep Lab makes one uncached PackageManager IPC per UID on every analysis emission** [FIXED in 4889b1e]
   - **Category:** Performance
   - **Location:**
     - `feature/sleeplab/src/main/kotlin/com/akane/inspiration/sleeplab/SleepLabViewModel.kt:75-78`, `:134-166`
@@ -720,7 +720,7 @@ No CRITICAL or HIGH findings.
     `(rows + culprits).mapNotNull { it.uid }.distinct()`. Alternatively, cache membership keyed by
     `(uid, packageChangeSequence)`.
 
-- **[B-18] [LOW] App labels and icons are cached for the life of the process, including "not installed" results**
+- **[B-18] [LOW] App labels and icons are cached for the life of the process, including "not installed" results** [FIXED in 02da2b5]
   - **Category:** Logic Bug (stale cache)
   - **Location:** `app/src/main/kotlin/com/akane/inspiration/di/CachedAppLabels.kt:59-74`. Consumers:
     - `feature/toolkit/src/main/kotlin/com/akane/inspiration/toolkit/ToolkitViewModel.kt:336,348`
@@ -741,7 +741,7 @@ No CRITICAL or HIGH findings.
       (scheme `package`) that calls `invalidate`.
 
 - **[B-19] [LOW] The Cockpit marker sheet reports a list-read failure as a capture failure, inviting a duplicate
-  marker**
+  marker** [FIXED in 2835438]
   - **Category:** Logic Bug (error reporting)
   - **Location:**
     - `feature/dashboard/src/main/kotlin/com/akane/inspiration/dashboard/CockpitViewModel.kt:304-323`, `:335-343`
@@ -757,7 +757,7 @@ No CRITICAL or HIGH findings.
   - **Concrete fix:** split the state into `captureFailed` (set only by `markNow`) and `listFailed`. On a list failure,
     keep the previous markers and show a separate "Couldn't load markers" note.
 
-- **[B-20] [LOW] Dump writer threads in the shell-UID service have no timeout**
+- **[B-20] [LOW] Dump writer threads in the shell-UID service have no timeout** [FIXED in 087dcb0]
   - **Category:** Resource Leak (bounded)
   - **Location:** `core/shizuku-ipc/src/main/kotlin/com/akane/inspiration/ipc/service/TelemetryUserService.kt:241-256`,
     `:447-452`
@@ -771,7 +771,7 @@ No CRITICAL or HIGH findings.
     is in flight. Alternatively, track writer threads and have `destroy()` / the client timeout interrupt them and
     close the write end.
 
-- **[B-21] [LOW] "Restore all N changes?" counts overrides that Reset all will not restore**
+- **[B-21] [LOW] "Restore all N changes?" counts overrides that Reset all will not restore** [FIXED in 1ad8fc0]
   - **Category:** Logic Bug (copy)
   - **Location:**
     - `feature/toolkit/src/main/kotlin/com/akane/inspiration/toolkit/ToolkitViewModel.kt:404`
@@ -784,7 +784,7 @@ No CRITICAL or HIGH findings.
   - **Concrete fix:** `overrides.count { it.restorable && it.verified }` in the title. Mention the rest in the body.
 
 - **[B-22] [LOW] Every FULL capture queries usage with `maxStatsAgeMs = 0`, which may force an external-stats sync each
-  time**
+  time** [FIXED in d6335a2]
   - **Category:** Performance (observer effect)
   - **Location:**
     - `core/telemetry-engine/src/main/kotlin/com/akane/inspiration/telemetry/source/AndroidTelemetrySource.kt:61`
@@ -802,7 +802,7 @@ No CRITICAL or HIGH findings.
   - **Concrete fix:** read the dump first, then query usage with a maxAge of a few seconds so it reuses that sync.
     Alternatively, document the trade-off next to the call.
 
-- **[B-23] [LOW] Negative power components are dropped, so the system UID's breakdown can exceed its total**
+- **[B-23] [LOW] Negative power components are dropped, so the system UID's breakdown can exceed its total** [FIXED in 2913062]
   - **Category:** Logic Bug
   - **Location:**
     - `core/shizuku-ipc/src/main/kotlin/com/akane/inspiration/ipc/client/BatteryUsageAdapter.kt:139-155`
@@ -1273,3 +1273,135 @@ Each change passed its own tests, because those tests assert the new invariant a
 - **Process gap (repeated):** the compaction-time SessionStart hook injected the map index into four `audit-reviewer`
   workers and, twice, into the coordinator during this run. The previous audit recorded the same mechanism for one
   worker. This is a kit-level isolation gap: `audit-reviewer` alone does not keep long-running blind workers clean.
+
+---
+
+## Remediation log (2026-10-21, branch `remediate/audit-2026-10-21`)
+
+B-01 to B-23 were all fixed on top of `0b3bef2`, with one atomic commit per finding plus a follow-up commit where an
+independent review asked for one. Each fix was made in an isolated worktree with a regression test written first; it
+failed before the fix wherever the code shape allowed that. Each fix passed its modules' unit tests, and screenshot
+validation where UI changed. Each batch was then re-checked on the integration branch. Independent read-only reviews
+covered B-01 (three rounds; the last one approved `29c7853`), B-02/B-09, B-10/B-13 and B-06/B-08/B-12/B-21. Every change
+they asked for is in a follow-up commit listed below.
+
+| ID | Commits | Fix |
+|---|---|---|
+| B-01 | `74709d4`, `c6ef75c`, `29c7853` | A reconcile read-back counts as a PENDING write's own outcome only when it is prompt: within 60 s on the elapsed clock for rows from this process, or a since-boot check for rows from an earlier process. A late read-back is kept as an observed, unattributed change (`ToolkitClientCode.UNATTRIBUTED`, 106). It can be restored on its own after a confirmation, and Reset all skips it. A late restore closes its chain. The walk back to a chain's original stops at a late row that read a value its write didn't ask for, so Reset all for a newer change puts that value back. A newer change stacked on an unattributed row is listed as unattributed too. |
+| B-02 | `c3ad262`, `0a71747` | An ingest stopped by the page cap or by a failed page is recorded as incomplete (`page_cap`). In that case the charge job takes the newer of the stored PLUGGED and POWER_CONNECTED. A test reaches the page cap. |
+| B-03 | `e92484a` | When no application UID could be checked, the per-app rules give `APPS_UNPROVEN` instead of an all-clear in both the rules and Sleep Lab. |
+| B-04 | `7f81656` | Sleep Lab names the actual reason figures are missing (`NO_SCREEN_OFF_FIGURES`, `UnavailableCause`: device restarted, stats reset, not captured). |
+| B-05 | `f2774b0` | The timeline carries level and temperature in at the window start and holds them only to known history. |
+| B-06 | `9707e88` | X-Ray and Toolkit share one admission rule (`ToolkitAdmission`). A listed restore is admitted even when the app's controls can't be read. |
+| B-07 | `8ffe4a9` | Cockpit time to empty uses the engine's µAh counter floor (`microampHourCounter`, `MIN_MICROAMP_HOUR_COUNTER`). |
+| B-08 | `fc542e5`, `6b25375` | A shared UID is named only by the owner its process identifies (`identifyingPackage`). Otherwise both X-Ray and Sleep Lab title it "UID n · shared by N apps" (`uidIdentity`), and X-Ray offers no actions on it. |
+| B-09 | `c177bdc` | No batterystats history query below API 34. The per-page usage query is kept; the KDoc gives the reason. |
+| B-10 | `56a229d`, `b8baefc` | Shizuku state reads and the permission request run off Main, and `refresh()` suspends. `stop()` takes a fresh ticket and bumps the transport epoch, so work decided before it reports no transport loss. |
+| B-11 | `76b4e48` | The chart ignores a press an ancestor already consumed, so a tap that stops a fling keeps the slice. |
+| B-12 | `a2ca89a` | X-Ray writes are tracked per target, and only the newest controls read is shown. |
+| B-13 | `8a8879d` | Refresh failures carry their backoff epoch, so a clear on Ready can't be overwritten. |
+| B-14 | `a34ca23` | Health shows the stored day without waiting for the kernel read. |
+| B-15 | `96baaaf` | Health orders live readings on the elapsed clock. |
+| B-16 | `aa059f1` | App UIDs are judged by app id (`isApplicationUid`). |
+| B-17 | `4889b1e` | Sleep Lab reads UID owners only for the rows it shows, concurrently. Null owners are recorded, so the loop ends. |
+| B-18 | `02da2b5` | Labels and icons are cached only when found, and a package broadcast drops them (`PackageChanges.kt`). |
+| B-19 | `2835438` | The marker sheet keeps a list-read failure separate from a capture failure. |
+| B-20 | `087dcb0` | Dump writer threads are bounded per target; a further request gets `busy`. |
+| B-21 | `1ad8fc0` | Reset all's title counts only the changes it restores. |
+| B-22 | `d6335a2` | A FULL read takes the batterystats dump first and reuses its stats sync for the usage query. Phase-1 D9 is amended (`5edfe10`). |
+| B-23 | `2913062` | X-Ray component shares stay within the whole when a total nets out reattribution. |
+
+**Decisions and deviations**
+- **B-01:**
+  - The reviewers' scenarios r1 to r3 pass: a manual B03 undo, an app-op committed with a lost reply, and a late
+    restore followed by decay.
+  - The second review's scenarios n1 to n4 pass, along with a retention case: a value another tool set is no longer
+    overwritten by Reset all, and the flag on a stacked change survives pruning.
+  - `resetOne` refuses an unattributed row (`Refused(UNATTRIBUTED)`) rather than reporting it as unverified, so the
+    wording doesn't claim Inspiration made the change.
+  - An accepted side effect: if the user undoes a clamped late write through Inspiration, Reset all writes the
+    clamped value back, because Inspiration can't prove it set that value.
+- **B-08:**
+  - The dotted-suffix rule is kept, so `com.google.android.gms.persistent` still names GMS.
+  - The GMS shared UID itself still reads "shared by 2 apps". Naming one owner would need a primary-owner rule.
+- **B-09:** only partly as proposed. Paging the usage query was declined; the KDoc gives the reason.
+- **B-10:** a fresh ticket in `stop()` replaces the reviewer's suggested `started &&` guards. It also covers the
+  drainer and doesn't reopen after a restart.
+
+**§3 cleanup**
+- **Done:**
+  - `c145b21`: unreferenced AIDL parcelables deleted.
+  - `802c93b`: the debug probe's clients, models and stubs' `-dontwarn` lines moved to `src/debug`; `withBinder` and
+    `failureReason` stay in main as `BinderCalls.kt`.
+  - `799f4cf`: `unplugWindowSnapshots` removed.
+  - `06a8c21`: `AOSP_KEYS` removed.
+  - `4f64b44`: one clock and tick rule (`ClockLabels.kt`, `>= 2 days`) shared by both charts.
+  - `676de39`: bg-dexopt `client === process`.
+  - `cf5c30d`: tautological tests T1, T2, T4 and T5 replaced; T3 was dropped in `802c93b`.
+  - `218dcc0`: unread `KernelCapacitySnapshot` fields, `AppContainer.database`/`analysisSession` visibility,
+    `health_unit_volt` and a stale import.
+  - `2168fec`: the unreachable needs-full culprit state, with its fixtures and reference.
+  - `788a674`: `lastChargeSpan` and the unread wear sample count.
+  - `c857b69`: X-Ray owner lookup wrapped in `attempt`, and a `SecurityException` from the package manager's UID read
+    caught.
+  - `0318a8e`: `xray_app_icon_placeholder`.
+  - `a9a091e`: one shared `monogram`.
+  - `2cdba8e`: one shared `currentLocale`.
+  - `9f091f5`: one `ShizukuState.blockedReason()` in `:core:shizuku-ipc`. Each feature keeps its own `Problem`,
+    because Toolkit's covers write outcomes.
+  - `3ecddf1`: the `AppContainer.timeline` KDoc.
+  - `70881f4`: `CachedAppLabels` uses `isApplicationUid`.
+  - `e5d8ac1`: the test-only `packageForUid` wrapper removed.
+  - The tests that locked in B-01, B-04, B-08, B-14 and B-15 were rewritten with those fixes.
+- **Kept, with reasons:**
+  - `ShizukuManager.stop()`, `RefreshCoordinator.lastRefreshWallMs`, `heldLivePoints`, `Explanation.category` and
+    `TelemetryDao.hourly`: test seams or documented debug reads.
+  - `SnapshotDao.byId` and `latestByTrigger`: production does call them.
+  - The design-system gallery API.
+  - `insertHistory`/`setHistoryCursor`: removing them changes 12 fakes and the history test contract.
+  - The check-mark canvas: merging it changes screenshot references.
+  - Status text normalization: nothing reads the stored status yet.
+  - Restricting `destroy()` callers: little value.
+  - The dashboard's `ShizukuReason`: it allows a grant on PermissionDenied, which Toolkit doesn't.
+
+**Final gate at `29c7853`** (the later commits change only the codebase map)
+- `testDebugUnitTest lintDebug validateDebugScreenshotTest --continue --max-workers=4` exited 0. It ran at 4 workers,
+  not 8, because swap was at 12 of 16 GB.
+  - 2,063 unit tests in 11 modules, 0 failing or skipped (the audit baseline was 1,932).
+  - 214 screenshot tests, 0 failing (baseline 196).
+  - Lint: 0 errors in every module. `:app` has 7 warnings, all version notices (baseline 7).
+- `:app:assembleRelease --max-workers=4` exited 0.
+  - The APK is signed with certificate SHA-256 `88292f23…d054d723`.
+  - The R8 mapping keeps `TelemetryUserService` and `ITelemetryUserService$Stub` unrenamed.
+
+**Not verified**
+- **No device run of the remediated build.** Redroid holds the signed 0.2.6 release, and a debug build can't upgrade
+  over a release signature. The B-10 off-Main reads, B-15 on a real clock step, and whether `getPackagesForUid` throws
+  `SecurityException` on API 31–36 were not checked on a device.
+- **Blind spots still open from §3:**
+  - No feature-level test that privileged controls carry `filterTouchesWhenObscured`.
+  - No JVM coverage of the `Framework*` reflection adapters.
+  - No test of the `goAsync` wiring in `ChargingCaptureJobService` and the receivers.
+
+**Open follow-ups (not part of B-01 to B-23)**
+- `ChargeSegmentExtractor.toChargeSegment` still accepts any positive history `chargeUah`. It should use
+  `microampHourCounter`, so an mAh counter falls through to the recorded-current fallback.
+- **Health:**
+  - A large backward clock step can't place stored old-clock data on the new clock; that needs elapsed reads in
+    `:core:database`.
+  - A step exactly at plug-in isn't detected.
+- **Toolkit:**
+  - Rows from earlier processes still rely on the wall clock within a boot.
+  - The "can't be read or restored" line fits unattributed rows only loosely.
+  - Core `restore(id)` can decode an unlisted older row; this predates the audit, and the UI blocks it.
+  - A regression test for an unattributed link at exactly the newest at-original point, with a pruned closed prefix
+    below it. The behaviour is already correct (the final review's probe p2); the test would pin it.
+- **Sleep Lab:**
+  - With two FULL ends and some other CPU read failure, the card still says "kernel did not report".
+  - With a LIGHT end, the kernel tab says "Missing from one snapshot", not the needs-full copy.
+- **History:**
+  - API 31–33 has no history at all; walking `next(HistoryItem)` by reflection is possible later.
+  - There's no immediate follow-up drain after a capped read.
+- `RuntimeCaptureReceiver` reads Shizuku state synchronously in a fresh process, so the first capture after a cold
+  start can be LIGHT.
+- Labels stay in the old language after a locale change; this predates the audit.
