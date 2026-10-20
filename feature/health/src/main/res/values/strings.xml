@@ -33,7 +33,7 @@
     <string name="health_measured_title">Measured capacity</string>
     <string name="health_cycles_title">Charge cycles</string>
     <string name="health_of_design" formatted="true">%1$s of design</string>
-    <string name="health_missing_no_kernel">Kernel battery data is unavailable. Start Shizuku, then refresh.</string>
+    <string name="health_missing_no_kernel">Kernel battery data is unavailable. Start Shizuku or Sui, then refresh.</string>
     <string name="health_missing_not_reported">This kernel does not report it.</string>
     <string name="health_missing_not_measured" formatted="false">Needs a clean charge of 40% or more first.</string>
     <string name="health_card_note">Measured capacity comes from the charge counter during long charges, so it can differ from the kernel figure.</string>
@@ -64,7 +64,7 @@
     <string name="health_screen_title">Charge and health</string>
     <string name="health_loading">Reading battery health…</string>
     <string name="health_empty_title">No battery data yet</string>
-    <string name="health_empty_body">Grant Shizuku access from Cockpit, then charge your phone with this screen open. Your health record starts after the first long charge.</string>
+    <string name="health_empty_body">Grant Shizuku or Sui access from Cockpit, then charge your phone with this screen open. Your health record starts after the first long charge.</string>
     <string name="health_empty_refresh">Refresh</string>
     <string name="health_error_title">Could not read battery data</string>
     <string name="health_error_body">Something went wrong while reading. Try again in a moment.</string>

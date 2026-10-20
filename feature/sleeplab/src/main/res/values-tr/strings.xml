@@ -10,7 +10,7 @@
     <string name="sleeplab_error_title">Bu dönem analiz edilemedi</string>
     <string name="sleeplab_error_body">Pil geçmişin okunurken bir şeyler ters gitti. Biraz sonra yeniden dene.</string>
     <string name="sleeplab_error_retry">Yeniden dene</string>
-    <string name="sleeplab_refresh_failed">Yenilenemedi. Shizuku çalışıyor mu?</string>
+    <string name="sleeplab_refresh_failed">Yenilenemedi. Shizuku/Sui çalışıyor mu?</string>
 
     <!-- Hypnogram card -->
     <string name="sleeplab_hypnogram_title">Ekran kapalıyken uyku</string>

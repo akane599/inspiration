@@ -10,7 +10,7 @@
     <string name="sleeplab_error_title">Couldn\'t analyse this period</string>
     <string name="sleeplab_error_body">Something went wrong while reading your battery history. Try again in a moment.</string>
     <string name="sleeplab_error_retry">Try again</string>
-    <string name="sleeplab_refresh_failed">Couldn\'t refresh. Is Shizuku running?</string>
+    <string name="sleeplab_refresh_failed">Couldn\'t refresh. Is Shizuku or Sui running?</string>
 
     <!-- Hypnogram card -->
     <string name="sleeplab_hypnogram_title">Screen-off sleep</string>

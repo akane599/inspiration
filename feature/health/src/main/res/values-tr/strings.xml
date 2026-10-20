@@ -32,7 +32,7 @@
     <string name="health_measured_title">Ölçülen kapasite</string>
     <string name="health_cycles_title">Şarj döngüsü</string>
     <string name="health_of_design" formatted="true">Tasarıma göre %1$s</string>
-    <string name="health_missing_no_kernel">Çekirdek pil verisi alınamıyor. Shizuku\'yu başlatıp yenileyin.</string>
+    <string name="health_missing_no_kernel">Çekirdek pil verisi alınamıyor. Shizuku/Sui\'yu başlatıp yenileyin.</string>
     <string name="health_missing_not_reported">Bu çekirdek bunu bildirmiyor.</string>
     <string name="health_missing_not_measured" formatted="false">Önce %40 veya daha fazla temiz bir şarj gerekir.</string>
     <string name="health_card_note">Ölçülen kapasite uzun şarjlarda şarj sayacından hesaplanır; çekirdeğin verdiği değerden farklı olabilir.</string>
@@ -63,7 +63,7 @@
     <string name="health_screen_title">Şarj ve sağlık</string>
     <string name="health_loading">Pil sağlığı okunuyor…</string>
     <string name="health_empty_title">Henüz pil verisi yok</string>
-    <string name="health_empty_body">Kokpit\'ten Shizuku erişimi verin, sonra telefonu bu ekran açıkken şarja takın. Sağlık kaydınız ilk uzun şarjdan sonra başlar.</string>
+    <string name="health_empty_body">Kokpit\'ten Shizuku/Sui erişimi verin, sonra telefonu bu ekran açıkken şarja takın. Sağlık kaydınız ilk uzun şarjdan sonra başlar.</string>
     <string name="health_empty_refresh">Yenile</string>
     <string name="health_error_title">Pil verisi okunamadı</string>
     <string name="health_error_body">Okunurken bir sorun oldu. Biraz sonra tekrar deneyin.</string>
