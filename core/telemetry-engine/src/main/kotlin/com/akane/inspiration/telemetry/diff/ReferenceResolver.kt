@@ -338,11 +338,11 @@ class ReferenceResolver(
         val markerSnapshot: BatterySnapshot? = null,
     )
 
-    private companion object {
-        const val DAY_MS = 24 * 60 * 60 * 1_000L
+    companion object {
+        private const val DAY_MS = 24 * 60 * 60 * 1_000L
 
         /** The exclusive bound that takes in this wall time too. */
-        fun Long.inclusiveBound(): Long = if (this == Long.MAX_VALUE) this else this + 1
+        private fun Long.inclusiveBound(): Long = if (this == Long.MAX_VALUE) this else this + 1
 
         /**
          * How far past a battery-history event a capture may land and still be taken for that event. The framework
@@ -352,7 +352,8 @@ class ReferenceResolver(
          * also land at the next activation. The history time is the precise one; a capture is the anchor snapshot
          * of an event the history holds, or the only trace of one it has not ingested yet. Ten seconds (a
          * receiver's time limit) covers an undeferred delivery and bounds how much of the following state a
-         * window that ends at an anchor takes in.
+         * window that ends at an anchor takes in: a screen-off period ends at most this long into the screen-on
+         * that closed it, which the rules' screen-off-only gate tolerates (audit R-03).
          */
         const val CAPTURE_SLACK_MS = 10_000L
 
@@ -361,6 +362,6 @@ class ReferenceResolver(
          * retried when Shizuku becomes ready can store an APP_OPEN with the screen off; a pair rejected for it
          * errs on the safe side.
          */
-        val SCREEN_ON_PROOF = setOf(CaptureTrigger.APP_OPEN, CaptureTrigger.MARKER)
+        private val SCREEN_ON_PROOF = setOf(CaptureTrigger.APP_OPEN, CaptureTrigger.MARKER)
     }
 }

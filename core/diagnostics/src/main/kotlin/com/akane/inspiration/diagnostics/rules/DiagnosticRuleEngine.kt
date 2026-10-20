@@ -15,8 +15,15 @@ import com.akane.inspiration.diagnostics.model.Severity
 import com.akane.inspiration.diagnostics.model.insightOrder
 import com.akane.inspiration.diagnostics.sensor.GPS_SENSOR_HANDLE
 import com.akane.inspiration.diagnostics.sensor.SensorCatalog
+import com.akane.inspiration.telemetry.diff.ReferenceResolver
 import com.akane.inspiration.telemetry.snapshot.SnapshotDiff
 import com.akane.inspiration.telemetry.snapshot.UidDelta
+
+/**
+ * The shortest screen-off time the screen-off rules evaluate. A SCREEN_ON broadcast binds the telemetry service for
+ * a FULL end anchor only after a screen-off period this long (audit R-03).
+ */
+const val MIN_SCREEN_OFF_MS = 30 * 60_000L
 
 /**
  * The four deterministic rules of docs/plans/phase-3.md F4. Every rule either returns insights
@@ -50,9 +57,18 @@ class DiagnosticRuleEngine(
         )
     }
 
+    /**
+     * Screen-off only: no unknown time, at least [MIN_SCREEN_OFF_MS] screen-off, and no more screen-on time than
+     * the resolver's [ReferenceResolver.CAPTURE_SLACK_MS] (audit R-03). A screen-off period ends at the screen-on
+     * broadcast's own capture, which lands after the history SCREEN_ON, so a real night carries up to that much
+     * screen-on lag; any longer screen-on time is a mixed interval. The lag stays in the per-UID deltas (a few
+     * seconds against thresholds of minutes), and Sensor Leak scales its motion threshold by
+     * [com.akane.inspiration.telemetry.interval.IntervalMetrics.screenOffMs], not by the interval length.
+     */
     private fun isScreenOffOnly(input: DiagnosticInput): Boolean {
         val metrics = input.metrics ?: return false
-        return metrics.screenOnMs == 0L && metrics.unknownMs == 0L && metrics.screenOffMs >= MIN_SCREEN_OFF_MS
+        return metrics.screenOnMs <= ReferenceResolver.CAPTURE_SLACK_MS && metrics.unknownMs == 0L &&
+            metrics.screenOffMs >= MIN_SCREEN_OFF_MS
     }
 
     /** The gates shared by the rules that read batterystats; rules without per-UID inputs keep the default. */
@@ -231,7 +247,6 @@ class DiagnosticRuleEngine(
 
     private companion object {
         const val FIRST_APP_UID = 10_000
-        const val MIN_SCREEN_OFF_MS = 30 * 60_000L
 
         const val MIN_VAMPIRE_MAH = 2.0
         const val VAMPIRE_DISCHARGE_FRACTION = 0.01

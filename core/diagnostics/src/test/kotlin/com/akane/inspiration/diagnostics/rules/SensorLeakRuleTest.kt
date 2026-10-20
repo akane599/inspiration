@@ -5,6 +5,7 @@ import com.akane.inspiration.diagnostics.model.SensorKind
 import com.akane.inspiration.diagnostics.model.SensorLeak
 import com.akane.inspiration.diagnostics.model.Severity
 import com.akane.inspiration.diagnostics.sensor.GPS_SENSOR_HANDLE
+import com.akane.inspiration.telemetry.diff.ReferenceResolver.Companion.CAPTURE_SLACK_MS
 import com.akane.inspiration.telemetry.dump.UidSensor
 import com.akane.inspiration.telemetry.interval.IntervalMetrics
 import com.akane.inspiration.telemetry.snapshot.UidDelta
@@ -103,18 +104,45 @@ class SensorLeakRuleTest {
         val uid = withSensor(GPS_SENSOR_HANDLE, 10 * MIN)
         val cases = listOf(
             null,
-            metricsOf(screenOnMs = 1),
+            // Screen-on time past the resolver's capture slack: a mixed interval, not a screen-off one.
+            metricsOf(screenOnMs = CAPTURE_SLACK_MS + 1),
+            metricsOf(screenOnMs = HOUR),
+            // Unknown time stays strict, also together with screen-on lag inside the slack.
             metricsOf(unknownMs = 1),
+            metricsOf(screenOnMs = 2_000, unknownMs = 1),
             metricsOf(screenOffMs = 30 * MIN - 1),
+            metricsOf(screenOnMs = 2_000, screenOffMs = 30 * MIN - 1),
         )
         for (metrics in cases) {
             val report = engine.evaluate(inputOf(diffOf(uids = listOf(uid)), metrics))
-            assertEquals("not_screen_off_interval", report.notEvaluable[RuleId.SENSOR_LEAK])
+            assertEquals("$metrics", "not_screen_off_interval", report.notEvaluable[RuleId.SENSOR_LEAK])
             assertTrue(report.insights.none { it is SensorLeak })
         }
         // The 30 min boundary itself is eligible.
         val eligible = engine.evaluate(inputOf(diffOf(uids = listOf(uid)), metricsOf(screenOffMs = 30 * MIN)))
         assertTrue(RuleId.SENSOR_LEAK !in eligible.notEvaluable)
+    }
+
+    /**
+     * Audit R-03: a screen-off period ends at the screen-on broadcast's capture, up to the resolver's
+     * [CAPTURE_SLACK_MS] after the history SCREEN_ON, so that much screen-on time still counts as screen-off only.
+     */
+    @Test
+    fun screenOnLagWithinTheCaptureSlackIsStillScreenOffOnly() {
+        val uid = withSensor(GPS_SENSOR_HANDLE, 10 * MIN)
+        for (lagMs in listOf(1L, 400L, 3_000L, CAPTURE_SLACK_MS)) {
+            val report = engine.evaluate(inputOf(diffOf(uids = listOf(uid)), metricsOf(screenOnMs = lagMs, screenOffMs = 8 * HOUR)))
+            assertTrue("$lagMs ms: ${report.notEvaluable}", RuleId.SENSOR_LEAK !in report.notEvaluable)
+            assertEquals(listOf(SensorKind.GPS), report.insights.filterIsInstance<SensorLeak>().map { it.sensor })
+        }
+    }
+
+    @Test
+    fun motionThresholdScalesWithScreenOffTimeNotTheIntervalLength() {
+        // 10% of 3 h screen-off is 18 min; 10% of the whole interval would be 1 s more with the 10 s of lag.
+        val metrics = metricsOf(screenOnMs = CAPTURE_SLACK_MS, screenOffMs = 3 * HOUR)
+        assertEquals(SensorKind.ACCELEROMETER, leaks(withSensor(ACCEL_HANDLE, 18 * MIN), metrics = metrics).single().sensor)
+        assertTrue(leaks(withSensor(ACCEL_HANDLE, 18 * MIN - 1), metrics = metrics).isEmpty())
     }
 
     @Test

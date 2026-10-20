@@ -6,6 +6,7 @@ import com.akane.inspiration.diagnostics.model.Culprit
 import com.akane.inspiration.diagnostics.model.CulpritScope
 import com.akane.inspiration.diagnostics.model.RuleId
 import com.akane.inspiration.diagnostics.model.Severity
+import com.akane.inspiration.telemetry.diff.ReferenceResolver.Companion.CAPTURE_SLACK_MS
 import com.akane.inspiration.telemetry.dump.KernelWakelock
 import com.akane.inspiration.telemetry.dump.UidAlarm
 import com.akane.inspiration.telemetry.snapshot.SnapshotDiff
@@ -147,8 +148,11 @@ class AwakeViolationRuleTest {
             engine.evaluate(inputOf(diff, metrics)).insights.filterIsInstance<AwakeViolation>().single().culpritScope
         }
         assertEquals(CulpritScope.SCREEN_OFF_ONLY, scope(metricsOf(screenOnMs = 0, screenOffMs = 30 * MIN)))
-        assertEquals(CulpritScope.WHOLE_INTERVAL_CONTRIBUTORS, scope(metricsOf(screenOnMs = 1, screenOffMs = 2 * HOUR)))
+        // Audit R-03: screen-on lag up to the resolver's capture slack is the anchor's, not a screen-on period.
+        assertEquals(CulpritScope.SCREEN_OFF_ONLY, scope(metricsOf(screenOnMs = CAPTURE_SLACK_MS, screenOffMs = 2 * HOUR)))
+        assertEquals(CulpritScope.WHOLE_INTERVAL_CONTRIBUTORS, scope(metricsOf(screenOnMs = CAPTURE_SLACK_MS + 1, screenOffMs = 2 * HOUR)))
         assertEquals(CulpritScope.WHOLE_INTERVAL_CONTRIBUTORS, scope(metricsOf(unknownMs = 1)))
+        assertEquals(CulpritScope.WHOLE_INTERVAL_CONTRIBUTORS, scope(metricsOf(screenOnMs = 1, unknownMs = 1)))
         assertEquals(CulpritScope.WHOLE_INTERVAL_CONTRIBUTORS, scope(metricsOf(screenOffMs = 30 * MIN - 1)))
         assertEquals(CulpritScope.WHOLE_INTERVAL_CONTRIBUTORS, scope(null))
     }
