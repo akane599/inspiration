@@ -2,7 +2,7 @@
 # CLAUDE.md — Inspiration
 
 Shizuku-powered battery analytics, diagnostics and optimization for Android power users: real Binder/kernel telemetry, plain-language insights, zero observer effect. Product spec: `TEMPLATE.md` (Turkish).
-Android, developed on Ubuntu from the CLI. Host: Ryzen 7 5800X3D (8C/16T, KVM) · 15 GiB RAM · 7.8 GiB zstd zram (prio 100) + 8 GiB swapfile (prio 10), swappiness 180 · `/tmp` is RAM-backed tmpfs.
+Android, developed on Ubuntu from the CLI. Host: Ryzen 7 5800X3D (8C/16T, no KVM) · 15 GiB RAM · 7.8 GiB zstd zram (prio 100) + 8 GiB swapfile (prio 10), swappiness 180 · `/tmp` is RAM-backed tmpfs.
 
 <!-- STACK:BEGIN (filled by /bootstrap) -->
 - Origin: new · Integration branch: main
@@ -14,8 +14,8 @@ Android, developed on Ubuntu from the CLI. Host: Ryzen 7 5800X3D (8C/16T, KVM) �
 <!-- STACK:END -->
 
 ## How work flows here
-- **The main session orchestrates; it doesn't implement.** Work becomes Sidequest tickets, executors work in isolated worktrees on their returned Claude or GPT route, and the main session integrates verified results. Bounded inline-safe maintenance follows Sidequest's current rules.
-- **Routing** (Sidequest profile `android-kit-hybrid`): Claude Opus/medium orchestrates. Follow current mixed Sidequest routes: Luna bounded work; Terra routine coding/UI/review; Opus debugging, hard coding, experiments and visual judgement; Sonnet research. Explicit category fallbacks may cross Claude/GPT; global fallback stays provider-scoped. Inspect effective routes and disclose overrides or provider blockers.
+- **The main session orchestrates; it doesn't implement.** Work becomes Sidequest tickets, executors work in isolated worktrees on their returned native Claude route, and the main session integrates verified results. Bounded inline-safe maintenance follows Sidequest's current rules.
+- **Routing** (Sidequest profile `android-kit-claude-max`): Opus/high orchestrates, diagnoses bugs, investigates spikes, handles hard coding and reviews plans. Opus/high implements code/UI, designs tests and reviews code; validate high-impact or disputed findings with an explicit Opus/high review override. Sonnet/medium handles bounded research, mapping and mechanical edits. Haiku/low runs exact checks. Visual judgement uses Opus/medium, high for complex flows. Escalation uses Opus/xhigh with a fresh hypothesis, then Fable/high only as a last resort. Use native Claude routes and inspect effective board/ticket overrides.
 - **Big or multi-step changes:** plan mode → pin the reviewed plan as a Sidequest story → dispatch independent work within routing and ownership limits.
 - **UI overhaul:** `/ui-overhaul <scope>`.
 - **Bugs:** use `/bug-hunt` for existing-code investigations while Sidequest is active or within a story. Required ticket checks and Sidequest review gates remain. For a separate full repository audit, enter review mode with Sidequest off, then use `/full-repo-audit` followed by `/audit-remediate` for requested fixes; they coordinate native workers independently.
@@ -30,5 +30,4 @@ Android, developed on Ubuntu from the CLI. Host: Ryzen 7 5800X3D (8C/16T, KVM) �
 - Screenshots: `:app:updateDebugScreenshotTest` (write refs) · `:app:validateDebugScreenshotTest` (diff)
 - IPC probe (debug): `adb shell am broadcast -a com.akane.inspiration.debug.PROBE -n com.akane.inspiration/.debug.ProbeReceiver` → `adb logcat -d -s 'InspirationProbe:*'` (Shizuku must be running + permitted; `…debug.PROBE_REQUEST_PERMISSION` shows the dialog)
 - Device: `./gradlew :app:installDebug -q && adb shell am start -n com.akane.inspiration/.MainActivity` · logs: `adb logcat -d --pid=$(adb shell pidof -s com.akane.inspiration) | tail -80`
-- Emulator: `./gradlew --stop && emulator -avd batstats-api36 -memory 2048 -no-window -no-audio &` then `adb wait-for-device shell 'while [[ -z $(getprop sys.boot_completed) ]]; do sleep 1; done'`
-- redroid (Android 15 + Shizuku 13.6.0, always on): `ANDROID_SERIAL=localhost:5555`; root via `adb shell su 0`; app DB: `adb shell su 0 sqlite3 /data/data/com.akane.inspiration/databases/inspiration.db`. Debug and release builds use different signing keys, so `adb uninstall com.akane.inspiration` before switching.
+- redroid (Android 15 + Shizuku 13.6.0, always on) is the only device: the host has no `/dev/kvm`, so the Android emulator can't run. `ANDROID_SERIAL=localhost:5555`; root via `adb shell su 0`; app DB: `adb shell su 0 sqlite3 /data/data/com.akane.inspiration/databases/inspiration.db`. Debug and release builds use different signing keys, so `adb uninstall com.akane.inspiration` before switching.
