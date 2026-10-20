@@ -113,8 +113,8 @@ internal fun analysisUi(state: AnalysisState): AnalysisUi =
 
 /**
  * The grid figures of one interval. Anything the interval cannot support stays null: a rate needs at least
- * [MIN_RATE_WINDOW_MS] in its state, mAh figures need the discharge counters on both sides of the same battery
- * stats epoch, and the CPU-suspend ratio needs valid kernel counters and, like the story's sentence, 15 minutes of
+ * [MIN_RATE_WINDOW_MS] in its state, mAh figures need the discharge counters and the stats' screen on/off time on
+ * both sides of the same battery stats epoch, and the CPU-suspend ratio needs valid kernel counters and, like the story's sentence, 15 minutes of
  * screen-off time.
  */
 internal fun metricsUi(analysis: IntervalAnalysis): MetricsUi {
@@ -128,9 +128,11 @@ internal fun metricsUi(analysis: IntervalAnalysis): MetricsUi {
     val ratio = sleep?.reportableDeepSleepRatio()
     return MetricsUi(
         activePctPerHour = metrics.screenOnPctPerHour,
-        activeMahPerHour = mahPerHour(screenOn, metrics.screenOnMs),
+        // The mAh counters span the whole interval, so their window is the battery stats' own on-battery screen
+        // time from the same epoch, never history time, which stops at the history horizon (R-09).
+        activeMahPerHour = mahPerHour(screenOn, sleep?.screenOnMs),
         idlePctPerHour = metrics.screenOffPctPerHour,
-        idleMahPerHour = mahPerHour(screenOff, metrics.screenOffMs),
+        idleMahPerHour = mahPerHour(screenOff, sleep?.screenOffMs),
         deepSleepRatio = ratio,
         deepSleepMs = sleep?.deepSleepMs?.takeIf { ratio != null },
         // History metrics count only attributed time: with unknown time or a reset in the interval their
@@ -144,8 +146,13 @@ internal fun metricsUi(analysis: IntervalAnalysis): MetricsUi {
 
 private fun mahPerHour(
     mah: Double?,
-    windowMs: Long,
-): Double? = if (mah == null || windowMs < MIN_RATE_WINDOW_MS) null else mah / (windowMs / MS_PER_HOUR)
+    windowMs: Long?,
+): Double? =
+    if (mah == null || mah < 0.0 || windowMs == null || windowMs < MIN_RATE_WINDOW_MS) {
+        null
+    } else {
+        mah / (windowMs / MS_PER_HOUR)
+    }
 
 /**
  * The banner data for a committed brush, or null outside time-slice mode. The covered range comes from the

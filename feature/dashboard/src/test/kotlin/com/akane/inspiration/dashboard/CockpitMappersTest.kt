@@ -118,12 +118,61 @@ class CockpitMappersTest {
 
     @Test
     fun `an mAh per hour figure needs fifteen minutes in its state`() {
-        val analysis = intervalAnalysis(metrics = intervalMetrics(screenOnMs = 14 * MIN_MS, screenOffMs = 15 * MIN_MS))
+        // The window is the battery stats' own on-battery screen time, the same source as the mAh counters.
+        val analysis =
+            intervalAnalysis(
+                diff = snapshotDiff(sleep = statsScreenTime(screenOnMs = 14 * MIN_MS, screenOffMs = 15 * MIN_MS)),
+            )
 
         val metrics = metricsUi(analysis)
 
         assertNull(metrics.activeMahPerHour)
         assertEquals(800.0, metrics.idleMahPerHour!!, 1e-9)
+    }
+
+    @Test
+    fun `mAh per hour divides by the stats screen time, not by history time that covers only part of the interval`() {
+        // 4.5 h on battery: the stats saw 1 h on and 3.5 h off, but history attributed only 30 min on and 1.5 h off
+        // before its horizon; the other 2.5 h are unknown. The counters span the whole interval.
+        val analysis =
+            intervalAnalysis(
+                diff =
+                    snapshotDiff(
+                        dischargeMah = 340.0,
+                        dischargeScreenOffMah = 140.0,
+                        sleep = statsScreenTime(screenOnMs = HOUR_MS, screenOffMs = 3 * HOUR_MS + 30 * MIN_MS),
+                    ),
+                metrics = intervalMetrics(screenOnMs = 30 * MIN_MS, screenOffMs = 90 * MIN_MS, unknownMs = 150 * MIN_MS),
+            )
+
+        val metrics = metricsUi(analysis)
+
+        assertEquals("200 mAh over 1 h, not over 30 min", 200.0, metrics.activeMahPerHour!!, 1e-9)
+        assertEquals("140 mAh over 3.5 h, not over 1.5 h", 40.0, metrics.idleMahPerHour!!, 1e-9)
+    }
+
+    @Test
+    fun `mAh per hour needs the stats screen time, whatever history attributed`() {
+        // A kernel-only sleep fallback has no stats screen time; history time alone is no denominator for the counters.
+        val kernelOnly =
+            SleepStats(
+                deepSleepMs = 0,
+                screenOffDeepSleepMs = null,
+                screenOffAwakeMs = null,
+                screenOffMs = null,
+                screenOnMs = null,
+                deepSleepRatio = null,
+            )
+
+        val noStats = metricsUi(intervalAnalysis(diff = snapshotDiff(sleep = kernelOnly)))
+        val noSleep = metricsUi(intervalAnalysis(diff = snapshotDiff(sleep = null)))
+        val negative = metricsUi(intervalAnalysis(diff = snapshotDiff(dischargeMah = -50.0, dischargeScreenOffMah = -80.0)))
+
+        assertNull(noStats.activeMahPerHour)
+        assertNull(noStats.idleMahPerHour)
+        assertNull(noSleep.activeMahPerHour)
+        assertNull(noSleep.idleMahPerHour)
+        assertNull("a negative counter delta is no rate", negative.idleMahPerHour)
     }
 
     @Test
@@ -209,6 +258,18 @@ class CockpitMappersTest {
         assertEquals(0.0, enough.deepSleepRatio!!, 0.0)
         assertEquals(0L, enough.deepSleepMs)
     }
+
+    private fun statsScreenTime(
+        screenOnMs: Long,
+        screenOffMs: Long,
+    ) = SleepStats(
+        deepSleepMs = 0,
+        screenOffDeepSleepMs = 0,
+        screenOffAwakeMs = screenOffMs,
+        screenOffMs = screenOffMs,
+        screenOnMs = screenOnMs,
+        deepSleepRatio = 0.0,
+    )
 
     // --- Time left ---
 
