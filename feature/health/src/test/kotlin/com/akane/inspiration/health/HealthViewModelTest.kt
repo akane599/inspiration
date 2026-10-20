@@ -6,6 +6,7 @@ import com.akane.inspiration.ipc.model.HistoryEvent
 import com.akane.inspiration.ipc.model.HistoryKind
 import com.akane.inspiration.telemetry.app.RefreshResult
 import com.akane.inspiration.telemetry.snapshot.LiveReading
+import com.akane.inspiration.telemetry.store.RETENTION_WINDOW_MS
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineDispatcher
@@ -1141,6 +1142,64 @@ class HealthViewModelTest {
             assertNotNull(state.analysis)
             assertEquals(CurveSource.History, state.analysis?.source)
             assertTrue(state.analysis?.sparse ?: false)
+            vm.onIntent(HealthIntent.Hidden)
+        }
+
+    @Test
+    fun `a charge whose plug-in is older than the window counts from that plug-in`() =
+        runTest(dispatcher) {
+            // Plugged 20 min before the 24 h window opened, unplugged with a reset 8 h into it.
+            val windowStart = NOW_MS - DATA_WINDOW_MS
+            val unplugMs = windowStart + 8 * HOUR_MS
+            deps.history =
+                listOf(
+                    event(windowStart + 30 * MIN_MS, level = 80),
+                    event(windowStart + 2 * HOUR_MS, level = 95),
+                    event(unplugMs, HistoryKind.RESET).copy(plugType = 0),
+                    event(unplugMs, HistoryKind.UNPLUGGED).copy(plugType = 0),
+                    event(windowStart + 9 * HOUR_MS, level = 99).copy(plugType = 0),
+                )
+            deps.earlierHistory =
+                listOf(
+                    event(windowStart - 2 * DATA_WINDOW_MS, HistoryKind.UNPLUGGED).copy(plugType = 0),
+                    event(windowStart - 20 * MIN_MS, HistoryKind.PLUGGED, level = 40),
+                    event(windowStart - 10 * MIN_MS, level = 45),
+                )
+            val vm = viewModel()
+
+            vm.onIntent(HealthIntent.Visible)
+            runCurrent()
+
+            assertEquals(unplugMs - (windowStart - 20 * MIN_MS), vm.state.value.analysis?.chargeMs)
+            assertEquals(
+                "each load read back only the day before the window, which held the plug-in",
+                setOf(windowStart - DATA_WINDOW_MS until windowStart),
+                deps.lookbackReads.toSet(),
+            )
+
+            // Without a recorded plug-in, every window back to the retention is read and the window's start stays.
+            deps.earlierHistory = emptyList()
+            deps.lookbackReads.clear()
+            deps.clocks.wall = NOW_MS + SEC_MS
+            deps.lastRefreshWallMs.value = NOW_MS + SEC_MS
+            runCurrent()
+
+            assertEquals(unplugMs - (windowStart + 30 * MIN_MS), vm.state.value.analysis?.chargeMs)
+            assertEquals(NOW_MS + SEC_MS - RETENTION_WINDOW_MS, deps.lookbackReads.minOf { it.first })
+            vm.onIntent(HealthIntent.Hidden)
+        }
+
+    @Test
+    fun `a charge that starts inside the window reads nothing before it`() =
+        runTest(dispatcher) {
+            deps.history = backgroundCharge()
+            val vm = viewModel()
+
+            vm.onIntent(HealthIntent.Visible)
+            runCurrent()
+
+            assertEquals(90 * MIN_MS, vm.state.value.analysis?.chargeMs)
+            assertTrue(deps.lookbackReads.isEmpty())
             vm.onIntent(HealthIntent.Hidden)
         }
 

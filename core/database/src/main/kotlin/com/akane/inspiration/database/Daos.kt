@@ -249,6 +249,41 @@ interface HistoryDao {
 
     @Query("SELECT * FROM history_cursor WHERE id = :id")
     suspend fun cursor(id: Int = HistoryCursorEntity.SINGLETON_ID): HistoryCursorEntity?
+
+    /**
+     * The cursor to resume the history ingest from. Once per database it is first rewound to the start of its stats
+     * session, so an install that ingested history with an earlier build pages it again: those builds skipped a
+     * RESET's restated screen and doze state (audit N-01). The unique index keeps the rows already stored, and the
+     * ingest still skips what the retention prune would delete. A marker row records that the rewind ran; a database
+     * whose first cursor is written by this build gets it with that cursor (see [advanceCursor]).
+     */
+    @Transaction
+    suspend fun resumeCursor(): HistoryCursorEntity? {
+        val current = cursor()
+        if (current == null || cursor(REWOUND_MARKER.id) != null) return current
+        upsertCursor(REWOUND_MARKER)
+        return current.copy(lastHistoryTimeMs = 0L).also { upsertCursor(it) }
+    }
+
+    /**
+     * Moves the cursor forward within a stats session (a late, older write must not undo a newer one); a new session
+     * starts its own cursor. The first cursor ever written also marks the rewind of [resumeCursor] as done: nothing
+     * before it was ingested by an earlier build.
+     */
+    @Transaction
+    suspend fun advanceCursor(cursor: HistoryCursorEntity) {
+        val current = cursor()
+        if (current == null) upsertCursor(REWOUND_MARKER)
+        if (current != null && current.statsStartMs == cursor.statsStartMs && current.lastHistoryTimeMs >= cursor.lastHistoryTimeMs) {
+            return
+        }
+        upsertCursor(cursor)
+    }
+
+    companion object {
+        /** A second `history_cursor` row whose presence says the one-time rewind ran; its values mean nothing. */
+        internal val REWOUND_MARKER = HistoryCursorEntity(id = 2, statsStartMs = 0L, lastHistoryTimeMs = 0L)
+    }
 }
 
 /** [HistoryDao.newestOfEachKindBefore]'s query; the database tests check its plan. */

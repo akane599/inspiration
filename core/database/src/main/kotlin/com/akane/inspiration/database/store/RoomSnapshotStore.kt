@@ -178,8 +178,9 @@ class RoomSnapshotStore(
     override suspend fun historyHorizonWallMs(): Long? =
         database.snapshotDao().newestWallMsWithCompleteSource(SnapshotKind.FULL.name, HISTORY_SOURCE)
 
+    /** Only the history ingest reads it; the first read of a database an earlier build filled rewinds it once. */
     override suspend fun historyCursor(): Pair<Long, Long>? =
-        database.historyDao().cursor()?.let {
+        database.historyDao().resumeCursor()?.let {
             it.statsStartMs to it.lastHistoryTimeMs
         }
 
@@ -187,20 +188,12 @@ class RoomSnapshotStore(
         statsStartMs: Long,
         lastHistoryTimeMs: Long,
     ) {
-        database.withTransaction {
-            // Forward only within a stats session (a late, older write must not undo a newer one); a new session
-            // starts its own cursor.
-            val current = database.historyDao().cursor()
-            if (current != null && current.statsStartMs == statsStartMs && current.lastHistoryTimeMs >= lastHistoryTimeMs) {
-                return@withTransaction
-            }
-            database.historyDao().upsertCursor(
-                HistoryCursorEntity(
-                    statsStartMs = statsStartMs,
-                    lastHistoryTimeMs = lastHistoryTimeMs,
-                ),
-            )
-        }
+        database.historyDao().advanceCursor(
+            HistoryCursorEntity(
+                statsStartMs = statsStartMs,
+                lastHistoryTimeMs = lastHistoryTimeMs,
+            ),
+        )
     }
 
     override suspend fun addMarker(

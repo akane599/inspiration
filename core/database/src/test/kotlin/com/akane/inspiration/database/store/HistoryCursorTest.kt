@@ -1,6 +1,7 @@
 package com.akane.inspiration.database.store
 
 import androidx.test.core.app.ApplicationProvider
+import com.akane.inspiration.database.HistoryCursorEntity
 import com.akane.inspiration.database.InspirationDatabase
 import com.akane.inspiration.ipc.model.BatteryHistorySnapshot
 import com.akane.inspiration.ipc.model.HistoryEvent
@@ -102,6 +103,93 @@ class HistoryCursorTest {
             assertEquals(STATS_START_MS + 1_000L to 5L, store.historyCursor())
         }
 
+    @Test
+    fun `a cursor an earlier build wrote is rewound to its session start once`() =
+        runBlocking {
+            // An earlier build wrote the cursor; nothing of this build has run on the database yet.
+            database.historyDao().upsertCursor(HistoryCursorEntity(statsStartMs = STATS_START_MS, lastHistoryTimeMs = 200L))
+
+            assertEquals("the label is kept, the position goes back to 0", STATS_START_MS to 0L, store.historyCursor())
+            store.setHistoryCursor(statsStartMs = STATS_START_MS, lastHistoryTimeMs = 150L)
+            assertEquals("the re-ingest moves it forward from 0", STATS_START_MS to 150L, store.historyCursor())
+            assertEquals("and it is not rewound again", STATS_START_MS to 150L, store.historyCursor())
+
+            // A store opened later on the same database (the next process) does not rewind either.
+            assertEquals(STATS_START_MS to 150L, RoomSnapshotStore(database).historyCursor())
+        }
+
+    @Test
+    fun `a database whose first cursor this build wrote is never rewound`() =
+        runBlocking {
+            assertEquals(null, store.historyCursor())
+            store.setHistoryCursor(statsStartMs = STATS_START_MS, lastHistoryTimeMs = 200L)
+
+            assertEquals(STATS_START_MS to 200L, store.historyCursor())
+            assertEquals(STATS_START_MS to 200L, store.historyCursor())
+        }
+
+    @Test
+    fun `the rewind re-ingests what an earlier build skipped, once, and not what the retention dropped`() =
+        runBlocking {
+            val nowMs = WALL_BASE_MS + 40L * DAY_MS
+            // What an earlier build stored: a level and the RESET, but not the screen state the RESET restates.
+            val level = HistoryEvent(100L, nowMs - 2 * HOUR_MS, HistoryKind.LEVEL, 90, -1L, 250, 4_000, 1)
+            val reset = HistoryEvent(200L, nowMs - HOUR_MS, HistoryKind.RESET, 100, -1L, 250, 4_000, 0)
+            store.insertHistory(listOf(level, reset), STATS_START_MS)
+            database.historyDao().upsertCursor(HistoryCursorEntity(statsStartMs = STATS_START_MS, lastHistoryTimeMs = 200L))
+            // The session as this build's walker reads it, from an event the retention already pruned.
+            val pruned = HistoryEvent(50L, nowMs - 31L * DAY_MS, HistoryKind.LEVEL, 40, -1L, 250, 4_000, 1)
+            val restated = HistoryEvent(200L, nowMs - HOUR_MS, HistoryKind.SCREEN_ON, 100, -1L, 250, 4_000, 0)
+            val source = SessionSource(listOf(pruned, level, reset, restated))
+            val capturer = SnapshotCapturer(source, store, NowClocks(nowMs))
+
+            capturer.ingestHistory(CaptureTrigger.APP_OPEN, deadlineMs = 5_000L)
+            capturer.ingestHistory(CaptureTrigger.APP_OPEN, deadlineMs = 5_000L)
+
+            assertEquals(listOf(STATS_START_MS to 0L, STATS_START_MS to 200L), source.receivedCursors)
+            assertEquals(listOf(level, reset, restated), store.historyBetween(0L, Long.MAX_VALUE))
+            assertEquals(STATS_START_MS to 200L, store.historyCursor())
+        }
+
+    /** One stats session's history; each read returns what follows the cursor's position. */
+    private class SessionSource(
+        private val events: List<HistoryEvent>,
+    ) : TelemetrySource {
+        val receivedCursors = mutableListOf<Pair<Long, Long>?>()
+
+        override suspend fun full(
+            trigger: CaptureTrigger,
+            historyCursor: Pair<Long, Long>?,
+        ): FullRead {
+            receivedCursors += historyCursor
+            val after = historyCursor?.second ?: 0L
+            val page = events.filter { it.historyTimeMs > after }
+            return FullRead(
+                light = GatedHistorySource().light(),
+                usage = null,
+                batteryStats = DumpParse.Unavailable("not_needed"),
+                alarm = DumpParse.Unavailable("not_needed"),
+                kernel = null,
+                cpuTimes = emptyList(),
+                history = listOf(BatteryHistorySnapshot(true, null, STATS_START_MS, false, page, truncated = false)),
+            )
+        }
+
+        override fun light(): LightRead = GatedHistorySource().light()
+    }
+
+    private class NowClocks(
+        private val nowMs: Long,
+    ) : Clocks {
+        override fun wallMs(): Long = nowMs
+
+        override fun elapsedRealtimeMs(): Long = 2L
+
+        override fun uptimeMs(): Long = 3L
+
+        override fun bootCount(): Int = 0
+    }
+
     /** The first call sees history up to 100 and blocks until released; any later call sees up to 200. */
     private class GatedHistorySource : TelemetrySource {
         val firstEntered = CompletableDeferred<Unit>()
@@ -160,5 +248,7 @@ class HistoryCursorTest {
     private companion object {
         const val STATS_START_MS = 50_000L
         const val WALL_BASE_MS = 1_790_000_000_000L
+        const val HOUR_MS = 3_600_000L
+        const val DAY_MS = 24L * HOUR_MS
     }
 }

@@ -117,9 +117,76 @@ class HealthMappersTest {
             assertEquals(2, chargeSession(span, emptyList(), plugged.mapNotNull { it.toCurvePoint() }, false).size)
             val unplugged = listOf(event(MIN_MS, kind).copy(plugType = 0), event(2 * MIN_MS, HistoryKind.UNPLUGGED))
             assertNull(lastChargeSpan(unplugged))
-            // A plugged baseline without a graceful shutdown must replace the previous open charge.
-            assertEquals(ChargeSpan(MIN_MS, null), lastChargeSpan(listOf(event(0, HistoryKind.PLUGGED)) + plugged))
+            // A plugged boot without a graceful shutdown replaces the previous open charge; a reset while plugged in
+            // is no boot and keeps it.
+            val afterPlugIn = lastChargeSpan(listOf(event(0, HistoryKind.PLUGGED)) + plugged)
+            assertEquals(ChargeSpan(if (kind == HistoryKind.START) MIN_MS else 0, null), afterPlugIn)
         }
+    }
+
+    @Test
+    fun `a reset while plugged in keeps the charge it falls in`() {
+        // Plugged at 0, a stats reset at 3 h (dumpsys, or a reset the platform takes while charging), unplugged at 8 h.
+        val events =
+            listOf(
+                event(0, HistoryKind.PLUGGED),
+                event(HOUR_MS, level = 60),
+                event(3 * HOUR_MS, HistoryKind.RESET),
+                event(5 * HOUR_MS, level = 90),
+                event(8 * HOUR_MS, HistoryKind.UNPLUGGED).copy(plugType = 0),
+            )
+
+        assertEquals(LastCharge(ChargeSpan(0, 8 * HOUR_MS), startsBeforeWindow = false), lastCharge(events))
+        // Still charging: the open span keeps its plug-in too.
+        assertEquals(ChargeSpan(0, null), lastChargeSpan(events.dropLast(1)))
+    }
+
+    @Test
+    fun `a window that opens mid-charge says so, and a later charge in it does not`() {
+        val midCharge =
+            listOf(
+                event(30 * MIN_MS, level = 80),
+                event(2 * HOUR_MS, HistoryKind.UNPLUGGED).copy(plugType = 0),
+            )
+        val opened = lastCharge(midCharge)
+        assertEquals(LastCharge(ChargeSpan(30 * MIN_MS, 2 * HOUR_MS), startsBeforeWindow = true), opened)
+        // The plug-in found before the window replaces the window's first event; none found keeps it.
+        assertEquals(ChargeSpan(-HOUR_MS, 2 * HOUR_MS), opened.startingAt(-HOUR_MS))
+        assertEquals(ChargeSpan(30 * MIN_MS, 2 * HOUR_MS), opened.startingAt(null))
+
+        // A reset while plugged in, before any plug event: the charge was going before it as well.
+        val resetFirst = listOf(event(10 * MIN_MS, level = 70), event(HOUR_MS, HistoryKind.RESET), event(2 * HOUR_MS, level = 90))
+        assertEquals(LastCharge(ChargeSpan(10 * MIN_MS, null), startsBeforeWindow = true), lastCharge(resetFirst))
+
+        // A newer charge inside the window is complete and must not take an older plug-in.
+        val later = midCharge + event(4 * HOUR_MS, HistoryKind.PLUGGED) + event(5 * HOUR_MS, HistoryKind.UNPLUGGED).copy(plugType = 0)
+        val last = lastCharge(later)
+        assertEquals(LastCharge(ChargeSpan(4 * HOUR_MS, 5 * HOUR_MS), startsBeforeWindow = false), last)
+        assertEquals(ChargeSpan(4 * HOUR_MS, 5 * HOUR_MS), last.startingAt(-HOUR_MS))
+    }
+
+    @Test
+    fun `the plug-in search before the window stops at the newest plug boundary`() {
+        val plugIn = event(-3 * HOUR_MS, HistoryKind.PLUGGED)
+        val levels = listOf(event(-2 * HOUR_MS, level = 40), event(-HOUR_MS, level = 60))
+        assertEquals(PlugInScan(-3 * HOUR_MS, settled = true), scanPlugIn(levels + plugIn, null))
+
+        // An older charge's PLUGGED behind an unplug is not this charge's start: the plug-in was not recorded.
+        val unplug = event(-4 * HOUR_MS, HistoryKind.UNPLUGGED).copy(plugType = 0)
+        assertEquals(PlugInScan(null, settled = true), scanPlugIn(levels + unplug + event(-5 * HOUR_MS, HistoryKind.PLUGGED), null))
+
+        // A reset while plugged in only shows the charge was going: the search goes on and keeps it as the fallback.
+        val pluggedReset = event(-90 * MIN_MS, HistoryKind.RESET)
+        assertEquals(PlugInScan(-90 * MIN_MS, settled = false), scanPlugIn(levels + pluggedReset, null))
+        assertEquals(PlugInScan(-90 * MIN_MS, settled = true), scanPlugIn(listOf(unplug), -90 * MIN_MS))
+        assertEquals(PlugInScan(-3 * HOUR_MS, settled = true), scanPlugIn(listOf(plugIn), -90 * MIN_MS))
+
+        // A boot while plugged in restarts the charge; a boot on battery ends the search.
+        assertEquals(PlugInScan(-2 * HOUR_MS, settled = true), scanPlugIn(listOf(plugIn, event(-2 * HOUR_MS, HistoryKind.START)), null))
+        val batteryBoot = event(-2 * HOUR_MS, HistoryKind.START).copy(plugType = 0)
+        assertEquals(PlugInScan(null, settled = true), scanPlugIn(listOf(plugIn, batteryBoot), null))
+        // Nothing yet: keep reading back.
+        assertEquals(PlugInScan(null, settled = false), scanPlugIn(levels, null))
     }
 
     @Test
@@ -140,8 +207,8 @@ class HealthMappersTest {
 
         assertEquals(ChargeSpan(0, 8 * HOUR_MS), span)
         assertEquals(span, effectiveChargeSpan(span, emptyList(), hasLive = false))
-        // A reset while still plugged keeps charging from the reset, and a reset on battery opens nothing.
-        assertEquals(ChargeSpan(8 * HOUR_MS, null), lastChargeSpan(events.take(2) + event(8 * HOUR_MS, HistoryKind.RESET)))
+        // A reset while still plugged keeps the charge from its plug-in, and a reset on battery opens nothing.
+        assertEquals(ChargeSpan(0, null), lastChargeSpan(events.take(2) + event(8 * HOUR_MS, HistoryKind.RESET)))
         assertNull(lastChargeSpan(listOf(event(8 * HOUR_MS, HistoryKind.RESET).copy(plugType = 0), event(9 * HOUR_MS))))
     }
 

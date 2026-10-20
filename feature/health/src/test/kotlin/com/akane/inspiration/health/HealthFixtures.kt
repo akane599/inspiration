@@ -91,10 +91,20 @@ internal class FakeHealthDeps(
         to: Long,
     ): List<TelemetrySample> = samples ?: error("samples unavailable")
 
+    /** History older than the screen's window, served by range to the reads that look back for a plug-in. */
+    var earlierHistory: List<HistoryEvent> = emptyList()
+
+    /** The ranges of those look-back reads, in order. */
+    val lookbackReads = mutableListOf<LongRange>()
+
     override suspend fun historyBetween(
         from: Long,
         to: Long,
     ): List<HistoryEvent> {
+        if (to < clocks.wall - DATA_WINDOW_MS) {
+            lookbackReads += from..to
+            return earlierHistory.filter { it.wallMs in from..to }
+        }
         historyReads++
         return history ?: error("history unavailable")
     }

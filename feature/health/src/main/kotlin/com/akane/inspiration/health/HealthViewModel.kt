@@ -12,6 +12,7 @@ import com.akane.inspiration.telemetry.app.attempt
 import com.akane.inspiration.telemetry.snapshot.LiveReading
 import com.akane.inspiration.telemetry.store.ChargeSessionRecord
 import com.akane.inspiration.telemetry.store.HealthSample
+import com.akane.inspiration.telemetry.store.RETENTION_WINDOW_MS
 import com.akane.inspiration.telemetry.store.TelemetrySample
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
@@ -48,6 +49,8 @@ private class HealthInputs(
     val samples: List<TelemetrySample>?,
     /** The previous load's [persistedPoints], drawn again when this load's samples read failed. */
     previousPoints: List<CurvePoint>,
+    /** [history]'s last charge, with a plug-in older than the window already applied ([LastCharge.startingAt]). */
+    val historySpan: ChargeSpan?,
 ) {
     val everyReadFailed: Boolean
         get() = kernel == null && healthSamples == null && sessions == null && history == null && samples == null
@@ -65,7 +68,6 @@ private class HealthInputs(
             ?.sortedBy { it.wallMs }
             ?: previousPoints
     val historyPoints: List<CurvePoint> = history.orEmpty().mapNotNull { it.toCurvePoint() }
-    val historySpan: ChargeSpan? = history?.let(::lastChargeSpan)
     val card: HealthCardUi = healthCard(kernel, healthSamples.orEmpty(), sessions.orEmpty())
     val wear: WearUi = wearUi(healthSamples.orEmpty())
 }
@@ -378,6 +380,10 @@ class HealthViewModel(
         val previousPoints = inputs?.persistedPoints.orEmpty()
         inputs =
             withContext(shapingDispatcher) {
+                val lastCharge = history?.let(::lastCharge)
+                // Only a charge whose plug-in is older than the window reads further back; a failed read keeps the
+                // window's own start.
+                val plugInMs = if (lastCharge?.startsBeforeWindow == true) attempt { plugInBefore(from, to) } else null
                 HealthInputs(
                     kernel = kernel,
                     healthSamples = healthSamples,
@@ -385,9 +391,31 @@ class HealthViewModel(
                     history = history,
                     samples = samples,
                     previousPoints = previousPoints,
+                    historySpan = lastCharge?.startingAt(plugInMs),
                 )
             }.also { live.dropStored(it.persistedPoints) }
         render()
+    }
+
+    /**
+     * The plug-in of the charge that was already going at [windowStartMs], read back one window at a time and no
+     * further than the retention keeps history (counted from [nowMs]). Null when the history does not record it.
+     */
+    private suspend fun plugInBefore(
+        windowStartMs: Long,
+        nowMs: Long,
+    ): Long? {
+        val floorMs = nowMs - RETENTION_WINDOW_MS
+        var pluggedSinceMs: Long? = null
+        var endMs = windowStartMs
+        while (endMs > floorMs) {
+            val startMs = maxOf(floorMs, endMs - DATA_WINDOW_MS)
+            val scan = scanPlugIn(deps.historyBetween(startMs, endMs - 1), pluggedSinceMs)
+            if (scan.settled) return scan.startMs
+            pluggedSinceMs = scan.startMs
+            endMs = startMs
+        }
+        return pluggedSinceMs
     }
 
     private fun render() {

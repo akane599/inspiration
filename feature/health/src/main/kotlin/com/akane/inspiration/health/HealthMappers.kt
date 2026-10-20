@@ -122,43 +122,79 @@ internal data class ChargeSpan(
 )
 
 /**
- * The most recent plug-in span in [events]. A window that opens mid-charge (first plug event is an unplug, also one
- * right after an unplug reset) starts the span at the window's first event.
+ * [lastCharge]'s answer. When [startsBeforeWindow] is set, the window opened mid-charge: the plug-in is older than the
+ * window, and [span] starts at the window's first event only because nothing earlier was read.
  */
-internal fun lastChargeSpan(events: List<HistoryEvent>): ChargeSpan? {
+internal data class LastCharge(
+    val span: ChargeSpan?,
+    val startsBeforeWindow: Boolean,
+) {
+    /** [span] starting at [plugInMs], the plug-in found before the window, when there is one. */
+    fun startingAt(plugInMs: Long?): ChargeSpan? =
+        if (span != null && startsBeforeWindow && plugInMs != null && plugInMs < span.startMs) span.copy(startMs = plugInMs) else span
+}
+
+/** The most recent plug-in span in [events]; see [lastCharge]. */
+internal fun lastChargeSpan(events: List<HistoryEvent>): ChargeSpan? = lastCharge(events).span
+
+/**
+ * The most recent plug-in span in [events]. A window that opens mid-charge (first plug event is an unplug, also one
+ * right after an unplug reset, or a reset while plugged in) starts the span at the window's first event and says so,
+ * so the caller can look further back for the plug-in ([scanPlugIn]). A reset while plugged in does not restart the
+ * charge it falls in.
+ */
+internal fun lastCharge(events: List<HistoryEvent>): LastCharge {
     val sorted = events.sortedBy { it.wallMs }
+    val windowStart = sorted.firstOrNull()?.wallMs
     var open: Long? = null
-    var last: ChargeSpan? = null
+    var openBeforeWindow = false
+    var last: LastCharge? = null
     var baselineKnown = false
     // An unplug RESET met before any plug event: the window may have opened mid-charge.
     var firstUnplugResetAt: Long? = null
+
+    fun close(
+        start: Long?,
+        end: Long,
+        beforeWindow: Boolean,
+    ) {
+        if (start != null && end > start) last = LastCharge(ChargeSpan(start, end), beforeWindow)
+    }
+
     for (event in sorted) {
         when (event.kind) {
             HistoryKind.RESET -> {
-                // An unplug after a deep charge resets battery stats: that RESET carries plugType 0 and is the end of
-                // the charge. Its plugged flag is still set, so an UNPLUGGED follows at the same instant.
-                val start = open
-                if (start != null && event.plugType == 0 && event.wallMs > start) last = ChargeSpan(start, event.wallMs)
-                if (start == null && event.plugType == 0 && !baselineKnown) firstUnplugResetAt = event.wallMs
-                open = event.wallMs.takeIf { event.plugType != 0 }
+                if (event.plugType == 0) {
+                    // An unplug after a deep charge resets battery stats: that RESET carries plugType 0 and is the end
+                    // of the charge. Its plugged flag is still set, so an UNPLUGGED follows at the same instant.
+                    close(open, event.wallMs, openBeforeWindow)
+                    if (open == null && !baselineKnown) firstUnplugResetAt = event.wallMs
+                    open = null
+                } else if (open == null) {
+                    // Plugged in at a reset with no plug-in seen: before any plug event, the window opened mid-charge.
+                    openBeforeWindow = !baselineKnown
+                    open = if (openBeforeWindow) windowStart else event.wallMs
+                }
                 baselineKnown = true
             }
 
             HistoryKind.START -> {
                 open = event.wallMs.takeIf { event.plugType != 0 }
+                openBeforeWindow = false
                 baselineKnown = true
             }
 
             HistoryKind.SHUTDOWN -> {
-                open?.let { start ->
-                    if (event.wallMs > start) last = ChargeSpan(start, event.wallMs)
-                }
+                close(open, event.wallMs, openBeforeWindow)
                 open = null
                 baselineKnown = true
             }
 
             HistoryKind.PLUGGED -> {
-                if (open == null) open = event.wallMs
+                if (open == null) {
+                    open = event.wallMs
+                    openBeforeWindow = false
+                }
                 baselineKnown = true
             }
 
@@ -166,14 +202,45 @@ internal fun lastChargeSpan(events: List<HistoryEvent>): ChargeSpan? {
                 // Only the UNPLUGGED of that reset's own instant may still fall back; a later one follows a known
                 // unplugged baseline (a reset on battery has no UNPLUGGED of its own).
                 val midCharge = !baselineKnown || event.wallMs == firstUnplugResetAt
-                val start = open ?: sorted.firstOrNull()?.wallMs?.takeIf { midCharge }
-                if (start != null && event.wallMs > start) last = ChargeSpan(start, event.wallMs)
+                val start = open
+                if (start != null) close(start, event.wallMs, openBeforeWindow) else if (midCharge) close(windowStart, event.wallMs, true)
                 open = null
                 baselineKnown = true
             }
         }
     }
-    return open?.let { ChargeSpan(it, null) } ?: last
+    return open?.let { LastCharge(ChargeSpan(it, null), openBeforeWindow) } ?: last ?: LastCharge(null, startsBeforeWindow = false)
+}
+
+/**
+ * One step of the search for the plug-in of a charge that was already going when a window opened. [startMs] is the
+ * plug-in when [settled], otherwise the oldest time the charge is known to have been going (null when none yet).
+ */
+internal data class PlugInScan(
+    val startMs: Long?,
+    val settled: Boolean,
+)
+
+/**
+ * Scans [earlier], history that ends before the window (or before the previous step's [pluggedSinceMs]), newest first.
+ * A PLUGGED, or a START while plugged in (a boot restarts the span, as in [lastCharge]), is the plug-in. A RESET while
+ * plugged in only shows the charge was going then, so the scan goes on past it. An unplug, a shutdown, or a START or
+ * RESET on battery settles the search on what was found so far: the plug-in after it was not recorded.
+ */
+internal fun scanPlugIn(
+    earlier: List<HistoryEvent>,
+    pluggedSinceMs: Long?,
+): PlugInScan {
+    var since = pluggedSinceMs
+    for (event in earlier.sortedByDescending { it.wallMs }) {
+        when (event.kind) {
+            HistoryKind.PLUGGED -> return PlugInScan(event.wallMs, settled = true)
+            HistoryKind.START -> return PlugInScan(if (event.plugType != 0) event.wallMs else since, settled = true)
+            HistoryKind.RESET -> if (event.plugType != 0) since = event.wallMs else return PlugInScan(since, settled = true)
+            HistoryKind.UNPLUGGED, HistoryKind.SHUTDOWN -> return PlugInScan(since, settled = true)
+        }
+    }
+    return PlugInScan(since, settled = false)
 }
 
 /** The newest run of points no more than [SESSION_GAP_MS] apart. */

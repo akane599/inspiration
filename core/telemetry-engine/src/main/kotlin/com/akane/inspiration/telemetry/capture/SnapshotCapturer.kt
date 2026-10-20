@@ -115,9 +115,10 @@ class SnapshotCapturer(
     /**
      * Stores one page and moves the cursor past it; a page that arrived in time is kept past the deadline.
      *
-     * Events the retention prune would delete now are skipped. A relabelled stats session is paged again from 0,
-     * and without this the rows the prune already deleted would come back as new rows: first in the new run, ahead
-     * of the newer rows that still exist in an earlier run, so ingest order would no longer be chronology.
+     * Events the retention prune would delete now are skipped. A relabelled stats session is paged again from 0 (so
+     * is the current one, once, after the store's one-time cursor rewind), and without this the rows the prune already
+     * deleted would come back as new rows: first in the new run, ahead of the newer rows that still exist in an earlier
+     * run, so ingest order would no longer be chronology.
      */
     private suspend fun persistPage(page: com.akane.inspiration.ipc.model.BatteryHistorySnapshot) {
         if (!page.available) return
