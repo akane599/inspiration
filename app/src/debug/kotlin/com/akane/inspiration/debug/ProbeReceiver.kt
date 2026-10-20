@@ -100,6 +100,8 @@ class ProbeReceiver : BroadcastReceiver() {
         val manager = (context as InspirationApplication).appContainer.shizukuManager
         val bindStartedAt = SystemClock.elapsedRealtime()
         manager.start()
+        // start() reads the state on IO (B-10); a fresh, awaited read makes the state below current.
+        manager.refresh()
         log(JSONObject().put("state", manager.state.value.label()))
         if (manager.state.value !is ShizukuState.Ready) return
 
@@ -545,9 +547,11 @@ class ProbeReceiver : BroadcastReceiver() {
             }
     }
 
-    private fun requestPermission(context: Context) {
+    private suspend fun requestPermission(context: Context) {
         val manager = (context as InspirationApplication).appContainer.shizukuManager
         manager.start()
+        // start() reads the state on IO (B-10); a fresh, awaited read makes the check and the log below current.
+        manager.refresh()
         if (manager.state.value is ShizukuState.PermissionRequired) {
             manager.requestPermission()
         }

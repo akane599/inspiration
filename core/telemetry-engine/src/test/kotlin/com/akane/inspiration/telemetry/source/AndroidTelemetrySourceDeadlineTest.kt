@@ -618,6 +618,7 @@ class AndroidTelemetrySourceDeadlineTest {
             )
             manager = ShizukuManagerImpl(context, facade.api, scope, ioDispatcher = dispatcher)
             manager.start()
+            scheduler.runCurrent() // start()'s state read runs on the manager's IO dispatcher (B-10)
             check(manager.state.value is ShizukuState.Ready)
         }
 

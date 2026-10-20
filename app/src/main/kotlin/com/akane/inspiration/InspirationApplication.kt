@@ -35,6 +35,7 @@ class InspirationApplication : Application() {
         super.onCreate()
         appContainer = AppContainer(this)
         appContainer.statusSync = { StatusNotificationController.sync(this) }
+        // Returns at once: the first state read runs on IO (B-10). Everything below observes the state.
         appContainer.shizukuManager.start()
         appContainer.start()
         ContextCompat.registerReceiver(
@@ -57,7 +58,7 @@ class InspirationApplication : Application() {
         ChargingCaptureScheduler.ensureScheduled(this)
         appContainer.applicationScope.launch {
             // Access granted in the Shizuku app sends no callback, so it is re-read before the capture needs it.
-            // The re-read makes binder calls, which is why it runs here and not on Main in onStart (R-08).
+            // The re-read runs on IO (R-08, B-10) and is awaited here, so the capture sees its result.
             appContainer.shizukuManager.refresh()
             appContainer.refresh()
         }

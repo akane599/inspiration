@@ -67,7 +67,8 @@ class ShizukuManagerImpl private constructor(
     override val state: StateFlow<ShizukuState> = mutableState.asStateFlow()
     override val telemetryService: StateFlow<ITelemetryUserService?> = mutableTelemetryService.asStateFlow()
 
-    private var started = false
+    /** Written on the caller's thread by [start]/[stop]; read by the refreshes, which run on [ioDispatcher]. */
+    @Volatile private var started = false
     private var serviceBound = false
     private var serviceGeneration = 0
     private var activeServiceUsers = 0
@@ -112,7 +113,7 @@ class ShizukuManagerImpl private constructor(
     /**
      * Binds and unbinds decided under [bindingLock], in decision order. Each is a two-way binder call into the
      * Shizuku server, so one drainer issues them on [ioDispatcher] with the lock released (R-08): Main
-     * ([holdBinding], [refresh], the settle post) never waits for the server, and neither does a thread that only
+     * ([holdBinding], the settle post) never waits for the server, and neither does a thread that only
      * wants the lock. A single drainer keeps the order, so a bind decided after an unbind never reaches the server
      * first. The state is updated when a transaction is decided; the drainer re-checks it before a bind.
      */
@@ -123,9 +124,10 @@ class ShizukuManagerImpl private constructor(
     private var transportEpoch = 0
 
     /**
-     * [refresh] runs on IO while Shizuku's listeners refresh on Main. Each read takes a ticket, and only a newer
-     * ticket than the last applied one (or a transport loss) may publish its state, so a slower, older read can
-     * never overwrite a newer one.
+     * Every read runs on [ioDispatcher] (B-10), and reads asked for at about the same time (start, Shizuku's
+     * listeners, [refresh], [requestPermission]) can overlap there. Each read takes a ticket when it begins, and only
+     * a newer ticket than the last applied one (or a transport loss) may publish its state, so a slower, older read
+     * can never overwrite a newer one.
      */
     private val refreshTickets = AtomicLong()
     private var appliedRefreshTicket = 0L
@@ -172,9 +174,10 @@ class ShizukuManagerImpl private constructor(
             }
         }
 
+    /** Shizuku calls it on Main (posted, or inline from a sticky add there), so the read runs on IO (B-10). */
     private val binderReceivedListener =
         Shizuku.OnBinderReceivedListener {
-            updateState()
+            refreshInBackground()
         }
 
     /**
@@ -189,33 +192,49 @@ class ShizukuManagerImpl private constructor(
 
     /**
      * The result only says what the user tapped. Whether a deny was stored (so Shizuku will not ask again) is
-     * Shizuku's rationale flag, which [refreshState] reads: a one-time deny must stay requestable.
+     * Shizuku's rationale flag, which [refreshState] reads: a one-time deny must stay requestable. Shizuku calls it
+     * on Main, so the read runs on IO (B-10).
      */
     private val permissionResultListener =
-        Shizuku.OnRequestPermissionResultListener { _, _ -> updateState() }
+        Shizuku.OnRequestPermissionResultListener { _, _ -> refreshInBackground() }
 
+    /**
+     * Safe on Main (B-10): the re-read and the dialog request are binder calls into the Shizuku server, so both run
+     * on [ioDispatcher]. The dialog is asked for only when the state after that re-read is PermissionRequired.
+     */
     override fun requestPermission() {
         if (!started) {
             return
         }
-        // Shizuku sends no callback for a grant made in its own app, and a stale state must not block the dialog.
-        updateState()
-        if (mutableState.value !is ShizukuState.PermissionRequired) {
-            return
-        }
-        try {
-            facade.requestPermission(PERMISSION_REQUEST_CODE)
-        } catch (_: RuntimeException) {
-            synchronized(bindingLock) { transportLostLocked() }
-        }
-    }
-
-    override fun refresh() {
-        if (started) {
+        scope.launch(ioDispatcher) {
+            // Shizuku sends no callback for a grant made in its own app, and a stale state must not block the dialog.
             updateState()
+            // Decided under the lock with the transport epoch it was made in, as the drainer's transactions are.
+            val epoch =
+                synchronized(bindingLock) {
+                    if (!started || mutableState.value !is ShizukuState.PermissionRequired) return@launch
+                    transportEpoch
+                }
+            try {
+                facade.requestPermission(PERMISSION_REQUEST_CODE)
+            } catch (_: RuntimeException) {
+                // A loss handled since (perhaps with a new server up by now) must not be reported again.
+                synchronized(bindingLock) {
+                    if (epoch == transportEpoch) transportLostLocked()
+                }
+            }
         }
     }
 
+    override suspend fun refresh() {
+        withContext(ioDispatcher) { updateState() }
+    }
+
+    /**
+     * Safe on Main (B-10): it only registers the listeners and starts the first read on [ioDispatcher]. Until that
+     * read publishes, [state] stays NotRunning, which [withTelemetryService] already waits out; read the state by
+     * observing it or after [refresh], not right after this call.
+     */
     override fun start() {
         if (started) {
             return
@@ -224,7 +243,12 @@ class ShizukuManagerImpl private constructor(
         facade.addBinderReceivedListenerSticky(binderReceivedListener)
         facade.addBinderDeadListener(binderDeadListener)
         facade.addRequestPermissionResultListener(permissionResultListener)
-        updateState()
+        refreshInBackground()
+    }
+
+    /** For callers on Main (start and Shizuku's listeners): the read is binder calls, so it runs on [ioDispatcher]. */
+    private fun refreshInBackground() {
+        scope.launch(ioDispatcher) { updateState() }
     }
 
     /**
@@ -341,6 +365,8 @@ class ShizukuManagerImpl private constructor(
         facade.removeBinderDeadListener(binderDeadListener)
         facade.removeRequestPermissionResultListener(permissionResultListener)
         synchronized(bindingLock) {
+            // A read still running on IO from before the stop must not publish a state or bind after it.
+            appliedRefreshTicket = maxOf(appliedRefreshTicket, refreshTickets.get())
             // Without it a still-open holder/user would rebind on the next death or settle timeout.
             applicationInfo = null
             unbindTelemetryServiceLocked()
@@ -430,8 +456,12 @@ class ShizukuManagerImpl private constructor(
         bindIfRequiredLocked()
     }
 
+    /** Never on Main (B-10): every caller reaches it on [ioDispatcher]. */
     private fun updateState() {
         val ticket = refreshTickets.incrementAndGet()
+        // Checked after taking the ticket: stop() clears started before it raises the applied ticket, so a read
+        // either sees it stopped here or holds a ticket stop() has already outdated, and publishes nothing.
+        if (!started) return
         try {
             refreshState(ticket)
         } catch (_: RuntimeException) {

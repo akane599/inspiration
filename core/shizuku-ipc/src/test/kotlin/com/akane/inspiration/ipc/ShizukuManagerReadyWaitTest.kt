@@ -98,6 +98,7 @@ class ShizukuManagerReadyWaitTest {
             terminal.forEach { (expected, facade) ->
                 val manager = manager(facade, managerInstalled = expected != ShizukuState.NotInstalled)
                 manager.start()
+                runCurrent() // start()'s read runs on IO (B-10)
                 assertEquals(expected, manager.state.value)
 
                 assertNull(manager.withTelemetryService(2_000L) { "read" })

@@ -19,6 +19,8 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.asCoroutineDispatcher
 import kotlinx.coroutines.async
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.job
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.TestScope
@@ -28,6 +30,7 @@ import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.test.setMain
+import kotlinx.coroutines.withTimeout
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotEquals
@@ -40,6 +43,7 @@ import org.junit.Before
 import org.junit.Test
 import rikka.shizuku.Shizuku
 import java.lang.reflect.Proxy
+import java.util.concurrent.ConcurrentLinkedQueue
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
@@ -61,13 +65,13 @@ class ShizukuManagerImplTest {
     fun failedHoldBindDoesNotThrowOrLeakOwnershipAcrossReconnect() =
         runTest {
             val fixture = Fixture(this)
-            fixture.manager.start()
+            fixture.start()
             fixture.facade.bindFailure = true
             val holder = fixture.holdBinding()
             assertSame(ShizukuState.NotRunning, fixture.manager.state.value)
             holder.close()
             fixture.facade.bindFailure = false
-            fixture.facade.deliverPermissionResult(PackageManager.PERMISSION_GRANTED)
+            fixture.deliverPermissionResult(PackageManager.PERMISSION_GRANTED)
             assertEquals(1, fixture.facade.bindCalls)
             val next = fixture.holdBinding()
             assertEquals(2, fixture.facade.bindCalls)
@@ -80,11 +84,11 @@ class ShizukuManagerImplTest {
     fun failedServiceAcquisitionReleasesUserBeforeReconnect() =
         runTest {
             val fixture = Fixture(this)
-            fixture.manager.start()
+            fixture.start()
             fixture.facade.bindFailure = true
             assertNull(fixture.manager.withTelemetryService(1) { Unit })
             fixture.facade.bindFailure = false
-            fixture.facade.deliverPermissionResult(PackageManager.PERMISSION_GRANTED)
+            fixture.deliverPermissionResult(PackageManager.PERMISSION_GRANTED)
             assertEquals(1, fixture.facade.bindCalls)
             advanceUntilIdle()
             assertEquals(0, fixture.facade.unbindCalls)
@@ -94,7 +98,7 @@ class ShizukuManagerImplTest {
     fun failedIdleUnbindClearsTransportAndAllowsAnotherBind() =
         runTest {
             val fixture = Fixture(this)
-            fixture.manager.start()
+            fixture.start()
             val holder = fixture.holdBinding()
             fixture.facade.deliverServiceConnected()
             fixture.facade.unbindFailure = true
@@ -103,7 +107,7 @@ class ShizukuManagerImplTest {
             assertSame(ShizukuState.NotRunning, fixture.manager.state.value)
             assertNull(fixture.manager.telemetryService.value)
             fixture.facade.unbindFailure = false
-            fixture.facade.deliverPermissionResult(PackageManager.PERMISSION_GRANTED)
+            fixture.deliverPermissionResult(PackageManager.PERMISSION_GRANTED)
             val next = fixture.holdBinding()
             assertEquals(2, fixture.facade.bindCalls)
             next.close()
@@ -115,7 +119,7 @@ class ShizukuManagerImplTest {
         runTest {
             val fixture = Fixture(this, managerInstalled = false).apply { facade.binderAlive = false }
 
-            fixture.manager.start()
+            fixture.start()
 
             assertSame(ShizukuState.NotInstalled, fixture.manager.state.value)
             assertEquals(1, fixture.facade.addedBinderReceivedListeners)
@@ -131,7 +135,7 @@ class ShizukuManagerImplTest {
                     facade.serverUid = 0 // Sui runs as root
                 }
 
-            fixture.manager.start()
+            fixture.start()
 
             assertEquals(ShizukuState.Ready(0, 13, ShizukuBackend.SUI), fixture.manager.state.value)
             val result = async { fixture.manager.withTelemetryService(1_000L) { "read" } }
@@ -150,13 +154,13 @@ class ShizukuManagerImplTest {
                     facade.serverUid = 0
                     facade.permissionResult = PackageManager.PERMISSION_DENIED
                 }
-            fixture.manager.start()
+            fixture.start()
             assertEquals(ShizukuState.PermissionRequired(ShizukuBackend.SUI), fixture.manager.state.value)
 
-            fixture.manager.requestPermission()
+            fixture.requestPermission()
             assertEquals("Sui shows its own dialog for Shizuku.requestPermission", 1, fixture.facade.permissionRequests)
             fixture.facade.permissionResult = PackageManager.PERMISSION_GRANTED
-            fixture.facade.deliverPermissionResult(PackageManager.PERMISSION_GRANTED)
+            fixture.deliverPermissionResult(PackageManager.PERMISSION_GRANTED)
 
             assertEquals(ShizukuState.Ready(0, 13, ShizukuBackend.SUI), fixture.manager.state.value)
         }
@@ -171,7 +175,7 @@ class ShizukuManagerImplTest {
                         facade.sui = backend == ShizukuBackend.SUI
                         facade.permissionResult = PackageManager.PERMISSION_DENIED
                     }
-                fixture.manager.start()
+                fixture.start()
                 assertEquals(ShizukuState.PermissionRequired(backend), fixture.manager.state.value)
 
                 fixture.facade.showPermissionRationale = true
@@ -197,11 +201,11 @@ class ShizukuManagerImplTest {
     fun aBinderArrivingAfterNotInstalledIsPickedUp() =
         runTest {
             val fixture = Fixture(this, managerInstalled = false).apply { facade.binderAlive = false }
-            fixture.manager.start()
+            fixture.start()
             assertSame(ShizukuState.NotInstalled, fixture.manager.state.value)
 
             fixture.facade.binderAlive = true
-            fixture.facade.deliverBinderReceived()
+            fixture.deliverBinderReceived()
 
             assertEquals(ShizukuState.Ready(2000, 13), fixture.manager.state.value)
         }
@@ -212,7 +216,7 @@ class ShizukuManagerImplTest {
     fun aSuiServerThatStopsIsNotRunningAndCallsWaitForItsReturn() =
         runTest {
             val fixture = Fixture(this, managerInstalled = false)
-            fixture.manager.start()
+            fixture.start()
             assertEquals(ShizukuState.Ready(2000, 13), fixture.manager.state.value)
 
             fixture.facade.binderAlive = false
@@ -223,7 +227,7 @@ class ShizukuManagerImplTest {
             val call = async { fixture.manager.withTelemetryService(2_000L) { "read" } }
             runCurrent()
             fixture.facade.binderAlive = true
-            fixture.facade.deliverBinderReceived() // the server is back
+            fixture.deliverBinderReceived() // the server is back
             runCurrent()
             fixture.facade.deliverServiceConnected()
             assertEquals("read", call.await())
@@ -234,7 +238,7 @@ class ShizukuManagerImplTest {
         runTest {
             // The binder came and died before the received listener could read it.
             val fixture = Fixture(this, managerInstalled = false).apply { facade.binderAlive = false }
-            fixture.manager.start()
+            fixture.start()
             assertSame(ShizukuState.NotInstalled, fixture.manager.state.value)
 
             fixture.facade.deliverBinderDeath()
@@ -247,11 +251,11 @@ class ShizukuManagerImplTest {
     fun aLiveBinderWithoutTheManagerAppStillAppliesTheServerVersionChecks() =
         runTest {
             val preV11 = Fixture(this, managerInstalled = false).apply { facade.preV11 = true }
-            preV11.manager.start()
+            preV11.start()
             assertSame(ShizukuState.NotRunning, preV11.manager.state.value)
 
             val oldServer = Fixture(this, managerInstalled = false).apply { facade.serverVersion = 12 }
-            oldServer.manager.start()
+            oldServer.start()
             assertEquals(ShizukuState.UnsupportedServer(12), oldServer.manager.state.value)
 
             assertEquals(0, preV11.facade.bindCalls + oldServer.facade.bindCalls)
@@ -266,7 +270,7 @@ class ShizukuManagerImplTest {
                     applicationInfoProvider = ShizukuApplicationInfoProvider { error("own package is not readable") },
                 )
 
-            fixture.manager.start()
+            fixture.start()
             fixture.manager.holdBinding().close()
 
             assertSame(ShizukuState.NotRunning, fixture.manager.state.value)
@@ -279,7 +283,7 @@ class ShizukuManagerImplTest {
         runTest {
             val fixture = Fixture(this).apply { facade.binderAlive = false }
 
-            fixture.manager.start()
+            fixture.start()
 
             assertSame(ShizukuState.NotRunning, fixture.manager.state.value)
             assertEquals(0, fixture.facade.bindCalls)
@@ -294,10 +298,10 @@ class ShizukuManagerImplTest {
                     facade.showPermissionRationale = false
                 }
 
-            fixture.manager.start()
+            fixture.start()
 
             assertEquals(ShizukuState.PermissionRequired(), fixture.manager.state.value)
-            fixture.manager.requestPermission()
+            fixture.requestPermission()
             assertEquals(1, fixture.facade.permissionRequests)
         }
 
@@ -308,11 +312,11 @@ class ShizukuManagerImplTest {
                 Fixture(this).apply {
                     facade.permissionResult = PackageManager.PERMISSION_DENIED
                 }
-            fixture.manager.start()
+            fixture.start()
 
             // A deny that Shizuku stored is reported through the rationale flag, not by the result itself.
             fixture.facade.showPermissionRationale = true
-            fixture.facade.deliverPermissionResult(PackageManager.PERMISSION_DENIED)
+            fixture.deliverPermissionResult(PackageManager.PERMISSION_DENIED)
 
             assertEquals(ShizukuState.PermissionDenied(), fixture.manager.state.value)
             assertEquals(0, fixture.facade.bindCalls)
@@ -325,14 +329,14 @@ class ShizukuManagerImplTest {
                 Fixture(this).apply {
                     facade.permissionResult = PackageManager.PERMISSION_DENIED
                 }
-            fixture.manager.start()
-            fixture.manager.requestPermission()
+            fixture.start()
+            fixture.requestPermission()
 
             // Shizuku did not store this deny (onetime=true), so it reports no rationale and may ask again.
-            fixture.facade.deliverPermissionResult(PackageManager.PERMISSION_DENIED)
+            fixture.deliverPermissionResult(PackageManager.PERMISSION_DENIED)
             assertEquals(ShizukuState.PermissionRequired(), fixture.manager.state.value)
 
-            fixture.manager.requestPermission()
+            fixture.requestPermission()
             assertEquals("the second Grant tap shows the dialog again", 2, fixture.facade.permissionRequests)
 
             // The user allows Inspiration in the Shizuku app instead: Shizuku sends this client no callback.
@@ -351,18 +355,18 @@ class ShizukuManagerImplTest {
                     facade.permissionResult = PackageManager.PERMISSION_DENIED
                     facade.showPermissionRationale = true
                 }
-            fixture.manager.start()
+            fixture.start()
             assertEquals(ShizukuState.PermissionDenied(), fixture.manager.state.value)
 
             // Shizuku answers a stored deny without a dialog, so it is not asked while the deny stands.
-            fixture.manager.requestPermission()
+            fixture.requestPermission()
             assertEquals(ShizukuState.PermissionDenied(), fixture.manager.state.value)
             assertEquals(0, fixture.facade.permissionRequests)
 
             // Allowed in the Shizuku app, then Grant tapped back in Inspiration.
             fixture.facade.permissionResult = PackageManager.PERMISSION_GRANTED
             fixture.facade.showPermissionRationale = false
-            fixture.manager.requestPermission()
+            fixture.requestPermission()
 
             assertEquals(ShizukuState.Ready(2000, 13), fixture.manager.state.value)
             assertEquals("an access that is already granted needs no dialog", 0, fixture.facade.permissionRequests)
@@ -376,7 +380,7 @@ class ShizukuManagerImplTest {
             fixture.manager.refresh()
             assertSame(ShizukuState.NotRunning, fixture.manager.state.value)
 
-            fixture.manager.start()
+            fixture.start()
             fixture.manager.stop()
             fixture.facade.permissionResult = PackageManager.PERMISSION_DENIED
             fixture.manager.refresh()
@@ -388,7 +392,7 @@ class ShizukuManagerImplTest {
     fun refreshWhileReadyLeavesTheBoundServiceAlone() =
         runTest {
             val fixture = Fixture(this)
-            fixture.manager.start()
+            fixture.start()
             val holder = fixture.holdBinding()
             fixture.facade.deliverServiceConnected()
 
@@ -409,10 +413,10 @@ class ShizukuManagerImplTest {
                 Fixture(this).apply {
                     facade.permissionResult = PackageManager.PERMISSION_DENIED
                 }
-            fixture.manager.start()
+            fixture.start()
 
             fixture.facade.permissionResult = PackageManager.PERMISSION_GRANTED
-            fixture.facade.deliverPermissionResult(PackageManager.PERMISSION_GRANTED)
+            fixture.deliverPermissionResult(PackageManager.PERMISSION_GRANTED)
 
             assertEquals(ShizukuState.Ready(2000, 13), fixture.manager.state.value)
             assertEquals(0, fixture.facade.bindCalls)
@@ -422,7 +426,7 @@ class ShizukuManagerImplTest {
     fun withTelemetryServiceUnbindsWhenLastUserCompletes() =
         runTest {
             val fixture = Fixture(this)
-            fixture.manager.start()
+            fixture.start()
 
             val result = async { fixture.manager.withTelemetryService(1_000L) { "complete" } }
             runCurrent()
@@ -439,7 +443,7 @@ class ShizukuManagerImplTest {
     fun bindingHolderKeepsServiceBoundUntilClosed() =
         runTest {
             val fixture = Fixture(this)
-            fixture.manager.start()
+            fixture.start()
 
             val holder = fixture.holdBinding()
             assertEquals(1, fixture.facade.bindCalls)
@@ -459,7 +463,7 @@ class ShizukuManagerImplTest {
     fun withTelemetryServiceReturnsNullAfterTimeout() =
         runTest {
             val fixture = Fixture(this)
-            fixture.manager.start()
+            fixture.start()
 
             assertNull(fixture.manager.withTelemetryService(1L) { Unit })
             advanceTimeBy(LINGER_MS + 1)
@@ -471,7 +475,7 @@ class ShizukuManagerImplTest {
     fun withTelemetryServiceReturnsNullOnBinderDeathDuringBlock() =
         runTest {
             val fixture = Fixture(this)
-            fixture.manager.start()
+            fixture.start()
 
             val result =
                 async {
@@ -491,7 +495,7 @@ class ShizukuManagerImplTest {
     fun concurrentTelemetryServiceUsersShareOneBind() =
         runTest {
             val fixture = Fixture(this)
-            fixture.manager.start()
+            fixture.start()
 
             val first = async { fixture.manager.withTelemetryService(1_000L) { "first" } }
             val second = async { fixture.manager.withTelemetryService(1_000L) { "second" } }
@@ -509,7 +513,7 @@ class ShizukuManagerImplTest {
     fun binderDeathReportsNotRunningAndClearsTelemetryService() =
         runTest {
             val fixture = Fixture(this)
-            fixture.manager.start()
+            fixture.start()
 
             fixture.facade.deliverBinderDeath()
 
@@ -522,7 +526,7 @@ class ShizukuManagerImplTest {
         runTest {
             val fixture = Fixture(this).apply { facade.preV11 = true }
 
-            fixture.manager.start()
+            fixture.start()
 
             assertSame(ShizukuState.NotRunning, fixture.manager.state.value)
             assertEquals(0, fixture.facade.bindCalls)
@@ -534,7 +538,7 @@ class ShizukuManagerImplTest {
             // A v11/v12 server builds TelemetryUserService through its no-arg constructor, which rejects every call.
             val fixture = Fixture(this).apply { facade.serverVersion = 12 }
 
-            fixture.manager.start()
+            fixture.start()
 
             assertEquals(ShizukuState.UnsupportedServer(12), fixture.manager.state.value)
             assertNull(fixture.manager.withTelemetryService(1) { Unit })
@@ -549,9 +553,9 @@ class ShizukuManagerImplTest {
                     facade.serverVersion = 12
                     facade.permissionResult = PackageManager.PERMISSION_DENIED
                 }
-            fixture.manager.start()
+            fixture.start()
 
-            fixture.manager.requestPermission()
+            fixture.requestPermission()
 
             assertEquals(ShizukuState.UnsupportedServer(12), fixture.manager.state.value)
             assertEquals("granting cannot help an old server", 0, fixture.facade.permissionRequests)
@@ -565,12 +569,12 @@ class ShizukuManagerImplTest {
                     facade.serverVersion = -1 // not sent on attach, and not readable without access
                     facade.permissionResult = PackageManager.PERMISSION_DENIED
                 }
-            fixture.manager.start()
+            fixture.start()
             assertEquals(ShizukuState.PermissionRequired(), fixture.manager.state.value)
 
             fixture.facade.serverVersion = 12
             fixture.facade.permissionResult = PackageManager.PERMISSION_GRANTED
-            fixture.facade.deliverPermissionResult(PackageManager.PERMISSION_GRANTED)
+            fixture.deliverPermissionResult(PackageManager.PERMISSION_GRANTED)
 
             assertEquals(ShizukuState.UnsupportedServer(12), fixture.manager.state.value)
         }
@@ -580,8 +584,8 @@ class ShizukuManagerImplTest {
         runTest {
             val fixture = Fixture(this)
 
-            fixture.manager.start()
-            fixture.manager.start()
+            fixture.start()
+            fixture.start()
 
             assertEquals(1, fixture.facade.addedBinderReceivedListeners)
             assertEquals(1, fixture.facade.addedBinderDeadListeners)
@@ -592,7 +596,7 @@ class ShizukuManagerImplTest {
     fun stopUnregistersListenersAndUnbindsHeldService() =
         runTest {
             val fixture = Fixture(this)
-            fixture.manager.start()
+            fixture.start()
             val holder = fixture.holdBinding()
 
             fixture.manager.stop()
@@ -614,7 +618,7 @@ class ShizukuManagerImplTest {
     fun handoverAfterUnbindSurvivesTheOldServicesLateDeath() =
         runTest {
             val fixture = Fixture(this)
-            fixture.manager.start()
+            fixture.start()
             val first = fixture.holdBinding()
             fixture.facade.deliverServiceConnected()
             first.close()
@@ -623,8 +627,9 @@ class ShizukuManagerImplTest {
 
             val second = fixture.holdBinding()
             fixture.facade.deliverServiceDied {
-                // The callback ran, but Shizuku still caches the dying wrapper and its registrations.
-                fixture.manager.refresh()
+                // The callback ran, but Shizuku still caches the dying wrapper and its registrations. A Shizuku
+                // listener's re-read (B-10: queued on IO, not run here) and a holder must both wait for cleanup.
+                fixture.facade.deliverPermissionResult(PackageManager.PERMISSION_GRANTED)
                 fixture.manager.holdBinding().close()
                 assertEquals("all acquisitions stay deferred until callback cleanup", 1, fixture.facade.bindCalls)
             }
@@ -691,7 +696,7 @@ class ShizukuManagerImplTest {
     fun stopBeforeThePostedDeathSettleDoesNotRebind() =
         runTest {
             val fixture = Fixture(this)
-            fixture.manager.start()
+            fixture.start()
             fixture
                 .holdBinding()
                 .apply { fixture.facade.deliverServiceConnected() }
@@ -712,7 +717,7 @@ class ShizukuManagerImplTest {
     fun daemonDeathCancelsThePostedDeathSettle() =
         runTest {
             val fixture = Fixture(this)
-            fixture.manager.start()
+            fixture.start()
             fixture
                 .holdBinding()
                 .apply { fixture.facade.deliverServiceConnected() }
@@ -734,7 +739,7 @@ class ShizukuManagerImplTest {
     fun aCancelledSettleTimeoutWaitingForTheLockCannotBypassDeathCallbackCleanup() =
         runTest {
             val fixture = Fixture(this)
-            fixture.manager.start()
+            fixture.start()
             fixture
                 .holdBinding()
                 .apply { fixture.facade.deliverServiceConnected() }
@@ -762,7 +767,7 @@ class ShizukuManagerImplTest {
     fun aPostedDeathSettleAlreadyWaitingForTheLockIsFencedAfterTransportLoss() =
         runTest {
             val fixture = Fixture(this)
-            fixture.manager.start()
+            fixture.start()
             fixture
                 .holdBinding()
                 .apply { fixture.facade.deliverServiceConnected() }
@@ -785,7 +790,7 @@ class ShizukuManagerImplTest {
     fun noSecondBindIsIssuedWhileTheUnboundServiceIsStillDying() =
         runTest {
             val fixture = Fixture(this)
-            fixture.manager.start()
+            fixture.start()
             fixture
                 .holdBinding()
                 .apply { fixture.facade.deliverServiceConnected() }
@@ -811,7 +816,7 @@ class ShizukuManagerImplTest {
     fun aDeferredBindStillHappensWhenTheOldDeathNeverArrives() =
         runTest {
             val fixture = Fixture(this)
-            fixture.manager.start()
+            fixture.start()
             fixture
                 .holdBinding()
                 .apply { fixture.facade.deliverServiceConnected() }
@@ -833,7 +838,7 @@ class ShizukuManagerImplTest {
     fun theOldServicesDeathAfterTheFallbackBindDoesNotDropTheNewBinding() =
         runTest {
             val fixture = Fixture(this)
-            fixture.manager.start()
+            fixture.start()
             fixture
                 .holdBinding()
                 .apply { fixture.facade.deliverServiceConnected() }
@@ -856,7 +861,7 @@ class ShizukuManagerImplTest {
     fun aGenuineDeathOfTheFallbackBoundServiceIsStillADisconnect() =
         runTest {
             val fixture = Fixture(this)
-            fixture.manager.start()
+            fixture.start()
             fixture
                 .holdBinding()
                 .apply { fixture.facade.deliverServiceConnected() }
@@ -885,7 +890,7 @@ class ShizukuManagerImplTest {
     fun theFallbackBindingsDeathAfterTheSharedStubFiredStillRecoversToAFreshBinding() =
         runTest {
             val fixture = Fixture(this)
-            fixture.manager.start()
+            fixture.start()
             fixture
                 .holdBinding()
                 .apply { fixture.facade.deliverServiceConnected(LiveBinder()) }
@@ -918,7 +923,7 @@ class ShizukuManagerImplTest {
     fun aDeadBinderFailingACallIsDroppedEvenBeforeItsDeathNotice() =
         runTest {
             val fixture = Fixture(this)
-            fixture.manager.start()
+            fixture.start()
             fixture
                 .holdBinding()
                 .apply { fixture.facade.deliverServiceConnected(LiveBinder()) }
@@ -946,7 +951,7 @@ class ShizukuManagerImplTest {
     fun aDeadBinderWhoseStubStillReportsWaitsForTheStubsPostedCleanup() =
         runTest {
             val fixture = Fixture(this)
-            fixture.manager.start()
+            fixture.start()
             val holder = fixture.holdBinding()
             val service = LiveBinder()
             fixture.facade.deliverServiceConnected(service)
@@ -971,7 +976,7 @@ class ShizukuManagerImplTest {
     fun anUnexpectedServiceDeathDefersBindsUntilShizukusCleanupAndRebindsTheHolder() =
         runTest {
             val fixture = Fixture(this)
-            fixture.manager.start()
+            fixture.start()
             val holder = fixture.holdBinding()
             fixture.facade.deliverServiceConnected(LiveBinder())
 
@@ -995,7 +1000,7 @@ class ShizukuManagerImplTest {
     fun anUnexpectedServiceDeathWithNoUserOrHolderLeftDoesNotRebind() =
         runTest {
             val fixture = Fixture(this)
-            fixture.manager.start()
+            fixture.start()
             fixture
                 .holdBinding()
                 .apply { fixture.facade.deliverServiceConnected(LiveBinder()) }
@@ -1014,7 +1019,7 @@ class ShizukuManagerImplTest {
     fun anOwedDeathBeforeTheFallbackBindConnectedRebindsTheHolderOnAFreshStub() =
         runTest {
             val fixture = Fixture(this)
-            fixture.manager.start()
+            fixture.start()
             fixture
                 .holdBinding()
                 .apply { fixture.facade.deliverServiceConnected(LiveBinder()) }
@@ -1040,7 +1045,7 @@ class ShizukuManagerImplTest {
     fun aSpentStubBindingThatDiesDuringTheStubsCleanupWaitsForItBeforeRebinding() =
         runTest {
             val fixture = Fixture(this)
-            fixture.manager.start()
+            fixture.start()
             fixture
                 .holdBinding()
                 .apply { fixture.facade.deliverServiceConnected(LiveBinder()) }
@@ -1107,7 +1112,7 @@ class ShizukuManagerImplTest {
     fun stopDuringAnUnexpectedDeathsFenceDoesNotRebind() =
         runTest {
             val fixture = Fixture(this)
-            fixture.manager.start()
+            fixture.start()
             val holder = fixture.holdBinding()
             fixture.facade.deliverServiceConnected(LiveBinder())
 
@@ -1124,7 +1129,7 @@ class ShizukuManagerImplTest {
     fun aDaemonDeathDuringAnUnexpectedDeathsFenceClearsItWithoutRebinding() =
         runTest {
             val fixture = Fixture(this)
-            fixture.manager.start()
+            fixture.start()
             val holder = fixture.holdBinding()
             fixture.facade.deliverServiceConnected(LiveBinder())
 
@@ -1136,7 +1141,7 @@ class ShizukuManagerImplTest {
             assertSame(ShizukuState.NotRunning, fixture.manager.state.value)
 
             fixture.facade.binderAlive = true
-            fixture.facade.deliverBinderReceived() // Shizuku is back
+            fixture.deliverBinderReceived() // Shizuku is back
             runCurrent()
             assertEquals("the cleared fence lets the holder bind at once", 2, fixture.facade.bindCalls)
             fixture.facade.deliverServiceConnected(LiveBinder())
@@ -1149,7 +1154,7 @@ class ShizukuManagerImplTest {
     fun aServiceDeathHandledAfterTheDaemonDiedDoesNotBindAgainstTheDeadDaemon() =
         runTest {
             val fixture = Fixture(this)
-            fixture.manager.start()
+            fixture.start()
             val holder = fixture.holdBinding()
             fixture.facade.deliverServiceConnected(LiveBinder())
 
@@ -1222,7 +1227,7 @@ class ShizukuManagerImplTest {
     fun stopNeverRebindsAfterALaterSettleTimeoutOrDeath() =
         runTest {
             val fixture = Fixture(this)
-            fixture.manager.start()
+            fixture.start()
             val holder = fixture.holdBinding()
             fixture.facade.deliverServiceConnected()
 
@@ -1243,7 +1248,7 @@ class ShizukuManagerImplTest {
     fun aCancelledLingerWaitingForTheLockDoesNotUnbindEarly() =
         runTest {
             val fixture = Fixture(this)
-            fixture.manager.start()
+            fixture.start()
             fixture
                 .holdBinding()
                 .apply { fixture.facade.deliverServiceConnected() }
@@ -1264,7 +1269,7 @@ class ShizukuManagerImplTest {
     fun aRebindBetweenServiceAndGenerationReadsIsNotMissed() =
         runTest {
             val fixture = Fixture(this)
-            fixture.manager.start()
+            fixture.start()
             val oldService = LiveBinder()
             val newService = LiveBinder()
             var received: android.os.IBinder? = null
@@ -1300,7 +1305,7 @@ class ShizukuManagerImplTest {
     fun unbindClearsTheDeadBinderForCallers() =
         runTest {
             val fixture = Fixture(this)
-            fixture.manager.start()
+            fixture.start()
             val holder = fixture.holdBinding()
             fixture.facade.deliverServiceConnected()
             assertNotNull(fixture.manager.telemetryService.value)
@@ -1316,7 +1321,7 @@ class ShizukuManagerImplTest {
     fun aLateConnectFromTheUnboundServiceIsIgnored() =
         runTest {
             val fixture = Fixture(this)
-            fixture.manager.start()
+            fixture.start()
             fixture.manager.holdBinding().close() // unbound before the service ever connected
             advanceTimeBy(LINGER_MS + 1)
             assertEquals(1, fixture.facade.unbindCalls)
@@ -1330,7 +1335,7 @@ class ShizukuManagerImplTest {
     fun reacquiringWithinTheLingerKeepsTheServiceWithoutKillingIt() =
         runTest {
             val fixture = Fixture(this)
-            fixture.manager.start()
+            fixture.start()
             val first = fixture.holdBinding()
             fixture.facade.deliverServiceConnected()
 
@@ -1349,7 +1354,7 @@ class ShizukuManagerImplTest {
     fun theIdleLingerIsShortAndBounded() =
         runTest {
             val fixture = Fixture(this)
-            fixture.manager.start()
+            fixture.start()
             val result = async { fixture.manager.withTelemetryService(1_000L) { Unit } }
             runCurrent()
             fixture.facade.deliverServiceConnected()
@@ -1496,7 +1501,7 @@ class ShizukuManagerImplTest {
     fun aHolderArrivingDuringAnIdleUnbindTransactionEndsBound() =
         runTest {
             val fixture = Fixture(this)
-            fixture.manager.start()
+            fixture.start()
             fixture
                 .holdBinding()
                 .apply { fixture.facade.deliverServiceConnected(LiveBinder()) }
@@ -1528,7 +1533,7 @@ class ShizukuManagerImplTest {
     fun aBindStillQueuedWhenItsBindingEndsIsNeverIssued() =
         runTest {
             val fixture = Fixture(this)
-            fixture.manager.start()
+            fixture.start()
 
             val holder = fixture.manager.holdBinding() // the drainer has not run yet
             fixture.manager.stop()
@@ -1543,7 +1548,7 @@ class ShizukuManagerImplTest {
     fun aBindFailingOnIoStillReportsTransportLoss() =
         runTest {
             val fixture = Fixture(this)
-            fixture.manager.start()
+            fixture.start()
             fixture.facade.bindFailure = true
 
             val holder = fixture.manager.holdBinding()
@@ -1554,12 +1559,12 @@ class ShizukuManagerImplTest {
             holder.close()
         }
 
-    // MainActivity.onStart's refresh runs on IO (R-08) while Shizuku's listeners refresh on Main.
+    // Every read runs on IO (R-08, B-10), so the app-open refresh, Shizuku's listeners and a Grant tap can overlap.
     @Test
-    fun anOlderRefreshFinishingLastCannotOverwriteANewerState() =
-        runTest {
-            val fixture = Fixture(this)
+    fun anOlderRefreshFinishingLastCannotOverwriteANewerState() {
+        ThreadedFixture().use { fixture ->
             fixture.manager.start()
+            fixture.awaitState(ShizukuState.Ready(2000, 13))
             val readGranted = CountDownLatch(1)
             val resume = CountDownLatch(1)
             fixture.facade.onCheckSelfPermission = {
@@ -1567,17 +1572,18 @@ class ShizukuManagerImplTest {
                 readGranted.countDown()
                 resume.await(10, TimeUnit.SECONDS)
             }
-            val slow = Thread { fixture.manager.refresh() }.apply { start() }
+            val slow = fixture.scope.async { fixture.manager.refresh() }
             assertTrue(readGranted.await(5, TimeUnit.SECONDS))
 
             // Access is revoked and a newer refresh publishes that while the older one is still between its reads.
             fixture.facade.permissionResult = PackageManager.PERMISSION_DENIED
-            fixture.manager.refresh()
+            runBlocking { fixture.manager.refresh() }
             resume.countDown()
-            slow.join(10_000L)
+            runBlocking { withTimeout(10_000L) { slow.await() } }
 
             assertEquals(ShizukuState.PermissionRequired(), fixture.manager.state.value)
         }
+    }
 
     // R-08 follow-up: a non-RuntimeException out of a bind must not leave the binding "bound" with no bind behind it
     // (bindIfRequiredLocked would return early forever) nor strand the queue.
@@ -1586,14 +1592,14 @@ class ShizukuManagerImplTest {
         runTest {
             for (thrown in listOf(java.io.IOException("sneaky checked"), NoClassDefFoundError("linkage"))) {
                 val fixture = Fixture(this)
-                fixture.manager.start()
+                fixture.start()
                 fixture.facade.bindThrowable = thrown
 
                 val holder = fixture.holdBinding()
                 assertSame("$thrown", ShizukuState.NotRunning, fixture.manager.state.value)
 
                 fixture.facade.bindThrowable = null
-                fixture.facade.deliverBinderReceived() // Shizuku is back
+                fixture.deliverBinderReceived() // Shizuku is back
                 runCurrent()
                 assertEquals("$thrown: the holder binds again", 2, fixture.facade.bindCalls)
                 fixture.facade.deliverServiceConnected(LiveBinder())
@@ -1638,13 +1644,13 @@ class ShizukuManagerImplTest {
             scope.cancel()
         }
 
-    // R-08 follow-up: the IO refresh (older ticket) is reading when the server restarts; the Main binderReceived refresh
-    // publishes Ready and a holder's bind is queued; then the older read fails.
+    // R-08 follow-up: an older read is in flight when the server restarts; the new binder's read publishes Ready and a
+    // holder binds; then the older read fails.
     @Test
-    fun anOlderRefreshFailingAfterANewerReadyDoesNotTakeItDown() =
-        runTest {
-            val fixture = Fixture(this)
+    fun anOlderRefreshFailingAfterANewerReadyDoesNotTakeItDown() {
+        ThreadedFixture().use { fixture ->
             fixture.manager.start()
+            fixture.awaitState(ShizukuState.Ready(2000, 13))
             val inFlight = CountDownLatch(1)
             val resume = CountDownLatch(1)
             fixture.facade.onCheckSelfPermission = {
@@ -1653,20 +1659,202 @@ class ShizukuManagerImplTest {
                 resume.await(60, TimeUnit.SECONDS)
                 throw IllegalStateException("the server this read was talking to restarted")
             }
-            val slow = Thread { fixture.manager.refresh() }.apply { start() }
+            val slow = fixture.scope.async { fixture.manager.refresh() }
             assertTrue(inFlight.await(10, TimeUnit.SECONDS))
 
+            fixture.facade.serverUid = 2001 // the restarted server, told apart by its uid
             fixture.facade.deliverBinderReceived()
-            val holder = fixture.manager.holdBinding() // its bind is queued
+            fixture.awaitState(ShizukuState.Ready(2001, 13))
+            val bound = CountDownLatch(1)
+            fixture.facade.onBind = { bound.countDown() }
+            val holder = fixture.manager.holdBinding()
+            assertTrue(bound.await(10, TimeUnit.SECONDS))
             resume.countDown()
-            slow.join(30_000L)
-            runCurrent()
+            runBlocking { withTimeout(30_000L) { slow.await() } }
+
+            assertEquals(ShizukuState.Ready(2001, 13), fixture.manager.state.value)
+            fixture.facade.deliverServiceConnected(LiveBinder())
+            assertNotNull("the newer Ready's binding is still in place", fixture.manager.telemetryService.value)
+            assertEquals(1, fixture.facade.bindCalls)
+            holder.close()
+        }
+    }
+
+    // B-10: a state read is binder calls into the Shizuku server (pingBinder, checkSelfPermission, the rationale flag,
+    // getUid), and so is the dialog request. start() (Application.onCreate), Shizuku's two listeners (which it calls on
+    // Main) and requestPermission() (a Grant tap) must all return while the server is wedged.
+    @Test
+    fun mainEntryPointsReturnWhileTheShizukuServerIsWedged() {
+        val mainThread = Executors.newSingleThreadExecutor { Thread(it, "main-sim") }
+        val wedge = CountDownLatch(1)
+        try {
+            ThreadedFixture().use { fixture ->
+                fixture.facade.permissionResult = PackageManager.PERMISSION_DENIED
+                val pinged = CountDownLatch(1)
+                fixture.facade.onServerCall = { call ->
+                    if (call == "pingBinder") {
+                        pinged.countDown()
+                        wedge.await(60, TimeUnit.SECONDS)
+                    }
+                }
+                val returned = CountDownLatch(1)
+                mainThread.execute {
+                    fixture.manager.start()
+                    fixture.facade.deliverBinderReceived()
+                    fixture.facade.deliverPermissionResult(PackageManager.PERMISSION_DENIED)
+                    fixture.manager.requestPermission()
+                    returned.countDown()
+                }
+
+                // Hang-only bound: Main returns at once unless it waits for the wedged server.
+                assertTrue("Main must not wait for the Shizuku server", returned.await(10, TimeUnit.SECONDS))
+                assertTrue("the reads reach the server off Main", pinged.await(10, TimeUnit.SECONDS))
+                assertSame("nothing is published before the server answers", ShizukuState.NotRunning, fixture.manager.state.value)
+
+                val dialogAsked = CountDownLatch(1)
+                fixture.facade.onServerCall = { call -> if (call == "requestPermission") dialogAsked.countDown() }
+                wedge.countDown()
+                assertTrue("the Grant tap still asks once the server answers", dialogAsked.await(10, TimeUnit.SECONDS))
+                fixture.awaitState(ShizukuState.PermissionRequired())
+            }
+        } finally {
+            wedge.countDown()
+            mainThread.shutdownNow()
+        }
+    }
+
+    @Test
+    fun noShizukuServerCallRunsOnTheCallersThread() {
+        val mainThread = Executors.newSingleThreadExecutor { Thread(it, "main-sim") }
+        val calls = ConcurrentLinkedQueue<Pair<String, String>>()
+        val record = { call: String -> calls += call to Thread.currentThread().name }
+        val managerAppProbed = CountDownLatch(1)
+        val dialogAsked = CountDownLatch(1)
+
+        fun onMain(entry: () -> Unit) {
+            mainThread.submit(Runnable { entry() }).get(10, TimeUnit.SECONDS)
+        }
+        try {
+            ThreadedFixture(
+                managerApp =
+                    ShizukuManagerAppProbe {
+                        record("managerApp.isInstalled")
+                        managerAppProbed.countDown()
+                        true
+                    },
+                applicationInfoProvider =
+                    ShizukuApplicationInfoProvider {
+                        record("ownApplicationInfo")
+                        ShizukuApplicationInfo(42, true)
+                    },
+            ).use { fixture ->
+                fixture.facade.onServerCall = { call ->
+                    record(call)
+                    if (call == "requestPermission") dialogAsked.countDown()
+                }
+                // Cold process: no binder yet, so start()'s read also asks PackageManager for the manager app.
+                fixture.facade.binderAlive = false
+                fixture.facade.permissionResult = PackageManager.PERMISSION_DENIED
+                onMain { fixture.manager.start() }
+                assertTrue(managerAppProbed.await(10, TimeUnit.SECONDS))
+
+                fixture.facade.binderAlive = true
+                onMain { fixture.facade.deliverBinderReceived() }
+                fixture.awaitState(ShizukuState.PermissionRequired())
+
+                onMain { fixture.manager.requestPermission() }
+                assertTrue(dialogAsked.await(10, TimeUnit.SECONDS))
+
+                fixture.facade.permissionResult = PackageManager.PERMISSION_GRANTED
+                onMain { fixture.facade.deliverPermissionResult(PackageManager.PERMISSION_GRANTED) }
+                fixture.awaitState(ShizukuState.Ready(2000, 13))
+            }
+
+            val onCaller = calls.filter { (_, thread) -> thread == "main-sim" }
+            assertTrue("Shizuku server and PackageManager calls on the caller's thread: $onCaller", onCaller.isEmpty())
+            val made = calls.map { (call, _) -> call }.toSet()
+            val expected =
+                setOf(
+                    "pingBinder",
+                    "managerApp.isInstalled",
+                    "getVersion",
+                    "checkSelfPermission",
+                    "shouldShowRequestPermissionRationale",
+                    "requestPermission",
+                    "getUid",
+                    "ownApplicationInfo",
+                )
+            assertTrue("every entry point's calls were observed: $made", made.containsAll(expected))
+        } finally {
+            mainThread.shutdownNow()
+        }
+    }
+
+    // B-10: Shizuku's listeners now read on IO, so a read can still be running when stop() returns.
+    @Test
+    fun aReadStillRunningAcrossStopPublishesNothing() {
+        ThreadedFixture().use { fixture ->
+            fixture.manager.start()
+            fixture.awaitState(ShizukuState.Ready(2000, 13))
+            val inFlight = CountDownLatch(1)
+            val resume = CountDownLatch(1)
+            fixture.facade.onCheckSelfPermission = {
+                fixture.facade.onCheckSelfPermission = {}
+                inFlight.countDown()
+                resume.await(10, TimeUnit.SECONDS)
+            }
+            fixture.facade.permissionResult = PackageManager.PERMISSION_DENIED
+            fixture.facade.deliverPermissionResult(PackageManager.PERMISSION_DENIED)
+            assertTrue(inFlight.await(10, TimeUnit.SECONDS))
+
+            fixture.manager.stop()
+            resume.countDown()
+            fixture.awaitLaunched()
+
+            assertEquals("a stopped manager publishes nothing", ShizukuState.Ready(2000, 13), fixture.manager.state.value)
+        }
+    }
+
+    @Test
+    fun aPermissionRequestThatFailsOnTheBinderIsATransportLoss() =
+        runTest {
+            val fixture = Fixture(this).apply { facade.permissionResult = PackageManager.PERMISSION_DENIED }
+            fixture.start()
+            assertEquals(ShizukuState.PermissionRequired(), fixture.manager.state.value)
+            fixture.facade.onServerCall = { call ->
+                if (call == "requestPermission") throw IllegalStateException("binder haven't been received")
+            }
+
+            fixture.requestPermission()
+
+            assertSame(ShizukuState.NotRunning, fixture.manager.state.value)
+        }
+
+    // B-10: the dialog request runs on IO, where a server restart can be handled while it is in flight. Its failure
+    // then belongs to the dead server, as a drainer transaction's does, and must not take the new one down.
+    @Test
+    fun aPermissionRequestFailingAfterTheServerRestartedLeavesTheNewServerReady() {
+        ThreadedFixture().use { fixture ->
+            fixture.facade.permissionResult = PackageManager.PERMISSION_DENIED
+            fixture.manager.start()
+            fixture.awaitState(ShizukuState.PermissionRequired())
+            fixture.facade.onServerCall = { call ->
+                if (call == "requestPermission") {
+                    fixture.facade.onServerCall = {}
+                    // The server dies with the request in flight, and its successor (already granted) is read as Ready.
+                    fixture.facade.deliverBinderDeath()
+                    fixture.facade.permissionResult = PackageManager.PERMISSION_GRANTED
+                    runBlocking { fixture.manager.refresh() }
+                    throw IllegalStateException("the server this request was sent to died")
+                }
+            }
+
+            fixture.manager.requestPermission()
+            fixture.awaitLaunched()
 
             assertEquals(ShizukuState.Ready(2000, 13), fixture.manager.state.value)
-            assertEquals("the queued bind is still issued", 1, fixture.facade.bindCalls)
-            holder.close()
-            advanceUntilIdle()
         }
+    }
 
     private companion object {
         /** Mirrors the manager's idle linger and unbind-settle timeout (literals, so the test reads standalone). */
@@ -1683,6 +1871,30 @@ class ShizukuManagerImplTest {
 
         /** holdBinding, then lets the IO drainer issue whatever bind it decided (R-08: never on the caller). */
         fun holdBinding(): AutoCloseable = manager.holdBinding().also { scope.runCurrent() }
+
+        /** start, then lets the first state read it started on IO publish (B-10: never on the caller). */
+        fun start() {
+            manager.start()
+            scope.runCurrent()
+        }
+
+        /** requestPermission, then lets its re-read and dialog request run on IO (B-10). */
+        fun requestPermission() {
+            manager.requestPermission()
+            scope.runCurrent()
+        }
+
+        /** Shizuku's permission-result callback (on Main), then the re-read it started on IO (B-10). */
+        fun deliverPermissionResult(result: Int) {
+            facade.deliverPermissionResult(result)
+            scope.runCurrent()
+        }
+
+        /** Shizuku's binder-received callback (on Main), then the re-read it started on IO (B-10). */
+        fun deliverBinderReceived() {
+            facade.deliverBinderReceived()
+            scope.runCurrent()
+        }
 
         /** Runs [block] on another thread and returns its result, or null if it is still blocked after 10 s. */
         fun <T : Any> onAnotherThread(block: () -> T): T? {
@@ -1742,6 +1954,40 @@ class ShizukuManagerImplTest {
             onTestThread()
             other.join(10_000L)
             failure?.let { throw it }
+        }
+    }
+
+    /**
+     * A manager whose reads, requests and binds run on real IO threads (its default dispatcher), so they overlap the
+     * way they do on a device. Settle posts still go to the test's Main dispatcher.
+     */
+    private class ThreadedFixture(
+        managerApp: ShizukuManagerAppProbe = ShizukuManagerAppProbe { true },
+        applicationInfoProvider: ShizukuApplicationInfoProvider = ShizukuApplicationInfoProvider { ShizukuApplicationInfo(42, true) },
+    ) : AutoCloseable {
+        val facade = FakeShizukuFacade()
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        val manager =
+            ShizukuManagerImpl(
+                context = TestContext(),
+                facade = facade,
+                scope = scope,
+                applicationInfoProvider = applicationInfoProvider,
+                managerApp = managerApp,
+            )
+
+        fun awaitState(expected: ShizukuState) {
+            runBlocking { withTimeout(10_000L) { manager.state.first { it == expected } } }
+        }
+
+        /** Waits for every coroutine the manager has launched so far (reads, requests, drains) to end. */
+        fun awaitLaunched() {
+            runBlocking { withTimeout(10_000L) { scope.coroutineContext.job.children.toList().forEach { it.join() } } }
+        }
+
+        override fun close() {
+            manager.stop()
+            scope.cancel()
         }
     }
 
@@ -1950,6 +2196,12 @@ class ShizukuManagerImplTest {
 
         /** Runs after checkSelfPermission has read its answer, before the manager can publish it. */
         @Volatile var onCheckSelfPermission: () -> Unit = {}
+
+        /**
+         * Runs first in each call that reaches the Shizuku server (every facade call but the local listener
+         * registrations), with the call's name; it may block (a wedged server) or throw (a dead binder).
+         */
+        @Volatile var onServerCall: (String) -> Unit = {}
         private var binderReceivedListener: Shizuku.OnBinderReceivedListener? = null
         private var binderDeadListener: Shizuku.OnBinderDeadListener? = null
         private var permissionListener: Shizuku.OnRequestPermissionResultListener? = null
@@ -1971,21 +2223,43 @@ class ShizukuManagerImplTest {
         /** The stub handed to the daemon by the latest bind: the one its service's connected() reaches. */
         private var boundStub: ConnectionStub? = null
 
-        override fun pingBinder(): Boolean = binderAlive
+        override fun pingBinder(): Boolean {
+            onServerCall("pingBinder")
+            return binderAlive
+        }
 
-        override fun isSui(): Boolean = sui
+        override fun isSui(): Boolean {
+            onServerCall("isSui")
+            return sui
+        }
 
-        override fun getUid(): Int = serverUid
+        override fun getUid(): Int {
+            onServerCall("getUid")
+            return serverUid
+        }
 
-        override fun getVersion(): Int = serverVersion
+        override fun getVersion(): Int {
+            onServerCall("getVersion")
+            return serverVersion
+        }
 
-        override fun isPreV11(): Boolean = preV11
+        override fun isPreV11(): Boolean {
+            onServerCall("isPreV11")
+            return preV11
+        }
 
-        override fun checkSelfPermission(): Int = permissionResult.also { onCheckSelfPermission() }
+        override fun checkSelfPermission(): Int {
+            onServerCall("checkSelfPermission")
+            return permissionResult.also { onCheckSelfPermission() }
+        }
 
-        override fun shouldShowRequestPermissionRationale(): Boolean = showPermissionRationale
+        override fun shouldShowRequestPermissionRationale(): Boolean {
+            onServerCall("shouldShowRequestPermissionRationale")
+            return showPermissionRationale
+        }
 
         override fun requestPermission(requestCode: Int) {
+            onServerCall("requestPermission")
             permissionRequests += 1
         }
 
@@ -2029,6 +2303,7 @@ class ShizukuManagerImplTest {
             args: Shizuku.UserServiceArgs,
             connection: ServiceConnection,
         ) {
+            onServerCall("bindUserService")
             bindCalls += 1
             if (bindFailure) error("daemon died during bind")
             bindThrowable?.let { throw it }
@@ -2043,6 +2318,7 @@ class ShizukuManagerImplTest {
             connection: ServiceConnection,
             remove: Boolean,
         ) {
+            onServerCall("unbindUserService")
             unbindCalls += 1
             if (unbindFailure) error("daemon died during unbind")
             lastUnbindRemove = remove
