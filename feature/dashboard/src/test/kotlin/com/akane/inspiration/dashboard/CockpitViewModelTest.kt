@@ -853,6 +853,91 @@ class CockpitViewModelTest {
         }
 
     @Test
+    fun `a reopened sheet shows the running capture and ignores a second mark now`() =
+        runTest(dispatcher) {
+            val gate = CompletableDeferred<Unit>()
+            deps.createMarkerGate = gate
+            val vm = viewModel()
+            vm.onIntent(CockpitIntent.OpenMarkers)
+            runCurrent()
+            vm.onIntent(CockpitIntent.MarkNow("first"))
+            runCurrent()
+
+            vm.onIntent(CockpitIntent.DismissMarkers)
+            vm.onIntent(CockpitIntent.OpenMarkers)
+            runCurrent()
+            assertEquals("the capture outlives the sheet", true, vm.state.value.markerSheet?.creating)
+
+            vm.onIntent(CockpitIntent.MarkNow("second"))
+            runCurrent()
+            assertEquals("one marker capture at a time", listOf("first"), deps.createdLabels)
+
+            gate.complete(Unit)
+            runCurrent()
+
+            val sheet = vm.state.value.markerSheet
+            assertEquals(false, sheet?.creating)
+            assertEquals(false, sheet?.failed)
+            assertEquals("the reopened sheet lists the marker it watched", listOf("first"), sheet?.markers?.map { it.label })
+        }
+
+    @Test
+    fun `a capture started on a dismissed sheet ends the reopened sheet's progress with its outcome`() =
+        runTest(dispatcher) {
+            val gate = CompletableDeferred<Unit>()
+            deps.createMarkerGate = gate
+            deps.createMarkerResult = null
+            val vm = viewModel()
+            vm.onIntent(CockpitIntent.OpenMarkers)
+            runCurrent()
+            vm.onIntent(CockpitIntent.MarkNow("x"))
+            runCurrent()
+            vm.onIntent(CockpitIntent.DismissMarkers)
+            vm.onIntent(CockpitIntent.OpenMarkers)
+            runCurrent()
+
+            gate.complete(Unit)
+            runCurrent()
+
+            // The reopened sheet showed this capture in progress, so its failure is the one the sheet was waiting on.
+            val sheet = vm.state.value.markerSheet
+            assertEquals(false, sheet?.creating)
+            assertEquals(true, sheet?.failed)
+
+            // Once it has ended, a new tap starts a new capture.
+            deps.createMarkerGate = null
+            deps.createMarkerResult = 2L
+            vm.onIntent(CockpitIntent.MarkNow("y"))
+            runCurrent()
+            assertEquals(listOf("x", "y"), deps.createdLabels)
+            assertEquals(false, vm.state.value.markerSheet?.failed)
+        }
+
+    @Test
+    fun `a capture that ends while the sheet is closed leaves the next sheet idle`() =
+        runTest(dispatcher) {
+            val gate = CompletableDeferred<Unit>()
+            deps.createMarkerGate = gate
+            deps.createMarkerResult = null
+            val vm = viewModel()
+            vm.onIntent(CockpitIntent.OpenMarkers)
+            runCurrent()
+            vm.onIntent(CockpitIntent.MarkNow("x"))
+            runCurrent()
+            vm.onIntent(CockpitIntent.DismissMarkers)
+
+            gate.complete(Unit)
+            runCurrent()
+            assertNull("the outcome does not reopen the sheet", vm.state.value.markerSheet)
+
+            vm.onIntent(CockpitIntent.OpenMarkers)
+            runCurrent()
+            val sheet = vm.state.value.markerSheet
+            assertEquals(false, sheet?.creating)
+            assertEquals("a failure nobody watched is not shown later", false, sheet?.failed)
+        }
+
+    @Test
     fun `picking a marker makes it the reference and closes the sheet`() =
         runTest(dispatcher) {
             deps.markerList = listOf(Marker(7, 7, "m", NOW_MS))

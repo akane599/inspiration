@@ -76,6 +76,12 @@ class CockpitViewModel(
     /** The chart read in flight. A newer read replaces it, so an older read can never land after a newer one. */
     private var timelineJob: Job? = null
 
+    /**
+     * The marker capture in flight. It outlives the sheet that started it: a reopened sheet shows it as creating, and a
+     * second "Mark now" is ignored until it ends, so at most one capture ever owns a sheet's `creating`.
+     */
+    private var markJob: Job? = null
+
     /** The user asked for the running refresh (main thread only, like every intent). */
     private var userWaiting = false
     private var binding: AutoCloseable? = null
@@ -277,7 +283,9 @@ class CockpitViewModel(
 
     private fun openMarkers() {
         val selected = (deps.selection.selected.value as? ReferenceKind.CustomMarker)?.markerId
-        _state.update { it.copy(markerSheet = MarkerSheetUi.loading(selected)) }
+        // A capture started from a dismissed sheet is still running: this sheet shows it, and then its outcome.
+        val creating = markJob?.isActive == true
+        _state.update { it.copy(markerSheet = MarkerSheetUi.loading(selected).copy(creating = creating)) }
         viewModelScope.launch { loadMarkers() }
     }
 
@@ -303,19 +311,25 @@ class CockpitViewModel(
     }
 
     private fun markNow(label: String) {
-        val sheet = _state.value.markerSheet ?: return
-        if (sheet.creating) return
+        if (_state.value.markerSheet == null) return
+        // One capture at a time, whichever sheet started it.
+        if (markJob?.isActive == true) return
         _state.update { it.copy(markerSheet = it.markerSheet?.copy(creating = true, failed = false)) }
-        viewModelScope.launch {
-            val id = attempt { deps.createMarker(label) }
-            if (id == null) {
-                _state.update { it.copy(markerSheet = it.markerSheet?.copy(creating = false, failed = true)) }
-            } else {
-                _state.update { it.copy(markerSheet = it.markerSheet?.copy(creating = false)) }
-                // The marker's FULL capture ingested history; its store tick re-reads the chart.
-                loadMarkers()
+        markJob =
+            viewModelScope.launch {
+                val id = attempt { deps.createMarker(label) }
+                // A sheet open now was opened on this capture (a reopened one showed it as creating), so the outcome
+                // is the one it is waiting on; with the sheet closed there is nothing to show.
+                if (id == null) {
+                    _state.update { it.copy(markerSheet = it.markerSheet?.copy(creating = false, failed = true)) }
+                } else {
+                    _state.update { it.copy(markerSheet = it.markerSheet?.copy(creating = false)) }
+                    // Listed outside this job, so the capture has ended once `creating` clears: a sheet reopened
+                    // during the read does not wait on a capture that is already done. The marker's FULL capture
+                    // ingested history; its store tick re-reads the chart.
+                    viewModelScope.launch { loadMarkers() }
+                }
             }
-        }
     }
 
     private fun selectMarker(markerId: Long) {

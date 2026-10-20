@@ -82,6 +82,9 @@ internal class FakeCockpitDeps(
     var createMarkerResult: Long? = 1L
     val createdLabels = mutableListOf<String>()
 
+    /** While set, createMarker() suspends until it completes, so a test can act during a running marker capture. */
+    var createMarkerGate: CompletableDeferred<Unit>? = null
+
     override suspend fun refresh(): RefreshResult {
         refreshCalls++
         refreshGate?.await()
@@ -134,6 +137,7 @@ internal class FakeCockpitDeps(
 
     override suspend fun createMarker(label: String): Long? {
         createdLabels += label
+        createMarkerGate?.await()
         return createMarkerResult?.also { id ->
             markerList = markerList + Marker(id, snapshotId = id, label = label, wallMs = clocks.wall)
             // Like the container's store tick: the marker's capture ingested history, a new value however close in time.
