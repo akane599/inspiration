@@ -120,7 +120,7 @@ A later explicit refresh may join that running capture, and only the waiting vis
 - **Unsupported unit:** a current whose unit nothing supports yet is neither shown ("—") nor stored.
 - **Plugged in (SQ-5):** with no settled unit, a near-zero plugged reading is settled by a cross-check against the charge counter (`calibration/ChargeCounterCheck.kt`) instead of waiting for an unplug; the unsupported/disputed rules above are unchanged.
 
-**Package identity.** A batterystats UID is named by an installed package, never by the reported process name. X-Ray and Sleep Lab both call `AppLabels.uidIdentity(uid, reported)` in `AppFacingModels.kt`, which reads the owners once and returns `UidIdentity(packageName, sharedBy)` (B-08). `packageForUid` is only its package. The package comes from `identifyingPackage(owners, reported)`, which tries these rules in order:
+**Package identity.** A batterystats UID is named by an installed package, never by the reported process name. X-Ray and Sleep Lab both call `AppLabels.uidIdentity(uid, reported)` in `AppFacingModels.kt`, which reads the owners once and returns `UidIdentity(packageName, sharedBy)` (B-08). The package comes from `identifyingPackage(owners, reported)`, which tries these rules in order:
 - the owner equal to the process name without its `:suffix`;
 - else the longest owner the name extends with a dot (`com.google.android.gms.persistent`);
 - else the UID's only owner;

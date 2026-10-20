@@ -44,7 +44,8 @@ core/
     src/main/aidl/com/akane/inspiration/ipc/model/{BatteryHistorySnapshot,BatteryUsageSnapshot,
       BgDexoptStatus,CpuTimeSnapshot,DumpResult,KernelBatterySnapshot,ToolkitResult}.aidl
     src/main/kotlin/com/akane/inspiration/ipc/
-      ShizukuFacade.kt, ShizukuManager.kt, ShizukuManagerImpl.kt, ShizukuState.kt
+      ShizukuFacade.kt, ShizukuManager.kt, ShizukuManagerImpl.kt,
+      ShizukuState.kt                 # + BlockedReason / blockedReason(), shared by X-Ray and Toolkit
       client/{BatteryHistory,BatteryStatsClient,BatteryUsageAdapter,BinderCalls,
         UsageParcelBudget}.kt
       model/{BatteryHistorySnapshot,BatteryUsageSnapshot,CpuTimeSnapshot,DumpResult,
@@ -71,7 +72,7 @@ core/
       diff/{BatteryStatsSession,ReferenceResolver,SnapshotDiffer}.kt
       dump/{DumpModels,DumpParser,DumpReader}.kt
       interval/{IntervalHistory,IntervalMetrics}.kt
-      app/AppFacingModels.kt       # RefreshResult, KernelCapacitySnapshot, AppEntry, AppLabels, uidIdentity/UidIdentity, packageForUid, identifyingPackage
+      app/AppFacingModels.kt       # RefreshResult, KernelCapacitySnapshot, AppEntry, AppLabels, uidIdentity/UidIdentity, identifyingPackage
       app/Attempt.kt               # shared attempt {} for feature ViewModels
       live/{KernelUnits,LiveTelemetry}.kt
       snapshot/{SnapshotModels,UidIdentity}.kt
@@ -113,7 +114,7 @@ core/
         MetricValue,ReducedMotion,ReferencePill,ScreenHeader,SegmentedToggle,SemanticDot,
         ShizukuPulse,StackedBar,TimeSliceBanner}.kt
       component/ObscuredTouchGuard.kt
-      component/format/{SystemZone,TelemetryFormat}.kt
+      component/format/{CurrentLocale,Monogram,SystemZone,TelemetryFormat}.kt
       chart/model/{ChartLabels,ChartModels}.kt
       chart/math/{ClockLabels,Scales,ScrubGestureReducer,SeriesMath,TimeRanges,TimeTicks}.kt
       chart/draw/{SelectionDim,TimeAxis}.kt
