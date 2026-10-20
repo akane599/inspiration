@@ -187,7 +187,20 @@
         <item quantity="one">Restore %1$d change?</item>
         <item quantity="other">Restore all %1$d changes?</item>
     </plurals>
+    <!-- Reset all when some listed changes can't be restored as listed now (not restorable, or not read back). -->
+    <plurals name="toolkit_confirm_title_reset_some">
+        <item quantity="one">Restore %1$d of %2$d change?</item>
+        <item quantity="other">Restore %1$d of %2$d changes?</item>
+    </plurals>
+    <plurals name="toolkit_confirm_title_reset_try">
+        <item quantity="one">Try to restore %1$d change?</item>
+        <item quantity="other">Try to restore %1$d changes?</item>
+    </plurals>
     <string name="toolkit_confirm_reset_body">Every change Inspiration made is put back. Whatever can\'t be restored stays listed with the reason.</string>
+    <plurals name="toolkit_confirm_reset_body_others">
+        <item quantity="one">%1$d change can\'t be read or restored right now. If it isn\'t restored, it stays listed with the reason.</item>
+        <item quantity="other">%1$d changes can\'t be read or restored right now. Those not restored stay listed with the reason.</item>
+    </plurals>
     <string name="toolkit_confirm_stale">The setting changed while you were deciding. This is the value it has now.</string>
     <string name="toolkit_confirm_action_apply">Apply</string>
     <string name="toolkit_confirm_action_block">Restrict</string>

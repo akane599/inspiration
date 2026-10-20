@@ -306,7 +306,9 @@ sealed interface ToolkitRequest {
 /**
  * A planned action that needs the user's yes first. [warnings] are the typed reasons, worded by the UI.
  * [stale] means the setting changed between the plan and the write, so the user is asked again with the
- * value that is there now. [count] is the number of changes a reset-all would restore.
+ * value that is there now. For a reset-all, [count] is the number of listed changes it restores
+ * (`ToolkitAdmission.resetRestores`) and [others] the number it tries but cannot be expected to restore: not
+ * restorable, or not read back.
  */
 @Immutable
 data class Confirmation(
@@ -315,6 +317,7 @@ data class Confirmation(
     val warnings: ImmutableList<ToolkitWarning>,
     val stale: Boolean = false,
     val count: Int = 0,
+    val others: Int = 0,
 )
 
 /** The status-notification switch: what the app stores, and whether the system lets it post at all. */

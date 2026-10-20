@@ -61,7 +61,7 @@ fun ConfirmationPanel(
                 color = MaterialTheme.colorScheme.onSurface,
             )
             if (confirmation.stale) InfoText(stringResource(R.string.toolkit_confirm_stale))
-            if (confirmation.request == ToolkitRequest.ResetAll) InfoText(stringResource(R.string.toolkit_confirm_reset_body))
+            if (confirmation.request == ToolkitRequest.ResetAll) InfoText(resetBody(confirmation))
             confirmation.warnings.forEach { warning ->
                 Row(verticalAlignment = Alignment.Top) {
                     LineDot(color = MaterialTheme.statusColors.warning)

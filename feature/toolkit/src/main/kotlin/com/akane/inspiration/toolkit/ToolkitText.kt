@@ -423,10 +423,33 @@ internal fun confirmationTitle(confirmation: Confirmation): String {
         }
 
         ToolkitRequest.ResetAll -> {
-            pluralStringResource(R.plurals.toolkit_confirm_title_reset_all, confirmation.count, confirmation.count)
+            // Counts only the changes it restores (B-21); the rest are named in the body ([resetBody]).
+            val total = confirmation.count + confirmation.others
+            when {
+                confirmation.others == 0 -> {
+                    pluralStringResource(R.plurals.toolkit_confirm_title_reset_all, confirmation.count, confirmation.count)
+                }
+
+                confirmation.count == 0 -> {
+                    pluralStringResource(R.plurals.toolkit_confirm_title_reset_try, total, total)
+                }
+
+                else -> {
+                    pluralStringResource(R.plurals.toolkit_confirm_title_reset_some, total, confirmation.count, total)
+                }
+            }
         }
     }
 }
+
+/** The body of a reset-all confirmation: what it does, or how many listed changes it may not restore. */
+@Composable
+internal fun resetBody(confirmation: Confirmation): String =
+    if (confirmation.others == 0) {
+        stringResource(R.string.toolkit_confirm_reset_body)
+    } else {
+        pluralStringResource(R.plurals.toolkit_confirm_reset_body_others, confirmation.others, confirmation.others)
+    }
 
 @StringRes
 internal fun confirmActionRes(request: ToolkitRequest): Int =

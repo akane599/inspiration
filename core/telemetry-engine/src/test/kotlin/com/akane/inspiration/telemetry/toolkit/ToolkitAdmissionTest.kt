@@ -47,4 +47,15 @@ class ToolkitAdmissionTest {
         assertTrue(admits(AdmissionRequest.ResetAll, controlsShown = false, Listed(7, restorable = false)))
         assertFalse(admits(AdmissionRequest.ResetAll, controlsShown = true))
     }
+
+    @Test
+    fun `reset all counts as restored only a restorable change that was read back`() {
+        assertTrue(ToolkitAdmission.resetRestores(Listed(1)))
+        assertFalse("refused without a write", ToolkitAdmission.resetRestores(Listed(2, restorable = false)))
+        assertFalse(
+            "not restored while its read fails",
+            ToolkitAdmission.resetRestores(Listed(3, unverified = ToolkitRefusal.READ_FAILED)),
+        )
+        assertFalse(ToolkitAdmission.resetRestores(Listed(4, restorable = false, unverified = ToolkitRefusal.PROTECTED_APP)))
+    }
 }

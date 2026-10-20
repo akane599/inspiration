@@ -328,3 +328,18 @@ fun ToolkitConfirmDozeStale() = InspirationTheme(darkTheme = false) { DialogBody
 @Preview(name = "confirm-reset-turkish", showBackground = true, widthDp = 360, heightDp = 520, locale = "tr")
 @Composable
 fun ToolkitConfirmResetTurkish() = InspirationTheme(darkTheme = false) { DialogBody(ToolkitPreviewData.confirmReset) }
+
+@PreviewTest
+@Preview(name = "confirm-reset-some", showBackground = true, widthDp = 412, heightDp = 400)
+@Composable
+fun ToolkitConfirmResetSome() = InspirationTheme(darkTheme = false) { DialogBody(ToolkitPreviewData.confirmResetSome) }
+
+@PreviewTest
+@Preview(name = "confirm-reset-some-turkish", showBackground = true, widthDp = 360, heightDp = 460, locale = "tr")
+@Composable
+fun ToolkitConfirmResetSomeTurkish() = InspirationTheme(darkTheme = false) { DialogBody(ToolkitPreviewData.confirmResetSome) }
+
+@PreviewTest
+@Preview(name = "confirm-reset-try", showBackground = true, widthDp = 412, heightDp = 400)
+@Composable
+fun ToolkitConfirmResetTry() = InspirationTheme(darkTheme = false) { DialogBody(ToolkitPreviewData.confirmResetTry) }

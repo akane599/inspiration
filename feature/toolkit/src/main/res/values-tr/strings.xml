@@ -186,7 +186,20 @@
         <item quantity="one">%1$d değişiklik geri alınsın mı?</item>
         <item quantity="other">%1$d değişikliğin tümü geri alınsın mı?</item>
     </plurals>
+    <!-- Reset all when some listed changes can't be restored as listed now (not restorable, or not read back). -->
+    <plurals name="toolkit_confirm_title_reset_some">
+        <item quantity="one">%2$d değişiklikten %1$d tanesi geri alınsın mı?</item>
+        <item quantity="other">%2$d değişiklikten %1$d tanesi geri alınsın mı?</item>
+    </plurals>
+    <plurals name="toolkit_confirm_title_reset_try">
+        <item quantity="one">%1$d değişiklik geri alınmaya çalışılsın mı?</item>
+        <item quantity="other">%1$d değişiklik geri alınmaya çalışılsın mı?</item>
+    </plurals>
     <string name="toolkit_confirm_reset_body">Inspiration\'ın yaptığı her değişiklik eski haline getirilir. Geri alınamayan değişiklikler, nedenleriyle birlikte listede kalır.</string>
+    <plurals name="toolkit_confirm_reset_body_others">
+        <item quantity="one">%1$d değişiklik şu anda okunamıyor ya da geri alınamıyor. Geri alınmazsa, nedeniyle birlikte listede kalır.</item>
+        <item quantity="other">%1$d değişiklik şu anda okunamıyor ya da geri alınamıyor. Geri alınmayanlar, nedenleriyle birlikte listede kalır.</item>
+    </plurals>
     <string name="toolkit_confirm_stale">Siz karar verirken ayar değişti. Aşağıdaki, şu anki değeridir.</string>
     <string name="toolkit_confirm_action_apply">Uygula</string>
     <string name="toolkit_confirm_action_block">Kısıtla</string>

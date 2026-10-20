@@ -1168,6 +1168,47 @@ class ToolkitViewModelTest {
         }
 
     @Test
+    fun `reset all counts only the changes it restores and names the rest`() {
+        start { device.app(MAIL).ops[AppOp.RUN_ANY_IN_BACKGROUND] = "ignore" }
+        restrict(CHATTY)
+        restrict(MAPS)
+        open(MAIL)
+        act(ToolkitRequest.SetAppOp(AppOp.RUN_ANY_IN_BACKGROUND, ignored = false))
+        vm.onIntent(ToolkitIntent.CloseApp)
+        // Maps can no longer be read (unverified); Mail became protected, so undoing our allow would restrict it.
+        device.systemPackages += MAPS
+        device.protectedPackages += MAIL
+        vm.onIntent(ToolkitIntent.Hidden)
+        vm.onIntent(ToolkitIntent.Visible)
+        val listed = state.overrides.associateBy { it.label }
+        assertEquals(setOf("Chatty", "Maps", "Mail"), listed.keys)
+        assertNotNull("precondition: Maps is unverified", listed.getValue("Maps").unverified)
+        assertFalse("precondition: Mail is not restorable", listed.getValue("Mail").restorable)
+
+        act(ToolkitRequest.ResetAll)
+
+        assertEquals("only Chatty's change is one Reset all restores", 1, state.confirmation?.count)
+        assertEquals("the rest are named apart", 2, state.confirmation?.others)
+
+        confirm()
+
+        assertEquals(1, state.resetReport?.restored)
+        assertEquals(2, state.resetReport?.failed)
+    }
+
+    @Test
+    fun `reset all of changes it can all restore names no others`() {
+        start()
+        restrict(CHATTY)
+        act(ToolkitRequest.ApplyDoze(DozeProfile.BALANCED))
+
+        act(ToolkitRequest.ResetAll)
+
+        assertEquals(2, state.confirmation?.count)
+        assertEquals(0, state.confirmation?.others)
+    }
+
+    @Test
     fun `reset all does not restrict again an app the user switched back by hand`() {
         start()
         restrict(CHATTY)

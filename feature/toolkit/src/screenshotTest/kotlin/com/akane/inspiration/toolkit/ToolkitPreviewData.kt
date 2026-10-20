@@ -284,4 +284,17 @@ internal object ToolkitPreviewData {
             warnings = persistentListOf(ToolkitWarning.RESTORE_STATE_CHANGED),
             count = 3,
         )
+
+    /** Reset all over [overrides]: Maps' change is not restorable, so the title counts the three it restores (B-21). */
+    val confirmResetSome =
+        Confirmation(
+            request = ToolkitRequest.ResetAll,
+            target = null,
+            warnings = persistentListOf(),
+            count = 3,
+            others = 1,
+        )
+
+    /** Reset all when no listed change can be expected to restore: it is still tried, and each one reported. */
+    val confirmResetTry = confirmResetSome.copy(count = 0, others = 2)
 }

@@ -411,8 +411,19 @@ class ToolkitViewModel(
         if (!accepts(request, current)) return
         val prepared = PreparedRequest(request, actionOf(request), targetOf(request), current.detail?.app?.packageName, generation)
         if (request == ToolkitRequest.ResetAll) {
-            // Reset all has no single plan: the user always confirms it, with the number of changes it restores.
-            ask(Confirmation(request = request, target = null, warnings = persistentListOf(), count = current.overrides.size), prepared)
+            // Reset all has no single plan: the user always confirms it, with the number of changes it restores and,
+            // apart, the number it tries but will not restore as listed now (B-21).
+            val restores = current.overrides.count(ToolkitAdmission::resetRestores)
+            ask(
+                Confirmation(
+                    request = request,
+                    target = null,
+                    warnings = persistentListOf(),
+                    count = restores,
+                    others = current.overrides.size - restores,
+                ),
+                prepared,
+            )
             return
         }
         planning = true
