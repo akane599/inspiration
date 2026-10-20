@@ -315,7 +315,11 @@ class TelemetryUserService private constructor(
         val supplies =
             File(fileRoot, POWER_SUPPLY_PATH)
                 .listFiles()
-                ?.filter { it.isDirectory && it.textNode("type") == BATTERY_TYPE }
+                ?.filter {
+                    it.isDirectory &&
+                        it.textNode("type") == BATTERY_TYPE &&
+                        !it.textNode("scope").equals(DEVICE_SCOPE, ignoreCase = true)
+                }
                 .orEmpty()
         return supplies.firstOrNull { it.name == PREFERRED_BATTERY_NAME } ?: supplies.firstOrNull()
     }
@@ -383,6 +387,7 @@ class TelemetryUserService private constructor(
         const val CPU_FREQ_POLICY_PATH = "sys/devices/system/cpu/cpufreq"
         const val BATTERY_TYPE = "Battery"
         const val PREFERRED_BATTERY_NAME = "battery"
+        const val DEVICE_SCOPE = "Device"
         const val POLICY_PREFIX = "policy"
         const val TICK_DURATION_MS = 10L
         val POLICY_NAME = Regex("policy\\d+")

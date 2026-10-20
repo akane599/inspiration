@@ -79,6 +79,36 @@ class TelemetryUserServiceTest {
         }
 
     @Test
+    fun `fallback skips scope Device peripheral batteries`() =
+        withFixture { root ->
+            battery(root, "hidpp_battery_0") {
+                node("scope", "Device")
+                node("capacity", "5")
+            }
+            battery(root, "main_bat") {
+                node("scope", "System")
+                node("capacity", "70")
+            }
+
+            val snapshot = service(root).readKernelBattery()
+
+            assertTrue(snapshot.available)
+            assertEquals(70, snapshot.capacityPercent)
+            assertEquals("${root.path}/sys/class/power_supply/main_bat", snapshot.sourcePath)
+        }
+
+    @Test
+    fun `only scope Device batteries yields unavailable`() =
+        withFixture { root ->
+            battery(root, "hidpp_battery_0") {
+                node("scope", "Device")
+                node("capacity", "5")
+            }
+
+            assertFalse(service(root).readKernelBattery().available)
+        }
+
+    @Test
     fun `time in state converts ten millisecond ticks for every policy`() =
         withFixture { root ->
             timeInState(root, "policy0", "300000 4\n600000 9\n")
