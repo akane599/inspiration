@@ -148,6 +148,8 @@
     <string name="xray_override_restore">Geri al</string>
     <string name="xray_override_not_restorable">Otomatik olarak geri alınamaz.</string>
     <string name="xray_override_unverified">Hâlâ geçerli olup olmadığı denetlenemedi. %1$s</string>
+    <!-- A change read back too late to tell Inspiration's write from the system's or another app's (B-01). -->
+    <string name="xray_override_unattributed">Bu değişikliği Inspiration\'ın yaptığı doğrulanamıyor: çok geç denetlendi. Tümünü sıfırla buna dokunmaz.</string>
 
     <!-- Results -->
     <string name="xray_notice_restricted">Arka plan etkinliği kısıtlandı.</string>
@@ -171,6 +173,7 @@
     <string name="xray_refused_not_restorable">Bu değişiklik otomatik olarak geri alınamaz.</string>
     <string name="xray_refused_already_restored">Bu değişiklik zaten geri alınmış.</string>
     <string name="xray_refused_unknown_action">Inspiration bu işlemi tanımıyor.</string>
+    <string name="xray_refused_unattributed">Bu değişikliği Inspiration\'ın yaptığı doğrulanamıyor. Yalnızca tek başına geri alınabilir.</string>
     <string name="xray_refused_other">İstek reddedildi.</string>
     <string name="xray_unavailable_no_service">Shizuku/Sui hizmetine ulaşılamıyor. Shizuku/Sui\'nin çalıştığını kontrol edin.</string>
     <string name="xray_unavailable_stale_service">Shizuku/Sui hizmeti güncel değil. Shizuku/Sui\'yu yeniden başlatıp tekrar deneyin.</string>
@@ -198,4 +201,5 @@
     <string name="xray_warning_updated_system_app">Bu güncellenmiş bir sistem uygulaması. Değiştirmek sistemin bazı bölümlerini etkileyebilir.</string>
     <string name="xray_warning_doze_over_custom">Standart doze, özel bir doze ayarının yerine geçer.</string>
     <string name="xray_warning_restore_state_changed">Ayar, Inspiration bu değişikliği yaptığından beri değişti. Geri yükleme mevcut değerin üzerine yazar.</string>
+    <string name="xray_warning_unattributed_change">Bu değişikliği Inspiration\'ın yaptığı doğrulanamıyor. Sistemin ya da başka bir uygulamanın değişikliğinden ayırt edilemeyecek kadar geç denetlendi. Geri yükleme mevcut değerin üzerine yazar.</string>
 </resources>

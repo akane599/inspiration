@@ -189,7 +189,8 @@ sealed interface OverrideWhat {
 
 /**
  * A change of ours that read-back shows is still in effect. [label] is the app's name, null for doze. [unverified]
- * is why it could not be read back now: it may still be in effect, so it stays listed with the value it left.
+ * is why it could not be read back now: it may still be in effect, so it stays listed with the value it left. It is
+ * `ToolkitRefusal.UNATTRIBUTED` for a change Inspiration cannot confirm it made: Reset all leaves it alone.
  */
 @Immutable
 data class OverrideItem(
@@ -226,6 +227,10 @@ sealed interface HistoryWhat {
     data object Other : HistoryWhat
 }
 
+/**
+ * One audit row. [unverified] marks a write whose outcome Inspiration could not attribute to it (it was read back too
+ * late, `ToolkitAuditLog.unattributed`): it is shown as unverified, not as failed, since it may well have taken effect.
+ */
 @Immutable
 data class HistoryItem(
     val id: Long,
@@ -234,6 +239,7 @@ data class HistoryItem(
     val status: ToolkitActionStatus,
     val startedAtMs: Long,
     val isRestore: Boolean,
+    val unverified: Boolean = false,
 )
 
 sealed interface ResetResult {

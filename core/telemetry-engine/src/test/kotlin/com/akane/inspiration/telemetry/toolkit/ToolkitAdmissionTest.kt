@@ -58,4 +58,12 @@ class ToolkitAdmissionTest {
         )
         assertFalse(ToolkitAdmission.resetRestores(Listed(4, restorable = false, unverified = ToolkitRefusal.PROTECTED_APP)))
     }
+
+    @Test
+    fun `a change Inspiration cannot attribute is restored only on its own, never counted by reset all`() {
+        val unattributed = Listed(5, unverified = ToolkitRefusal.UNATTRIBUTED)
+
+        assertTrue("its own restore is offered (after a warning)", admits(AdmissionRequest.Restore(5), controlsShown = false, unattributed))
+        assertFalse("Reset all leaves it alone (B-01)", ToolkitAdmission.resetRestores(unattributed))
+    }
 }

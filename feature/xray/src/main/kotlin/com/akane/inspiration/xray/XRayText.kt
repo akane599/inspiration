@@ -180,6 +180,7 @@ internal fun warningRes(warning: ToolkitWarning): Int =
         ToolkitWarning.UPDATED_SYSTEM_APP -> R.string.xray_warning_updated_system_app
         ToolkitWarning.DOZE_OVER_CUSTOM -> R.string.xray_warning_doze_over_custom
         ToolkitWarning.RESTORE_STATE_CHANGED -> R.string.xray_warning_restore_state_changed
+        ToolkitWarning.UNATTRIBUTED_CHANGE -> R.string.xray_warning_unattributed_change
     }
 
 @StringRes
@@ -201,7 +202,20 @@ internal fun refusalRes(reason: ToolkitRefusal): Int =
         ToolkitRefusal.NOT_RESTORABLE -> R.string.xray_refused_not_restorable
         ToolkitRefusal.ALREADY_RESTORED -> R.string.xray_refused_already_restored
         ToolkitRefusal.UNKNOWN_ACTION -> R.string.xray_refused_unknown_action
+        ToolkitRefusal.UNATTRIBUTED -> R.string.xray_refused_unattributed
         ToolkitRefusal.OTHER -> R.string.xray_refused_other
+    }
+
+/**
+ * The line under a listed change that is unverified: why it could not be read back now, or that Inspiration cannot
+ * confirm it made the change at all, which is why Reset all leaves that one alone.
+ */
+@Composable
+internal fun overrideUnverifiedText(reason: ToolkitRefusal): String =
+    if (reason == ToolkitRefusal.UNATTRIBUTED) {
+        stringResource(R.string.xray_override_unattributed)
+    } else {
+        stringResource(R.string.xray_override_unverified, stringResource(refusalRes(reason)))
     }
 
 @StringRes

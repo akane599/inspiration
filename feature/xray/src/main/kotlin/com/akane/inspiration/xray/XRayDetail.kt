@@ -589,7 +589,7 @@ private fun Overrides(
                         )
                         row.unverified?.let { reason ->
                             Text(
-                                text = stringResource(R.string.xray_override_unverified, stringResource(refusalRes(reason))),
+                                text = overrideUnverifiedText(reason),
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )

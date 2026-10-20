@@ -67,7 +67,8 @@ object ToolkitAdmission {
      * Whether Reset all ([ToolkitActions.resetAll]) restores [override], as the screen lists it. Reset all tries every
      * listed change, but one that is not [restorable][ListedOverride.restorable] is refused without a write, and an
      * [unverified][ListedOverride.unverified] one is reported as not restored while its read still fails or its write is
-     * still unsettled. So only a restorable change that was read back counts as one it restores (B-21).
+     * still unsettled, and one Inspiration cannot attribute to its own write ([ToolkitRefusal.UNATTRIBUTED], B-01) is
+     * left alone. So only a restorable change that was read back counts as one it restores (B-21).
      */
     fun resetRestores(override: ListedOverride): Boolean = override.restorable && override.unverified == null
 }

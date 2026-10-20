@@ -75,6 +75,12 @@ enum class ToolkitWarning {
 
     /** A restore: the current value is no longer the one the original action wrote. */
     RESTORE_STATE_CHANGED,
+
+    /**
+     * A restore of a change Inspiration cannot confirm it made ([ToolkitRefusal.UNATTRIBUTED]): the system or another
+     * app may have set the value, and restoring writes over it.
+     */
+    UNATTRIBUTED_CHANGE,
 }
 
 /** Why an action was refused. [ToolkitOutcome.Refused] carries the service code when there is one. */
@@ -113,6 +119,13 @@ enum class ToolkitRefusal {
     NOT_RESTORABLE,
     ALREADY_RESTORED,
     UNKNOWN_ACTION,
+
+    /**
+     * Inspiration cannot confirm it made this change: its write was read back too late to tell it from a change by the
+     * system or another app ([ToolkitClientCode.UNATTRIBUTED]). It is the [Override.unverified] reason of such a change,
+     * and why Reset all leaves it alone; a restore of it alone needs [ToolkitWarning.UNATTRIBUTED_CHANGE].
+     */
+    UNATTRIBUTED,
     OTHER,
 }
 
@@ -199,7 +212,8 @@ enum class OverrideKind { APP_OP, BUCKET, DOZE }
  *
  * [unverified] is set when the target could not be read back now (why, as a refusal): the change may still be
  * in effect, so it stays listed and in Reset all's scope instead of disappearing. [currentRaw] is then the value
- * our change left, not a fresh reading.
+ * our change left, not a fresh reading. It is [ToolkitRefusal.UNATTRIBUTED] for a value our write was meant to set
+ * but that was read back too late to credit to it: listed, left alone by Reset all, and restored only after a warning.
  */
 data class Override(
     val actionId: Long,
@@ -263,9 +277,10 @@ object ToolkitAuditLog {
 
     /**
      * A FAILED override row whose known `after` is not its known `before`: the target moved to a third value
-     * (NOT_EFFECTIVE, e.g. a standby bucket clamped to the app's minimum). A doze `before` of null is "unset";
-     * a null `after` is unknown (a FAILED doze reply does not tell unset from unread), or not the write's: an unsent
-     * write and a PENDING row reconciled too late to credit its read-back to it (B-01) record none.
+     * (NOT_EFFECTIVE, e.g. a standby bucket clamped to the app's minimum), or a row read back too late to credit
+     * the value to its write ([unattributed]), which still shows its `before` is gone. A doze `before` of null is
+     * "unset"; a null `after` is unknown (a FAILED doze reply does not tell unset from unread), or none at all: an
+     * unsent write records none.
      */
     fun landedElsewhere(row: ToolkitActionRecord): Boolean {
         if (row.status != ToolkitActionStatus.FAILED || row.kind !in OVERRIDE_KINDS) return false
@@ -273,6 +288,13 @@ object ToolkitAuditLog {
         if (row.kind != KIND_DOZE && row.beforeRaw == null) return false
         return after != norm(row.beforeRaw) && !sameState(row.kind, after, row.beforeRaw)
     }
+
+    /**
+     * An override row reconciled too late to credit its read-back to its write ([ToolkitClientCode.UNATTRIBUTED]):
+     * its `after` was observed, not attributed, so its outcome is unverified rather than failed.
+     */
+    fun unattributed(row: ToolkitActionRecord): Boolean =
+        row.status == ToolkitActionStatus.FAILED && row.kind in OVERRIDE_KINDS && row.code == ToolkitClientCode.UNATTRIBUTED
 }
 
 /** One [resetAll][ToolkitActions.resetAll] item: what was restored and how it went. */

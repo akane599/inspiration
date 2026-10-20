@@ -154,6 +154,7 @@ internal fun warningRes(warning: ToolkitWarning): Int =
         ToolkitWarning.UPDATED_SYSTEM_APP -> R.string.toolkit_warning_updated_system_app
         ToolkitWarning.DOZE_OVER_CUSTOM -> R.string.toolkit_warning_doze_over_custom
         ToolkitWarning.RESTORE_STATE_CHANGED -> R.string.toolkit_warning_restore_state_changed
+        ToolkitWarning.UNATTRIBUTED_CHANGE -> R.string.toolkit_warning_unattributed_change
     }
 
 @StringRes
@@ -175,7 +176,20 @@ internal fun refusalRes(reason: ToolkitRefusal): Int =
         ToolkitRefusal.NOT_RESTORABLE -> R.string.toolkit_refused_not_restorable
         ToolkitRefusal.ALREADY_RESTORED -> R.string.toolkit_refused_already_restored
         ToolkitRefusal.UNKNOWN_ACTION -> R.string.toolkit_refused_unknown_action
+        ToolkitRefusal.UNATTRIBUTED -> R.string.toolkit_refused_unattributed
         ToolkitRefusal.OTHER -> R.string.toolkit_refused_other
+    }
+
+/**
+ * The line under a listed change that is [unverified][OverrideItem.unverified]: why it could not be read back now, or
+ * that Inspiration cannot confirm it made the change at all, which is why Reset all leaves that one alone.
+ */
+@Composable
+internal fun overrideUnverifiedText(reason: ToolkitRefusal): String =
+    if (reason == ToolkitRefusal.UNATTRIBUTED) {
+        stringResource(R.string.toolkit_override_unattributed)
+    } else {
+        stringResource(R.string.toolkit_override_unverified, stringResource(refusalRes(reason)))
     }
 
 @StringRes
@@ -339,6 +353,10 @@ internal fun statusRes(status: ToolkitActionStatus): Int =
         ToolkitActionStatus.RESTORED -> R.string.toolkit_status_restored
         ToolkitActionStatus.CANCELLED -> R.string.toolkit_status_cancelled
     }
+
+/** [statusRes] of a history row, except that a write Inspiration could not attribute reads as unverified, not failed. */
+@StringRes
+internal fun historyStatusRes(item: HistoryItem): Int = if (item.unverified) R.string.toolkit_status_unverified else statusRes(item.status)
 
 @Composable
 internal fun dexoptStatusText(

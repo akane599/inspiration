@@ -9,6 +9,7 @@ import com.akane.inspiration.telemetry.toolkit.AppToolkitState
 import com.akane.inspiration.telemetry.toolkit.DozeState
 import com.akane.inspiration.telemetry.toolkit.Override
 import com.akane.inspiration.telemetry.toolkit.OverrideKind
+import com.akane.inspiration.telemetry.toolkit.ToolkitAuditLog
 import com.akane.inspiration.telemetry.toolkit.ToolkitOutcome
 import kotlinx.collections.immutable.toImmutableList
 
@@ -95,6 +96,7 @@ internal object ToolkitMapper {
             status = record.status,
             startedAtMs = record.startedAt,
             isRestore = record.restoresId != null,
+            unverified = ToolkitAuditLog.unattributed(record),
         )
 
     private fun whatOf(record: ToolkitActionRecord): HistoryWhat =

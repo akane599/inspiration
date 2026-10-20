@@ -149,6 +149,8 @@
     <string name="xray_override_restore">Restore</string>
     <string name="xray_override_not_restorable">Can\'t be restored automatically.</string>
     <string name="xray_override_unverified">Couldn\'t check whether this is still in effect. %1$s</string>
+    <!-- A change read back too late to tell Inspiration's write from the system's or another app's (B-01). -->
+    <string name="xray_override_unattributed">Inspiration can\'t confirm it made this change: it was checked too late. Reset all leaves it alone.</string>
 
     <!-- Results -->
     <string name="xray_notice_restricted">Background activity restricted.</string>
@@ -172,6 +174,7 @@
     <string name="xray_refused_not_restorable">This change can\'t be restored automatically.</string>
     <string name="xray_refused_already_restored">This change was already restored.</string>
     <string name="xray_refused_unknown_action">Inspiration doesn\'t recognize that action.</string>
+    <string name="xray_refused_unattributed">Inspiration can\'t confirm it made this change. It can only be restored on its own.</string>
     <string name="xray_refused_other">The request was refused.</string>
     <string name="xray_unavailable_no_service">The Shizuku or Sui service can\'t be reached. Check that Shizuku or Sui is running.</string>
     <string name="xray_unavailable_stale_service">The Shizuku or Sui service is out of date. Restart Shizuku or Sui, then try again.</string>
@@ -199,4 +202,5 @@
     <string name="xray_warning_updated_system_app">This is an updated system app. Changing it can affect parts of the system.</string>
     <string name="xray_warning_doze_over_custom">Standard doze would replace a custom doze setting.</string>
     <string name="xray_warning_restore_state_changed">The setting has changed since Inspiration made this change. Restoring overwrites its current value.</string>
+    <string name="xray_warning_unattributed_change">Inspiration can\'t confirm it made this change. It was checked too late to tell it apart from a change by the system or another app. Restoring overwrites its current value.</string>
 </resources>

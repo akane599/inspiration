@@ -15,6 +15,7 @@ import androidx.compose.ui.tooling.preview.Preview
 import com.akane.inspiration.designsystem.theme.InspirationTheme
 import com.akane.inspiration.designsystem.theme.spacing
 import com.android.tools.screenshot.PreviewTest
+import kotlinx.collections.immutable.ImmutableList
 import java.util.TimeZone
 
 // Rendered on the JVM: ./gradlew :feature:toolkit:updateDebugScreenshotTest (write refs) / validateDebugScreenshotTest (diff).
@@ -70,6 +71,15 @@ private fun OverridesBody(state: ToolkitState) {
     Surface(color = MaterialTheme.colorScheme.background) {
         Box(modifier = Modifier.padding(MaterialTheme.spacing.md)) {
             OverridesCard(state = state, onIntent = {}, timeZone = Utc)
+        }
+    }
+}
+
+@Composable
+private fun HistoryBody(history: ImmutableList<HistoryItem>) {
+    Surface(color = MaterialTheme.colorScheme.background) {
+        Box(modifier = Modifier.padding(MaterialTheme.spacing.md)) {
+            HistoryCard(history = history, timeZone = Utc)
         }
     }
 }
@@ -215,6 +225,37 @@ fun ToolkitResetReport() = InspirationTheme(darkTheme = false) { Screen(ToolkitP
 @Preview(name = "overrides-unverified-360", showBackground = true, widthDp = 360, heightDp = 640)
 @Composable
 fun ToolkitOverridesUnverified() = InspirationTheme(darkTheme = false) { OverridesBody(ToolkitPreviewData.unverifiedOverrides) }
+
+@PreviewTest
+@Preview(name = "overrides-unattributed-360", showBackground = true, widthDp = 360, heightDp = 560)
+@Composable
+fun ToolkitOverridesUnattributed() = InspirationTheme(darkTheme = false) { OverridesBody(ToolkitPreviewData.unattributedOverrides) }
+
+@PreviewTest
+@Preview(name = "overrides-unattributed-turkish", showBackground = true, widthDp = 360, heightDp = 600, locale = "tr")
+@Composable
+fun ToolkitOverridesUnattributedTurkish() = InspirationTheme(darkTheme = false) { OverridesBody(ToolkitPreviewData.unattributedOverrides) }
+
+@PreviewTest
+@Preview(name = "history-unverified-360", showBackground = true, widthDp = 360, heightDp = 360)
+@Composable
+fun ToolkitHistoryUnverified() = InspirationTheme(darkTheme = false) { HistoryBody(ToolkitPreviewData.unverifiedHistory) }
+
+@PreviewTest
+@Preview(name = "history-unverified-turkish", showBackground = true, widthDp = 360, heightDp = 360, locale = "tr")
+@Composable
+fun ToolkitHistoryUnverifiedTurkish() = InspirationTheme(darkTheme = false) { HistoryBody(ToolkitPreviewData.unverifiedHistory) }
+
+@PreviewTest
+@Preview(name = "confirm-restore-unattributed", showBackground = true, widthDp = 412, heightDp = 400)
+@Composable
+fun ToolkitConfirmRestoreUnattributed() = InspirationTheme(darkTheme = false) { DialogBody(ToolkitPreviewData.confirmRestoreUnattributed) }
+
+@PreviewTest
+@Preview(name = "confirm-restore-unattributed-turkish", showBackground = true, widthDp = 360, heightDp = 460, locale = "tr")
+@Composable
+fun ToolkitConfirmRestoreUnattributedTurkish() =
+    InspirationTheme(darkTheme = false) { DialogBody(ToolkitPreviewData.confirmRestoreUnattributed) }
 
 // ---- loading, empty, error, blocked -------------------------------------------------------------
 

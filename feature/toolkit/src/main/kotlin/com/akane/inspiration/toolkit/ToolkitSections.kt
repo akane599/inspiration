@@ -313,9 +313,7 @@ private fun OverrideRow(
                 color = MaterialTheme.colorScheme.onSurface,
             )
             InfoText(stringResource(R.string.toolkit_override_since, since), small = true)
-            item.unverified?.let { reason ->
-                InfoText(stringResource(R.string.toolkit_override_unverified, stringResource(refusalRes(reason))), small = true)
-            }
+            item.unverified?.let { reason -> InfoText(overrideUnverifiedText(reason), small = true) }
             if (!item.restorable) InfoText(stringResource(R.string.toolkit_override_not_restorable), small = true)
         }
         if (item.restorable) {
@@ -417,7 +415,8 @@ private fun HistoryRow(
 ) {
     val spacing = MaterialTheme.spacing
     Row(verticalAlignment = Alignment.Top) {
-        LineDot(color = item.status.dotColor())
+        // An unattributed write may well have taken effect: it is marked as unsure, like a pending one, not as failed.
+        LineDot(color = if (item.unverified) MaterialTheme.statusColors.warning else item.status.dotColor())
         Column(modifier = Modifier.padding(start = spacing.sm)) {
             Text(
                 text = historyText(item),
@@ -425,7 +424,7 @@ private fun HistoryRow(
                 color = MaterialTheme.colorScheme.onSurface,
             )
             InfoText(
-                text = stringResource(R.string.toolkit_history_meta, stringResource(statusRes(item.status)), time),
+                text = stringResource(R.string.toolkit_history_meta, stringResource(historyStatusRes(item)), time),
                 small = true,
             )
         }

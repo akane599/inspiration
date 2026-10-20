@@ -211,6 +211,34 @@ internal object ToolkitPreviewData {
                 ),
         )
 
+    /** A change read back too late to credit to Inspiration's write (B-01): listed apart and left out of Reset all. */
+    val unattributedOverrides =
+        ready.copy(overrides = persistentListOf(overrides[0].copy(unverified = ToolkitRefusal.UNATTRIBUTED), overrides[1]))
+
+    /** That write in History: unverified, not failed, next to a write that did fail (B-01). */
+    val unverifiedHistory =
+        persistentListOf(
+            HistoryItem(
+                10,
+                HistoryWhat.AppOpSet(AppOp.RUN_ANY_IN_BACKGROUND, true),
+                "Chatty",
+                ToolkitActionStatus.FAILED,
+                NOON_MS - HOUR_MS / 2,
+                false,
+                unverified = true,
+            ),
+            history[0],
+            history[2],
+        )
+
+    /** Its own restore asks first: the value it writes over may not be Inspiration's (B-01). */
+    val confirmRestoreUnattributed =
+        Confirmation(
+            request = ToolkitRequest.Restore(1),
+            target = "Chatty",
+            warnings = persistentListOf(ToolkitWarning.UNATTRIBUTED_CHANGE),
+        )
+
     val detail =
         AppDetail(
             app = chatty,
