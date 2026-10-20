@@ -208,7 +208,11 @@ class AndroidTelemetrySource(
         }
     }
 
-    /** Hands each page to [onPage] as it arrives, so pages read before a deadline are kept by the caller. */
+    /**
+     * Hands each page to [onPage] as it arrives, so pages read before a deadline are kept by the caller. A read that
+     * reaches [MAX_HISTORY_PAGES] returns its last page still truncated: the capture records it as stopped at the
+     * page cap, not complete, and the next ingest continues from the cursor (audit B-02).
+     */
     private suspend fun readHistory(
         service: com.akane.inspiration.ipc.ITelemetryUserService,
         cursor: Pair<Long, Long>,

@@ -8,6 +8,7 @@ import com.akane.inspiration.telemetry.snapshot.BatterySnapshot
 import com.akane.inspiration.telemetry.snapshot.CaptureTrigger
 import com.akane.inspiration.telemetry.snapshot.SnapshotKind
 import com.akane.inspiration.telemetry.snapshot.SourceAvailability
+import com.akane.inspiration.telemetry.store.HISTORY_PAGE_CAP_REASON
 import com.akane.inspiration.telemetry.store.HISTORY_SOURCE
 import com.akane.inspiration.telemetry.store.SnapshotStore
 import kotlinx.coroutines.test.runTest
@@ -204,6 +205,23 @@ class IntervalAnalyzerTest {
             assertEquals(8 * hour, analysis.metrics.screenOffMs)
             assertEquals(0L, analysis.metrics.unknownMs)
             assertTrue(analysis.story.sentences.any { it is StorySentence.Summary })
+        }
+
+    @Test
+    fun `an endpoint whose history read stopped at its page cap leaves the time past the last complete ingest unknown`() =
+        runTest {
+            // The 9 h read stored older pages only, so its newer history is unread: no horizon at 9 h (audit B-02).
+            val capped =
+                ingestedSnapshot(9 * hour, level = 87).copy(
+                    availability = mapOf(HISTORY_SOURCE to SourceAvailability(true, HISTORY_PAGE_CAP_REASON)),
+                )
+            val analysis =
+                IntervalAnalyzer(staleHistoryStore(capped), ruleEngine())
+                    .analyze(ReferenceKind.SinceUnplugged, nowWallMs = 9 * hour)!!
+
+            assertEquals(2 * hour, analysis.metrics.screenOffMs)
+            assertEquals(6 * hour, analysis.metrics.unknownMs)
+            assertTrue(analysis.story.sentences.none { it is StorySentence.Summary })
         }
 
     @Test

@@ -24,6 +24,8 @@ import com.akane.inspiration.telemetry.source.TelemetrySource
 import com.akane.inspiration.telemetry.status.LightCurrent
 import com.akane.inspiration.telemetry.store.RETENTION_WINDOW_MS
 import com.akane.inspiration.telemetry.store.SnapshotStore
+import com.akane.inspiration.telemetry.store.historyReadAvailability
+import com.akane.inspiration.telemetry.store.historyReadComplete
 import com.akane.inspiration.telemetry.store.retentionNowMs
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.NonCancellable
@@ -224,7 +226,8 @@ class SnapshotCapturer(
                 SOURCE_KERNEL to SourceAvailability(read.kernel?.available == true, read.kernel?.reason),
                 SOURCE_ALARM to SourceAvailability(read.alarm is DumpParse.Ok, (read.alarm as? DumpParse.Unavailable)?.reason),
                 SOURCE_CPU to SourceAvailability(read.cpuTimes.isNotEmpty(), if (read.cpuTimes.isEmpty()) "unavailable" else null),
-                SOURCE_HISTORY to SourceAvailability(read.history.any { it.available }, read.history.firstOrNull { !it.available }?.reason),
+                // A read stopped at its page cap, or by a failed page, stored only part of the history (audit B-02).
+                SOURCE_HISTORY to historyReadAvailability(read.history),
             )
         if (usage != null && usage.deviceComponents.isEmpty()) {
             availability[SOURCE_USAGE] = SourceAvailability(true, "device_from_uid_sum")
@@ -329,7 +332,12 @@ class HistoryIngest internal constructor(
     internal val trigger: CaptureTrigger,
     internal val read: FullRead?,
 ) {
-    val historyAvailable: Boolean get() = read?.history?.any { it.available } == true
+    /**
+     * True when the read stored the history up to the newest event: every page was available and the last one was
+     * not truncated. A read stopped at its page cap, or by a page that failed after earlier ones, stored only older
+     * history, so the newest stored event of a kind may not be the newest one.
+     */
+    val historyComplete: Boolean get() = read?.history?.let(::historyReadComplete) == true
 }
 
 sealed interface CaptureResult {

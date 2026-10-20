@@ -12,6 +12,7 @@ import com.akane.inspiration.telemetry.snapshot.SnapshotClock
 import com.akane.inspiration.telemetry.snapshot.SnapshotKind
 import com.akane.inspiration.telemetry.snapshot.SourceAvailability
 import com.akane.inspiration.telemetry.store.ChargeSessionRecord
+import com.akane.inspiration.telemetry.store.HISTORY_PAGE_CAP_REASON
 import com.akane.inspiration.telemetry.store.HISTORY_SOURCE
 import com.akane.inspiration.telemetry.store.HealthSample
 import com.akane.inspiration.telemetry.store.Marker
@@ -252,6 +253,24 @@ class ReferenceResolverTest {
             assertEquals(ingest.clock.wallMs, store.historyHorizonWallMs())
             assertEquals(unplug.clock.wallMs, resolver.resolve(ReferenceKind.SinceUnplugged, NOW, events)!!.boundaryFromWallMs)
             assertEquals(screenOn.clock.wallMs, resolver.resolve(ReferenceKind.ScreenOnSession, NOW, events)!!.boundaryFromWallMs)
+        }
+
+    @Test
+    fun `a newer capture is past the horizon when the ingest after it stopped at its page cap`() =
+        runTest {
+            // Today's app open paged only the oldest part of a backlog (audit B-02): the history it stored ends on
+            // day 1, so it is no horizon, and today's unplug capture is newer than the stored unplug.
+            val dayOne = NOW - 30 * HOUR_MS
+            val ingest = snapshot(dayOne + HOUR_MS, CaptureTrigger.APP_OPEN, ingestedHistory = true)
+            val unplug = snapshot(NOW - 2 * HOUR_MS, CaptureTrigger.POWER_DISCONNECTED, SnapshotKind.LIGHT)
+            val capped =
+                snapshot(NOW - 1_000L, CaptureTrigger.APP_OPEN)
+                    .copy(availability = mapOf(HISTORY_SOURCE to SourceAvailability(true, HISTORY_PAGE_CAP_REASON)))
+            val events = listOf(history(dayOne, HistoryKind.UNPLUGGED))
+
+            val resolver = ReferenceResolver(LoadCountingStore(listOf(ingest, unplug, capped)))
+
+            assertEquals(unplug.clock.wallMs, resolver.resolve(ReferenceKind.SinceUnplugged, NOW, events)!!.boundaryFromWallMs)
         }
 
     @Test

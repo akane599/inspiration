@@ -21,10 +21,13 @@ import com.akane.inspiration.telemetry.snapshot.BatterySnapshot
 import com.akane.inspiration.telemetry.snapshot.CaptureTrigger
 import com.akane.inspiration.telemetry.snapshot.LiveReading
 import com.akane.inspiration.telemetry.snapshot.SnapshotKind
+import com.akane.inspiration.telemetry.snapshot.SourceAvailability
 import com.akane.inspiration.telemetry.source.FullRead
 import com.akane.inspiration.telemetry.source.LightRead
 import com.akane.inspiration.telemetry.source.TelemetrySource
 import com.akane.inspiration.telemetry.store.ChargeSessionRecord
+import com.akane.inspiration.telemetry.store.HISTORY_PAGE_CAP_REASON
+import com.akane.inspiration.telemetry.store.HISTORY_SOURCE
 import com.akane.inspiration.telemetry.store.HealthSample
 import com.akane.inspiration.telemetry.store.Marker
 import com.akane.inspiration.telemetry.store.RETENTION_WINDOW_MS
@@ -258,6 +261,48 @@ class SnapshotCapturerTest {
         }
 
     @Test
+    fun `a read whose last page is still truncated keeps its pages but does not mark the history horizon`() =
+        runTest {
+            // The source stopped at its page cap with the last page still full: newer events are unread.
+            val store = FakeStore()
+            val capped = listOf(page(truncated = true, historyEvent(5)), page(truncated = true, historyEvent(9)))
+
+            SnapshotCapturer(FakeSource(history = capped), store, TestClocks())
+                .captureFull(CaptureTrigger.APP_OPEN, deadlineMs = 100, ingestHistory = true)
+
+            assertEquals(listOf(historyEvent(5), historyEvent(9)), store.history)
+            assertEquals("the next ingest continues the drain from the last stored event", 10L to 9L, store.cursor)
+            val snapshot = store.snapshots.single()
+            assertEquals(SourceAvailability(true, HISTORY_PAGE_CAP_REASON), snapshot.availability[HISTORY_SOURCE])
+            assertFalse(snapshot.ingestedHistory())
+        }
+
+    @Test
+    fun `an ingest's history is complete only when every page was read up to the newest event`() =
+        runTest {
+            val complete = listOf(page(truncated = true, historyEvent(5)), page(truncated = false, historyEvent(9)))
+            val capped = listOf(page(truncated = true, historyEvent(5)), page(truncated = true, historyEvent(9)))
+            val failedLater = listOf(page(truncated = true, historyEvent(5)), BatteryHistorySnapshot.unavailable("remote"))
+            val failedWithoutReason =
+                listOf(page(truncated = true, historyEvent(5)), BatteryHistorySnapshot.unavailable("remote").copy(reason = null))
+
+            val ingests =
+                listOf(complete, capped, failedLater, failedWithoutReason, emptyList()).map { pages ->
+                    SnapshotCapturer(FakeSource(history = pages), FakeStore(), TestClocks())
+                        .ingestHistory(CaptureTrigger.CHARGE_JOB, deadlineMs = 100)
+                }
+
+            assertEquals(listOf(true, false, false, false, false), ingests.map { it.historyComplete })
+            val unexplained = FakeStore()
+            SnapshotCapturer(FakeSource(history = failedWithoutReason), unexplained, TestClocks())
+                .captureFull(CaptureTrigger.APP_OPEN, deadlineMs = 100, ingestHistory = true)
+            assertFalse(
+                "a failed page with no reason still leaves the read incomplete",
+                unexplained.snapshots.single().ingestedHistory(),
+            )
+        }
+
+    @Test
     fun `session restart reingestion stores only new history events`() =
         runTest {
             val old = historyEvent(5)
@@ -471,7 +516,7 @@ class SnapshotCapturerTest {
             val ingest = capturer.ingestHistory(CaptureTrigger.CHARGE_JOB, deadlineMs = 100)
 
             assertEquals(listOf(historyEvent(9)), store.history)
-            assertTrue(ingest.historyAvailable)
+            assertTrue(ingest.historyComplete)
             assertTrue(store.snapshots.isEmpty())
         }
 
@@ -617,7 +662,7 @@ class SnapshotCapturerTest {
             val ingest = capturer.ingestHistory(CaptureTrigger.CHARGE_JOB, deadlineMs = 100)
             val result = capturer.captureFull(ingest)
 
-            assertEquals(false, ingest.historyAvailable)
+            assertEquals(false, ingest.historyComplete)
             assertEquals(CaptureResult.Missed("deadline_or_service_unavailable"), result)
             assertEquals(1, source.receivedCursors.size)
             assertEquals(listOf(CaptureTrigger.CHARGE_JOB to "deadline_or_service_unavailable"), store.misses)

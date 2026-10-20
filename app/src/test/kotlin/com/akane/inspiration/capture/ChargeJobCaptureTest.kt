@@ -133,6 +133,39 @@ class ChargeJobCaptureTest {
         }
 
     @Test
+    fun `a capped history ingest does not let an earlier session's stored PLUGGED event skip this charge`() =
+        runTest {
+            // The ingest stops at its page cap: this charge's PLUGGED event is in the unread history, so the newest
+            // stored one belongs to the earlier session the last charge job already captured.
+            val source = CountingSource(history = listOf(event(3_500, HistoryKind.LEVEL)), capped = true)
+            val store =
+                FakeStore(
+                    snapshots =
+                        mutableListOf(
+                            snapshot(CaptureTrigger.CHARGE_JOB, wallMs = 4_000),
+                            snapshot(CaptureTrigger.POWER_CONNECTED, wallMs = 6_000),
+                        ),
+                )
+            store.history += event(3_000, HistoryKind.PLUGGED)
+
+            runChargeJobCapture(
+                SnapshotCapturer(source, store, FixedClocks),
+                store,
+                FixedClocks,
+                DEADLINE_MS,
+                analyze = {},
+                onHistoryStored = {},
+            )
+
+            assertEquals("the pages read are still stored", 2, store.history.size)
+            assertEquals(
+                "the job decides from the newer POWER_CONNECTED capture, as with unavailable history",
+                listOf(CaptureTrigger.CHARGE_JOB, CaptureTrigger.POWER_CONNECTED, CaptureTrigger.CHARGE_JOB),
+                store.saved().map { it.second },
+            )
+        }
+
+    @Test
     fun `after a forward wall clock jump the charge job prunes on this boot's elapsed time`() =
         runTest {
             // The earlier charge job read wall 4_000 at elapsed 2; one minute later the wall clock reads a year ahead.
@@ -221,9 +254,11 @@ class ChargeJobCaptureTest {
         }
     }
 
+    /** One history page of [history]; with [capped] it is still truncated, as when the read stops at its page cap. */
     internal class CountingSource(
         private val history: List<HistoryEvent>,
         private val clock: SnapshotClock = SnapshotClock(7_000, 2, 3, BOOT, null, null),
+        private val capped: Boolean = false,
     ) : TelemetrySource {
         var fullReads = 0
 
@@ -239,7 +274,7 @@ class ChargeJobCaptureTest {
                 alarm = DumpParse.Unavailable("not_needed"),
                 kernel = null,
                 cpuTimes = emptyList(),
-                history = listOf(BatteryHistorySnapshot(true, null, 10L, false, history, false)),
+                history = listOf(BatteryHistorySnapshot(true, null, 10L, false, history, capped)),
             )
         }
 

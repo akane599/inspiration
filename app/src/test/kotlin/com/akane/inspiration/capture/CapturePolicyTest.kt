@@ -119,7 +119,7 @@ class CapturePolicyTest {
                 lastChargeJobWallMs = 100L,
                 lastChargeJobBootCount = 4,
                 currentBootCount = 4,
-                historyAvailable = true,
+                historyComplete = true,
             ),
         )
         assertFalse(
@@ -129,7 +129,7 @@ class CapturePolicyTest {
                 lastChargeJobWallMs = 200L,
                 lastChargeJobBootCount = 4,
                 currentBootCount = 4,
-                historyAvailable = true,
+                historyComplete = true,
             ),
         )
         assertTrue(
@@ -139,7 +139,7 @@ class CapturePolicyTest {
                 lastChargeJobWallMs = 200L,
                 lastChargeJobBootCount = 4,
                 currentBootCount = 5,
-                historyAvailable = true,
+                historyComplete = true,
             ),
         )
         assertTrue(
@@ -149,7 +149,7 @@ class CapturePolicyTest {
                 lastChargeJobWallMs = 100L,
                 lastChargeJobBootCount = 4,
                 currentBootCount = 4,
-                historyAvailable = false,
+                historyComplete = false,
             ),
         )
     }

@@ -39,11 +39,14 @@ import com.akane.inspiration.telemetry.snapshot.SnapshotKind
 import com.akane.inspiration.telemetry.snapshot.SourceAvailability
 import com.akane.inspiration.telemetry.snapshot.UidOwnerInstall
 import com.akane.inspiration.telemetry.store.ChargeSessionRecord
+import com.akane.inspiration.telemetry.store.HISTORY_PAGE_CAP_REASON
+import com.akane.inspiration.telemetry.store.HISTORY_SOURCE
 import com.akane.inspiration.telemetry.store.HealthSample
 import com.akane.inspiration.telemetry.store.Marker
 import com.akane.inspiration.telemetry.store.SnapshotStore
 import com.akane.inspiration.telemetry.store.TelemetrySample
 import com.akane.inspiration.telemetry.store.ToolkitActionRecord
+import com.akane.inspiration.telemetry.store.ingestedHistory
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -267,6 +270,36 @@ class AndroidTelemetrySourceDeadlineTest {
             caller.close()
         }
     }
+
+    @Test
+    fun `a read that stops at the page cap keeps its pages but marks the history horizon only once drained`() =
+        runBlocking {
+            // A backlog of ten full pages: the first read stops at its cap of eight with newer history still unread.
+            val service = BlockingService(lastHistoryPage = 9)
+            val store = MemoryStore()
+            val capturer = SnapshotCapturer(source(service), store, FixedClocks)
+
+            val capped = capturer.captureFull(CaptureTrigger.APP_OPEN, deadlineMs = HANG_GUARD_MS, ingestHistory = true)
+
+            assertTrue("capture saved: $capped", capped is CaptureResult.Saved)
+            assertEquals("the read stops at its page cap", 8, service.historyRequests.size)
+            assertEquals("every page read is stored", 8, store.history.size)
+            assertEquals(STATS_START_MS to store.history.maxOf { it.historyTimeMs }, store.cursor)
+            val cappedSnapshot = store.snapshots.single()
+            assertFalse(
+                "history still pending after the page cap was recorded as complete to the snapshot's wall time: " +
+                    "${cappedSnapshot.availability["history"]}",
+                cappedSnapshot.ingestedHistory(),
+            )
+            assertEquals(SourceAvailability(true, HISTORY_PAGE_CAP_REASON), cappedSnapshot.availability[HISTORY_SOURCE])
+
+            val drained = capturer.captureFull(CaptureTrigger.APP_OPEN, deadlineMs = HANG_GUARD_MS, ingestHistory = true)
+
+            assertTrue("capture saved: $drained", drained is CaptureResult.Saved)
+            assertEquals("the next read pages on from the cursor to the newest event", 10, service.historyRequests.size)
+            assertEquals(10, store.history.size)
+            assertTrue("a read that reached the newest event marks the horizon", store.snapshots.last().ingestedHistory())
+        }
 
     @Test
     @Config(shadows = [PipeOs::class])
@@ -705,13 +738,15 @@ class AndroidTelemetrySourceDeadlineTest {
     }
 
     /**
-     * Every history page is full (truncated), as on a large first-ingest backlog, so paging continues until its
-     * page cap. The usage read with [blockUsage], and history pages from index [blockHistoryFrom] on, block until
-     * [release], ignoring interrupts the way a Binder transaction does.
+     * Every history page up to index [lastHistoryPage] is full (truncated), as on a large first-ingest backlog, so
+     * paging continues until its page cap; that page reaches the newest event. The usage read with [blockUsage], and
+     * history pages from index [blockHistoryFrom] on, block until [release], ignoring interrupts the way a Binder
+     * transaction does.
      */
     private class BlockingService(
         private val blockUsage: Boolean = false,
         private val blockHistoryFrom: Int = Int.MAX_VALUE,
+        private val lastHistoryPage: Int = Int.MAX_VALUE,
     ) : ITelemetryUserService.Default() {
         val historyRequests: MutableList<Long> = Collections.synchronizedList(mutableListOf())
         private val historyCalls = AtomicInteger()
@@ -732,7 +767,8 @@ class AndroidTelemetrySourceDeadlineTest {
             maxEvents: Int,
         ): BatteryHistorySnapshot {
             historyRequests += afterHistoryTimeMs
-            if (historyCalls.getAndIncrement() >= blockHistoryFrom) blockUninterruptibly()
+            val index = historyCalls.getAndIncrement()
+            if (index >= blockHistoryFrom) blockUninterruptibly()
             val time = afterHistoryTimeMs + 10L
             return BatteryHistorySnapshot(
                 available = true,
@@ -740,7 +776,7 @@ class AndroidTelemetrySourceDeadlineTest {
                 statsStartMs = STATS_START_MS,
                 sessionChanged = false,
                 events = listOf(HistoryEvent(time, 1_000_000L + time, HistoryKind.LEVEL, 50, -1L, 250, 4_000, 0)),
-                truncated = true,
+                truncated = index < lastHistoryPage,
             )
         }
 

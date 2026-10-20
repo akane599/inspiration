@@ -41,6 +41,7 @@ import com.akane.inspiration.telemetry.source.TelemetrySource
 import com.akane.inspiration.telemetry.status.UnplugSummary
 import com.akane.inspiration.telemetry.status.UnplugSummaryCalculator
 import com.akane.inspiration.telemetry.store.ChargeSessionRecord
+import com.akane.inspiration.telemetry.store.HISTORY_PAGE_CAP_REASON
 import com.akane.inspiration.telemetry.store.HealthSample
 import com.akane.inspiration.telemetry.store.Marker
 import com.akane.inspiration.telemetry.store.SAMPLES_BETWEEN_LIMIT
@@ -431,6 +432,10 @@ class RoomSnapshotStoreTest {
 
             // Newer rows that did not complete a history read leave the horizon where it was.
             store.insert(fullSnapshot(wallMs = 2_000L, availability = mapOf("history" to SourceAvailability(true, "remote"))))
+            // A read stopped at its page cap stored older pages only (audit B-02).
+            store.insert(
+                fullSnapshot(wallMs = 2_500L, availability = mapOf("history" to SourceAvailability(true, HISTORY_PAGE_CAP_REASON))),
+            )
             store.insert(fullSnapshot(wallMs = 3_000L, availability = mapOf("history" to SourceAvailability(false, null))))
             store.insert(fullSnapshot(wallMs = 4_000L, availability = mapOf("usage" to SourceAvailability(true, null))))
             store.insert(fullSnapshot(kind = SnapshotKind.LIGHT, wallMs = 5_000L, availability = complete))

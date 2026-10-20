@@ -88,16 +88,17 @@ object CapturePolicy {
         is CapturePlan.Light -> BROADCAST_FULL_DEADLINE_MS
     }
 
+    /** [historyComplete]: the ingest stored the history up to the newest event, so its last PLUGGED event is current. */
     fun chargeJobShouldRun(
         lastPluggedHistoryWallMs: Long?,
         lastPowerConnectedWallMs: Long?,
         lastChargeJobWallMs: Long?,
         lastChargeJobBootCount: Int?,
         currentBootCount: Int,
-        historyAvailable: Boolean,
+        historyComplete: Boolean,
     ): Boolean {
         if (lastChargeJobWallMs == null || lastChargeJobBootCount != currentBootCount) return true
-        val sessionStartWallMs = if (historyAvailable) lastPluggedHistoryWallMs else lastPowerConnectedWallMs
+        val sessionStartWallMs = if (historyComplete) lastPluggedHistoryWallMs else lastPowerConnectedWallMs
         return sessionStartWallMs != null && lastChargeJobWallMs < sessionStartWallMs
     }
 
