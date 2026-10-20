@@ -208,9 +208,12 @@ class AppContainer(
     override fun dictionary(): DiagnosticDictionary = dictionary
 
     /**
-     * The window's events plus the last of each state track before [from], so a window that opens mid screen-on,
-     * mid charge or mid Doze still shows that state (see [TimelineEvents]). Building walks every event of the
-     * window, which for a multi-day interval is far too much for the main thread the screens call from.
+     * The window's events plus seeds from before [from] (see [TimelineEvents]). The last screen, plug, start,
+     * shutdown and reset events and the last two Doze events let a window that opens mid screen-on, mid charge or
+     * mid Doze still show that state. The last level step is seeded too, so the newest event before [from] is
+     * always a seed: when the known history reaches [from], the level and temperature lines open there with the
+     * values it carries (B-05). Building walks every event of the window, which for a multi-day interval is far too
+     * much for the main thread the screens call from.
      */
     override suspend fun timeline(
         from: Long,
