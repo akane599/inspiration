@@ -10,6 +10,7 @@ import android.os.DeadObjectException
 import android.os.IBinder
 import android.os.RemoteException
 import kotlinx.coroutines.CoroutineDispatcher
+import kotlinx.coroutines.CoroutineExceptionHandler
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -1414,10 +1415,15 @@ class ShizukuManagerImplTest {
             manager.start()
             facade.onBind = {
                 inFlight.countDown()
-                release.await(10, TimeUnit.SECONDS) // a slow Shizuku server
+                release.await(60, TimeUnit.SECONDS) // a slow Shizuku server, released only after the checks
             }
-            val caller = Thread { manager.holdBinding() }.apply { start() }
-            assertTrue(inFlight.await(5, TimeUnit.SECONDS))
+            val callerDone = CountDownLatch(1)
+            val caller =
+                Thread {
+                    manager.holdBinding()
+                    callerDone.countDown()
+                }.apply { start() }
+            assertTrue(inFlight.await(10, TimeUnit.SECONDS))
             val bindingLock =
                 ShizukuManagerImpl::class.java
                     .getDeclaredField("bindingLock")
@@ -1425,15 +1431,16 @@ class ShizukuManagerImplTest {
                     .get(manager)
 
             // Another Main entry while the server is slow: a second holder, and a bare lock acquisition.
+            val otherDone = CountDownLatch(1)
             val other =
                 Thread {
                     manager.holdBinding().close()
                     synchronized(bindingLock) {}
+                    otherDone.countDown()
                 }.apply { start() }
-            other.join(2_000L)
-            val otherBlocked = other.isAlive
-            caller.join(2_000L)
-            val callerBlocked = caller.isAlive
+            // Hang-only bounds: both finish at once unless they wait for the held bind.
+            val callerBlocked = !callerDone.await(10, TimeUnit.SECONDS)
+            val otherBlocked = !otherDone.await(10, TimeUnit.SECONDS)
             release.countDown()
             other.join(10_000L)
             caller.join(10_000L)
@@ -1535,6 +1542,95 @@ class ShizukuManagerImplTest {
             assertSame(ShizukuState.PermissionRequired, fixture.manager.state.value)
         }
 
+    // R-08 follow-up: a non-RuntimeException out of a bind must not leave the binding "bound" with no bind behind it
+    // (bindIfRequiredLocked would return early forever) nor strand the queue.
+    @Test
+    fun aBindThrowingANonRuntimeFailureIsATransportLossAndBindingRecovers() =
+        runTest {
+            for (thrown in listOf(java.io.IOException("sneaky checked"), NoClassDefFoundError("linkage"))) {
+                val fixture = Fixture(this)
+                fixture.manager.start()
+                fixture.facade.bindThrowable = thrown
+
+                val holder = fixture.holdBinding()
+                assertSame("$thrown", ShizukuState.NotRunning, fixture.manager.state.value)
+
+                fixture.facade.bindThrowable = null
+                fixture.facade.deliverBinderReceived() // Shizuku is back
+                runCurrent()
+                assertEquals("$thrown: the holder binds again", 2, fixture.facade.bindCalls)
+                fixture.facade.deliverServiceConnected(LiveBinder())
+                assertEquals("ok", fixture.manager.withTelemetryService(1_000L) { "ok" })
+                holder.close()
+                advanceUntilIdle()
+            }
+        }
+
+    @Test
+    fun aVirtualMachineErrorFromABindIsRethrownButLeavesTheManagerUsable() =
+        runTest {
+            val uncaught = mutableListOf<Throwable>()
+            val scope =
+                CoroutineScope(
+                    SupervisorJob() + StandardTestDispatcher(testScheduler) +
+                        CoroutineExceptionHandler { _, t -> uncaught += t },
+                )
+            val facade = FakeShizukuFacade().apply { bindThrowable = StackOverflowError() }
+            val manager =
+                ShizukuManagerImpl(
+                    context = TestContext(),
+                    facade = facade,
+                    scope = scope,
+                    applicationInfoProvider = ShizukuApplicationInfoProvider { ShizukuApplicationInfo(42, true) },
+                    managerApp = ShizukuManagerAppProbe { true },
+                    ioDispatcher = StandardTestDispatcher(testScheduler),
+                )
+            manager.start()
+
+            val holder = manager.holdBinding()
+            runCurrent()
+
+            assertTrue("not swallowed", uncaught.single() is StackOverflowError)
+            assertSame(ShizukuState.NotRunning, manager.state.value)
+            facade.bindThrowable = null
+            facade.deliverBinderReceived()
+            runCurrent()
+            assertEquals("a fresh drainer issues the next bind", 2, facade.bindCalls)
+            holder.close()
+            manager.stop()
+            scope.cancel()
+        }
+
+    // R-08 follow-up: the IO refresh (older ticket) is reading when the server restarts; the Main binderReceived refresh
+    // publishes Ready and a holder's bind is queued; then the older read fails.
+    @Test
+    fun anOlderRefreshFailingAfterANewerReadyDoesNotTakeItDown() =
+        runTest {
+            val fixture = Fixture(this)
+            fixture.manager.start()
+            val inFlight = CountDownLatch(1)
+            val resume = CountDownLatch(1)
+            fixture.facade.onCheckSelfPermission = {
+                fixture.facade.onCheckSelfPermission = {}
+                inFlight.countDown()
+                resume.await(60, TimeUnit.SECONDS)
+                throw IllegalStateException("the server this read was talking to restarted")
+            }
+            val slow = Thread { fixture.manager.refresh() }.apply { start() }
+            assertTrue(inFlight.await(10, TimeUnit.SECONDS))
+
+            fixture.facade.deliverBinderReceived()
+            val holder = fixture.manager.holdBinding() // its bind is queued
+            resume.countDown()
+            slow.join(30_000L)
+            runCurrent()
+
+            assertEquals(ShizukuState.Ready(2000, 13), fixture.manager.state.value)
+            assertEquals("the queued bind is still issued", 1, fixture.facade.bindCalls)
+            holder.close()
+            advanceUntilIdle()
+        }
+
     private companion object {
         /** Mirrors the manager's idle linger and unbind-settle timeout (literals, so the test reads standalone). */
         const val LINGER_MS = 3_000L
@@ -1551,13 +1647,15 @@ class ShizukuManagerImplTest {
         /** holdBinding, then lets the IO drainer issue whatever bind it decided (R-08: never on the caller). */
         fun holdBinding(): AutoCloseable = manager.holdBinding().also { scope.runCurrent() }
 
-        /** Runs [block] on another thread and returns its result, or null if it is still blocked after 2 s. */
+        /** Runs [block] on another thread and returns its result, or null if it is still blocked after 10 s. */
         fun <T : Any> onAnotherThread(block: () -> T): T? {
             var result: T? = null
-            val other = Thread { result = block() }
-            other.start()
-            other.join(2_000L)
-            return if (other.isAlive) null else result
+            val done = CountDownLatch(1)
+            Thread {
+                result = block()
+                done.countDown()
+            }.start()
+            return if (done.await(10, TimeUnit.SECONDS)) result else null // a hang-only bound
         }
         val manager =
             ShizukuManagerImpl(
@@ -1797,6 +1895,9 @@ class ShizukuManagerImplTest {
         var bindFailure = false
         var unbindFailure = false
 
+        /** Thrown by the next binds as is: lets a test throw what is not a RuntimeException. */
+        @Volatile var bindThrowable: Throwable? = null
+
         @Volatile var bindCalls = 0
 
         @Volatile var unbindCalls = 0
@@ -1888,6 +1989,7 @@ class ShizukuManagerImplTest {
         ) {
             bindCalls += 1
             if (bindFailure) error("daemon died during bind")
+            bindThrowable?.let { throw it }
             val stub = cachedStub ?: ConnectionStub().also { cachedStub = it }
             stub.connections += connection
             boundStub = stub

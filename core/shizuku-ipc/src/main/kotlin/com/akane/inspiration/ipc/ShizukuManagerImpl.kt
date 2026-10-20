@@ -9,6 +9,7 @@ import android.os.IBinder
 import android.os.RemoteException
 import android.util.Log
 import com.akane.inspiration.ipc.service.TelemetryUserService
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -430,16 +431,23 @@ class ShizukuManagerImpl private constructor(
     }
 
     private fun updateState() {
+        val ticket = refreshTickets.incrementAndGet()
         try {
-            refreshState()
+            refreshState(ticket)
         } catch (_: RuntimeException) {
-            synchronized(bindingLock) { transportLostLocked() }
+            synchronized(bindingLock) {
+                // A newer refresh may already have read the restarted server and published Ready: an older read's
+                // failure says nothing about that server and must not take it down.
+                if (ticket >= appliedRefreshTicket) {
+                    appliedRefreshTicket = ticket
+                    transportLostLocked()
+                }
+            }
         }
     }
 
     /** Reads Shizuku outside [bindingLock]: these are binder calls too, and only the result is published under it. */
-    private fun refreshState() {
-        val ticket = refreshTickets.incrementAndGet()
+    private fun refreshState(ticket: Long) {
         // The binder decides, not the manager app: Sui (root) hands ShizukuProvider a binder with no manager app
         // installed (N-08). The manager app only tells NotInstalled from NotRunning while this process has never
         // had a binder; after one, its absence is a stopped server.
@@ -585,32 +593,44 @@ class ShizukuManagerImpl private constructor(
 
     private fun enqueueTransactionLocked(transaction: ServiceTransaction) {
         pendingTransactions.addLast(transaction)
-        if (draining) return
+        if (!draining) startDrainerLocked()
+    }
+
+    private fun startDrainerLocked() {
         draining = true
         scope.launch(ioDispatcher) { drainTransactions() }
     }
 
     /** Issues [pendingTransactions] one at a time with [bindingLock] released. */
     private fun drainTransactions() {
-        try {
-            while (true) {
-                val transaction = synchronized(bindingLock) { nextTransactionLocked() } ?: return
+        while (true) {
+            val transaction = synchronized(bindingLock) { nextTransactionLocked() } ?: return
+            val failure =
                 try {
                     if (transaction.bind) {
                         facade.bindUserService(transaction.args, userServiceConnection)
                     } else {
                         facade.unbindUserService(transaction.args, userServiceConnection, true)
                     }
-                } catch (_: RuntimeException) {
-                    synchronized(bindingLock) {
-                        // A loss handled since (perhaps with a new server up by now) must not be reported again.
-                        if (transaction.transportEpoch == transportEpoch) transportLostLocked()
-                    }
-                }
+                    null
+                } catch (t: Throwable) {
+                    t
+                } ?: continue
+            // Whatever was thrown (a RuntimeException from the binder, an Error, a sneaky checked exception), the
+            // call did not complete: it is a transport loss, or the binding would stay "bound" with no bind behind
+            // it. A loss handled since (perhaps with a new server up by now) must not be reported again.
+            synchronized(bindingLock) {
+                if (transaction.transportEpoch == transportEpoch) transportLostLocked()
             }
-        } catch (t: Throwable) {
-            synchronized(bindingLock) { draining = false } // the next decision starts a new drainer
-            throw t
+            if (failure is CancellationException || failure is VirtualMachineError) {
+                // Neither is ours to swallow; the queue still goes on in a fresh drainer.
+                synchronized(bindingLock) {
+                    draining = false
+                    if (pendingTransactions.isNotEmpty()) startDrainerLocked()
+                }
+                throw failure
+            }
+            if (failure !is RuntimeException) logWarning("Shizuku user-service call failed", failure)
         }
     }
 
@@ -646,9 +666,14 @@ class ShizukuManagerImpl private constructor(
         }
     }
 
-    private fun logUnsupportedVersion(message: String) {
+    private fun logUnsupportedVersion(message: String) = logWarning(message)
+
+    private fun logWarning(
+        message: String,
+        failure: Throwable? = null,
+    ) {
         try {
-            Log.w(TAG, message)
+            Log.w(TAG, message, failure)
         } catch (_: RuntimeException) {
             // Android local unit tests provide a stub Log implementation.
         }
