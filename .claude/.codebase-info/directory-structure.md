@@ -12,7 +12,7 @@ app/
     AppContainer.kt
     capture/{BootCaptureReceiver,BroadcastCaptureRunner,CapturePolicy,ChargeJobRun,
       ChargingCaptureJobService,ChargingCaptureRunner,ChargingCaptureScheduler,
-      MarkerCapture,RuntimeCaptureReceiver}.kt
+      HistoryPageCounter,MarkerCapture,RuntimeCaptureReceiver}.kt
     di/{AppEntries,ApplicationScope,CachedAppLabels,Preloaded,ReconcileOnReady,
       RefreshCoordinator,StoreTicks,TimelineEvents}.kt
     shell/{AppShell,ShellIcons,ShellState}.kt
@@ -61,7 +61,7 @@ core/
       android/service/batterystats/batterystats.proto,
       com/android/server/alarm/alarmmanagerservice.proto}
     src/main/kotlin/com/akane/inspiration/telemetry/
-      calibration/{PowerCalibrator,SharedPreferencesCalibrationStore}.kt
+      calibration/{ChargeCounterCheck,PowerCalibrator,SharedPreferencesCalibrationStore}.kt
       capacity/CapacityEstimator.kt
       capture/SnapshotCapturer.kt
       common/Clocks.kt
@@ -73,7 +73,7 @@ core/
       live/{KernelUnits,LiveTelemetry}.kt
       snapshot/{SnapshotModels,UidIdentity}.kt
       source/{AndroidClocks,AndroidTelemetrySource,TelemetrySource,UidIdentityReader}.kt
-      status/UnplugSummary.kt
+      status/{ChargeState,LightCurrent,UnplugSummary}.kt
       store/{HistoryHorizon,RetentionPrune,SnapshotStore,StoreModels}.kt
       toolkit/{ToolkitActions,ToolkitGateway,ToolkitModels}.kt
     src/test/kotlin/com/akane/inspiration/telemetry/**
