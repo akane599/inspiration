@@ -2,7 +2,6 @@ package com.akane.inspiration.xray
 
 import androidx.annotation.StringRes
 import androidx.compose.runtime.Composable
-import androidx.compose.ui.platform.LocalLocale
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import com.akane.inspiration.designsystem.component.format.NBSP
@@ -15,7 +14,6 @@ import com.akane.inspiration.ipc.toolkit.StandbyBucket
 import com.akane.inspiration.telemetry.toolkit.ToolkitRefusal
 import com.akane.inspiration.telemetry.toolkit.ToolkitUnavailable
 import com.akane.inspiration.telemetry.toolkit.ToolkitWarning
-import java.util.Locale
 
 private const val MS_PER_MINUTE = 60_000L
 
@@ -40,9 +38,6 @@ internal fun durationText(
     format: TelemetryFormat,
     durationMs: Long,
 ): String = if (durationMs in 1 until MS_PER_MINUTE) "<1$NBSP${format.units.minute}" else format.duration(durationMs)
-
-@Composable
-internal fun currentLocale(): Locale = LocalLocale.current.platformLocale
 
 @Composable
 internal fun timesText(count: Long): String {

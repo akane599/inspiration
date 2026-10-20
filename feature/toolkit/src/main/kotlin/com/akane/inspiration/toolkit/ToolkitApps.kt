@@ -59,6 +59,7 @@ import com.akane.inspiration.designsystem.component.EmptyState
 import com.akane.inspiration.designsystem.component.EmptyStateAction
 import com.akane.inspiration.designsystem.component.SemanticDot
 import com.akane.inspiration.designsystem.component.filterTouchesWhenObscured
+import com.akane.inspiration.designsystem.component.format.currentLocale
 import com.akane.inspiration.designsystem.component.format.monogram
 import com.akane.inspiration.designsystem.theme.spacing
 import com.akane.inspiration.designsystem.theme.statusColors

@@ -54,6 +54,7 @@ import com.akane.inspiration.designsystem.component.StackedBar
 import com.akane.inspiration.designsystem.component.TimeSliceBanner
 import com.akane.inspiration.designsystem.component.color
 import com.akane.inspiration.designsystem.component.rememberObscuredTouchNotice
+import com.akane.inspiration.designsystem.component.format.currentLocale
 import com.akane.inspiration.designsystem.component.format.monogram
 import com.akane.inspiration.designsystem.component.format.rememberSystemTimeZone
 import com.akane.inspiration.designsystem.theme.numericTypography

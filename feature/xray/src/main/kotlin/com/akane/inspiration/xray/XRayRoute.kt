@@ -14,6 +14,7 @@ import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.repeatOnLifecycle
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.akane.inspiration.designsystem.component.format.currentLocale
 
 /**
  * Entry point of the X-Ray destination; the signature is pinned (docs/plans/phase-5.md "Entry points").
