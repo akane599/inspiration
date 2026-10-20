@@ -18,6 +18,13 @@ import com.akane.inspiration.telemetry.status.UnplugSummaryCalculator
 const val SAMPLES_BETWEEN_LIMIT = 24 * 60 * 60 * 1_000 / 1_500
 
 interface SnapshotStore {
+    /**
+     * Runs [block] so that every read it makes through this store sees one state: a write or prune from elsewhere lands
+     * before or after all of them, never between two. The default runs it as is (for fakes); the Room store runs it in
+     * one transaction.
+     */
+    suspend fun <R> readConsistently(block: suspend () -> R): R = block()
+
     suspend fun insert(snapshot: BatterySnapshot): Long
 
     /**

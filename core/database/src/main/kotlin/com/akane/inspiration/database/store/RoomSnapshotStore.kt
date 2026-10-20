@@ -53,6 +53,9 @@ class RoomSnapshotStore(
     private val database: InspirationDatabase,
     private val currentBootCount: () -> Int? = { null },
 ) : SnapshotStore {
+    /** The reads of [block] in one transaction; Room nests the store's own transactions inside it. */
+    override suspend fun <R> readConsistently(block: suspend () -> R): R = database.withTransaction { block() }
+
     override suspend fun insert(snapshot: BatterySnapshot): Long =
         database.withTransaction {
             val snapshotId = database.snapshotDao().insert(snapshot.toEntity())

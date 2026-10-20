@@ -39,12 +39,25 @@ class IntervalAnalyzer(
         kind: ReferenceKind,
         nowWallMs: Long,
     ): IntervalAnalysis? {
+        // The snapshot pair, horizon and history come from one store state: a capture or prune landing between those
+        // reads would otherwise pair snapshots with history they never saw.
+        val (resolved, metrics) = store.readConsistently { measure(kind, nowWallMs) } ?: return null
+        val diff = SnapshotDiffer.diff(resolved.ref, resolved.now)
+        val report = ruleEngine.evaluate(DiagnosticInput(diff, metrics, resolved.perUidAvailable))
+        // Stored coverage can lag the requested end, and a cached story can outlive analysis time.
+        val story = storyBuilder.build(metrics, diff.sleep, report, endsNow = false)
+        return IntervalAnalysis(resolved, diff, metrics, report, story)
+    }
+
+    /** Every store read of [analyze]: the resolved pair and its interval's metrics, null when nothing is measurable. */
+    private suspend fun measure(
+        kind: ReferenceKind,
+        nowWallMs: Long,
+    ): Pair<ResolvedReference, IntervalMetrics>? {
         val resolved = resolver.resolve(kind, nowWallMs) ?: return null
         // IntervalMetricsCalculator.compute requires to >= from, and a pair with no wall time between its
         // snapshots measures nothing: Empty, not a Ready analysis of all-zero deltas.
         if (resolved.coveredToWallMs <= resolved.coveredFromWallMs) return null
-
-        val diff = SnapshotDiffer.diff(resolved.ref, resolved.now)
         // State past the last successful history ingest is unknown, not the last known state: a newer LIGHT or
         // broadcast endpoint must not stretch it. An endpoint that ingested history itself needs no further read.
         val horizon =
@@ -52,12 +65,7 @@ class IntervalAnalyzer(
         // The interval's own history and the newest events it opens in (audit R-15; see intervalHistory for the one
         // case that reads back to a SHUTDOWN); events past now were never part of it.
         val events = store.intervalHistory(resolved.coveredFromWallMs, minOf(nowWallMs, resolved.coveredToWallMs))
-        val metrics =
-            IntervalMetricsCalculator.compute(events, resolved.coveredFromWallMs, resolved.coveredToWallMs, horizon)
-        val report = ruleEngine.evaluate(DiagnosticInput(diff, metrics, resolved.perUidAvailable))
-        // Stored coverage can lag the requested end, and a cached story can outlive analysis time.
-        val story = storyBuilder.build(metrics, diff.sleep, report, endsNow = false)
-        return IntervalAnalysis(resolved, diff, metrics, report, story)
+        return resolved to IntervalMetricsCalculator.compute(events, resolved.coveredFromWallMs, resolved.coveredToWallMs, horizon)
     }
 
     /**
@@ -71,7 +79,8 @@ class IntervalAnalyzer(
         nowWallMs: Long,
     ): IntervalMetrics? {
         if (kind != ReferenceKind.SinceScreenOff) return null
-        val window = resolver.historyScreenOff(nowWallMs) ?: return null
-        return store.historyOnlyMetrics(window.fromWallMs, window.toWallMs)
+        return store.readConsistently {
+            resolver.historyScreenOff(nowWallMs)?.let { window -> store.historyOnlyMetrics(window.fromWallMs, window.toWallMs) }
+        }
     }
 }
