@@ -996,7 +996,8 @@ class ToolkitExecutorTest {
 
     /** Every pair is individually valid and no key repeats, so only the 1024 length cap can refuse it. */
     private fun overLongButWellFormed(): String {
-        val pairs = DozeRaw.AOSP_KEYS.map { "$it=123456789012345678" }
+        val pairs = (0 until 64).map { "key_$it=123456789012345678" }
+        for (pair in pairs) assertTrue(pair, DozeRaw.isRestorable(pair))
         val ok =
             pairs.fold("") { acc, pair ->
                 val next = if (acc.isEmpty()) pair else "$acc,$pair"

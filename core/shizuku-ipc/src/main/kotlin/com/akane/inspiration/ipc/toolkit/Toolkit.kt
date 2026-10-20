@@ -156,62 +156,9 @@ object DozeRaw {
     private val PAIR = Regex("([a-z][a-z0-9_]{0,63})=(\\d{1,18}(\\.\\d{1,9})?|true|false)")
 
     /**
-     * Documentation and test reference only; [isRestorable] does not gate on it, because OEM builds
-     * add their own keys and a restore after a service restart must still be able to replay them.
-     * Every `device_idle_constants` key AOSP's `DeviceIdleController.Constants` has parsed in API 31-37:
-     * the union of the `KEY_*` string constants in
-     * `frameworks/base/apex/jobscheduler/service/java/com/android/server/DeviceIdleController.java`
-     * at the android-12.0.0_r1, android-13.0.0_r1, android-14.0.0_r1, android-15.0.0_r1 and
-     * android-16.0.0_r1 tags plus the main branch (android.googlesource.com). A release that does not
-     * know a key ignores it when it parses the setting.
-     */
-    val AOSP_KEYS: Set<String> =
-        setOf(
-            "flex_time_short",
-            "idle_after_inactive_to",
-            "idle_factor",
-            "idle_pending_factor",
-            "idle_pending_to",
-            "idle_to",
-            "inactive_to",
-            "light_after_inactive_to",
-            "light_idle_factor",
-            "light_idle_flex_linear_increase_factor_ms",
-            "light_idle_increase_linearly",
-            "light_idle_linear_increase_factor_ms",
-            "light_idle_maintenance_max_budget",
-            "light_idle_maintenance_min_budget",
-            "light_idle_to",
-            "light_idle_to_initial_flex",
-            "light_max_idle_to",
-            "light_max_idle_to_flex",
-            "light_pre_idle_to",
-            "locating_to",
-            "location_accuracy",
-            "max_idle_pending_to",
-            "max_idle_to",
-            "max_temp_app_allowlist_duration_ms",
-            "min_deep_maintenance_time",
-            "min_light_maintenance_time",
-            "min_time_to_alarm",
-            "mms_temp_app_allowlist_duration_ms",
-            "motion_inactive_to",
-            "motion_inactive_to_flex",
-            "notification_allowlist_duration_ms",
-            "pre_idle_factor_long",
-            "pre_idle_factor_short",
-            "quick_doze_delay_to",
-            "sensing_to",
-            "sms_temp_app_allowlist_duration_ms",
-            "use_mode_manager",
-            "use_window_alarms",
-            "wait_for_unlock",
-        )
-
-    /**
-     * Comma-separated `key=value` pairs: every key an identifier (`[a-z][a-z0-9_]{0,63}`, so OEM keys
-     * outside [AOSP_KEYS] qualify), no key repeated, every value a non-negative integer, an optional
-     * decimal (factors) or `true`/`false`; at most 1024 characters. The value grammar carries the
+     * Comma-separated `key=value` pairs: every key an identifier (`[a-z][a-z0-9_]{0,63}`, so keys AOSP
+     * never defines (OEM additions) qualify), no key repeated, every value a non-negative integer, an
+     * optional decimal (factors) or `true`/`false`; at most 1024 characters. The value grammar carries the
      * safety (no separators or shell metacharacters), and the write uses fixed argv and a CAS, so a
      * restore may replay this without the service having read it itself.
      */
