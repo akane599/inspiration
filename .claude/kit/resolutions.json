@@ -40,13 +40,13 @@
     "template_sha256": "68f531b76b39609f6323085baedf640ab8e792d0a1ab889431b4bb4895d6c8e4"
   },
   ".claude/live-rules/rules/android-build.md": {
-    "merged_sha256": "2abcdd6ac234a769b2e9e2eb125ccfbde5ab5940c7614013ff27ca1e8665d72a",
-    "resolved_at": "2026-10-20T00:38:57.527279+00:00",
+    "merged_sha256": "ab580f856939b5cc9b560346a3d5d889c7946714a5f1814e683fdff11511fceb",
+    "resolved_at": "2026-10-20T01:00:20.800522+00:00",
     "template_sha256": "b792f5a08b202d1423d4e6fcb337fdddd435ece5eaf767384f5a551e0efa4306"
   },
   ".claude/live-rules/rules/android-orchestration.md": {
-    "merged_sha256": "889c3387849ac9fef5eff9e49a2acb5f685f677caaf03e634e1528d861a45711",
-    "resolved_at": "2026-10-20T00:38:57.527466+00:00",
+    "merged_sha256": "de2ad2d63c45d5aa1efe800e4578cb92dcad5555e077f87182c5faf7ec57a311",
+    "resolved_at": "2026-10-20T01:00:20.800719+00:00",
     "template_sha256": "10d6e7a2fea27f2790f980cef94dbbd06baf2afa80a1c0363640a369a2dcf6d8"
   },
   ".claude/skills/audit-remediate/SKILL.md": {
@@ -60,8 +60,8 @@
     "template_sha256": "6cf943a95b15bc4cf12c1fa1174c65edfd381f079dba2754d1a932e1401eb282"
   },
   ".claude/skills/compose-design/SKILL.md": {
-    "merged_sha256": "6b809a4de8b36e8067bd7f896908527bf5b3b033bc89bf2f2860d96b4f091d12",
-    "resolved_at": "2026-10-18T21:48:14.838381+00:00",
+    "merged_sha256": "744f2af5c8a834016055fbf489c1c10417c4b1e1656d37a398146dac70cfcd68",
+    "resolved_at": "2026-10-20T01:00:20.800890+00:00",
     "template_sha256": "8a59180cb7a8181f72380aaa65f1a97c75c57fa0a546f07d07d1d7a21627695f"
   },
   ".claude/skills/full-repo-audit/SKILL.md": {

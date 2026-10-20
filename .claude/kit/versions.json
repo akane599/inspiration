@@ -6,7 +6,7 @@
         ".claude-plugin/marketplace.json": "e8f07c47faefa54e1447754094d169ee7b13a4f0227d72d47a758e44ecac0b27",
         ".claude-plugin/plugin.json": "4966eb8dfba988cde7225a02571ba9a022602f99fd2ebf745f2ca5ecd1fbbd21"
       },
-      "id": "android-kmp-playbook@android-hybrid",
+      "id": "android-kmp-playbook@android-claude-max",
       "scope": "project",
       "version": "1.0.0"
     },
@@ -33,7 +33,7 @@
       },
       "id": "context7@claude-plugins-official",
       "scope": "project",
-      "version": "ea10b213686c"
+      "version": "a0b04d9ddcca"
     },
     {
       "commit": null,
@@ -53,7 +53,7 @@
         "hooks/post-version-bump.md": "d6730157252b15ac2885eb302ec77ad962dab45bd7208c8058bd597910a85a70",
         "hooks/pre-build-check.md": "ac7dc1da08bb1bef194d7cfd4f06f6eb70bd6a5bd3f2f91be723e1421583025e"
       },
-      "id": "droidforge@android-hybrid",
+      "id": "droidforge@android-claude-max",
       "scope": "project",
       "version": "1.0.0"
     },
@@ -69,7 +69,7 @@
       "definitions": {
         ".claude-plugin/plugin.json": "1d0ac5c5130445ef678225003ec569ce6f0ceb2d90f3ef14a93531a8aa01017c"
       },
-      "id": "kotlin-lsp-android@android-hybrid",
+      "id": "kotlin-lsp-android@android-claude-max",
       "scope": "project",
       "version": "1.0.0"
     },
@@ -93,25 +93,14 @@
     {
       "commit": null,
       "definitions": {
-        ".claude-plugin/plugin.json": "9c92e54707dc6617de00dd8e398382e73019f37e6411d6071d6840b7b5f763db",
-        "hooks/hooks.json": "20ef02614f87b9fa13f124e4d0f3fdca42bae63f4f968c6970fe86908889a266",
-        "hooks/registry-writer.js": "771b04c1fad6d3c039e457654411cbc1416cf9176c19486b9046f2fa13da6305"
-      },
-      "id": "model-gateway@eigenwise-toolshed",
-      "scope": "project",
-      "version": "0.54.4"
-    },
-    {
-      "commit": null,
-      "definitions": {
-        ".claude-plugin/plugin.json": "cc0c456740adf2e8a9411fa2d20ecf3393fd842c5b2d10b72aabcf2062492acb",
+        ".claude-plugin/plugin.json": "4d430125a07978c27f46fe0c7b57f77fdc8d86a272f53d0bd650d95fa49747af",
         "hooks/hooks.json": "4430bf8c3fc36d2d74bf3144a7c1e09e359b351169bab16a3cf7f6e9366abc43",
-        "hooks/ledger.ts": "acaeeb01b4f679a1212327292476335500fec34b23b4f0cb8f1f241a7af43286",
-        "hooks/register.ts": "e82fc4847c71404c2be447ed881c34b806e155c547ae1a2cefa40c17930278ec"
+        "hooks/ledger.ts": "b835248623d6cc8489f5309197ec364d2b2ddec29061fb4ae1d5cd0e2afc8914",
+        "hooks/register.ts": "16ab9527b58a1cc6d79e4965e7f84bc4fb911b17747f3d0d1545076f6ea54b8f"
       },
       "id": "observability@eigenwise-toolshed",
       "scope": "project",
-      "version": "1.0.0"
+      "version": "1.1.0"
     },
     {
       "commit": null,
@@ -137,15 +126,15 @@
       "commit": null,
       "definitions": {
         ".claude-plugin/plugin.json": "28efccd14277411bb014dae9760e27aa918cf38dc208f2827c5ae1653bb379c2",
-        "hooks/__pycache__/_base.cpython-314.pyc": "ee03475dfb35c8b197e2bcd2c6802e29e67046155df7e2743d4e994dca525ea4",
-        "hooks/__pycache__/diffstate.cpython-314.pyc": "3805e5b2117c3c99b4310e44c509d105d12ba2623818d2684d6f5a2aac04fc79",
-        "hooks/__pycache__/extensibility.cpython-314.pyc": "98188c3f342c66667a0a1e2c8864640d74effb98c6fe12da3e67252629eeb827",
-        "hooks/__pycache__/gitutil.cpython-314.pyc": "04d206d15e734872636cfd82b834e70c38a089822cf957126c9618b13687fa4c",
-        "hooks/__pycache__/llm.cpython-314.pyc": "6191b44939dc4743553ae44c1706d22c62c2840be3011aca377808784af46158",
-        "hooks/__pycache__/patterns.cpython-314.pyc": "1261f5b0de321350a93156f98c19d3d6c4a81c83f817aa62e76369c40f12bc08",
-        "hooks/__pycache__/reporesolve.cpython-314.pyc": "9619bc8710f3c0eec74f8592a479ef2d2df24633514022ef07ac0ab4b3df6e47",
-        "hooks/__pycache__/review_api.cpython-314.pyc": "c35fa5c8a05d932e7e168cdc3ee5db36924ae0652538e3d2491bd6c17ae3b3e9",
-        "hooks/__pycache__/session_state.cpython-314.pyc": "359a9cf5a96ddb6dfecf29e3d57563c2e285fcbf6e7d67ce1f24cf6c424b99d0",
+        "hooks/__pycache__/_base.cpython-314.pyc": "caaceb6c30ca0270188963ef939df7fb7773e799f675e86d602d3bebc4ee7d33",
+        "hooks/__pycache__/diffstate.cpython-314.pyc": "14218f3b98db3d663cf09ac71e45e73e3a61fc3f975f799e501498f49783bb29",
+        "hooks/__pycache__/extensibility.cpython-314.pyc": "fbf3d878e490cb4aeac3a6466922457fe48393859aeb697ffac41693fed0ebdf",
+        "hooks/__pycache__/gitutil.cpython-314.pyc": "a89c5fac1097aa8398de9451b1814ea48f7e3d82ffe55d2b49b7b2d6434e339a",
+        "hooks/__pycache__/llm.cpython-314.pyc": "1249b432ef91d90168226ea28b93323e56a590e71290cc1fb22a4ac262b07ffc",
+        "hooks/__pycache__/patterns.cpython-314.pyc": "6df002a794f287071e511eb2a133ccc76bb171b22abe3a3acbc4ae213426fcde",
+        "hooks/__pycache__/reporesolve.cpython-314.pyc": "2d1175f9dfbaf433eec6021e5ef8061d7092e655617b562efc3187c6d1b1c9cd",
+        "hooks/__pycache__/review_api.cpython-314.pyc": "e56ad3a9c0b86ef4a8b7353c93d6ce060f376c1b9b473c6cac5b667cddb236f9",
+        "hooks/__pycache__/session_state.cpython-314.pyc": "73753c8a71cb7f6ac226cd517228c468ab606ebeaf369253b7d854d79baad0f5",
         "hooks/_base.py": "ae6de038d61580fcf852c03ecf1de1f0f2cd5baf7fb47bd7e234d83013a353cb",
         "hooks/diffstate.py": "830b0d8227bd77c479af521a683abda9a2b1d8a7fcd18924c0a942c06228daa9",
         "hooks/ensure_agent_sdk.py": "dd6f014aa103e7f11b48b2a1f1f3a74f6428f4f7e64d076bde712c6406a7f1a0",
@@ -156,9 +145,9 @@
         "hooks/patterns.py": "8cd874aa113801f869679045e0b38b669988b6a7d33b611b10ef01f474ca1eef",
         "hooks/reporesolve.py": "cc751cf63524b8d8ce255715bb188a123e68b8d4a5cbf12ab28f58a20849f7fd",
         "hooks/review_api.py": "b5e5ee59787e174998adb70a53e0b06252449c6e96f2d52e735f8ad5cbe4e319",
-        "hooks/security_reminder_hook.py": "9ac90d0f7f7ee311b356cc8ddf44322128a47fd9b4c55adf285f3f883b6ca29a",
+        "hooks/security_reminder_hook.py": "d00af7e8eed0f91957f48aaa9a7c6761b666e2e9bbdc3d8ffffb7ea9309fae28",
         "hooks/session_state.py": "5228eed24bdb743af3c84fce73a13b0abaae426f6eb9d278763dc20304308630",
-        "hooks/sg-python.sh": "184b1b0295caacacf3f8d5b931e78fc60c1d6f11189458cb2ed37aedb735c6cf"
+        "hooks/sg-python.sh": "e8140ec547a6ad9b07dcfbb6211d9e093f6fc1fe9f81836d7c7ddbca3ab1cd0b"
       },
       "id": "security-guidance@claude-plugins-official",
       "scope": "project",
@@ -169,12 +158,12 @@
       "definitions": {},
       "id": "session-report@claude-plugins-official",
       "scope": "project",
-      "version": "ea10b213686c"
+      "version": "a0b04d9ddcca"
     },
     {
       "commit": null,
       "definitions": {
-        ".claude-plugin/plugin.json": "988c45ce7a4817610cfb76ca51623318205480a6c4025ddf367f6ac2689cbf4f",
+        ".claude-plugin/plugin.json": "6da6d83035a26c7a559c5b8ebf2366fb5dd18b04c92e9bca02172f7d8e02a1b8",
         "agents/sidequest-diagnostic-probe.md": "d3b394c3bc8f21259b0ee680c273e04f86362e30ed7ffdef617a0c9a950ca89d",
         "agents/sidequest-exec-dispatch-readonly.md": "b8872f90052a148b04333c865591842dc6fce66785abba6f5b32a6138c443d04",
         "agents/sidequest-exec-dispatch.md": "856266d8b7adf693fdaeb10eb7d26694c42f6e21d53325849e8f18430df059e7",
@@ -201,7 +190,7 @@
         "hooks/guards/executor-admission.test.ts": "70e54078d130e7e6b8f365506b58ed6a2aff4062bce0651706c6c182fd461d66",
         "hooks/guards/executor-admission.ts": "89d2df81f9cdace0b90c6010254b7ad55885f77c4d514765e71b20d43d9991e2",
         "hooks/guards/git-command.ts": "0c2a8a7f9bfd58ae1e0648ccf25bee58fd77bfa63a9f28dd79fee8fa56ec7369",
-        "hooks/guards/git-guards.test.ts": "5c8da33ac68035914794a32b6b5389e577bc0af668277eb6ef3431cc0695ac08",
+        "hooks/guards/git-guards.test.ts": "9b3c869a45859c9fff6b8775ade6059391dbeb8e7213f63e45f2a10c662e0d33",
         "hooks/guards/git-guards.ts": "a4a9cfb086f18fb2e2a63583efcb63de58f9c97f3823c9779facd57cfab37122",
         "hooks/guards/guards.test.ts": "47074eebe0b6df319ff96549c85c0ed7bacdf8e4deccf54cd0e589455455165f",
         "hooks/guards/heredocs.ts": "c69a72f0ece19b1ab6fd93d4516005b176059f4d7f9cf5b34c117e2fcf337880",
@@ -223,9 +212,9 @@
       },
       "id": "sidequest@eigenwise-toolshed",
       "scope": "project",
-      "version": "6.0.0"
+      "version": "6.0.1"
     }
   ],
   "policy": "Drift record; not a package resolver or shared-cache downgrade.",
-  "recorded": "20261019T013740.875413Z"
+  "recorded": "20261020T010442.950827Z"
 }
