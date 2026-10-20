@@ -16,3 +16,11 @@ data class PowerMonitorSnapshot(
         )
     }
 }
+
+@Parcelize
+data class PowerMonitorReading(
+    val name: String,
+    val type: Int,
+    val energyUws: Long,
+    val timestampMs: Long,
+) : android.os.Parcelable

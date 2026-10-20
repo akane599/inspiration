@@ -17,11 +17,3 @@ data class UidUsage(
     val components: Map<String, Double>,
     val byProcessState: Map<String, Double>?,
 ) : android.os.Parcelable
-
-@Parcelize
-data class PowerMonitorReading(
-    val name: String,
-    val type: Int,
-    val energyUws: Long,
-    val timestampMs: Long,
-) : android.os.Parcelable

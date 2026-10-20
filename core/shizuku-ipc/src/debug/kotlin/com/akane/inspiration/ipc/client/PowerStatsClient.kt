@@ -43,7 +43,8 @@ private const val POWER_STATS_TIMEOUT_MS = 2_000L
 
 /**
  * Reads framework power monitors (binder "powerstats"), gated to API 35+ per D3. Never throws. Only the debug
- * probe calls it, in-process through Shizuku (the user-service txn 4 was removed), so R8 drops it from release.
+ * probe calls it, in-process through Shizuku (the user-service txn 4 was removed), so it lives in the debug source
+ * set.
  */
 class PowerStatsClient internal constructor(
     private val binderSource: () -> IBinder?,

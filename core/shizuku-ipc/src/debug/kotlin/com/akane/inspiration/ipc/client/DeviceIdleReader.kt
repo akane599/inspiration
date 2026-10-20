@@ -67,7 +67,7 @@ class PowerManagerClient internal constructor(
 
 /**
  * Combines both reads into one [DeviceIdleSnapshot]; the idle-flag failure reason wins. Only the debug probe
- * calls it, in-process through Shizuku (the user-service txn 5 was removed), so R8 drops it from release.
+ * calls it, in-process through Shizuku (the user-service txn 5 was removed), so it lives in the debug source set.
  */
 class DeviceIdleReader(
     private val deviceIdle: DeviceIdleClient,

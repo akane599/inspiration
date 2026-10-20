@@ -5,13 +5,6 @@ import android.os.RemoteException
 import com.akane.inspiration.ipc.model.Reasons
 import java.lang.reflect.InvocationTargetException
 
-/** Result of one binder read: a value, or a short machine reason from [Reasons]. */
-sealed interface BinderResult<out T> {
-    data class Ok<out T>(val value: T) : BinderResult<T>
-
-    data class Failed(val reason: String) : BinderResult<Nothing>
-}
-
 /**
  * Maps a binder-call failure to a [Reasons] value. Reflection wrappers are unwrapped first so a
  * SecurityException thrown through `Method.invoke` still reads as a permission failure.
