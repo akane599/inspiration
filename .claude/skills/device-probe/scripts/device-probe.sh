@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
-# Run one debug ProbeReceiver probe on an emulator and keep its InspirationProbe JSON lines.
-# Usage: device-probe.sh [--avd NAME] [--probe ACTION] [--clear] [--grant] [--no-install]
+# Run one debug ProbeReceiver probe on the redroid device and keep its InspirationProbe JSON lines.
+# Usage: device-probe.sh [--serial HOST:PORT] [--probe ACTION] [--clear] [--grant] [--no-install]
 #                        [--timeout SEC] [--extras "<am extras>"]
 # Output: build/device-evidence/api<SDK>-<probe>.jsonl (one JSON object per line).
-# Exit: 0 probe finished; 2 setup failure (boot/install/Shizuku); 3 probe timed out or crashed.
+# Exit: 0 probe finished; 2 setup failure (device/install/Shizuku); 3 probe timed out or crashed.
 set -uo pipefail
 
 PKG=com.akane.inspiration
@@ -11,7 +11,7 @@ RECEIVER=$PKG/.debug.ProbeReceiver
 SHIZUKU_PKG=moe.shizuku.privileged.api
 TAG=InspirationProbe
 
-avd=batstats-api36
+serial=${ANDROID_SERIAL:-localhost:5555}
 probe=PROBE
 clear=0
 install=1
@@ -21,7 +21,8 @@ extras=""
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    --avd) avd=$2; shift 2 ;;
+    --serial) serial=$2; shift 2 ;;
+    --avd) echo "--avd: this host has no /dev/kvm, so emulators can't boot; use the redroid device (--serial)" >&2; exit 2 ;;
     --probe) probe=$2; shift 2 ;;
     --clear) clear=1; shift ;;
     --no-install) install=0; shift ;;
@@ -40,42 +41,15 @@ cd "$root" || exit 2
 
 say() { echo "[device-probe] $*" >&2; }
 
-# 1. Device: reuse an attached one (honours ANDROID_SERIAL), else boot the AVD headless.
+# 1. Device: the always-on redroid container (or --serial / ANDROID_SERIAL). No emulator: no KVM here.
 [[ $timeout =~ ^[1-9][0-9]*$ ]] || { say "timeout must be positive seconds"; exit 2; }
-boot_deadline=$((SECONDS + timeout))
-emulator_pid=""
+export ANDROID_SERIAL=$serial
 if ! timeout 5s adb get-state >/dev/null 2>&1; then
-  say "booting $avd"
-  mkdir -p build || exit 2
-  emulator_log=$(mktemp build/emulator.XXXXXXXX.log) || exit 2
-  nohup emulator -avd "$avd" -no-window -no-audio -no-snapshot-save >"$emulator_log" 2>&1 &
-  emulator_pid=$!
-  until timeout 5s adb get-state >/dev/null 2>&1; do
-    if ! kill -0 "$emulator_pid" 2>/dev/null; then
-      wait "$emulator_pid" || true
-      say "emulator exited before connecting; log: $emulator_log"
-      exit 2
-    fi
-    if (( SECONDS >= boot_deadline )); then
-      kill "$emulator_pid" 2>/dev/null || true
-      wait "$emulator_pid" || true
-      say "device connection timed out; log: $emulator_log"
-      exit 2
-    fi
-    sleep 1
-  done
+  [[ $serial == *:* ]] && timeout 10s adb connect "$serial" >/dev/null 2>&1
+  timeout 5s adb get-state >/dev/null 2>&1 || { say "device $serial not reachable (is the redroid container up?)"; exit 2; }
 fi
-until [[ $(timeout 5s adb shell getprop sys.boot_completed 2>/dev/null | tr -d '\r') == 1 ]]; do
-  if (( SECONDS >= boot_deadline )); then
-    if [[ -n $emulator_pid ]]; then
-      kill "$emulator_pid" 2>/dev/null || true
-      wait "$emulator_pid" || true
-    fi
-    say "boot timed out"
-    exit 2
-  fi
-  sleep 1
-done
+[[ $(timeout 5s adb shell getprop sys.boot_completed 2>/dev/null | tr -d '\r') == 1 ]] \
+  || { say "device $serial has not finished booting"; exit 2; }
 sdk=$(adb shell getprop ro.build.version.sdk | tr -d '\r')
 say "device $(adb get-serialno) api $sdk"
 
@@ -83,13 +57,14 @@ say "device $(adb get-serialno) api $sdk"
 if [[ $install == 1 ]]; then
   ./gradlew :app:installDebug --console=plain -q || { say "installDebug failed"; exit 2; }
 fi
+[[ -n $(adb shell pm path "$PKG" 2>/dev/null) ]] || { say "$PKG not installed on $serial (drop --no-install)"; exit 2; }
 if [[ $clear == 1 ]]; then
   adb shell pm clear "$PKG" >/dev/null || { say "pm clear failed"; exit 2; }
 fi
 
 # 3. Shizuku: must be installed; start its server via the adb starter if it is not running.
 shizuku_apk=$(adb shell pm path "$SHIZUKU_PKG" 2>/dev/null | tr -d '\r' | sed -n 's/^package://p' | head -1)
-[[ -n $shizuku_apk ]] || { say "Shizuku ($SHIZUKU_PKG) not installed on this AVD"; exit 2; }
+[[ -n $shizuku_apk ]] || { say "Shizuku ($SHIZUKU_PKG) not installed on $serial"; exit 2; }
 if [[ -z $(adb shell pidof shizuku_server 2>/dev/null | tr -d '\r') ]]; then
   abi=$(adb shell getprop ro.product.cpu.abi | tr -d '\r')
   case "$abi" in arm64*) libdir=arm64 ;; armeabi*) libdir=arm ;; x86_64) libdir=x86_64 ;; *) libdir=x86 ;; esac

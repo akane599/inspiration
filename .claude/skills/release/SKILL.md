@@ -101,7 +101,7 @@ Write `build/release/$v/notes.md` for the user, not for the code. The structure 
   - The certificate.
   - The upgrade check's result, naming the previous version.
   - Other device checks run for this release.
-  - An honest **Not checked on a device** list. Battery-less redroid can't prove rates, capacity or real fuel-gauge behaviour. API 31/33 behaviour needs the `batstats-api31`/`batstats-api33` emulators.
+  - An honest **Not checked on a device** list. Battery-less redroid can't prove rates, capacity or real fuel-gauge behaviour. API 31–34, 36 and 37 behaviour can't be checked here: redroid is API 35 and the host has no KVM for an emulator.
 - **Known follow-ups**, if any (AUDIT_REPORT.md, PROGRESS.md).
 
 Take the substance from the commits since the previous tag, `PROGRESS.md` decisions and `AUDIT_REPORT.md`. Say only what the evidence supports.

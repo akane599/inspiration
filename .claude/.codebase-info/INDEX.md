@@ -1,5 +1,5 @@
 # Codebase Map — Inspiration
-*Last Updated: 2026-10-19*
+*Last Updated: 2026-10-20*
 
 Shizuku-powered battery analytics and diagnostics for Android power users. Phase 2 provides the telemetry snapshot pipeline, history ingestion, Room persistence, and capture scheduling. Phase 3 adds interval metrics and the `:core:diagnostics` insight layer (rule engine R1–R4, dictionary, Battery Story) with debug `PROBE_INSIGHTS`; Phase 4 adds the leaf `:core:designsystem` module (theme tokens, components, synchronized scrubbing chart, sleep hypnogram) plus the debug-only `DesignGalleryActivity`. Phase 5 adds the app shell (bottom bar / rail, `RefreshCoordinator`), the manual-DI `AppContainer` that implements five per-feature dependency interfaces, the five MVI feature screens (Cockpit, X-Ray, Sleep Lab, Charge & Health, Toolkit), the typed privileged toolkit write path (`ToolkitActions`, AIDL txns 20–31) and the shared `AnalysisSession`. Earlier remediation added deadline-bound binder calls, monotonic-clock retention, failure containment (`attempt {}`), selection-tagged analysis and observed-change override chains. The current 2026-10-19 remediation ([`AUDIT_REPORT.md`](../../AUDIT_REPORT.md), A-01–A-24) adds capture-time UID ownership proof and Room schema v5, conservative truncated/absent-source handling, atomic charging-job scheduling, recoverable toolkit restore/admission state, measurement-scoped feature data and non-pointer interval controls. The independent 2026-10-19 audit remediation (F-01–F-25, release 0.2.3) adds:
 - app-op `allow` writes (toolkit API 3) and user-0 toolkit containment;
@@ -31,7 +31,7 @@ The second independent audit's remediation (N-01–N-28, release 0.2.4) adds:
 | [tech-landscape.md](tech-landscape.md) | Toolchain, dependency catalog, protobuf, Room, Inter fonts, and test/screenshot infrastructure |
 | [directory-structure.md](directory-structure.md) | Source tree, excluding generated output |
 | [database.md](database.md) | Room schema v5 and migrations (incl. nullable UID ownership proof, signal columns, `snapshot_uid_sensor`, `toolkit_action`, the trigger index), boot/elapsed trigger ordering, DAOs, WAL setup, retention, and snapshot-store mapping |
-| [onboarding.md](onboarding.md) | Build, test, emulator, probes (incl. `PROBE_INSIGHTS`), design gallery launch, the `device-probe` and `release` skills, the Gradle slot script, and Shizuku workflow |
+| [onboarding.md](onboarding.md) | Build, test, the redroid-only device (no KVM, no emulator), probes (incl. `PROBE_INSIGHTS`), design gallery launch, the `device-probe` and `release` skills, the Gradle slot script, and Shizuku workflow |
 
 ## Map maintenance
 

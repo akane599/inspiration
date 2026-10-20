@@ -1,5 +1,5 @@
 # Onboarding
-*Last Updated: 2026-10-19*
+*Last Updated: 2026-10-20*
 
 ## Read first
 
@@ -33,21 +33,19 @@ Its `scripts/upgrade-check.sh` and `scripts/gate-summary.sh` also run on their o
 
 Diagnostics tests run under Robolectric (org.json and resources are needed by the dictionary loader and story writer). Room tests use Robolectric and cover WAL, cascades, history deduplication, snapshot round trips, and 30-day maintenance behavior. Schema v5 adds nullable UID identity proof through `MIGRATION_4_5`; existing v4 data must migrate without a clear or inferred historical proof. Run the focused database gate with `bash .claude/kit/gradle-check.sh :core:database:testDebugUnitTest --tests '*InspirationDatabaseTest' --tests '*RoomSnapshotStoreTest'`. The current audit's same-key v0.2.1→v0.2.2 redroid upgrade evidence is recorded in [`AUDIT_REPORT.md`](../../AUDIT_REPORT.md) under "Current-build Mobile MCP/redroid verification". Protobuf tests use committed API 35/36/37 fixtures under [`core/telemetry-engine/src/test/resources/proto`](../../core/telemetry-engine/src/test/resources/proto).
 
-## Emulator and app launch
+## Device and app launch
 
-The always-on redroid device is Android 15 + Shizuku 13.6.0 at `ANDROID_SERIAL=localhost:5555`; select it explicitly when other devices are connected. Root shell/SQLite checks use `adb shell su 0`. Debug and release APKs use different signing keys, so switching variants requires uninstalling the app and loses its data; do not use that switch or `pm clear` to claim an in-place migration test. Use a same-key upgrade when checking preservation. The container has no physical battery, so it proves wiring and persistence, not hardware accuracy.
+The always-on redroid device (Android 15 / API 35 + Shizuku 13.6.0) is the only device: the host has no `/dev/kvm`, so the Android emulator can't run. adb lists the container as `emulator-5554` (its automatic scan of local port 5555) and, after `adb connect localhost:5555`, also as `localhost:5555`; both are the same container, so set `ANDROID_SERIAL` to either one, because a bare `adb` fails with "more than one device". Root shell/SQLite checks use `adb shell su 0`. Debug and release APKs use different signing keys, so switching variants requires uninstalling the app and loses its data; do not use that switch or `pm clear` to claim an in-place migration test. Use a same-key upgrade when checking preservation. The container has no physical battery, so it proves wiring and persistence, not hardware accuracy.
 
-The documented AVDs are `batstats-api36`, `screenoff-api37`, and `pixel-api35`. `batstats-api31` (Android 12) and `batstats-api33` (Android 13) cover the bottom of the minSdk range, for example bg-dexopt below API 33. Both are rootable `google_apis` images. Never pass `-port 5554`: that emulator's adb port is 5555, which redroid holds, so adb never sees it. Leave `-port` out or use 5556 or above. The normal launch flow is:
+Earlier device evidence in [`PROGRESS.md`](../../PROGRESS.md) came from the API 35/36/37 AVDs (`pixel-api35`, `batstats-api36`, `screenoff-api37`, plus `batstats-api31`/`batstats-api33`) on a host that had KVM; they can't boot here, so behaviour on API levels other than 35 is reported as not checked on a device. The normal launch flow is:
 
 ```sh
-./gradlew --stop   # free daemon memory first: 15 GiB RAM + zram/swapfile; Gradle limits are in the android-build live rule
-emulator -avd batstats-api36 -memory 2048 -no-window -no-audio &
-adb wait-for-device shell 'while [[ -z $(getprop sys.boot_completed) ]]; do sleep 1; done'
+export ANDROID_SERIAL=localhost:5555   # after `adb connect localhost:5555`, or use emulator-5554
 ./gradlew :app:installDebug -q
 adb shell am start -n com.akane.inspiration/.MainActivity
 ```
 
-The app manifest registers `rikka.shizuku.ShizukuProvider` and queries the Shizuku manager package. Install and start Shizuku on the emulator before testing full capture; without it the manager remains `NotInstalled` or `NotRunning`, while light capture still uses local battery state.
+The app manifest registers `rikka.shizuku.ShizukuProvider` and queries the Shizuku manager package. Shizuku is installed on redroid; start its server before testing full capture; without it the manager remains `NotInstalled` or `NotRunning`, while light capture still uses local battery state.
 
 ## Design gallery (debug)
 
@@ -81,17 +79,17 @@ adb logcat -d -s 'InspirationProbe:*'
 
 The charging job is armed by BOOT_COMPLETED/MY_PACKAGE_REPLACED and can be inspected with `dumpsys jobscheduler`. The app disables cloud backup and device transfer in [`app/src/main/AndroidManifest.xml`](../../app/src/main/AndroidManifest.xml) and [`app/src/main/res/xml/data_extraction_rules.xml`](../../app/src/main/res/xml/data_extraction_rules.xml).
 
-The emulator setup recorded in [`PROGRESS.md`](../../PROGRESS.md) uses the Shizuku APK's `lib/<abi>/libshizuku.so` started with adb.
+The Shizuku server is started with adb from the Shizuku APK's `lib/<abi>/libshizuku.so` (`x86_64` on redroid); the device-probe script does this when the server isn't running.
 
-To test the permission flow from scratch on Shizuku 13.5, revoking in the server config alone is not enough: the server re-grants from the runtime permission when it starts. Stop `shizuku_server`, run `pm revoke com.akane.inspiration moe.shizuku.manager.permission.API_V23`, write `{"version":2,"packages":[]}` to `/data/user_de/0/com.android.shell/shizuku.json`, then start the server again. The Cockpit then shows "Shizuku permission needed", and a grant in Shizuku's app management screen is picked up on the next `onStart`, without a restart. Emulator batteries are synthetic; Phase 2 capture/job evidence covers API 35, 36, and 37, not production hardware.
+To test the permission flow from scratch on Shizuku 13.5, revoking in the server config alone is not enough: the server re-grants from the runtime permission when it starts. Stop `shizuku_server`, run `pm revoke com.akane.inspiration moe.shizuku.manager.permission.API_V23`, write `{"version":2,"packages":[]}` to `/data/user_de/0/com.android.shell/shizuku.json`, then start the server again. The Cockpit then shows "Shizuku permission needed", and a grant in Shizuku's app management screen is picked up on the next `onStart`, without a restart. Neither redroid nor the earlier emulators have a real battery; the Phase 2 capture/job evidence (API 35, 36 and 37 emulators) covers wiring, not production hardware.
 
 ## Device-probe skill
 
-[`.claude/skills/device-probe/SKILL.md`](../skills/device-probe/SKILL.md) wraps boot, install, Shizuku start, optional permission grant, broadcast and logcat capture in [`scripts/device-probe.sh`](../skills/device-probe/scripts/device-probe.sh):
+[`.claude/skills/device-probe/SKILL.md`](../skills/device-probe/SKILL.md) wraps device connection, install, Shizuku start, optional permission grant, broadcast and logcat capture in [`scripts/device-probe.sh`](../skills/device-probe/scripts/device-probe.sh):
 
 ```sh
-bash .claude/skills/device-probe/scripts/device-probe.sh --avd batstats-api36 --probe PROBE_INSIGHTS --clear --grant \
+bash .claude/skills/device-probe/scripts/device-probe.sh --probe PROBE_INSIGHTS --clear --grant \
   --extras "--es reference_kind since_unplugged"
 ```
 
-It saves JSON lines to `build/device-evidence/api<SDK>-<PROBE>.jsonl` (gitignored), ending with `{"probe":"done"}` or `timeout`. Exit codes: 0 finished, 2 setup failed, 3 no terminal line. Use `--clear` for an install from before the Phase 3 in-place schema change (`pm clear`; later schema changes migrate), with `--grant` because clearing can drop the Shizuku permission. Only the orchestrator runs emulators, one at a time; emulator batteries are synthetic, so evidence proves wiring and parsing, not thresholds. On the emulator the batterystats fixtures carry no signal bins or UID sensors, so R3 reports `signalAvailable = false` and R4 is `NotEvaluable("source_absent")`.
+It targets `ANDROID_SERIAL`, or `localhost:5555` when unset, running `adb connect` if that transport is missing; `--serial HOST:PORT` overrides both, and `--avd` exits 2 because no emulator can boot. It saves JSON lines to `build/device-evidence/api<SDK>-<PROBE>.jsonl` (gitignored; `api35-…` on redroid), ending with `{"probe":"done"}` or `timeout`. Exit codes: 0 finished, 2 setup failed (device unreachable, installDebug, app missing under `--no-install`, Shizuku), 3 no terminal line. Use `--clear` for an install from before the Phase 3 in-place schema change (`pm clear`; later schema changes migrate), with `--grant` because clearing can drop the Shizuku permission. Only the orchestrator drives the device, one adb run at a time. redroid has no real battery, so evidence proves wiring and parsing, not thresholds; its kernel battery sysfs reads come back unavailable. On the earlier emulators the batterystats fixtures carry no signal bins or UID sensors, so R3 reports `signalAvailable = false` and R4 is `NotEvaluable("source_absent")`.

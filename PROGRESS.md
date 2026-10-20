@@ -110,6 +110,7 @@ _Work items, stories and blockers live on the Sidequest board. This file keeps w
     - The H14 gap field `SliceInfo.gapMs` was removed until the banner is built.
     - `AndroidCalibrationInputReader` was removed.
   - Process: with about ten worktrees building, the host hit a kernel OOM at 19:19 that killed a 2.6 GB Gradle daemon. The coordinator finished the run on one Gradle slot.
+- 2026-10-20: Device evidence comes from redroid (API 35) only, because the host has no `/dev/kvm`. `device-probe.sh` now targets `localhost:5555` (connecting if needed) and refuses `--avd`. Behaviour on other API levels is reported as not checked on a device. First run on redroid: PROBE with `--grant` reached `Ready`, bound in 435 ms and finished (`{"probe":"done"}`); kernel sysfs is unavailable on battery-less redroid.
 
 ## Audit status
 | Area | Last run | Result | How |
@@ -125,4 +126,4 @@ _Work items, stories and blockers live on the Sidequest board. This file keeps w
 
 ## Environment notes
 - SDK platforms installed: android-35, android-36, android-37.0.
-- Probe AVDs: pixel-api35, batstats-api36, screenoff-api37. Shizuku is installed and started with adb (run `lib/<abi>/libshizuku.so` from its APK dir). The first PROBE_REQUEST_PERMISSION broadcast shows the Shizuku dialog; tap "Allow all the time" (`device-probe.sh --grant` does this via uiautomator; `pm clear` can drop the grant).
+- Device: the redroid container only (Android 15 / API 35, Shizuku 13.6.0), seen by adb as `emulator-5554` and, after `adb connect`, `localhost:5555`. The host has no `/dev/kvm`, so the probe AVDs (pixel-api35, batstats-api36, screenoff-api37, batstats-api31/33) used for earlier device evidence can't boot here. Shizuku is installed and started with adb (run `lib/<abi>/libshizuku.so` from its APK dir). The first PROBE_REQUEST_PERMISSION broadcast shows the Shizuku dialog; tap "Allow all the time" (`device-probe.sh --grant` does this via uiautomator; `pm clear` can drop the grant).

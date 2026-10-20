@@ -14,7 +14,7 @@
     },
     {
       "path": "rules/android-build.md",
-      "hash": "2abcdd6ac234a769b2e9e2eb125ccfbde5ab5940c7614013ff27ca1e8665d72a",
+      "hash": "ab580f856939b5cc9b560346a3d5d889c7946714a5f1814e683fdff11511fceb",
       "description": "Android build, test and dependency rules",
       "globs": [],
       "dirs": [],
@@ -36,7 +36,7 @@
     },
     {
       "path": "rules/android-orchestration.md",
-      "hash": "889c3387849ac9fef5eff9e49a2acb5f685f677caaf03e634e1528d861a45711",
+      "hash": "de2ad2d63c45d5aa1efe800e4578cb92dcad5555e077f87182c5faf7ec57a311",
       "description": "Android ticket ownership, verification and native Claude routing through Sidequest profile android-kit-claude-max",
       "globs": [],
       "dirs": [],
@@ -73,7 +73,7 @@
     },
     {
       "path": "rules/redroid-gradle-memory.md",
-      "hash": "b8790098525e92d66e7df6b7d054e06299334dbf272f2795698ff601fc648439",
+      "hash": "c5110d92e5a1ecf6f20cafc45610064baefd189de910d5d03656a059c360642c",
       "description": "redroid device memory and leftover Gradle processes",
       "globs": [],
       "dirs": [],

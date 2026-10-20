@@ -1,5 +1,5 @@
 # Directory Structure
-*Last Updated: 2026-10-19*
+*Last Updated: 2026-10-20*
 
 Generated `build/`, `.gradle/`, screenshot intermediates, Room generated sources, and other build output are intentionally omitted.
 
@@ -138,7 +138,7 @@ docs/plans/phase-2.md              # audited Phase 2 design and contracts
 docs/plans/phase-3.md              # audited Phase 3 design (F1–F9)
 docs/plans/phase-4.md             # audited Phase 4 design (G1–G13)
 docs/plans/phase-5.md             # audited Phase 5 design (authoritative; H1–H18, pinned shared surface)
-.claude/skills/device-probe/       # SKILL.md + scripts/device-probe.sh (emulator probe runner)
+.claude/skills/device-probe/       # SKILL.md + scripts/device-probe.sh (redroid probe runner)
 .claude/skills/{full-repo-audit,audit-remediate}/   # standalone review-mode audit + remediation skills
 .claude/skills/release/            # SKILL.md + scripts/{upgrade-check,gate-summary}.sh (delivery + same-key upgrade check)
 .claude/scripts/gradle-slot.sh     # host-wide Gradle slots shared by sessions/worktrees, then gradle-check.sh
