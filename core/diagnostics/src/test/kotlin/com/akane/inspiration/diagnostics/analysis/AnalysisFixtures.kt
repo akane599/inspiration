@@ -56,6 +56,9 @@ internal class FakeSnapshotStore(
     var history: List<HistoryEvent> = emptyList(),
 ) : SnapshotStore {
     var historyReads = 0
+
+    /** The wall-time range of every [historyBetween] read. */
+    val historyRanges = mutableListOf<LongRange>()
     var failure: Exception? = null
 
     /** While set, reads suspend until it completes, so a test can observe in-flight states. */
@@ -101,8 +104,18 @@ internal class FakeSnapshotStore(
         toWallMs: Long,
     ): List<HistoryEvent> {
         historyReads++
+        historyRanges += fromWallMs..toWallMs
         return history.filter { it.wallMs in fromWallMs..toWallMs }
     }
+
+    /** Room's one-query lookup, so it reads no range: one event per kind strictly before [wallMs], oldest first. */
+    override suspend fun lastHistoryOfEachKindBefore(wallMs: Long): List<HistoryEvent> =
+        history
+            .filter { it.wallMs in 0 until wallMs }
+            .groupBy { it.kind }
+            .values
+            .map { events -> events.maxBy { it.wallMs } }
+            .sortedBy { it.wallMs }
 
     override suspend fun historyHorizonWallMs(): Long? = snapshots.filter { it.ingestedHistory() }.maxOfOrNull { it.clock.wallMs }
 

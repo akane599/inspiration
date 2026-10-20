@@ -11,6 +11,7 @@ import com.akane.inspiration.telemetry.diff.ResolvedReference
 import com.akane.inspiration.telemetry.diff.SnapshotDiffer
 import com.akane.inspiration.telemetry.interval.IntervalMetrics
 import com.akane.inspiration.telemetry.interval.IntervalMetricsCalculator
+import com.akane.inspiration.telemetry.interval.intervalHistory
 import com.akane.inspiration.telemetry.snapshot.SnapshotDiff
 import com.akane.inspiration.telemetry.store.SnapshotStore
 import com.akane.inspiration.telemetry.store.ingestedHistory
@@ -37,9 +38,7 @@ class IntervalAnalyzer(
         kind: ReferenceKind,
         nowWallMs: Long,
     ): IntervalAnalysis? {
-        // One history load serves both the boundary resolution and the interval metrics.
-        val events = resolver.historyUpTo(nowWallMs)
-        val resolved = resolver.resolve(kind, nowWallMs, events) ?: return null
+        val resolved = resolver.resolve(kind, nowWallMs) ?: return null
         // IntervalMetricsCalculator.compute requires to >= from, and a pair with no wall time between its
         // snapshots measures nothing: Empty, not a Ready analysis of all-zero deltas.
         if (resolved.coveredToWallMs <= resolved.coveredFromWallMs) return null
@@ -49,6 +48,9 @@ class IntervalAnalyzer(
         // broadcast endpoint must not stretch it. An endpoint that ingested history itself needs no further read.
         val horizon =
             if (resolved.now.ingestedHistory()) resolved.now.clock.wallMs else store.historyHorizonWallMs() ?: Long.MIN_VALUE
+        // The interval's own history and the state it opens in, never the whole retained history (audit R-15); events
+        // past now were never part of it.
+        val events = store.intervalHistory(resolved.coveredFromWallMs, minOf(nowWallMs, resolved.coveredToWallMs))
         val metrics =
             IntervalMetricsCalculator.compute(events, resolved.coveredFromWallMs, resolved.coveredToWallMs, horizon)
         val report = ruleEngine.evaluate(DiagnosticInput(diff, metrics, resolved.perUidAvailable))

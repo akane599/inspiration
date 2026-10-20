@@ -40,21 +40,31 @@ data class ResolvedReference(
 class ReferenceResolver(
     private val store: SnapshotStore,
 ) {
+    /**
+     * Reads only the history events the boundary needs (the newest of a kind, the newest screen-off period), never
+     * the whole retained history (audit R-15).
+     */
     suspend fun resolve(
         kind: ReferenceKind,
         nowWallMs: Long,
-    ): ResolvedReference? = resolve(kind, nowWallMs, historyUpTo(nowWallMs))
+    ): ResolvedReference? = resolve(kind, nowWallMs, StoredAnchors(nowWallMs))
 
     /**
-     * Resolves against [events], the stored history up to [nowWallMs] oldest first as [historyUpTo] returns it,
-     * so a caller that needs that history too loads it once.
+     * Resolves against [events], the stored history with `0 <= wallMs <= nowWallMs` oldest first (wall time, then
+     * stored order); the same result as [resolve] reading the store.
      */
     suspend fun resolve(
         kind: ReferenceKind,
         nowWallMs: Long,
         events: List<HistoryEvent>,
+    ): ResolvedReference? = resolve(kind, nowWallMs, ListedAnchors(events))
+
+    private suspend fun resolve(
+        kind: ReferenceKind,
+        nowWallMs: Long,
+        anchors: HistoryAnchors,
     ): ResolvedReference? {
-        val boundary = boundaryFor(kind, nowWallMs, events) ?: return null
+        val boundary = boundaryFor(kind, nowWallMs, anchors) ?: return null
         if (boundary.fromWallMs > boundary.toWallMs) return null
 
         val end = store.lastAtOrBefore(boundary.toWallMs, null) ?: return null
@@ -84,22 +94,68 @@ class ReferenceResolver(
         )
     }
 
-    /** The stored history with `0 <= wallMs <= nowWallMs`, oldest first. */
-    suspend fun historyUpTo(nowWallMs: Long): List<HistoryEvent> =
-        store
-            .historyBetween(0, nowWallMs)
-            .filter { it.wallMs in 0..nowWallMs }
-            .sortedBy(HistoryEvent::wallMs)
+    /** What a boundary reads from the stored history up to now. */
+    private interface HistoryAnchors {
+        /** The wall time of the newest event of [kind]. */
+        suspend fun newestWallMs(kind: Int): Long?
+
+        /** The newest completed screen-off period, see [completedScreenOff]. */
+        suspend fun completedScreenOff(): Boundary?
+    }
+
+    /** Anchors from a caller's list, as [resolve] with events documents it. */
+    private inner class ListedAnchors(
+        private val events: List<HistoryEvent>,
+    ) : HistoryAnchors {
+        override suspend fun newestWallMs(kind: Int): Long? = events.lastOrNull { it.kind == kind }?.wallMs
+
+        override suspend fun completedScreenOff(): Boundary? = completedScreenOff(events)
+    }
+
+    /**
+     * Anchors read from the store with targeted queries: the newest event of each kind up to [nowWallMs] (one
+     * query, read once), and for the screen-off period only the events from the newest SCREEN_OFF before the
+     * newest SCREEN_ON to that SCREEN_ON.
+     */
+    private inner class StoredAnchors(
+        private val nowWallMs: Long,
+    ) : HistoryAnchors {
+        private var newest: List<HistoryEvent>? = null
+
+        private suspend fun newest(): List<HistoryEvent> =
+            newest ?: store.lastHistoryOfEachKindBefore(nowWallMs.inclusiveBound()).also { newest = it }
+
+        override suspend fun newestWallMs(kind: Int): Long? = newest().lastOrNull { it.kind == kind }?.wallMs
+
+        /**
+         * No SCREEN_ON follows the newest one, so the newest period ends at or before it, and it starts at a
+         * SCREEN_OFF no older than the newest one before that SCREEN_ON: every event from there to the newest
+         * SCREEN_ON (all of each end's wall time included) decides it as the whole history would. With no
+         * SCREEN_OFF before it, only one at the same wall time stored ahead of it can pair with it.
+         */
+        override suspend fun completedScreenOff(): Boundary? {
+            val onWallMs = newestWallMs(HistoryKind.SCREEN_ON) ?: return null
+            val offWallMs = newestWallMs(HistoryKind.SCREEN_OFF) ?: return null
+            val fromWallMs =
+                if (offWallMs < onWallMs) {
+                    offWallMs
+                } else {
+                    store.lastHistoryOfEachKindBefore(onWallMs).lastOrNull { it.kind == HistoryKind.SCREEN_OFF }?.wallMs ?: onWallMs
+                }
+            val events = store.historyBetween(fromWallMs, onWallMs).filter { it.wallMs in 0..nowWallMs }.sortedBy(HistoryEvent::wallMs)
+            return completedScreenOff(events)
+        }
+    }
 
     private suspend fun boundaryFor(
         kind: ReferenceKind,
         nowWallMs: Long,
-        events: List<HistoryEvent>,
+        anchors: HistoryAnchors,
     ): Boundary? =
         when (kind) {
             ReferenceKind.SinceUnplugged -> {
                 sinceLatest(
-                    historyWallMs = events.lastOrNull { it.kind == HistoryKind.UNPLUGGED }?.wallMs,
+                    historyWallMs = anchors.newestWallMs(HistoryKind.UNPLUGGED),
                     trigger = CaptureTrigger.POWER_DISCONNECTED,
                     nowWallMs = nowWallMs,
                     reverts = { it.battery.plugged == true || it.trigger == CaptureTrigger.POWER_CONNECTED },
@@ -107,14 +163,14 @@ class ReferenceResolver(
             }
 
             ReferenceKind.SinceScreenOff -> {
-                sinceScreenOff(events, nowWallMs)
+                sinceScreenOff(anchors, nowWallMs)
             }
 
             ReferenceKind.ScreenOnSession -> {
                 // A RESET with the screen on restates it as a SCREEN_ON at the reset (see HistoryKind.RESET), so a
                 // session that was already on then starts at the reset; battery-stats deltas cannot cross a reset anyway.
                 sinceLatest(
-                    historyWallMs = events.lastOrNull { it.kind == HistoryKind.SCREEN_ON }?.wallMs,
+                    historyWallMs = anchors.newestWallMs(HistoryKind.SCREEN_ON),
                     trigger = CaptureTrigger.SCREEN_ON,
                     nowWallMs = nowWallMs,
                     reverts = { it.trigger == CaptureTrigger.SCREEN_OFF },
@@ -216,10 +272,10 @@ class ReferenceResolver(
      * stand for a sliver of it, so the result is null.
      */
     private suspend fun sinceScreenOff(
-        events: List<HistoryEvent>,
+        anchors: HistoryAnchors,
         nowWallMs: Long,
     ): Boundary? {
-        val history = completedScreenOff(events) ?: return completedScreenOffFromSnapshots(nowWallMs)
+        val history = anchors.completedScreenOff() ?: return completedScreenOffFromSnapshots(nowWallMs)
         val captured = completedScreenOffFromSnapshots(nowWallMs)
         if (captured != null && captured.fromWallMs > history.toWallMs) return captured
         val near =
@@ -284,6 +340,9 @@ class ReferenceResolver(
 
     private companion object {
         const val DAY_MS = 24 * 60 * 60 * 1_000L
+
+        /** The exclusive bound that takes in this wall time too. */
+        fun Long.inclusiveBound(): Long = if (this == Long.MAX_VALUE) this else this + 1
 
         /**
          * How far past a battery-history event a capture may land and still be taken for that event. The framework

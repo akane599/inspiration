@@ -57,13 +57,20 @@ class IntervalAnalyzerTest {
         }
 
     @Test
-    fun `one analysis loads the stored history once for resolution and metrics`() =
+    fun `one analysis reads no stored history from before its interval`() =
         runTest {
             val store = store()
+            // Older history, which neither the resolution nor the metrics may load beyond its newest events (audit R-15).
+            store.history =
+                listOf(historyEvent(0, HistoryKind.SCREEN_ON, level = 99)) +
+                (1..59).map { historyEvent(it * 60_000L, HistoryKind.LEVEL, level = 99) } +
+                store.history
 
-            assertNotNull(IntervalAnalyzer(store, ruleEngine()).analyze(ReferenceKind.SinceUnplugged, nowWallMs = 6 * hour))
+            val analysis = IntervalAnalyzer(store, ruleEngine()).analyze(ReferenceKind.SinceUnplugged, nowWallMs = 6 * hour)!!
 
-            assertEquals(1, store.historyReads)
+            assertEquals(1 * hour, analysis.resolved.coveredFromWallMs)
+            assertEquals(listOf(1 * hour..5 * hour), store.historyRanges.filter { it.first != it.last })
+            assertTrue(store.historyRanges.all { it.first >= 0 && (it.first == it.last || it.first >= 1 * hour) })
         }
 
     @Test

@@ -66,6 +66,25 @@ object IntervalMetricsCalculator {
         return walk.toMetrics(toWallMs)
     }
 
+    /**
+     * Whether [seeds] (every event of each kind at that kind's newest wall time before an interval, in stored
+     * order) leave the walk in the state the whole history before it would: null when they do, else the wall time
+     * to replay the history from. Screen, plug and level-at-start state follow the newest event of a kind, which
+     * the seeds hold. The level baseline does too after a LEVEL, RESET or START with no SHUTDOWN after it; a
+     * SHUTDOWN clears it and the next event of any kind sets it again, so the history is replayed from that
+     * SHUTDOWN, which resets every field the walk keeps (or from the start, when neither kind is stored).
+     */
+    internal fun seedReplayFromWallMs(seeds: List<HistoryEvent>): Long? {
+        val ordered = seeds.sortedWith(compareBy<HistoryEvent> { it.wallMs }.thenBy { it.kind == HistoryKind.LEVEL })
+        val baseline = ordered.indexOfLast { it.kind == HistoryKind.LEVEL || it.kind == HistoryKind.RESET || it.kind == HistoryKind.START }
+        val shutdown = ordered.indexOfLast { it.kind == HistoryKind.SHUTDOWN }
+        return when {
+            baseline > shutdown -> null
+            shutdown >= 0 -> ordered[shutdown].wallMs
+            else -> 0L
+        }
+    }
+
     private class Walk(
         private val fromWallMs: Long,
     ) {
