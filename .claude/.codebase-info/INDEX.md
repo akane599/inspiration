@@ -17,7 +17,7 @@ The second independent audit's remediation (N-01–N-28, release 0.2.4) adds:
 - lift-only undo of Inspiration's own change on protected apps, and never-dispatched writes finalized at once;
 - persisted live-current calibration, and a gauge charging state taken from status and current;
 - history runs in insertion order, an ingest that skips past-retention rows, `PACKAGE_REPLACED` captures, and boots detected from the clocks;
-- Sui support: a live binder outranks the manager app;
+- Sui support: a live binder outranks the manager app, and binder-backed states name the backend (SQ-29);
 - a hidden-API exemption narrowed to `Sensor.getHandle()`, and release resource shrinking with en/tr locales;
 - reserved AIDL txns 4/5 and dump targets 2/4, plus dead-code removal.
 

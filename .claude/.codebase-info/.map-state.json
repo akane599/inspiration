@@ -3,7 +3,7 @@
   "tool": "codebase-mapper",
   "version": "2.15.10",
   "mappedAt": "2026-10-20",
-  "gitCommit": "83317a2116e040406488a435325afc905e20fcc4",
+  "gitCommit": "3cc0b9e77fd7661eb759206770497922f4d44f56",
   "documents": [
     "architecture.md",
     "communication.md",
@@ -16,8 +16,8 @@
     "tech-landscape.md"
   ],
   "hashes": {
-    "INDEX.md": "9af52728028124f1b5985c2efa95ed28f1ada99578ffb04f364bfd75ab79ec09",
-    "architecture.md": "4770b3eb88e2d0b74772d9c70897fc7266f2509e6a7cb2cccc8c620988c294fd",
+    "INDEX.md": "061cddd805ef244c0139d65de031257dda0feb790305d264dd10fcf6a7f24e72",
+    "architecture.md": "e4ef7534c1a51184586e37fbb36ff35fe5f6cabf01c78ccc0d0c3bde46ab87a2",
     "communication.md": "caeaad9fa866731002617a351c8595049a6f9dab3e3217b306ac2eb18c950f2a",
     "database.md": "2c2f19956e7e0b088ae223fc762462faddccebbe1b8f972630f1099e742b24c9",
     "directory-structure.md": "b35414e4a0e5f2250be2b39afa478f2bd4f157ffd28227af79cdd667a329e60e",
