@@ -120,7 +120,10 @@ class ShizukuManagerImpl private constructor(
     private val pendingTransactions = ArrayDeque<ServiceTransaction>()
     private var draining = false
 
-    /** Bumped by each transport loss: a transaction decided before one cannot report that loss again. */
+    /**
+     * Bumped by each transport loss and by [stop]: a transaction or Grant request decided before either cannot report
+     * a loss after it.
+     */
     private var transportEpoch = 0
 
     /**
@@ -365,8 +368,14 @@ class ShizukuManagerImpl private constructor(
         facade.removeBinderDeadListener(binderDeadListener)
         facade.removeRequestPermissionResultListener(permissionResultListener)
         synchronized(bindingLock) {
-            // A read still running on IO from before the stop must not publish a state or bind after it.
-            appliedRefreshTicket = maxOf(appliedRefreshTicket, refreshTickets.get())
+            // Nothing read or decided before the stop may act after it. A read still running on IO must not publish,
+            // bind or report its failure as a transport loss: stop() takes a ticket newer than all of them. A Grant
+            // request or a drainer transaction failing after it must not report a loss either: the epoch moves on.
+            // A loss reported here would publish NotRunning and clear the fence the unbind below sets, so a restart
+            // with a holder still open would bind onto the dying stub (SQ-114). The unbind below is decided after
+            // the stop, so its own failure is still a loss.
+            appliedRefreshTicket = refreshTickets.incrementAndGet()
+            transportEpoch += 1
             // Without it a still-open holder/user would rebind on the next death or settle timeout.
             applicationInfo = null
             unbindTelemetryServiceLocked()
@@ -459,8 +468,9 @@ class ShizukuManagerImpl private constructor(
     /** Never on Main (B-10): every caller reaches it on [ioDispatcher]. */
     private fun updateState() {
         val ticket = refreshTickets.incrementAndGet()
-        // Checked after taking the ticket: stop() clears started before it raises the applied ticket, so a read
-        // either sees it stopped here or holds a ticket stop() has already outdated, and publishes nothing.
+        // Checked after taking the ticket: stop() clears started before it takes its own, newer ticket, so a read
+        // either sees it stopped here or holds a ticket stop() has outdated. It then neither publishes nor reports
+        // its failure as a transport loss, even after a later start().
         if (!started) return
         try {
             refreshState(ticket)

@@ -617,33 +617,47 @@ class ShizukuManagerImplTest {
     @Test
     fun handoverAfterUnbindSurvivesTheOldServicesLateDeath() =
         runTest {
-            val fixture = Fixture(this)
+            // Reads and binds wait on their own queue, so the re-read below can run inside the death callback,
+            // while the settle the callback posts to Main has not run yet.
+            val io = QueuedDispatcher()
+            val fixture = Fixture(this, io = io)
             fixture.start()
             val first = fixture.holdBinding()
             fixture.facade.deliverServiceConnected()
             first.close()
             advanceTimeBy(LINGER_MS + 1)
+            fixture.runDue()
             assertEquals(1, fixture.facade.unbindCalls)
 
             val second = fixture.holdBinding()
+            var reads = 0
+            fixture.facade.onCheckSelfPermission = { reads += 1 }
             fixture.facade.deliverServiceDied {
                 // The callback ran, but Shizuku still caches the dying wrapper and its registrations. A Shizuku
-                // listener's re-read (B-10: queued on IO, not run here) and a holder must both wait for cleanup.
+                // listener's re-read that publishes Ready and a holder must both wait for cleanup.
                 fixture.facade.deliverPermissionResult(PackageManager.PERMISSION_GRANTED)
+                io.runAll()
+                assertEquals("the listener's re-read ran inside the callback", 1, reads)
+                assertEquals(ShizukuState.Ready(2000, 13), fixture.manager.state.value)
+                assertEquals("a Ready published under the fence must not bind", 1, fixture.facade.bindCalls)
                 fixture.manager.holdBinding().close()
+                io.runAll()
                 assertEquals("all acquisitions stay deferred until callback cleanup", 1, fixture.facade.bindCalls)
             }
             assertEquals("settling must be posted, not run inside the death callback", 1, fixture.facade.bindCalls)
-            runCurrent()
+            fixture.runDue()
             fixture.facade.deliverServiceConnected() // the new process
 
             assertNotNull("the new binding must receive its service", fixture.manager.telemetryService.value)
             assertEquals(2, fixture.facade.bindCalls)
-            assertEquals("ok", fixture.manager.withTelemetryService(1_000L) { "ok" })
+            val call = async { fixture.manager.withTelemetryService(1_000L) { "ok" } }
+            fixture.runDue()
+            assertEquals("ok", call.await())
             assertEquals("no duplicate bindUserService for the same args", 2, fixture.facade.bindCalls)
 
             second.close()
             advanceUntilIdle()
+            fixture.runDue()
             assertEquals("the rebound service is unbound when its last holder goes (H13)", 2, fixture.facade.unbindCalls)
         }
 
@@ -1815,6 +1829,79 @@ class ShizukuManagerImplTest {
         }
     }
 
+    // A failure that lands after stop() is no transport loss either. Reporting one would publish NotRunning and clear
+    // the fence stop()'s unbind set, so a restart with a holder still open would bind onto the dying stub (SQ-114).
+    @Test
+    fun aReadFailingAcrossStopReportsNoLossAndKeepsTheUnbindFence() =
+        runTest {
+            val fixture = Fixture(this)
+            fixture.start()
+            val holder = fixture.holdBinding()
+            fixture.facade.deliverServiceConnected(LiveBinder())
+            fixture.facade.onCheckSelfPermission = {
+                fixture.facade.onCheckSelfPermission = {}
+                fixture.manager.stop() // lands while the read is between its binder calls
+                throw IllegalStateException("the server went away with the read in flight")
+            }
+
+            fixture.deliverPermissionResult(PackageManager.PERMISSION_GRANTED)
+
+            assertEquals("the state stays as stop() left it", ShizukuState.Ready(2000, 13), fixture.manager.state.value)
+            assertEquals(1, fixture.facade.unbindCalls)
+            fixture.start() // the holder is still open
+            assertEquals("the restart waits for the unbound process's death", 1, fixture.facade.bindCalls)
+            fixture.facade.deliverServiceDied()
+            runCurrent()
+            assertEquals(2, fixture.facade.bindCalls)
+            holder.close()
+            advanceUntilIdle()
+        }
+
+    @Test
+    fun aPermissionRequestFailingAcrossStopReportsNoLoss() =
+        runTest {
+            val fixture = Fixture(this).apply { facade.permissionResult = PackageManager.PERMISSION_DENIED }
+            fixture.start()
+            fixture.facade.onServerCall = { call ->
+                if (call == "requestPermission") {
+                    fixture.facade.onServerCall = {}
+                    fixture.manager.stop() // lands while the request is in flight
+                    throw IllegalStateException("the server went away with the request in flight")
+                }
+            }
+
+            fixture.requestPermission()
+
+            assertEquals("the state stays as stop() left it", ShizukuState.PermissionRequired(), fixture.manager.state.value)
+        }
+
+    // The drainer's rule (R-08) meets the same boundary: a bind decided before stop() and failing after it.
+    @Test
+    fun aBindFailingAcrossStopReportsNoLossAndKeepsTheUnbindFence() =
+        runTest {
+            val fixture = Fixture(this)
+            fixture.start()
+            fixture.facade.onServerCall = { call ->
+                if (call == "bindUserService") {
+                    fixture.facade.onServerCall = {}
+                    fixture.manager.stop() // lands while the bind is in flight
+                    throw IllegalStateException("the server went away with the bind in flight")
+                }
+            }
+
+            val holder = fixture.holdBinding()
+
+            assertEquals("the state stays as stop() left it", ShizukuState.Ready(2000, 13), fixture.manager.state.value)
+            assertEquals("stop() removes what may have been bound", 1, fixture.facade.unbindCalls)
+            fixture.start() // the holder is still open
+            // The failed bind threw before the fake counted it, so no bind has reached the server yet.
+            assertEquals("the restart waits for the unbind to settle", 0, fixture.facade.bindCalls)
+            advanceTimeBy(SETTLE_TIMEOUT_MS + 1)
+            assertEquals(1, fixture.facade.bindCalls)
+            holder.close()
+            advanceUntilIdle()
+        }
+
     @Test
     fun aPermissionRequestThatFailsOnTheBinderIsATransportLoss() =
         runTest {
@@ -1862,38 +1949,50 @@ class ShizukuManagerImplTest {
         const val SETTLE_TIMEOUT_MS = 2_000L
     }
 
+    /**
+     * The manager on virtual time. Its reads and binds share the test's scheduler, or wait on [io] when a test needs
+     * to run them at a moment of its own choosing (inside a Main callback, say).
+     */
     private class Fixture(
         private val scope: TestScope,
         managerInstalled: Boolean = true,
         applicationInfoProvider: ShizukuApplicationInfoProvider = ShizukuApplicationInfoProvider { ShizukuApplicationInfo(42, true) },
+        private val io: QueuedDispatcher? = null,
     ) {
         val facade = FakeShizukuFacade()
 
+        /** Runs what is due now on the test's scheduler and on [io], then whatever the IO work posted back. */
+        fun runDue() {
+            scope.runCurrent()
+            io?.runAll()
+            scope.runCurrent()
+        }
+
         /** holdBinding, then lets the IO drainer issue whatever bind it decided (R-08: never on the caller). */
-        fun holdBinding(): AutoCloseable = manager.holdBinding().also { scope.runCurrent() }
+        fun holdBinding(): AutoCloseable = manager.holdBinding().also { runDue() }
 
         /** start, then lets the first state read it started on IO publish (B-10: never on the caller). */
         fun start() {
             manager.start()
-            scope.runCurrent()
+            runDue()
         }
 
         /** requestPermission, then lets its re-read and dialog request run on IO (B-10). */
         fun requestPermission() {
             manager.requestPermission()
-            scope.runCurrent()
+            runDue()
         }
 
         /** Shizuku's permission-result callback (on Main), then the re-read it started on IO (B-10). */
         fun deliverPermissionResult(result: Int) {
             facade.deliverPermissionResult(result)
-            scope.runCurrent()
+            runDue()
         }
 
         /** Shizuku's binder-received callback (on Main), then the re-read it started on IO (B-10). */
         fun deliverBinderReceived() {
             facade.deliverBinderReceived()
-            scope.runCurrent()
+            runDue()
         }
 
         /** Runs [block] on another thread and returns its result, or null if it is still blocked after 10 s. */
@@ -1913,7 +2012,7 @@ class ShizukuManagerImplTest {
                 scope = scope,
                 applicationInfoProvider = applicationInfoProvider,
                 managerApp = ShizukuManagerAppProbe { managerInstalled },
-                ioDispatcher = StandardTestDispatcher(scope.testScheduler),
+                ioDispatcher = io ?: StandardTestDispatcher(scope.testScheduler),
             )
 
         /**
@@ -2025,6 +2124,29 @@ class ShizukuManagerImplTest {
         override fun getApplicationContext(): Context = this
 
         override fun getPackageName(): String = "com.akane.inspiration"
+    }
+
+    /**
+     * Holds the IO work dispatched to it until [runAll], so a test can run a read inside a Main callback. Not a
+     * second test scheduler: a test scope's context names its own, and a dispatcher on another one fails to launch.
+     */
+    private class QueuedDispatcher : CoroutineDispatcher() {
+        private val tasks = ArrayDeque<Runnable>()
+
+        override fun dispatch(
+            context: CoroutineContext,
+            block: Runnable,
+        ) {
+            synchronized(tasks) { tasks.addLast(block) }
+        }
+
+        /** Runs every queued task, and any they queue, on the caller's thread. */
+        fun runAll() {
+            while (true) {
+                val task = synchronized(tasks) { tasks.removeFirstOrNull() } ?: return
+                task.run()
+            }
+        }
     }
 
     /** Unlike StandardTestDispatcher alone, this distinguishes Main from Main.immediate in callbacks. */
