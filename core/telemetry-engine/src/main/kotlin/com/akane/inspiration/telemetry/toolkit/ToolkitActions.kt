@@ -424,7 +424,7 @@ class ToolkitActions internal constructor(
                 mutex.withLock {
                     // The "before" value is not used for anything on a dexopt row, so its absence is not an error.
                     val outcome =
-                        afterDispatch {
+                        afterDispatch(reply) {
                             settle(pending, reply, requireBefore = false, keepPendingOnDone = true).also { settled ->
                                 if (settled is ToolkitOutcome.Done) {
                                     syncHold(running = true)
@@ -724,7 +724,7 @@ class ToolkitActions internal constructor(
                     throw e
                 }
             val outcome =
-                afterDispatch {
+                afterDispatch(reply) {
                     settle(pending, reply, requireBefore = spec.kind != KIND_DOZE, keepPendingOnDone = false).also { settled ->
                         if (settled is ToolkitOutcome.Done && restoring != null) {
                             audit.update(restoring.copy(status = ToolkitActionStatus.RESTORED))
@@ -737,18 +737,27 @@ class ToolkitActions internal constructor(
     }
 
     /**
-     * Runs the audit bookkeeping of a privileged call already dispatched. The device may have changed by now, so a
-     * storage error here (a Room error on a full disk, say) is not "the command failed": it is the "sent, but could
-     * not be confirmed" outcome, and a row it left PENDING is read back before its target is used again (R-05).
-     * Only a failure before dispatch (the write-ahead row cannot be stored) still propagates. Cancellation does too.
+     * Runs the audit bookkeeping of a privileged call that got [reply]. A storage error here (a Room error on a full
+     * disk, say) is not "the command failed" (R-05): the outcome is still the one the reply reports ([replyOutcome]),
+     * so a call never sent stays unavailable and a refusal stays a refusal (a STALE one is asked again). Only a call
+     * that may have changed the device (a DONE reply whose row was not stored, or a reply lost after the call was
+     * sent) is "sent, but could not be confirmed"; a row left PENDING is read back before its target is used again.
+     * A failure before dispatch (the write-ahead row cannot be stored) still propagates. Cancellation does too.
      */
-    private inline fun <T> afterDispatch(bookkeeping: () -> ToolkitOutcome<T>): ToolkitOutcome<T> =
+    private inline fun <T> afterDispatch(
+        reply: GatewayReply<ToolkitResult>,
+        bookkeeping: () -> ToolkitOutcome<T>,
+    ): ToolkitOutcome<T> =
         try {
             bookkeeping()
         } catch (e: CancellationException) {
             throw e
         } catch (_: Exception) {
-            ToolkitOutcome.Unavailable(ToolkitUnavailable.UNVERIFIED)
+            if (reply is GatewayReply.Unavailable && reply.sent) {
+                ToolkitOutcome.Unavailable(ToolkitUnavailable.UNVERIFIED)
+            } else {
+                replyOutcome(reply)
+            }
         }
 
     private suspend fun failPending(pending: ToolkitActionRecord) {
@@ -828,33 +837,57 @@ class ToolkitActions internal constructor(
                     pending.copy(status = ToolkitActionStatus.FAILED, endedAt = now, code = code, afterRaw = null)
                 }
             audit.update(settled)
-            return ToolkitOutcome.Unavailable(unavailableFor(reply.reason))
+            return replyOutcome(reply)
         }
         val result = (reply as GatewayReply.Reply).value
-        if (result.status == ToolkitStatus.UNAVAILABLE && result.code == ToolkitCode.UNVERIFIED) {
-            // Issued, outcome unknown: like a lost reply, the row stays PENDING so a read-back settles it, and a
-            // committed change still joins its target's chain before anything else touches it (reconcileTargets).
-            val before = result.beforeRaw ?: pending.beforeRaw
-            audit.update(pending.copy(status = ToolkitActionStatus.PENDING, endedAt = null, code = result.code, beforeRaw = before))
-            return ToolkitOutcome.Unavailable(ToolkitUnavailable.UNVERIFIED, result.code)
-        }
-        return when (result.status) {
-            ToolkitStatus.DONE -> {
-                settleDone(pending, result, now, requireBefore, keepPendingOnDone)
+        when {
+            result.status == ToolkitStatus.UNAVAILABLE && result.code == ToolkitCode.UNVERIFIED -> {
+                // Issued, outcome unknown: like a lost reply, the row stays PENDING so a read-back settles it, and a
+                // committed change still joins its target's chain before anything else touches it (reconcileTargets).
+                val before = result.beforeRaw ?: pending.beforeRaw
+                audit.update(pending.copy(status = ToolkitActionStatus.PENDING, endedAt = null, code = result.code, beforeRaw = before))
             }
 
-            ToolkitStatus.REFUSED -> {
+            result.status == ToolkitStatus.DONE -> {
+                return settleDone(pending, result, now, requireBefore, keepPendingOnDone)
+            }
+
+            result.status == ToolkitStatus.REFUSED -> {
                 audit.update(finished(pending, ToolkitActionStatus.REFUSED, result, now))
-                ToolkitOutcome.Refused(refusalFor(result.code), result.code)
-            }
-
-            ToolkitStatus.UNAVAILABLE -> {
-                audit.update(finished(pending, ToolkitActionStatus.FAILED, result, now))
-                ToolkitOutcome.Unavailable(ToolkitUnavailable.NOT_EFFECTIVE, result.code)
             }
 
             else -> {
                 audit.update(finished(pending, ToolkitActionStatus.FAILED, result, now))
+            }
+        }
+        return replyOutcome(reply)
+    }
+
+    /**
+     * What the service's [reply] means for the user, from the reply alone. A DONE reply's outcome carries the row
+     * [settleDone] stored, so without that row it is only "sent, but could not be confirmed".
+     */
+    private fun replyOutcome(reply: GatewayReply<ToolkitResult>): ToolkitOutcome<Nothing> {
+        if (reply is GatewayReply.Unavailable) return ToolkitOutcome.Unavailable(unavailableFor(reply.reason))
+        val result = (reply as GatewayReply.Reply).value
+        return when {
+            result.status == ToolkitStatus.UNAVAILABLE && result.code == ToolkitCode.UNVERIFIED -> {
+                ToolkitOutcome.Unavailable(ToolkitUnavailable.UNVERIFIED, result.code)
+            }
+
+            result.status == ToolkitStatus.DONE -> {
+                ToolkitOutcome.Unavailable(ToolkitUnavailable.UNVERIFIED)
+            }
+
+            result.status == ToolkitStatus.REFUSED -> {
+                ToolkitOutcome.Refused(refusalFor(result.code), result.code)
+            }
+
+            result.status == ToolkitStatus.UNAVAILABLE -> {
+                ToolkitOutcome.Unavailable(ToolkitUnavailable.NOT_EFFECTIVE, result.code)
+            }
+
+            else -> {
                 ToolkitOutcome.Failed(result.code)
             }
         }

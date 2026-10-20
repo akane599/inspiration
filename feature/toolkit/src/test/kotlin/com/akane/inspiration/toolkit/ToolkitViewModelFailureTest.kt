@@ -1,6 +1,7 @@
 package com.akane.inspiration.toolkit
 
 import com.akane.inspiration.ipc.toolkit.AppOp
+import com.akane.inspiration.ipc.toolkit.DozeProfile
 import com.akane.inspiration.ipc.toolkit.StandbyBucket
 import com.akane.inspiration.telemetry.toolkit.BgDexoptStatus
 import com.akane.inspiration.telemetry.toolkit.ToolkitUnavailable
@@ -115,6 +116,20 @@ class ToolkitViewModelFailureTest {
         assertEquals(listOf("setStandbyBucket"), device.writes)
         assertEquals(ToolkitNotice.Rejected(Problem.Unavailable(ToolkitUnavailable.UNVERIFIED)), detail.notice)
         assertTrue("the controls show the read-back state", detail.controls is ControlsState.Loaded)
+    }
+
+    @Test
+    fun `a stale refusal whose audit row cannot be settled is still asked again`() {
+        start()
+        device.dozeStaleOnce = true
+        device.store.updateFailure = diskFull()
+
+        act(ToolkitRequest.ApplyDoze(DozeProfile.BALANCED))
+
+        assertNothingEscaped()
+        assertTrue("the user decides again with the value there now", state.confirmation?.stale == true)
+        assertEquals("idle_to=1", (state.doze.load as DozeLoad.Loaded).info.raw)
+        assertFalse(state.busy)
     }
 
     @Test

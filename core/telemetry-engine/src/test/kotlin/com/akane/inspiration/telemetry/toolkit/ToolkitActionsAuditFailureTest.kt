@@ -1,5 +1,7 @@
 package com.akane.inspiration.telemetry.toolkit
 
+import com.akane.inspiration.ipc.model.ToolkitCode
+import com.akane.inspiration.ipc.model.ToolkitResult
 import com.akane.inspiration.ipc.toolkit.StandbyBucket
 import com.akane.inspiration.telemetry.store.ToolkitActionRecord
 import com.akane.inspiration.telemetry.store.ToolkitActionStatus
@@ -51,6 +53,62 @@ class ToolkitActionsAuditFailureTest {
             // The row could not be settled, so it stays PENDING for a read-back to settle it later.
             assertEquals(ToolkitActionStatus.PENDING, audit.rows.single().status)
             assertTrue("the history and override flows must tick", seen.size > before)
+        }
+
+    @Test
+    fun aCallNeverSentStaysUnavailableWhenItsRowCannotBeSettled() =
+        runTest {
+            val actions = actions()
+            val seen = ticks(actions)
+            val before = seen.size
+            backend.unsentWrite = GatewayUnavailable.NO_SERVICE
+            audit.failUpdate = { diskFull() }
+
+            val outcome = actions.execute(ToolkitAction.SetBucket(PKG, StandbyBucket.RARE))
+
+            // D-1: the device was never touched, so this is the service being unavailable, not "sent, unconfirmed".
+            assertEquals(ToolkitOutcome.Unavailable(ToolkitUnavailable.NO_SERVICE), outcome)
+            assertTrue(backend.writes.isEmpty())
+            assertTrue("the history and override flows must tick", seen.size > before)
+        }
+
+    @Test
+    fun aStaleRefusalStaysARefusalWhenItsRowCannotBeSettled() =
+        runTest {
+            val actions = actions()
+            backend.scriptedWrite = ToolkitResult.refused(ToolkitCode.STALE)
+            audit.failUpdate = { diskFull() }
+
+            val outcome = actions.execute(ToolkitAction.SetBucket(PKG, StandbyBucket.RARE))
+
+            // A STALE refusal must reach the screen as one, so the user is asked again.
+            assertEquals(ToolkitOutcome.Refused(ToolkitRefusal.STALE, ToolkitCode.STALE), outcome)
+        }
+
+    @Test
+    fun aFailedReplyStaysFailedWhenItsRowCannotBeSettled() =
+        runTest {
+            val actions = actions()
+            backend.scriptedWrite = ToolkitResult.failed(ToolkitCode.EXEC)
+            audit.failUpdate = { diskFull() }
+
+            val outcome = actions.execute(ToolkitAction.SetBucket(PKG, StandbyBucket.RARE))
+
+            assertEquals(ToolkitOutcome.Failed(ToolkitCode.EXEC), outcome)
+        }
+
+    @Test
+    fun aReplyLostAfterTheCallWasSentIsUnverifiedWhenItsRowCannotBeSettled() =
+        runTest {
+            val actions = actions()
+            backend.unavailableAfterWrite = GatewayUnavailable.NO_SERVICE
+            audit.failUpdate = { diskFull() }
+
+            val outcome = actions.execute(ToolkitAction.SetBucket(PKG, StandbyBucket.RARE))
+
+            assertEquals(ToolkitOutcome.Unavailable(ToolkitUnavailable.UNVERIFIED), outcome)
+            assertEquals(StandbyBucket.RARE.rawValue, backend.buckets[PKG])
+            assertEquals(ToolkitActionStatus.PENDING, audit.rows.single().status)
         }
 
     @Test
