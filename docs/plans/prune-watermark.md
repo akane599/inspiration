@@ -61,7 +61,7 @@ On API 35 a stats reset clears the buffer but history time continues (SQ-7 Findi
 
 - `restarted = !truncated && events.isNotEmpty() && events.last().historyTimeMs < H`.
 - A non-truncated page proves the iterator reached the end of a history that no longer reaches H (BatteryHistory.kt:73-84, AndroidTelemetrySource.kt:226-236). A failed read gives an unavailable page, not this one.
-- When the guard fires, judge the whole page by `cutoffNow` only and set `H = last ht`. Leave W alone.
+- When the guard fires, judge the whole page by `cutoffNow` only and set `H = last ht`. W still takes `MAX(W, cutoffNow)` and never falls.
 - This is the only rule that lowers H.
 - Don't key it on `sessionChanged`: if the first page after a reset is truncated, detection has to happen on a later page that is not a relabel.
 
