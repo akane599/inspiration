@@ -3,16 +3,21 @@ package com.akane.inspiration.diagnostics.sensor
 import android.content.Context
 import android.hardware.Sensor
 import android.hardware.SensorManager
+import android.util.Log
 import androidx.test.core.app.ApplicationProvider
 import com.akane.inspiration.diagnostics.model.SensorKind
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.Shadows.shadowOf
 import org.robolectric.annotation.Config
+import org.robolectric.annotation.Implementation
+import org.robolectric.annotation.Implements
 import org.robolectric.shadows.ShadowLog
 import org.robolectric.shadows.ShadowSensor
+import java.lang.reflect.InvocationTargetException
 
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [35])
@@ -85,6 +90,27 @@ class AndroidSensorCatalogTest {
     }
 
     @Test
+    @Config(shadows = [ThrowingHandleShadowSensor::class])
+    fun failingGetHandleLeavesMotionSensorsOtherAndIsLoggedOnce() {
+        addSensor(Sensor.TYPE_ACCELEROMETER, handle = 3)
+        addSensor(Sensor.TYPE_GYROSCOPE, handle = 5)
+        val catalog = AndroidSensorCatalog(context)
+
+        assertEquals(SensorKind.OTHER, catalog.kindOf(3))
+        assertEquals(SensorKind.OTHER, catalog.kindOf(5))
+        assertEquals(SensorKind.OTHER, catalog.kindOf(3))
+        assertEquals(SensorKind.GPS, catalog.kindOf(GPS_SENSOR_HANDLE))
+
+        val logs = ShadowLog.getLogsForTag("AndroidSensorCatalog")
+        assertEquals(1, logs.size)
+        assertEquals(Log.WARN, logs.single().type)
+        // Reflection wraps whatever the hidden member throws, so this is the ReflectiveOperationException branch.
+        val thrown = logs.single().throwable
+        assertTrue(thrown is InvocationTargetException)
+        assertTrue(thrown.cause is SecurityException)
+    }
+
+    @Test
     fun hiddenApiSignatureNamesExactlyTheReflectedMember() {
         // The app exempts only this signature (N-26); it must match the member read by reflection.
         val getHandle = Sensor::class.java.getMethod("getHandle")
@@ -93,4 +119,11 @@ class AndroidSensorCatalogTest {
         val signature = "L${getHandle.declaringClass.name.replace('.', '/')};->${getHandle.name}()I"
         assertEquals(signature, AndroidSensorCatalog.GET_HANDLE_SIGNATURE)
     }
+}
+
+/** A platform whose hidden-API enforcement refuses `Sensor.getHandle()` at call time. */
+@Implements(Sensor::class)
+class ThrowingHandleShadowSensor : ShadowSensor() {
+    @Implementation
+    protected fun getHandle(): Int = throw SecurityException("getHandle() is hidden")
 }
