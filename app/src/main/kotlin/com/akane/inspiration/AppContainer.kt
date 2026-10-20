@@ -283,7 +283,7 @@ class AppContainer(
 
     // ---- status notification (ticks, switch, blocked state) --------------------------------
 
-    /** Owns the tick flow; the capture receiver wraps its captures in [StatusTicks.emitAfter]. */
+    /** Owns the tick flow; the runtime and boot capture receivers wrap their captures in [StatusTicks.emitAfter]. */
     val statusTicker = StatusTicks()
 
     /** One value per finished capture or successful refresh; the status service redraws on each. */

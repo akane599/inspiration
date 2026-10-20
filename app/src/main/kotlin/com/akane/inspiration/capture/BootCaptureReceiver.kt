@@ -21,7 +21,7 @@ class BootCaptureReceiver : BroadcastReceiver() {
         val pendingResult = goAsync()
         app.appContainer.applicationScope.launch {
             BroadcastCaptureRunner { Log.w("BootCaptureReceiver", "Boot capture or scheduling failed", it) }.run(
-                capture = { app.appContainer.capturer.captureLight(trigger) },
+                capture = { app.appContainer.statusTicker.emitAfter { app.appContainer.capturer.captureLight(trigger) } },
                 afterCapture = { ChargingCaptureScheduler.arm(app) },
                 finish = { pendingResult.finish() },
             )

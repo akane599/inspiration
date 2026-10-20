@@ -71,6 +71,23 @@ class StatusTicksTest {
     }
 
     @Test
+    fun `a tick emitted during the first redraw is not lost (R-14)`() = runTest {
+        val ticker = StatusTicks()
+        var redraws = 0
+        val job = launch {
+            ticker.ticks.redrawsFromNow().collect {
+                redraws++
+                // A capture finishing while the first redraw is still running.
+                if (redraws == 1) ticker.emit()
+            }
+        }
+        runCurrent()
+
+        assertEquals(2, redraws)
+        job.cancel()
+    }
+
+    @Test
     fun `blocked when notifications are off or the channel is silenced, otherwise not`() {
         val none = NotificationManagerCompat.IMPORTANCE_NONE
         assertTrue(StatusChannel.isBlocked(notificationsEnabled = false, channelImportance = null))

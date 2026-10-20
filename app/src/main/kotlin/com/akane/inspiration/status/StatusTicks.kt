@@ -2,9 +2,11 @@ package com.akane.inspiration.status
 
 import androidx.core.app.NotificationManagerCompat
 import kotlinx.coroutines.channels.BufferOverflow
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.asSharedFlow
+import kotlinx.coroutines.flow.onSubscription
 
 /**
  * "Something worth redrawing the status notification for just happened" (a capture finished or an app-open
@@ -27,6 +29,12 @@ class StatusTicks {
         emit()
     }
 }
+
+/**
+ * One redraw now, then one per tick. The subscription is in place before the first redraw is emitted (audit R-14):
+ * the ticks have no replay, so a capture finishing during that redraw would otherwise be lost until the next one.
+ */
+internal fun SharedFlow<Unit>.redrawsFromNow(): Flow<Unit> = onSubscription { emit(Unit) }
 
 /** The notification channel the status service posts on; T3b creates it, the Toolkit card reads its state. */
 object StatusChannel {

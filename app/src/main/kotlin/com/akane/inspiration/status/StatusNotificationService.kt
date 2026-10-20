@@ -96,8 +96,7 @@ class StatusNotificationService : Service() {
     private suspend fun collect(container: AppContainer) {
         // light() reads a sticky broadcast and battery properties; it never touches Shizuku.
         val source = AndroidTelemetrySource(applicationContext, container.shizukuManager, container.clocks)
-        redraw(container, source)
-        container.statusTicks.collect { redraw(container, source) }
+        container.statusTicks.redrawsFromNow().collect { redraw(container, source) }
     }
 
     private suspend fun redraw(
