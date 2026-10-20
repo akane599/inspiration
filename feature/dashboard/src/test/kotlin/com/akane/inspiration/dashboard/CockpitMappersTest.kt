@@ -1,5 +1,6 @@
 package com.akane.inspiration.dashboard
 
+import com.akane.inspiration.designsystem.chart.math.valueAt
 import com.akane.inspiration.designsystem.chart.model.LaneKind
 import com.akane.inspiration.designsystem.chart.model.SeriesKind
 import com.akane.inspiration.designsystem.component.GaugeChargeState
@@ -7,10 +8,13 @@ import com.akane.inspiration.designsystem.component.PulseStatus
 import com.akane.inspiration.diagnostics.analysis.AnalysisState
 import com.akane.inspiration.diagnostics.analysis.SegmentKind
 import com.akane.inspiration.diagnostics.analysis.Timeline
+import com.akane.inspiration.diagnostics.analysis.TimelineBuilder
 import com.akane.inspiration.diagnostics.analysis.TimelinePoint
 import com.akane.inspiration.diagnostics.analysis.TimelineSegment
 import com.akane.inspiration.ipc.ShizukuBackend
 import com.akane.inspiration.ipc.ShizukuState
+import com.akane.inspiration.ipc.model.HistoryEvent
+import com.akane.inspiration.ipc.model.HistoryKind
 import com.akane.inspiration.telemetry.calibration.MIN_MICROAMP_HOUR_COUNTER
 import com.akane.inspiration.telemetry.diff.ReferenceKind
 import com.akane.inspiration.telemetry.snapshot.SleepStats
@@ -53,6 +57,22 @@ class CockpitMappersTest {
         assertEquals(listOf(80f, 70f), battery.points.map { it.value })
         val temperature = data.series.single { it.kind == SeriesKind.TEMPERATURE_C }
         assertEquals(listOf(31.5f, 33f), temperature.points.map { it.value })
+    }
+
+    @Test
+    fun `the chart's level and temperature readouts reach both window edges with no level step inside`() {
+        // Plugged in at 100% all window long: the only level step is before it; the history is known to its end.
+        val from = 1_000_000L
+        val to = from + CHART_WINDOW_MS
+        val before = HistoryEvent(0, from - 60_000, HistoryKind.LEVEL, 100, -1, 300, 0, 1)
+        val data = scrubChartData(TimelineBuilder.build(listOf(before), from, to, historyHorizonMs = to))
+
+        val battery = data.series.single { it.kind == SeriesKind.BATTERY_PERCENT }.points
+        val temperature = data.series.single { it.kind == SeriesKind.TEMPERATURE_C }.points
+        for (t in listOf(from, from + CHART_WINDOW_MS / 2, to)) {
+            assertEquals("level at $t", 100f, valueAt(battery, t))
+            assertEquals("temperature at $t", 30f, valueAt(temperature, t))
+        }
     }
 
     @Test

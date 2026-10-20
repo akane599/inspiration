@@ -2,6 +2,7 @@ package com.akane.inspiration.di
 
 import com.akane.inspiration.diagnostics.analysis.SegmentKind
 import com.akane.inspiration.diagnostics.analysis.TimelineBuilder
+import com.akane.inspiration.diagnostics.analysis.TimelinePoint
 import com.akane.inspiration.ipc.model.HistoryEvent
 import com.akane.inspiration.ipc.model.HistoryKind
 import org.junit.Assert.assertEquals
@@ -59,13 +60,14 @@ class TimelineEventsTest {
     )
 
     @Test
-    fun `keeps the last event of each state track before the window`() {
+    fun `keeps the last event of each state track and the last level step before the window`() {
         val before =
             listOf(
                 event(HistoryKind.SCREEN_ON, 100),
                 event(HistoryKind.SCREEN_OFF, 200),
                 event(HistoryKind.SCREEN_ON, 300),
                 event(HistoryKind.PLUGGED, 150),
+                event(HistoryKind.LEVEL, 250),
                 event(HistoryKind.LEVEL, 350),
                 event(HistoryKind.SHUTDOWN, 50),
             )
@@ -74,11 +76,33 @@ class TimelineEventsTest {
         val result = TimelineEvents.withSeeds(before, inWindow)
 
         assertEquals(
-            listOf(HistoryKind.SHUTDOWN, HistoryKind.PLUGGED, HistoryKind.SCREEN_OFF, HistoryKind.SCREEN_ON, HistoryKind.LEVEL),
+            listOf(
+                HistoryKind.SHUTDOWN,
+                HistoryKind.PLUGGED,
+                HistoryKind.SCREEN_OFF,
+                HistoryKind.SCREEN_ON,
+                HistoryKind.LEVEL,
+                HistoryKind.LEVEL,
+            ),
             result.map { it.kind },
         )
         assertEquals("the screen-on seed is the newest screen-on event", 300L, result[3].wallMs)
+        assertEquals("the level seed is the newest level step", 350L, result[4].wallMs)
         assertEquals("the window's own events follow the seeds untouched", inWindow.single(), result.last())
+    }
+
+    @Test
+    fun `the window opens at the newest level before it, not an older state event's`() {
+        // The screen went off at 80%; the level then stepped to 75% before the window and to 74% inside it.
+        val before = listOf(event(HistoryKind.SCREEN_OFF, 100).copy(levelPct = 80), event(HistoryKind.LEVEL, 350).copy(levelPct = 75))
+        val inWindow = listOf(event(HistoryKind.LEVEL, 2_000).copy(levelPct = 74))
+
+        val timeline = TimelineBuilder.build(TimelineEvents.withSeeds(before, inWindow), 1_000, 3_000)
+
+        assertEquals(
+            listOf(TimelinePoint(1_000, 75f), TimelinePoint(2_000, 74f), TimelinePoint(3_000, 74f)),
+            timeline.levelPoints,
+        )
     }
 
     @Test
@@ -125,7 +149,7 @@ class TimelineEventsTest {
         val fromFull = TimelineEvents.withSeeds(full, inWindow)
         val fromLast = TimelineEvents.withSeeds(lastOfEachKind, inWindow)
 
-        assertEquals("same screen, plug and idle seeds", fromFull.map { it.kind to it.wallMs }, fromLast.map { it.kind to it.wallMs })
+        assertEquals("same screen, plug, idle and level seeds", fromFull.map { it.kind to it.wallMs }, fromLast.map { it.kind to it.wallMs })
         assertEquals(
             listOf(
                 HistoryKind.PLUGGED,
@@ -134,6 +158,7 @@ class TimelineEventsTest {
                 HistoryKind.UNPLUGGED,
                 HistoryKind.SCREEN_ON,
                 HistoryKind.DEEP_IDLE_ON,
+                HistoryKind.LEVEL,
                 HistoryKind.LEVEL,
             ),
             fromLast.map { it.kind },

@@ -355,7 +355,7 @@ class TimelineBuilderTest {
     }
 
     @Test
-    fun `level and temperature points come from LEVEL events inside the window only`() {
+    fun `level and temperature points are the window's LEVEL events between the carried-in and held edges`() {
         val timeline =
             build(
                 listOf(
@@ -371,13 +371,80 @@ class TimelineBuilderTest {
             )
 
         assertEquals(
-            listOf(TimelinePoint(base + 10 * min, 79f), TimelinePoint(base + 20 * min, 78f)),
+            listOf(
+                TimelinePoint(base + 5 * min, 80f),
+                TimelinePoint(base + 10 * min, 79f),
+                TimelinePoint(base + 20 * min, 78f),
+                TimelinePoint(base + 60 * min, 78f),
+            ),
             timeline.levelPoints,
         )
         assertEquals(
-            listOf(TimelinePoint(base + 10 * min, 30.5f), TimelinePoint(base + 20 * min, 31.2f)),
+            listOf(
+                TimelinePoint(base + 5 * min, 30f),
+                TimelinePoint(base + 10 * min, 30.5f),
+                TimelinePoint(base + 20 * min, 31.2f),
+                TimelinePoint(base + 60 * min, 31.2f),
+            ),
             timeline.temperaturePoints,
         )
+    }
+
+    @Test
+    fun `a window with no level step inside still has a level line from its start to its known end`() {
+        // Plugged in at 100% overnight: the last step came before the window, and any event carries the level then.
+        val timeline =
+            build(
+                listOf(
+                    at(0, HistoryKind.LEVEL, level = 100, deciC = 300),
+                    at(2 * min, HistoryKind.SCREEN_OFF, level = 100, deciC = 290),
+                ),
+                from = 5 * min,
+                to = 60 * min,
+            )
+
+        assertEquals(listOf(TimelinePoint(base + 5 * min, 100f), TimelinePoint(base + 60 * min, 100f)), timeline.levelPoints)
+        assertEquals(listOf(TimelinePoint(base + 5 * min, 29f), TimelinePoint(base + 60 * min, 29f)), timeline.temperaturePoints)
+    }
+
+    @Test
+    fun `the last level is held only to where the history is known`() {
+        val events = listOf(at(0, HistoryKind.LEVEL, level = 80), at(30 * min, HistoryKind.LEVEL, level = 79))
+
+        val stale = TimelineBuilder.build(events, base + 10 * min, base + 120 * min, historyHorizonMs = base + 40 * min)
+        assertEquals(
+            listOf(TimelinePoint(base + 10 * min, 80f), TimelinePoint(base + 30 * min, 79f), TimelinePoint(base + 40 * min, 79f)),
+            stale.levelPoints,
+        )
+
+        // Without a horizon the newest event is all that is known: nothing is held past it.
+        val unknown = TimelineBuilder.build(events, base + 10 * min, base + 120 * min, historyHorizonMs = Long.MIN_VALUE)
+        assertEquals(listOf(TimelinePoint(base + 10 * min, 80f), TimelinePoint(base + 30 * min, 79f)), unknown.levelPoints)
+    }
+
+    @Test
+    fun `history known only up to before the window carries no level into it`() {
+        val events = listOf(at(0, HistoryKind.LEVEL, level = 80))
+
+        val timeline = TimelineBuilder.build(events, base + 30 * min, base + 120 * min, historyHorizonMs = base + 10 * min)
+
+        assertTrue(timeline.levelPoints.isEmpty() && timeline.temperaturePoints.isEmpty())
+    }
+
+    @Test
+    fun `a boot record before the window carries no level into it`() {
+        // START is written before the battery service reports anything, so its zeroed level is no evidence.
+        val events =
+            listOf(
+                at(0, HistoryKind.LEVEL, level = 60),
+                at(2 * min, HistoryKind.SHUTDOWN, level = 60),
+                at(4 * min, HistoryKind.START, level = 0, deciC = 0),
+                at(8 * min, HistoryKind.LEVEL, level = 58, deciC = 280),
+            )
+
+        val timeline = build(events, from = 5 * min, to = 60 * min)
+
+        assertEquals(listOf(TimelinePoint(base + 8 * min, 58f), TimelinePoint(base + 60 * min, 58f)), timeline.levelPoints)
     }
 
     @Test

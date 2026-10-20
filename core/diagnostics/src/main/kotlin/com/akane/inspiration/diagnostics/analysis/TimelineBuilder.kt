@@ -23,7 +23,9 @@ import com.akane.inspiration.telemetry.store.knownStateEndWallMs
  *   DEEP_IDLE_OFF with no `*_IDLE_ON` within
  *   [WAKE_PULSE_REENTRY_MS] (inclusive; light idle counts, so deep-to-light is not a pulse). A pulse
  *   inside a MAINTENANCE gap (start inclusive, end exclusive) is dropped. No cause is claimed.
- * - **Points.** One level point per LEVEL event in [from, to]; temperature is deci-Celsius / 10.
+ * - **Points.** One level point per LEVEL event in (from, to], plus the value in force at `from` (from the newest
+ *   event at or before it, so a caller includes the last LEVEL event before `from` too) and the last value held to
+ *   where the history is known complete (the lane end); temperature is deci-Celsius / 10 and follows the same rule.
  */
 object TimelineBuilder {
     /** Longest idle-exit gap that still counts as a maintenance window (inclusive). */
@@ -34,8 +36,9 @@ object TimelineBuilder {
 
     /**
      * [historyHorizonMs] is the wall time up to which the stored history is known to be complete (the last
-     * successful ingest). Open lanes close there, or at the newest event when that is later, so the stale last
-     * state is not drawn on to [to]; the window past it stays empty. A gap of at most [HISTORY_HORIZON_GRACE_MS]
+     * successful ingest). Open lanes close there, or at the newest event when that is later, and the last level and
+     * temperature are held only to there, so the stale last state is not drawn on to [to]; the window past it stays
+     * empty. A gap of at most [HISTORY_HORIZON_GRACE_MS]
      * before [to] still keeps lanes open to [to]. The default, [to], keeps every lane open to it.
      */
     fun build(
@@ -47,14 +50,17 @@ object TimelineBuilder {
         if (to < from) return Timeline(emptyList(), emptyList(), emptyList(), emptyList(), from, to)
         val ordered = events.filter { it.wallMs in 0..to }.sortedBy { it.wallMs }
         val knownTo = maxOf(historyHorizonMs, ordered.lastOrNull()?.wallMs ?: Long.MIN_VALUE)
-        val laneEnd = knownStateEndWallMs(knownTo, to).coerceIn(from, to)
+        val knownEnd = knownStateEndWallMs(knownTo, to)
+        val laneEnd = knownEnd.coerceIn(from, to)
         val spans = Spans.scan(ordered, laneEnd)
         // A set, so sorting the remaining gaps into AWAKE is one lookup per gap; it keeps the gaps' time order.
         val maintenance = spans.gaps.filterTo(LinkedHashSet()) { it.isMaintenance(spans) }
+        // History known only up to before the window says nothing about the level inside it.
+        val carryIn = from <= knownEnd
         return Timeline(
             segments = segments(spans, maintenance, from, to),
-            levelPoints = points(ordered, from, to) { it.levelPct.toFloat() },
-            temperaturePoints = points(ordered, from, to) { it.temperatureDeciC / 10f },
+            levelPoints = points(ordered, from, laneEnd, carryIn) { it.levelPct.toFloat() },
+            temperaturePoints = points(ordered, from, laneEnd, carryIn) { it.temperatureDeciC / 10f },
             wakePulsesMs = wakePulses(ordered, maintenance, from, to),
             from = from,
             to = to,
@@ -92,15 +98,31 @@ object TimelineBuilder {
         return all.sortedWith(compareBy({ it.startMs }, { it.kind.ordinal }))
     }
 
+    /**
+     * A LEVEL event's point for each one in `(from, to]` ([ordered] ends at `to`), between two edges. Every event carries
+     * its record's level and temperature, so with [carryIn] the newest event at or before [from] (a caller's seed)
+     * gives the value in force as the window opens, unless it is a START: that record is written before the battery
+     * service reports anything, so its zeroed values are no evidence. The last value is then held to [holdTo], where
+     * the history is known complete, never past it: no 1% step was recorded until there.
+     */
     private fun points(
         ordered: List<HistoryEvent>,
         from: Long,
-        to: Long,
+        holdTo: Long,
+        carryIn: Boolean,
         value: (HistoryEvent) -> Float,
-    ): List<TimelinePoint> =
-        ordered
-            .filter { it.kind == HistoryKind.LEVEL && it.wallMs in from..to }
-            .map { TimelinePoint(it.wallMs, value(it)) }
+    ): List<TimelinePoint> {
+        val out = ArrayList<TimelinePoint>()
+        if (carryIn) {
+            ordered
+                .lastOrNull { it.wallMs <= from }
+                ?.takeIf { it.kind != HistoryKind.START }
+                ?.let { out += TimelinePoint(from, value(it)) }
+        }
+        ordered.filter { it.kind == HistoryKind.LEVEL && it.wallMs > from }.mapTo(out) { TimelinePoint(it.wallMs, value(it)) }
+        out.lastOrNull()?.let { last -> if (holdTo > last.tMs) out += TimelinePoint(holdTo, last.value) }
+        return out
+    }
 
     private fun wakePulses(
         ordered: List<HistoryEvent>,
