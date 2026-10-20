@@ -24,7 +24,11 @@ suspend fun SnapshotStore.pruneRetention(clocks: Clocks) {
     prune(retentionNowMs(clocks))
 }
 
-/** The "now" [pruneRetention] prunes at; the history ingest skips what that prune would delete. */
+/**
+ * The "now" [pruneRetention] prunes at; the history ingest skips what that prune would delete now. What an earlier
+ * cutoff already removed stays out through the store's history watermark ([SnapshotStore.persistHistoryPage]), even
+ * when this "now" has since moved back.
+ */
 suspend fun SnapshotStore.retentionNowMs(clocks: Clocks): Long {
     val wallMs = clocks.wallMs()
     val elapsedMs = clocks.elapsedRealtimeMs()

@@ -7,6 +7,7 @@ import com.akane.inspiration.database.HealthSampleEntity
 import com.akane.inspiration.database.HistoryCursorEntity
 import com.akane.inspiration.database.HistoryDao
 import com.akane.inspiration.database.HistoryEventEntity
+import com.akane.inspiration.database.HistoryWatermarkEntity
 import com.akane.inspiration.database.InspirationDatabase
 import com.akane.inspiration.database.MarkerEntity
 import com.akane.inspiration.database.SnapshotAlarmEntity
@@ -45,6 +46,7 @@ import com.akane.inspiration.telemetry.status.UnplugSummaryCalculator
 import com.akane.inspiration.telemetry.store.ChargeSessionRecord
 import com.akane.inspiration.telemetry.store.HISTORY_SOURCE
 import com.akane.inspiration.telemetry.store.HealthSample
+import com.akane.inspiration.telemetry.store.HistoryWatermark
 import com.akane.inspiration.telemetry.store.Marker
 import com.akane.inspiration.telemetry.store.SAMPLES_BETWEEN_LIMIT
 import com.akane.inspiration.telemetry.store.SnapshotStore
@@ -187,6 +189,35 @@ class RoomSnapshotStore(
             database.historyDao().insertIgnore(events.map { it.toEntity(statsStartMs) })
         }
     }
+
+    /**
+     * One transaction: the stored watermark judges the page, the kept events and the cursor are written, and the
+     * watermark advances with them, so a prune lands before or after the whole page.
+     */
+    override suspend fun persistHistoryPage(
+        statsStartMs: Long,
+        events: List<HistoryEvent>,
+        truncated: Boolean,
+        cutoffWallMs: Long,
+    ): Int =
+        database.withTransaction {
+            val historyDao = database.historyDao()
+            val stored =
+                historyDao.watermark()?.let { HistoryWatermark(it.seenThroughHistoryTimeMs, it.prunedBeforeWallMs) }
+                    ?: HistoryWatermark.NEUTRAL
+            val page = stored.judgePage(events, truncated, cutoffWallMs)
+            historyDao.insertIgnore(page.kept.map { it.toEntity(statsStartMs) })
+            events.lastOrNull()?.let {
+                historyDao.advanceCursor(HistoryCursorEntity(statsStartMs = statsStartMs, lastHistoryTimeMs = it.historyTimeMs))
+            }
+            historyDao.writeWatermark(
+                HistoryWatermarkEntity(
+                    seenThroughHistoryTimeMs = page.watermark.seenThroughHistoryTimeMs,
+                    prunedBeforeWallMs = page.watermark.prunedBeforeWallMs,
+                ),
+            )
+            page.kept.size
+        }
 
     override suspend fun historyBetween(
         fromWallMs: Long,

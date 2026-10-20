@@ -283,6 +283,21 @@ data class HistoryCursorEntity(
     }
 }
 
+/**
+ * The history ingest's prune watermark (`HistoryWatermark`): one row, created on demand by the first page or prune;
+ * no row reads as `Long.MIN_VALUE` for both. [seenThroughHistoryTimeMs] is H, [prunedBeforeWallMs] is W.
+ */
+@Entity(tableName = "history_watermark")
+data class HistoryWatermarkEntity(
+    @PrimaryKey val id: Int = SINGLETON_ID,
+    val seenThroughHistoryTimeMs: Long,
+    val prunedBeforeWallMs: Long,
+) {
+    companion object {
+        const val SINGLETON_ID = 1
+    }
+}
+
 @Entity(tableName = "telemetry_sample", indices = [Index(value = ["wallMs"])])
 data class TelemetrySampleEntity(
     @PrimaryKey(autoGenerate = true) val id: Long = 0,

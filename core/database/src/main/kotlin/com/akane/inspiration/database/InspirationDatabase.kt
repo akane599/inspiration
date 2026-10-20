@@ -21,6 +21,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         MarkerEntity::class,
         HistoryEventEntity::class,
         HistoryCursorEntity::class,
+        HistoryWatermarkEntity::class,
         TelemetrySampleEntity::class,
         TelemetryHourlyEntity::class,
         ChargeSessionEntity::class,
@@ -28,7 +29,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         HealthSampleEntity::class,
         ToolkitActionEntity::class,
     ],
-    version = 6,
+    version = 7,
     exportSchema = true,
 )
 abstract class InspirationDatabase : RoomDatabase() {
@@ -61,7 +62,7 @@ abstract class InspirationDatabase : RoomDatabase() {
                     InspirationDatabase::class.java,
                     name,
                 ).setJournalMode(JournalMode.WRITE_AHEAD_LOGGING)
-                .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6)
+                .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7)
                 .build()
 
         val MIGRATION_1_2: Migration =
@@ -112,6 +113,30 @@ abstract class InspirationDatabase : RoomDatabase() {
             object : Migration(5, 6) {
                 override fun migrate(db: SupportSQLiteDatabase) {
                     db.execSQL("CREATE INDEX IF NOT EXISTS `index_history_event_kind_wallMs` ON `history_event` (`kind`, `wallMs`)")
+                }
+            }
+
+        /**
+         * Adds the history prune watermark. A database with history state is seeded so that H never underestimates
+         * what was processed (the cursor or the newest stored event) and W starts at the oldest known stored wall time;
+         * an empty one gets no row, like a fresh install (no row reads as `Long.MIN_VALUE` for both).
+         */
+        val MIGRATION_6_7: Migration =
+            object : Migration(6, 7) {
+                override fun migrate(db: SupportSQLiteDatabase) {
+                    db.execSQL(
+                        "CREATE TABLE IF NOT EXISTS `history_watermark` (`id` INTEGER NOT NULL, " +
+                            "`seenThroughHistoryTimeMs` INTEGER NOT NULL, `prunedBeforeWallMs` INTEGER NOT NULL, PRIMARY KEY(`id`))",
+                    )
+                    db.execSQL(
+                        "INSERT INTO history_watermark (id, seenThroughHistoryTimeMs, prunedBeforeWallMs) SELECT " +
+                            "${HistoryWatermarkEntity.SINGLETON_ID}, " +
+                            "MAX(COALESCE((SELECT lastHistoryTimeMs FROM history_cursor WHERE id = ${HistoryCursorEntity.SINGLETON_ID}), 0), " +
+                            "COALESCE((SELECT MAX(historyTimeMs) FROM history_event), 0)), " +
+                            "COALESCE((SELECT MIN(wallMs) FROM history_event WHERE wallMs >= 0), ${Long.MIN_VALUE}) " +
+                            "WHERE EXISTS(SELECT 1 FROM history_cursor WHERE id = ${HistoryCursorEntity.SINGLETON_ID}) " +
+                            "OR EXISTS(SELECT 1 FROM history_event)",
+                    )
                 }
             }
 

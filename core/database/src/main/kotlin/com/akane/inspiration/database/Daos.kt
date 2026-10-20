@@ -286,6 +286,13 @@ interface HistoryDao {
     @Query("SELECT * FROM history_cursor WHERE id = :id")
     suspend fun cursor(id: Int = HistoryCursorEntity.SINGLETON_ID): HistoryCursorEntity?
 
+    @Query("SELECT * FROM history_watermark WHERE id = ${HistoryWatermarkEntity.SINGLETON_ID}")
+    suspend fun watermark(): HistoryWatermarkEntity?
+
+    /** Writes the whole row: only for a read-modify-write inside the page's transaction (the prune raises W alone). */
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun writeWatermark(watermark: HistoryWatermarkEntity)
+
     /**
      * The cursor to resume the history ingest from. Once per database it is first rewound to the start of its stats
      * session, so an install that ingested history with an earlier build pages it again: those builds skipped a
@@ -501,6 +508,22 @@ interface MaintenanceDao {
     @Query("SELECT MIN(wallMs - elapsedRealtimeMs) FROM snapshot WHERE bootCount = :bootCount")
     suspend fun minClockOffsetMs(bootCount: Int): Long?
 
+    /**
+     * Raises the history watermark's W to [cutoffWallMs], creating the row (H unknown) when there is none. Never
+     * touches H, which only the ingest moves; a whole-row REPLACE would reset it.
+     */
+    @Query(
+        """
+        INSERT INTO history_watermark (id, seenThroughHistoryTimeMs, prunedBeforeWallMs)
+        VALUES (${HistoryWatermarkEntity.SINGLETON_ID}, :unseenHistoryTimeMs, :cutoffWallMs)
+        ON CONFLICT(id) DO UPDATE SET prunedBeforeWallMs = MAX(prunedBeforeWallMs, excluded.prunedBeforeWallMs)
+        """,
+    )
+    suspend fun raiseHistoryPrunedBefore(
+        cutoffWallMs: Long,
+        unseenHistoryTimeMs: Long = Long.MIN_VALUE,
+    )
+
     @Transaction
     suspend fun prune(nowWallMs: Long) {
         val cutoffWallMs = nowWallMs - RETENTION_MS
@@ -514,6 +537,7 @@ interface MaintenanceDao {
         deleteHourlyBefore(nowWallMs - HOURLY_RETENTION_MS)
         deleteUnmarkedSnapshotsBefore(cutoffWallMs)
         deleteHistoryBefore(cutoffWallMs)
+        raiseHistoryPrunedBefore(cutoffWallMs)
         deleteMissesBefore(cutoffWallMs)
     }
 

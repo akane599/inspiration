@@ -245,7 +245,7 @@ class InspirationDatabaseTest {
                 0.0,
             )
             val sqlite = database.openHelper.readableDatabase
-            assertEquals(6, sqlite.version)
+            assertEquals(7, sqlite.version)
             val freshName = "$databaseName-fresh"
             val fresh = InspirationDatabase.create(context, freshName)
             try {
@@ -298,13 +298,82 @@ class InspirationDatabaseTest {
             database = InspirationDatabase.create(context, databaseName)
 
             val sqlite = database.openHelper.readableDatabase
-            assertEquals(6, sqlite.version)
+            assertEquals(7, sqlite.version)
             assertEquals(listOf("kind", "wallMs"), sqlite.query("PRAGMA index_info(`$HISTORY_KIND_INDEX`)").strings("name"))
             assertEquals(6, database.historyDao().between(-1, Long.MAX_VALUE).size)
             // Every row at each kind's newest wall time before the bound, ties included, unknown wall times never.
             assertEquals(listOf(2L, 3L, 4L, 5L), database.historyDao().newestOfEachKindBefore(Long.MAX_VALUE).map { it.id })
             assertEquals(listOf(1L), database.historyDao().newestOfEachKindBefore(2_000L).map { it.id })
             assertNewestOfEachKindSeeksTheIndex()
+        }
+
+    @Test
+    fun `version six databases gain the history watermark seeded from their history and cursor`() =
+        runBlocking {
+            database.close()
+            context.openOrCreateDatabase(databaseName, 0, null).use { old ->
+                createExportedSchema(old, version = 6)
+                old.execSQL(
+                    "INSERT INTO history_event (id, statsStartMs, historyTimeMs, wallMs, kind, levelPct) VALUES " +
+                        "(1, 10, 100, -1, '1', 80), (2, 10, 101, 2000, '1', 79), (3, 10, 102, 1500, '2', 78), " +
+                        "(4, 10, 150, 3000, '5', 76)",
+                )
+                // The cursor sits below the newest stored event (as after the one-time rewind), the marker row beside it.
+                old.execSQL("INSERT INTO history_cursor (id, statsStartMs, lastHistoryTimeMs) VALUES (1, 10, 120), (2, 0, 0)")
+                assertFalse("history_watermark" in old.rawQuery("SELECT name FROM sqlite_master", null).strings("name"))
+                old.version = 6
+            }
+
+            // The production builder runs 6->7, then Room validates the migrated schema against the current entities.
+            database = InspirationDatabase.create(context, databaseName)
+
+            val sqlite = database.openHelper.readableDatabase
+            assertEquals(7, sqlite.version)
+            assertEquals(
+                "H is the larger of the cursor and the newest stored event; W the oldest known wall time",
+                HistoryWatermarkEntity(seenThroughHistoryTimeMs = 150L, prunedBeforeWallMs = 1_500L),
+                database.historyDao().watermark(),
+            )
+            assertEquals(listOf(1L, 2L, 3L, 4L), database.historyDao().between(-1, Long.MAX_VALUE).map { it.id }.sorted())
+            assertEquals(HistoryCursorEntity(1, 10L, 120L), database.historyDao().cursor())
+            assertEquals(HistoryCursorEntity(2, 0L, 0L), database.historyDao().cursor(2))
+            assertNewestOfEachKindSeeksTheIndex()
+        }
+
+    @Test
+    fun `a version six database with only a cursor, or with nothing, seeds accordingly`() =
+        runBlocking {
+            database.close()
+            val emptyName = "$databaseName-empty"
+            for ((name, cursor) in listOf(databaseName to true, emptyName to false)) {
+                context.openOrCreateDatabase(name, 0, null).use { old ->
+                    createExportedSchema(old, version = 6)
+                    if (cursor) old.execSQL("INSERT INTO history_cursor (id, statsStartMs, lastHistoryTimeMs) VALUES (1, 10, 120)")
+                    old.version = 6
+                }
+            }
+
+            database = InspirationDatabase.create(context, databaseName)
+            val empty = InspirationDatabase.create(context, emptyName)
+            try {
+                assertEquals(
+                    "no known wall time: W stays neutral",
+                    HistoryWatermarkEntity(seenThroughHistoryTimeMs = 120L, prunedBeforeWallMs = Long.MIN_VALUE),
+                    database.historyDao().watermark(),
+                )
+                assertEquals(7, empty.openHelper.readableDatabase.version)
+                assertNull("an empty database gets no row", empty.historyDao().watermark())
+            } finally {
+                empty.close()
+                context.deleteDatabase(emptyName)
+            }
+        }
+
+    @Test
+    fun `a database created at version seven has no watermark row`() =
+        runBlocking {
+            assertEquals(7, database.openHelper.readableDatabase.version)
+            assertNull(database.historyDao().watermark())
         }
 
     @Test
@@ -537,33 +606,6 @@ class InspirationDatabaseTest {
             uptimeMs = wallMs,
             bootCount = 1,
         )
-
-    /** Creates the tables, indices and Room metadata of exported schema [version] in [db]. */
-    private fun createExportedSchema(
-        db: android.database.sqlite.SQLiteDatabase,
-        version: Int,
-    ) {
-        val schema =
-            org.json
-                .JSONObject(
-                    java.io
-                        .File(
-                            "schemas/com.akane.inspiration.database.InspirationDatabase/$version.json",
-                        ).readText(),
-                ).getJSONObject("database")
-        val entities = schema.getJSONArray("entities")
-        for (i in 0 until entities.length()) {
-            val entity = entities.getJSONObject(i)
-            val table = entity.getString("tableName")
-            db.execSQL(entity.getString("createSql").replace("\${TABLE_NAME}", table))
-            val indices = entity.optJSONArray("indices") ?: org.json.JSONArray()
-            for (j in 0 until indices.length()) {
-                db.execSQL(indices.getJSONObject(j).getString("createSql").replace("\${TABLE_NAME}", table))
-            }
-        }
-        val setup = schema.getJSONArray("setupQueries")
-        for (i in 0 until setup.length()) db.execSQL(setup.getString(i))
-    }
 
     /** Mirrors `SnapshotDao.latestByTrigger`: the trigger index filters rows; elapsed ordering may need a sort. */
     private fun assertLatestByTriggerSearchesTheIndex() {

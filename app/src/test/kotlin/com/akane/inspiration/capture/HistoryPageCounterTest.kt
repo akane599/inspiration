@@ -68,13 +68,26 @@ class HistoryPageCounterTest {
             val thrown =
                 runCatching {
                     pages.withMissTick({ ticks++ }) {
-                        pages.insertHistory(listOf(event(5_000, HistoryKind.PLUGGED)), statsStartMs = 10L)
+                        pages.persistHistoryPage(10L, listOf(event(5_000, HistoryKind.PLUGGED)), truncated = false, cutoffWallMs = 0L)
                         error("disk full")
                     }
                 }.exceptionOrNull()
 
             assertEquals("disk full", thrown?.message)
             assertEquals(1, ticks)
+        }
+
+    @Test
+    fun `a missed capture whose page kept no event does not tick`() =
+        runTest {
+            pages.withMissTick({ ticks++ }) {
+                val kept = pages.persistHistoryPage(10L, listOf(event(5_000, HistoryKind.PLUGGED)), false, Long.MAX_VALUE)
+                assertEquals("every event is past the retention", 0, kept)
+                CaptureResult.Missed("deadline_or_service_unavailable")
+            }
+
+            assertEquals(0, store.history.size)
+            assertEquals(0, ticks)
         }
 
     @Test

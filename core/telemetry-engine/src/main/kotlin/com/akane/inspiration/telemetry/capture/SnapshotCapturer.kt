@@ -137,17 +137,17 @@ class SnapshotCapturer(
     /**
      * Stores one page and moves the cursor past it; a page that arrived in time is kept past the deadline.
      *
-     * Events the retention prune would delete now are skipped. A relabelled stats session is paged again from 0 (so
-     * is the current one, once, after the store's one-time cursor rewind), and without this the rows the prune already
-     * deleted would come back as new rows: first in the new run, ahead of the newer rows that still exist in an earlier
-     * run, so ingest order would no longer be chronology.
+     * A relabelled stats session is paged again from 0 (so is the current one, once, after the store's one-time cursor
+     * rewind). A row the prune or an earlier page already dropped would come back as a new row: first in the new run,
+     * ahead of the newer rows that still exist in an earlier run, so ingest order would no longer be chronology. The
+     * store keeps it out: events the retention prune would delete now are skipped, and so is a position already seen
+     * below a cutoff applied earlier, even after the clock moved back ([SnapshotStore.persistHistoryPage]).
      */
     private suspend fun persistPage(page: com.akane.inspiration.ipc.model.BatteryHistorySnapshot) {
         if (!page.available) return
         withContext(NonCancellable) {
             val cutoffWallMs = store.retentionNowMs(clocks) - RETENTION_WINDOW_MS
-            store.insertHistory(page.events.filter { it.wallMs >= cutoffWallMs }, page.statsStartMs)
-            page.events.lastOrNull()?.let { store.setHistoryCursor(page.statsStartMs, it.historyTimeMs) }
+            store.persistHistoryPage(page.statsStartMs, page.events, page.truncated, cutoffWallMs)
         }
     }
 

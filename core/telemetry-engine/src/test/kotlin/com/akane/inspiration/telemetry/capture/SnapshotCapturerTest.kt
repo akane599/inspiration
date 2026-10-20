@@ -325,6 +325,48 @@ class SnapshotCapturerTest {
         }
 
     @Test
+    fun `each available history page goes to the store once, unfiltered, with its session, truncation and cutoff`() =
+        runTest {
+            val nowMs = 400L * DAY_MS
+            val cutoffMs = nowMs - RETENTION_WINDOW_MS
+            val pruned = historyEvent(5).copy(wallMs = cutoffMs - 1)
+            val kept = historyEvent(9).copy(wallMs = cutoffMs)
+            val store = FakeStore()
+            val pages =
+                listOf(
+                    page(truncated = true, pruned, statsStartMs = 20L),
+                    BatteryHistorySnapshot.unavailable("remote"),
+                    page(truncated = false, kept, statsStartMs = 20L),
+                )
+
+            SnapshotCapturer(FakeSource(history = pages), store, TestClocks(wallMs = nowMs))
+                .ingestHistory(CaptureTrigger.APP_OPEN, deadlineMs = 100)
+
+            assertEquals(
+                listOf(PageCall(20L, listOf(pruned), true, cutoffMs), PageCall(20L, listOf(kept), false, cutoffMs)),
+                store.pageCalls,
+            )
+            assertEquals(listOf(kept), store.history)
+        }
+
+    @Test
+    fun `the default page write filters on the cutoff, inserts, moves the cursor and returns the kept count`() =
+        runTest {
+            val store = FakeStore()
+            val below = historyEvent(5).copy(wallMs = 99)
+            val atCutoff = historyEvent(6).copy(wallMs = 100)
+            val above = historyEvent(7).copy(wallMs = 101)
+
+            val kept = store.persistHistoryPage(30L, listOf(below, atCutoff, above), truncated = false, cutoffWallMs = 100)
+            val keptNone = store.persistHistoryPage(30L, listOf(historyEvent(8).copy(wallMs = 1)), truncated = true, cutoffWallMs = 100)
+
+            assertEquals(2, kept)
+            assertEquals(0, keptNone)
+            assertEquals(listOf(atCutoff, above), store.history)
+            assertEquals("the cursor follows the last event, kept or not", 30L to 8L, store.cursor)
+        }
+
+    @Test
     fun `overlapping history ingests run one at a time, each from the cursor the last one left`() =
         runTest {
             val store = FakeStore()
@@ -630,6 +672,7 @@ class SnapshotCapturerTest {
         var cursor: Pair<Long, Long>? = null
         var minClockOffsetMs: Long? = null
         val history = mutableListOf<HistoryEvent>()
+        val pageCalls = mutableListOf<PageCall>()
         private val historyKeys = mutableSetOf<Triple<Long, Int, Long>>()
         val misses = mutableListOf<Pair<CaptureTrigger, String>>()
         val snapshots = mutableListOf<BatterySnapshot>()
@@ -678,6 +721,16 @@ class SnapshotCapturerTest {
             fromWallMs: Long,
             toWallMs: Long,
         ): List<HistoryEvent> = history
+
+        override suspend fun persistHistoryPage(
+            statsStartMs: Long,
+            events: List<HistoryEvent>,
+            truncated: Boolean,
+            cutoffWallMs: Long,
+        ): Int {
+            pageCalls += PageCall(statsStartMs, events, truncated, cutoffWallMs)
+            return super.persistHistoryPage(statsStartMs, events, truncated, cutoffWallMs)
+        }
 
         override suspend fun historyCursor(): Pair<Long, Long>? = cursor
 
@@ -740,6 +793,13 @@ class SnapshotCapturerTest {
 
         override suspend fun pendingToolkitActions(): List<ToolkitActionRecord> = emptyList()
     }
+
+    private data class PageCall(
+        val statsStartMs: Long,
+        val events: List<HistoryEvent>,
+        val truncated: Boolean,
+        val cutoffWallMs: Long,
+    )
 
     private class TestClocks(
         private val wallMs: Long = 1L,

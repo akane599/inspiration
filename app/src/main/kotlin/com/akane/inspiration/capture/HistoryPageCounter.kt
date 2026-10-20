@@ -14,13 +14,16 @@ internal class HistoryPageCounter(
 ) : SnapshotStore by store {
     private val pages = AtomicLong()
 
-    override suspend fun insertHistory(
-        events: List<HistoryEvent>,
+    /** Counts a page that kept any event. Delegation would forward this past the counter, so it must stay overridden. */
+    override suspend fun persistHistoryPage(
         statsStartMs: Long,
-    ) {
-        store.insertHistory(events, statsStartMs)
-        if (events.isNotEmpty()) pages.incrementAndGet()
-    }
+        events: List<HistoryEvent>,
+        truncated: Boolean,
+        cutoffWallMs: Long,
+    ): Int =
+        store.persistHistoryPage(statsStartMs, events, truncated, cutoffWallMs).also { kept ->
+            if (kept > 0) pages.incrementAndGet()
+        }
 
     /**
      * Runs [capture]. When it does not come back saved (a miss, or a throw) but history pages were stored meanwhile,

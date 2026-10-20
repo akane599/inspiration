@@ -180,6 +180,25 @@ interface SnapshotStore {
         lastHistoryTimeMs: Long,
     )
 
+    /**
+     * Stores one available history page of the session [statsStartMs] ([events] unfiltered, ascending) and moves the
+     * cursor to its last event. Keeps what [HistoryWatermark.keeps] keeps at [cutoffWallMs] and returns how many
+     * events that is (before the insert's dedupe). The default judges by the cutoff alone ([HistoryWatermark.NEUTRAL])
+     * in separate [insertHistory] and [setHistoryCursor] calls (for fakes); the Room store applies its stored
+     * watermark ([HistoryWatermark.judgePage]) and advances it with the page in one transaction.
+     */
+    suspend fun persistHistoryPage(
+        statsStartMs: Long,
+        events: List<HistoryEvent>,
+        truncated: Boolean,
+        cutoffWallMs: Long,
+    ): Int {
+        val kept = events.filter { HistoryWatermark.NEUTRAL.keeps(it, cutoffWallMs) }
+        insertHistory(kept, statsStartMs)
+        events.lastOrNull()?.let { setHistoryCursor(statsStartMs, it.historyTimeMs) }
+        return kept.size
+    }
+
     suspend fun addMarker(
         snapshotId: Long,
         label: String,
@@ -246,6 +265,10 @@ interface SnapshotStore {
             .filter { it.clock.bootCount == bootCount }
             .minOfOrNull { it.clock.wallMs - it.clock.elapsedRealtimeMs }
 
-    /** Deletes what is older than the retention at [nowWallMs], trusting it as given; captures call [pruneRetention]. */
+    /**
+     * Deletes what is older than the retention at [nowWallMs], trusting it as given; captures call [pruneRetention].
+     * The Room store also raises its history watermark's W to the history cutoff, so a re-page cannot bring back what
+     * this deleted ([persistHistoryPage]).
+     */
     suspend fun prune(nowWallMs: Long)
 }
