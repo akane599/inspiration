@@ -56,10 +56,12 @@ object ToolkitClientCode {
      * A PENDING override row read back too late to tell its write from a later change by the platform, the user or
      * another tool (B-01, see `ToolkitActions.promptReadBack`). It is FAILED with the value read then as its `after`:
      * observed, not attributed. That value is still a link of its chain when it differs from the row's `before`
-     * ([ToolkitAuditLog.landedElsewhere]), so a newer change of ours walks through it to the original. Such a row is
-     * listed as an override only when it reads what the write intended, with [ToolkitRefusal.UNATTRIBUTED]; Reset all
-     * leaves it alone, and its restore needs [ToolkitWarning.UNATTRIBUTED_CHANGE]. A late restore that reads its
-     * original is DONE instead: whoever put the original back, nothing of that chain is left in effect.
+     * ([ToolkitAuditLog.landedElsewhere]). Such a row is listed as an override only when it reads what the write
+     * intended, with [ToolkitRefusal.UNATTRIBUTED]; Reset all leaves it alone, and its restore needs
+     * [ToolkitWarning.UNATTRIBUTED_CHANGE]. A newer change of ours then walks through it to the original and is listed
+     * the same way, unless the chain came back to the original above it. A row that read any other value ends a newer
+     * change's walk instead: its value is that change's original. A late restore that reads its original is DONE
+     * instead: whoever put the original back, nothing of that chain is left in effect.
      */
     const val UNATTRIBUTED = 106
 }
@@ -351,8 +353,8 @@ class ToolkitActions internal constructor(
      * the target first, and is reported as not restored, with why, while that read still fails. A write whose outcome
      * is still unknown (a PENDING row its read-back could not settle) is listed but not written over: it is reported
      * as [ToolkitUnavailable.UNVERIFIED] until a read-back settles it. A change Inspiration cannot attribute to its own
-     * write ([ToolkitRefusal.UNATTRIBUTED]) is left alone too, reported as refused with that reason: only its own
-     * restore, after a warning, writes over it. The user asked for this explicitly, so the per-item restore is
+     * writes ([ToolkitRefusal.UNATTRIBUTED]: one read back too late, or one whose restore would undo such a value) is
+     * left alone too, reported as refused with that reason: only its own restore, after a warning, writes over it. The user asked for this explicitly, so the per-item restore is
      * confirmed; a failure does not stop the remaining items. One lock covers the whole reset, so the chains read here
      * cannot change under it.
      */
@@ -367,16 +369,17 @@ class ToolkitActions internal constructor(
     /**
      * An unsettled PENDING override ([unsettledOverrides]) is not written over: [run] answers Unavailable(UNVERIFIED)
      * for a target with a PENDING row, so Reset all reports it as not restored until its read-back settles it. A change
-     * Inspiration cannot attribute ([ToolkitAuditLog.unattributed]) is refused as [ToolkitRefusal.UNATTRIBUTED] without
-     * a read or a write: nothing will settle it later, and the value may be the platform's or another app's (B-01).
+     * listed as one Inspiration cannot attribute ([ToolkitRefusal.UNATTRIBUTED], see [attributed]) is refused with that
+     * reason without a read or a write: nothing will settle it later, and its restore would undo a value that may be
+     * the platform's or another app's (B-01).
      */
     private suspend fun resetOne(
         override: Override,
         rows: List<ToolkitActionRecord>,
         unsettled: List<ToolkitActionRecord>,
     ): ToolkitOutcome<ToolkitActionRecord> {
+        if (override.unverified == ToolkitRefusal.UNATTRIBUTED) return ToolkitOutcome.Refused(ToolkitRefusal.UNATTRIBUTED)
         val row = rows.firstOrNull { it.id == override.actionId } ?: unsettled.first { it.id == override.actionId }
-        if (ToolkitAuditLog.unattributed(row)) return ToolkitOutcome.Refused(ToolkitRefusal.UNATTRIBUTED)
         val action =
             restoreAction(row, chainOriginal(row, chainWith(row, rows)))
                 ?: return ToolkitOutcome.Refused(ToolkitRefusal.NOT_RESTORABLE)
@@ -552,19 +555,23 @@ class ToolkitActions internal constructor(
         if (warnings.isEmpty()) ToolkitPlan.Ready else ToolkitPlan.NeedsConfirmation(warnings.first(), warnings.drop(1))
 
     /**
-     * Every reason to confirm [prep]. The restore of a change Inspiration cannot attribute to its own write
-     * ([ToolkitAuditLog.unattributed]) leads with [ToolkitWarning.UNATTRIBUTED_CHANGE]: the value it writes over may
-     * have been set by the system or another app (B-01).
+     * Every reason to confirm [prep]. The restore of a change Inspiration cannot attribute to its own writes (one that
+     * would undo a value read back too late, see [chainStart]) leads with [ToolkitWarning.UNATTRIBUTED_CHANGE]: that
+     * value may have been set by the system or another app (B-01).
      */
-    private fun warningsOf(
+    private suspend fun warningsOf(
         prep: Prep.Ok,
         restoring: ToolkitActionRecord?,
     ): List<ToolkitWarning> =
-        if (restoring != null && ToolkitAuditLog.unattributed(restoring)) {
+        if (restoring != null && undoesUnattributed(restoring)) {
             listOf(ToolkitWarning.UNATTRIBUTED_CHANGE) + prep.warnings()
         } else {
             prep.warnings()
         }
+
+    /** Whether restoring [row] would undo a value Inspiration cannot attribute to its own writes ([chainStart]). */
+    private suspend fun undoesUnattributed(row: ToolkitActionRecord): Boolean =
+        row.kind in OVERRIDE_KINDS && chainStart(row, chainWith(row, overrideRows())).unattributed
 
     private fun planRefusal(outcome: ToolkitOutcome<Nothing>): ToolkitRefusal =
         when (outcome) {
@@ -1139,21 +1146,60 @@ class ToolkitActions internal constructor(
      * restore or a gap (something else changed the target in between) ends it. A partial restore instead
      * anchors the original in its typed intended value, even if its confirmed `before` was external. [rows]
      * is [overrideRows], newest first. The links are matched on raw values; the answer is [originalState].
+     *
+     * A late row that read a value its write did not ask for ([unclaimed]) ends the walk as well, before it can anchor
+     * anything: that value is the platform's, the user's or another tool's, so it is the original of the changes above
+     * it, and Reset all puts it back rather than what was there before it (B-01). A late row that read its intended
+     * value is still a link: see [chainStart] for why, and for what crossing it means.
      */
     private fun chainOriginal(
         row: ToolkitActionRecord,
         rows: List<ToolkitActionRecord>,
-    ): String? {
-        if (legacyDefaultRestore(row)) return AppOpMode.ALLOW.argv
-        partialRestore(row)?.let { return it.original }
-        val key = targetKey(row)
-        var original = row.beforeRaw
-        for (older in rows.dropWhile { it.id != row.id }.drop(1).filter { targetKey(it) == key }) {
-            if (closesChain(older) || !sameState(older.kind, older.afterRaw, original)) break
-            partialRestore(older)?.let { return it.original }
-            original = older.beforeRaw
+    ): String? = chainStart(row, rows).original
+
+    /** Where a [chainOriginal] walk from a row ends, and whether the change a restore would undo is [unattributed]. */
+    private class ChainStart(
+        val original: String?,
+        val unattributed: Boolean,
+    )
+
+    /**
+     * [chainOriginal]'s walk, which also tells whether Inspiration can attribute all of the change that restoring [row]
+     * would undo. That change runs from [row] down to the newest link that started from the original (its `before` is
+     * the original). It is [unattributed][ChainStart.unattributed] when one of those links was read back too late
+     * ([ToolkitAuditLog.unattributed]): putting the original back then also undoes a value that may be the platform's
+     * or another app's, so [row] is listed as [ToolkitRefusal.UNATTRIBUTED] ([attributed]), Reset all leaves it alone,
+     * and its own restore warns first ([warningsOf]). This is a deliberate choice over ending the walk at such a link:
+     * that would make a change back to the original over it (B03) an override of its own, and Reset all would put the
+     * unattributed value back. Links below the newest one that started from the original had already come back to it,
+     * so they do not count, and [closedPrefix] may prune them without changing either answer.
+     */
+    private fun chainStart(
+        row: ToolkitActionRecord,
+        rows: List<ToolkitActionRecord>,
+    ): ChainStart {
+        // A completed restore by an older release is DONE, so never unattributed, and it starts no walk.
+        if (legacyDefaultRestore(row)) return ChainStart(AppOpMode.ALLOW.argv, unattributed = false)
+        val links = mutableListOf(row)
+        var anchor = partialRestore(row)
+        var raw = row.beforeRaw
+        if (anchor == null) {
+            val key = targetKey(row)
+            for (older in rows.dropWhile { it.id != row.id }.drop(1).filter { targetKey(it) == key }) {
+                if (closesChain(older) || unclaimed(older) || !sameState(older.kind, older.afterRaw, raw)) break
+                links += older
+                anchor = partialRestore(older)
+                if (anchor != null) break
+                raw = older.beforeRaw
+            }
         }
-        return originalState(row.kind, original)
+        val found = anchor
+        if (found != null) raw = found.original
+        val original = if (found != null) found.original else originalState(row.kind, raw)
+        // A `before` back at the original, as recorded or as [closedPrefix] reads it, ends what a restore undoes.
+        val reached = links.indexOfFirst { sameState(it.kind, it.beforeRaw, raw) || sameState(it.kind, it.beforeRaw, original) }
+        val undone = if (reached < 0) links else links.subList(0, reached + 1)
+        return ChainStart(original, unattributed = undone.any { ToolkitAuditLog.unattributed(it) })
     }
 
     /**
@@ -1212,7 +1258,10 @@ class ToolkitActions internal constructor(
      * A row settled late ([ToolkitAuditLog.unattributed]) whose read-back is not what its write asked for: the platform,
      * the user or another tool moved the target meanwhile, or the write was clamped, and nothing tells which. As the
      * newest link of its target it still decides for it (the read-back showed the older rows' `after` gone), but it is
-     * neither listed nor restorable itself. A late read-back of the intended value is listed, as unattributed.
+     * neither listed nor restorable itself. Under a newer change it is where that change's walk ends ([chainOriginal],
+     * [continues]): its value is the original Reset all puts back, never a value from before it. So undoing a clamped
+     * late write by hand in Inspiration lists that change, and Reset all writes the clamped value back. A late read-back
+     * of the intended value is listed, as unattributed.
      */
     private fun unclaimed(row: ToolkitActionRecord): Boolean =
         ToolkitAuditLog.unattributed(row) && !sameState(row.kind, row.afterRaw, intendedValue(row))
@@ -1313,7 +1362,7 @@ class ToolkitActions internal constructor(
                         unverifiedOverride(row, if (row.kind == KIND_APPOP) ops else bucket, rows)
                     }
                 val protectedApp = (if (row.kind == KIND_APPOP) opsRead?.protection else bucketRead?.protection) != null
-                override?.let { result += attributed(row, if (protectedApp && !undoLifts(it)) it.copy(restorable = false) else it) }
+                override?.let { result += attributed(row, if (protectedApp && !undoLifts(it)) it.copy(restorable = false) else it, rows) }
             }
         }
         candidates.firstOrNull { it.kind == KIND_DOZE }?.let { row ->
@@ -1328,20 +1377,21 @@ class ToolkitActions internal constructor(
                 } else {
                     unverifiedOverride(row, doze, rows)
                 }
-            override?.let { result += attributed(row, it) }
+            override?.let { result += attributed(row, it, rows) }
         }
         return result.sortedByDescending { it.sinceMs }
     }
 
     /**
-     * [override] as listed for [row]: one whose value was read back too late to credit to its write is marked
-     * [ToolkitRefusal.UNATTRIBUTED], ahead of any read failure now, so Reset all leaves it alone ([resetOne]) and its
-     * own restore warns first ([warningsOf]).
+     * [override] as listed for [row]: one whose restore would undo a value read back too late to credit to its write
+     * (its own, or one below it: see [chainStart]) is marked [ToolkitRefusal.UNATTRIBUTED], ahead of any read failure
+     * now, so Reset all leaves it alone ([resetOne]) and its own restore warns first ([warningsOf]).
      */
     private fun attributed(
         row: ToolkitActionRecord,
         override: Override,
-    ): Override = if (ToolkitAuditLog.unattributed(row)) override.copy(unverified = ToolkitRefusal.UNATTRIBUTED) else override
+        rows: List<ToolkitActionRecord>,
+    ): Override = if (chainStart(row, rows).unattributed) override.copy(unverified = ToolkitRefusal.UNATTRIBUTED) else override
 
     /**
      * [row] could not be read back now ([read] is why). Its change may well still be in effect (a role or an
@@ -1549,11 +1599,15 @@ class ToolkitActions internal constructor(
         return links.take(cut)
     }
 
-    /** Whether a [chainOriginal] walk from [newer] goes on to [older], the link just below it. */
+    /** Whether a [chainOriginal] walk from [newer] goes on to [older], the link just below it (an [unclaimed] one ends it). */
     private fun continues(
         older: ToolkitActionRecord,
         newer: ToolkitActionRecord,
-    ): Boolean = !closesChain(older) && !closesChain(newer) && sameState(older.kind, older.afterRaw, newer.beforeRaw)
+    ): Boolean =
+        !closesChain(older) &&
+            !closesChain(newer) &&
+            !unclaimed(older) &&
+            sameState(older.kind, older.afterRaw, newer.beforeRaw)
 
     // ---- reconcile -------------------------------------------------------------------------
 
@@ -1597,8 +1651,9 @@ class ToolkitActions internal constructor(
     /**
      * Returns false when the row could not be read back and stays PENDING. A value read back is credited to the
      * write (DONE, or FAILED with that `after`, which keeps a clamped write in its chain) when [promptReadBack] holds.
-     * Later, the write may never have run, so the value is observed, not attributed ([observed]): it stays a link of
-     * its chain, but Reset all does not write over it (B-01). One late case is still settled as before: a restore
+     * Later, the write may never have run, so the value is observed, not attributed ([observed]): Reset all does not
+     * write over it or undo it from above, and a newer change goes back no further than it (B-01, see [unclaimed] and
+     * [chainStart]). One late case is still settled as before: a restore
      * that reads its original back closes its chain whoever put the original there, so the change it was undoing is
      * RESTORED and a later return to its value is not ours. An older release's `default` restore is not one of those
      * ([legacyDefaultIntent]): `default` is still a restriction.
@@ -1654,8 +1709,8 @@ class ToolkitActions internal constructor(
     /**
      * [row] settled late with [current], the value read back now ([ToolkitClientCode.UNATTRIBUTED]). Kept as its
      * `after`, it is a chain link while it differs from the row's `before` ([landedElsewhere]): the read-back shows the
-     * older rows' `after` gone, and a newer change of ours walks through it to the original (B03). Whether it is listed
-     * is [unclaimed]'s question.
+     * older rows' `after` gone. When [current] is what the write asked for, a newer change of ours walks through it to
+     * the original (B03) and is flagged for crossing it ([chainStart]); otherwise ([unclaimed]) the walk ends at it.
      */
     private fun observed(
         row: ToolkitActionRecord,

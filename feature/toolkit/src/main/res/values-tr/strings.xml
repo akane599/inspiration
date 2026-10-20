@@ -91,7 +91,7 @@
     <string name="toolkit_override_not_restorable">Otomatik olarak geri alınamaz.</string>
     <string name="toolkit_override_unverified">Hâlâ geçerli olup olmadığı denetlenemedi. %1$s</string>
     <!-- A change read back too late to tell Inspiration's write from the system's or another app's (B-01). -->
-    <string name="toolkit_override_unattributed">Bu değişikliği Inspiration\'ın yaptığı doğrulanamıyor: çok geç denetlendi. Tümünü sıfırla buna dokunmaz.</string>
+    <string name="toolkit_override_unattributed">Bu değişikliğin bir kısmı veya tamamı, Inspiration\'ın yaptığı doğrulanamayacak kadar geç denetlendi. Tümünü sıfırla buna dokunmaz.</string>
     <string name="toolkit_override_op_other">%1$s için izin değiştirildi</string>
     <string name="toolkit_override_bucket">%1$s: bekleme grubu %2$s olarak ayarlandı</string>
     <string name="toolkit_override_bucket_other">%1$s: bekleme grubu değiştirildi</string>
@@ -221,7 +221,7 @@
     <string name="toolkit_warning_updated_system_app">Bu güncellenmiş bir sistem uygulaması. Değiştirmek sistemin bazı bölümlerini etkileyebilir.</string>
     <string name="toolkit_warning_doze_over_custom">Standart doze, özel bir doze ayarının yerine geçer.</string>
     <string name="toolkit_warning_restore_state_changed">Ayar, Inspiration bu değişikliği yaptığından beri değişti. Geri yükleme mevcut değerin üzerine yazar.</string>
-    <string name="toolkit_warning_unattributed_change">Bu değişikliği Inspiration\'ın yaptığı doğrulanamıyor. Sistemin ya da başka bir uygulamanın değişikliğinden ayırt edilemeyecek kadar geç denetlendi. Geri yükleme mevcut değerin üzerine yazar.</string>
+    <string name="toolkit_warning_unattributed_change">Bu değişikliğin bir kısmı veya tamamı, sistemin ya da başka bir uygulamanın değişikliğinden ayırt edilemeyecek kadar geç denetlendi. Geri yükleme, Inspiration\'ın yapmadığı bir değişikliği geri alabilir.</string>
     <string name="toolkit_refused_invalid_argument">Bu istek geçerli değil.</string>
     <string name="toolkit_refused_not_installed">Bu uygulama yüklü değil.</string>
     <string name="toolkit_refused_unsupported_user">Uygulama denetimleri yalnızca Inspiration ana Android kullanıcısında çalışırken kullanılabilir; iş profilinde veya ikincil kullanıcıda kullanılamaz.</string>
@@ -238,7 +238,7 @@
     <string name="toolkit_refused_not_restorable">Bu değişiklik otomatik olarak geri alınamaz.</string>
     <string name="toolkit_refused_already_restored">Bu değişiklik zaten geri alınmış.</string>
     <string name="toolkit_refused_unknown_action">Inspiration bu işlemi tanımıyor.</string>
-    <string name="toolkit_refused_unattributed">Bu değişikliği Inspiration\'ın yaptığı doğrulanamıyor. Yalnızca tek başına geri alınabilir.</string>
+    <string name="toolkit_refused_unattributed">Bu değişikliğin bir kısmı veya tamamı, Inspiration\'ın yaptığı doğrulanamayacak kadar geç denetlendi. Yalnızca tek başına geri alınabilir.</string>
     <string name="toolkit_refused_other">İstek reddedildi.</string>
     <string name="toolkit_unavailable_no_service">Shizuku/Sui hizmetine ulaşılamıyor. Shizuku/Sui\'nin çalıştığını kontrol edin.</string>
     <string name="toolkit_unavailable_stale_service">Shizuku/Sui hizmeti güncel değil. Shizuku/Sui\'yu yeniden başlatıp tekrar deneyin.</string>

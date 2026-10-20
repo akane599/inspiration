@@ -24,7 +24,9 @@ import org.junit.Test
  * - When that value is what the write asked for, the change is probably ours: it is listed as
  *   [ToolkitRefusal.UNATTRIBUTED], left out of Reset all, and restored only after [ToolkitWarning.UNATTRIBUTED_CHANGE].
  * - Any other value is neither listed nor restorable, but it still shows the change below it is gone, so it hides that.
- * - Either way it stays a link of its chain, so a newer change of ours walks through it to the original (B03).
+ * - A newer change of ours walks through one at the intended value to the original (B03), and is listed and left out
+ *   of Reset all the same way, unless its chain came back to the original above it. Any other value ends that walk:
+ *   it is the newer change's original, so Reset all never puts back a value from before it.
  * - A late restore that reads its original is DONE: whoever put the original back, that chain is closed.
  *
  * This process times its own rows from the write's reply on the clock since boot; a row an earlier process left is
@@ -410,6 +412,190 @@ class ToolkitActionsLateReconcileTest {
             assertEquals("default", backend.device(PKG)[op])
         }
 
+    // ---- newer changes over a late row ----------------------------------------------------------
+
+    /** Runs [action] as a change of ours that takes effect at once, and returns its row. */
+    private suspend fun change(action: ToolkitAction): ToolkitActionRecord {
+        val outcome = actions.execute(action, confirmed = true)
+        assertTrue("$outcome", outcome is ToolkitOutcome.Done)
+        return (outcome as ToolkitOutcome.Done).value
+    }
+
+    /** [row] is listed as a verified change of ours, from [previous] to [current], and Reset all puts [previous] back. */
+    private suspend fun assertListedAndResetTo(
+        row: ToolkitActionRecord,
+        current: Int,
+        previous: Int,
+    ) {
+        val override = actions.activeOverrides().first().single()
+        assertEquals(row.id, override.actionId)
+        assertNull(override.unverified)
+        assertEquals("$current", override.currentRaw)
+        assertEquals("$previous", override.previousRaw)
+        val report = actions.resetAll()
+        assertTrue("report=$report", report.single().outcome is ToolkitOutcome.Done)
+        assertEquals(previous, backend.buckets[PKG])
+    }
+
+    /** Refused force-stops of another app: display history that belongs to no chain, enough for the next change to prune. */
+    private suspend fun fillDisplayHistory() {
+        repeat(ToolkitAuditLog.RETAINED_ROWS) {
+            audit.insert(
+                ToolkitActionRecord(
+                    startedAt = wall,
+                    endedAt = wall,
+                    kind = ToolkitAuditLog.KIND_FORCE_STOP,
+                    pkg = "com.example.other",
+                    op = "force_stop",
+                    status = ToolkitActionStatus.REFUSED,
+                ),
+            )
+        }
+    }
+
+    @Test
+    fun aDozeChangeOverALateRowThatReadAnotherToolsValueResetsToThatValue() =
+        runTest {
+            val row = lostWrite(ToolkitAction.ApplyDoze(DozeProfile.BALANCED))
+            outage(row, 2 * HOUR_MS)
+            backend.dozeRaw = "inactive_to=77" // another tool's custom device_idle_constants
+            actions.reconcile()
+            assertObserved(row, after = "inactive_to=77")
+
+            val newer = change(ToolkitAction.ApplyDoze(DozeProfile.AGGRESSIVE_NIGHT))
+
+            // The walk stops at the unclaimed row: "inactive_to=77" is the other tool's, not an unset original of ours.
+            val override = actions.activeOverrides().first().single()
+            assertEquals(newer.id, override.actionId)
+            assertNull(override.unverified)
+            assertEquals("inactive_to=77", override.previousRaw)
+            assertTrue(actions.resetAll().single().outcome is ToolkitOutcome.Done)
+            assertEquals("inactive_to=77", backend.dozeRaw)
+        }
+
+    @Test
+    fun aChangeOverALateRowThatReadADecayedBucketResetsToThatBucketNotTheOneBeforeIt() =
+        runTest {
+            backend.buckets[PKG] = active
+            val row = lostWrite(ToolkitAction.SetBucket(PKG, StandbyBucket.RARE))
+            outage(row, DAY_MS)
+            backend.buckets[PKG] = frequent // the platform's own decay
+            actions.reconcile()
+            assertObserved(row, after = frequent)
+
+            val newer = change(ToolkitAction.SetBucket(PKG, StandbyBucket.RESTRICTED))
+
+            assertListedAndResetTo(newer, current = restricted, previous = frequent)
+        }
+
+    @Test
+    fun aChangeOverALateRestoreThatReadAThirdValueResetsToThatValueNotTheFirstOriginal() =
+        runTest {
+            backend.buckets[PKG] = active
+            val original = change(ToolkitAction.SetBucket(PKG, StandbyBucket.RARE))
+            val restore = lostRestore(original, commits = false)
+            outage(restore, DAY_MS)
+            backend.buckets[PKG] = frequent
+            actions.reconcile()
+            assertObserved(restore, after = frequent)
+
+            val newer = change(ToolkitAction.SetBucket(PKG, StandbyBucket.RESTRICTED))
+
+            // The late restore is not a partial restore of ours anchoring ACTIVE: FREQUENT is what the user changed.
+            assertListedAndResetTo(newer, current = restricted, previous = frequent)
+        }
+
+    @Test
+    fun aChangeBackToTheFirstOriginalOverALateRestoreStaysListedAndIsNotPruned() =
+        runTest {
+            backend.buckets[PKG] = active
+            val original = change(ToolkitAction.SetBucket(PKG, StandbyBucket.RARE))
+            val restore = lostRestore(original, commits = false)
+            outage(restore, DAY_MS)
+            backend.buckets[PKG] = frequent
+            actions.reconcile()
+            val back = change(ToolkitAction.SetBucket(PKG, StandbyBucket.ACTIVE))
+            fillDisplayHistory()
+
+            change(ToolkitAction.SetBucket(TRIGGER, StandbyBucket.RARE)) // prunes closed chains first
+
+            // Retention cuts where the walk stops, at the late restore: the links below it go, the change above stays.
+            assertEquals(listOf(original.id, restore.id), audit.deleted.sorted())
+            val override = actions.activeOverrides().first().single { it.pkg == PKG }
+            assertEquals(back.id, override.actionId)
+            assertNull(override.unverified)
+            assertEquals("$active", override.currentRaw)
+            assertEquals("$frequent", override.previousRaw)
+            assertTrue(actions.resetAll().single { it.override.pkg == PKG }.outcome is ToolkitOutcome.Done)
+            assertEquals(frequent, backend.buckets[PKG])
+        }
+
+    /** A lost RARE write over ACTIVE, read back late at RARE: listed as unattributed (see the tests above). */
+    private suspend fun unattributedRare(): ToolkitActionRecord {
+        backend.buckets[PKG] = active
+        val row = lostWrite(ToolkitAction.SetBucket(PKG, StandbyBucket.RARE))
+        outage(row, DAY_MS)
+        backend.buckets[PKG] = rare
+        actions.reconcile()
+        assertObserved(row, after = rare)
+        return row
+    }
+
+    @Test
+    fun aChangeOfOursStackedOnAnUnattributedOneIsLeftOutOfResetAllAndRestoredOnlyAfterAWarning() =
+        runTest {
+            unattributedRare()
+
+            val newer = change(ToolkitAction.SetBucket(PKG, StandbyBucket.RESTRICTED))
+
+            // Restoring it crosses RARE to reach ACTIVE, and RARE may be the platform's: the same rule as RARE itself.
+            assertListedAsUnattributedAndLeftOutOfResetAll(newer, current = "$restricted", previous = "$active")
+            assertEquals(ToolkitPlan.NeedsConfirmation(ToolkitWarning.UNATTRIBUTED_CHANGE), actions.planRestore(newer.id))
+            assertEquals(
+                ToolkitOutcome.Refused(ToolkitRefusal.NOT_CONFIRMED, ToolkitClientCode.NOT_CONFIRMED),
+                actions.restore(newer.id),
+            )
+            assertTrue("an unconfirmed restore writes nothing: ${backend.writes}", backend.writes.isEmpty())
+
+            assertTrue(actions.restore(newer.id, confirmed = true) is ToolkitOutcome.Done)
+            assertEquals(listOf("setBucket($PKG,${StandbyBucket.ACTIVE.argv})"), backend.writes)
+            assertEquals(active, backend.buckets[PKG])
+        }
+
+    @Test
+    fun reapplyingTheOriginalOverAnUnattributedChangeLeavesNothingForResetAll() =
+        runTest {
+            // B03: the walk still goes through the unattributed row, so a change back to ACTIVE closes the chain.
+            unattributedRare()
+
+            change(ToolkitAction.SetBucket(PKG, StandbyBucket.ACTIVE))
+
+            assertNothingIsListedOrWritten()
+            assertEquals(active, backend.buckets[PKG])
+        }
+
+    @Test
+    fun aChangeOverAChainAlreadyBackAtItsOriginalIsNotFlaggedByAnUnattributedLinkBelowIt() =
+        runTest {
+            val late = unattributedRare()
+            val back = change(ToolkitAction.SetBucket(PKG, StandbyBucket.ACTIVE))
+            val newer = change(ToolkitAction.SetBucket(PKG, StandbyBucket.RESTRICTED))
+
+            // Restoring RESTRICTED puts back the ACTIVE our own change left; RARE was undone before it, so it is not crossed.
+            val listed = actions.activeOverrides().first().single()
+            assertEquals(newer.id, listed.actionId)
+            assertNull(listed.unverified)
+            assertEquals("$active", listed.previousRaw)
+
+            // Pruning the closed prefix below it changes neither its original nor that.
+            fillDisplayHistory()
+            change(ToolkitAction.SetBucket(TRIGGER, StandbyBucket.RARE))
+            assertEquals(listOf(late.id, back.id), audit.deleted.sorted())
+            assertEquals(listed, actions.activeOverrides().first().single { it.pkg == PKG })
+            assertTrue(actions.resetAll().single { it.override.pkg == PKG }.outcome is ToolkitOutcome.Done)
+            assertEquals(active, backend.buckets[PKG])
+        }
+
     // ---- prompt: the read-back is the write's own outcome ----------------------------------------
 
     @Test
@@ -562,5 +748,6 @@ class ToolkitActionsLateReconcileTest {
     private companion object {
         const val HOUR_MS = 60L * 60_000L
         const val DAY_MS = 24L * HOUR_MS
+        const val TRIGGER = "com.example.trigger"
     }
 }

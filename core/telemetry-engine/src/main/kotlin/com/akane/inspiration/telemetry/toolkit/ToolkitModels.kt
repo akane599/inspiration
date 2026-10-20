@@ -77,8 +77,8 @@ enum class ToolkitWarning {
     RESTORE_STATE_CHANGED,
 
     /**
-     * A restore of a change Inspiration cannot confirm it made ([ToolkitRefusal.UNATTRIBUTED]): the system or another
-     * app may have set the value, and restoring writes over it.
+     * A restore of a change Inspiration cannot confirm it made all of ([ToolkitRefusal.UNATTRIBUTED]): the system or
+     * another app may have set a value that restoring undoes.
      */
     UNATTRIBUTED_CHANGE,
 }
@@ -121,9 +121,10 @@ enum class ToolkitRefusal {
     UNKNOWN_ACTION,
 
     /**
-     * Inspiration cannot confirm it made this change: its write was read back too late to tell it from a change by the
-     * system or another app ([ToolkitClientCode.UNATTRIBUTED]). It is the [Override.unverified] reason of such a change,
-     * and why Reset all leaves it alone; a restore of it alone needs [ToolkitWarning.UNATTRIBUTED_CHANGE].
+     * Inspiration cannot confirm it made all of this change: its write, or one below it that restoring would also undo,
+     * was read back too late to tell it from a change by the system or another app ([ToolkitClientCode.UNATTRIBUTED]).
+     * It is the [Override.unverified] reason of such a change, and why Reset all leaves it alone; a restore of it alone
+     * needs [ToolkitWarning.UNATTRIBUTED_CHANGE].
      */
     UNATTRIBUTED,
     OTHER,
@@ -213,7 +214,8 @@ enum class OverrideKind { APP_OP, BUCKET, DOZE }
  * [unverified] is set when the target could not be read back now (why, as a refusal): the change may still be
  * in effect, so it stays listed and in Reset all's scope instead of disappearing. [currentRaw] is then the value
  * our change left, not a fresh reading. It is [ToolkitRefusal.UNATTRIBUTED] for a value our write was meant to set
- * but that was read back too late to credit to it: listed, left alone by Reset all, and restored only after a warning.
+ * but that was read back too late to credit to it, and for a change of ours whose restore would undo such a value:
+ * listed, left alone by Reset all, and restored only after a warning.
  */
 data class Override(
     val actionId: Long,

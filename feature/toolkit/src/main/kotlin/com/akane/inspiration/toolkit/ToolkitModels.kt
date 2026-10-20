@@ -188,7 +188,7 @@ sealed interface OverrideWhat {
 /**
  * A change of ours that read-back shows is still in effect. [label] is the app's name, null for doze. [unverified]
  * is why it could not be read back now: it may still be in effect, so it stays listed with the value it left. It is
- * `ToolkitRefusal.UNATTRIBUTED` for a change Inspiration cannot confirm it made: Reset all leaves it alone.
+ * `ToolkitRefusal.UNATTRIBUTED` for a change Inspiration cannot confirm it made all of: Reset all leaves it alone.
  */
 @Immutable
 data class OverrideItem(
