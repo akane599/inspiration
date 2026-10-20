@@ -74,6 +74,14 @@ class NightVampireRuleTest {
         assertEquals(1, vampires(uidDelta(10_000, totalMah = 5.0, bgMah = 4.5)).size)
     }
 
+    /** Audit B-16: a platform UID in another user (system in user 10 is 1001000) is not an app, whatever its raw value. */
+    @Test
+    fun perUserPlatformUidsAreExcluded() {
+        assertTrue(vampires(uidDelta(1_001_000, totalMah = 5.0, bgMah = 4.5)).isEmpty())
+        assertTrue(vampires(uidDelta(1_009_999, totalMah = 5.0, bgMah = 4.5)).isEmpty())
+        assertEquals(1, vampires(uidDelta(1_010_000, totalMah = 5.0, bgMah = 4.5)).size)
+    }
+
     @Test
     fun invalidUidsAreSkippedAndCounted() {
         val report = engine.evaluate(

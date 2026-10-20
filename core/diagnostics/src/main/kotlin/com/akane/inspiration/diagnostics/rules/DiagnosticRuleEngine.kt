@@ -18,6 +18,7 @@ import com.akane.inspiration.diagnostics.sensor.SensorCatalog
 import com.akane.inspiration.telemetry.diff.ReferenceResolver
 import com.akane.inspiration.telemetry.snapshot.SnapshotDiff
 import com.akane.inspiration.telemetry.snapshot.UidDelta
+import com.akane.inspiration.telemetry.snapshot.isApplicationUid
 
 /**
  * The shortest screen-off time the screen-off rules evaluate. A SCREEN_ON broadcast binds the telemetry service for
@@ -104,7 +105,7 @@ class DiagnosticRuleEngine(
         val minMah = maxOf(MIN_VAMPIRE_MAH, VAMPIRE_DISCHARGE_FRACTION * (input.diff.dischargedMah ?: 0.0))
         val items =
             validUids.mapNotNull { uid ->
-                if (uid.uid < FIRST_APP_UID || (uid.bgMah == null && uid.cachedMah == null)) return@mapNotNull null
+                if (!isApplicationUid(uid.uid) || (uid.bgMah == null && uid.cachedMah == null)) return@mapNotNull null
                 if (uid.totalMah < minMah) return@mapNotNull null
                 val bgShare = ((uid.bgMah ?: 0.0) + (uid.cachedMah ?: 0.0)) / uid.totalMah
                 if (bgShare > VAMPIRE_BG_SHARE && uid.fgActivityMs < VAMPIRE_MAX_FG_ACTIVITY_MS) {
@@ -217,7 +218,7 @@ class DiagnosticRuleEngine(
 
         val motionThresholdMs = maxOf(MOTION_MIN_MS.toDouble(), MOTION_SCREEN_OFF_FRACTION * metrics.screenOffMs)
         val items =
-            validUids.filter { it.uid >= FIRST_APP_UID }.flatMap { uid ->
+            validUids.filter { isApplicationUid(it.uid) }.flatMap { uid ->
                 val leaks = mutableListOf<SensorLeak>()
 
                 fun leak(
@@ -255,8 +256,6 @@ class DiagnosticRuleEngine(
     }
 
     private companion object {
-        const val FIRST_APP_UID = 10_000
-
         const val MIN_VAMPIRE_MAH = 2.0
         const val VAMPIRE_DISCHARGE_FRACTION = 0.01
         const val VAMPIRE_BG_SHARE = 0.60

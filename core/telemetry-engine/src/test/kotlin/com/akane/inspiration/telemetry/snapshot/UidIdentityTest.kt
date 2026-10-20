@@ -1,6 +1,7 @@
 package com.akane.inspiration.telemetry.snapshot
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
@@ -9,6 +10,15 @@ import org.junit.Test
 class UidIdentityTest {
     private val a = UidOwnerInstall("test.owner.a", 10_001, 123)
     private val b = UidOwnerInstall("test.owner.b", 10_001, 456)
+
+    @Test
+    fun `an application uid is judged by its app id in every user, never by its raw value`() {
+        listOf(10_000, 10_001, 19_999, 99_999, 110_000, 1_010_123).forEach { assertTrue("$it", isApplicationUid(it)) }
+        // Root, system and shell in user 0, the same platform UIDs in users 1 and 10, and an unset UID.
+        listOf(0, 1_000, 2_000, 9_999, 100_000, 101_000, 1_001_000, 1_009_999, -1).forEach {
+            assertFalse("$it", isApplicationUid(it))
+        }
+    }
 
     @Test
     fun `v1 encoding is canonical and binds full uid serial and every install`() {

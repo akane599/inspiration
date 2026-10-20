@@ -99,6 +99,17 @@ class SensorLeakRuleTest {
         assertEquals(1, report.skippedInvalidUids)
     }
 
+    /** Audit B-16: a platform UID in another user (location in user 10 is 1001021) is not an app. */
+    @Test
+    fun perUserPlatformUidsAreSkipped() {
+        val leaks =
+            leaks(
+                withSensor(GPS_SENSOR_HANDLE, 10 * MIN, uid = 1_001_021),
+                withSensor(GPS_SENSOR_HANDLE, 10 * MIN, uid = 1_010_003),
+            )
+        assertEquals(listOf(1_010_003), leaks.map { it.subjectUid })
+    }
+
     @Test
     fun notScreenOffOnlyIntervalsAreNotEvaluable() {
         val uid = withSensor(GPS_SENSOR_HANDLE, 10 * MIN)

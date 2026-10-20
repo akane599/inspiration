@@ -34,7 +34,14 @@ data class UidIdentityProof(
 
 internal const val UID_USER_RANGE = 100_000
 
-internal fun isApplicationUid(uid: Int): Boolean = uid >= 0 && uid % UID_USER_RANGE >= 10_000
+/**
+ * Whether [uid] belongs to an installed app in any Android user: its app id (the UID within its user's range) is at
+ * least `Process.FIRST_APPLICATION_UID`. Platform UIDs repeat in every user, so system in user 10 (1001000) is not an
+ * app even though its raw value is above 10000. The one app-UID test for capture, diff and diagnostics (audit B-16).
+ */
+fun isApplicationUid(uid: Int): Boolean = uid >= 0 && uid % UID_USER_RANGE >= FIRST_APPLICATION_UID
+
+private const val FIRST_APPLICATION_UID = 10_000
 
 /** v1 is binary, length-delimited and locale-independent; unknown versions are never comparable. */
 object UidOwnerFingerprint {
