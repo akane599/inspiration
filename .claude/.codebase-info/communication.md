@@ -35,7 +35,9 @@ A read is complete only when every page was available and the last page is not `
 `historyReadComplete` in `HistoryHorizon.kt`, B-02). A read stopped at the eight-page cap records the history source
 as available with reason `page_cap` (`HISTORY_PAGE_CAP_REASON`), and one with a failed page records that page's reason
 (or `unavailable`); either way the pages already read are stored and the cursor advances, so the next ingest continues
-the drain. `HistoryIngest.historyComplete` follows the same rule for the charge job. Each page is still its own
+the drain. `HistoryIngest.historyComplete` follows the same rule for the charge job: after a complete ingest the job decides from
+the newest stored PLUGGED event alone, and after an incomplete one from the newer of that event and the last
+POWER_CONNECTED capture (`CapturePolicy.chargeJobShouldRun`), since a capped read can miss only newer events. Each page is still its own
 `getBatteryUsageStats` query; keeping one iterator open across binder calls was rejected (see `BatteryStatsClient`).
 Below API 34 (`API_HISTORY_ITERATOR`) the history iterator is not an `Iterator`, so `readHistory` returns reason `api`
 without querying (B-09).
