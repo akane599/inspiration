@@ -1,27 +1,82 @@
 {
   ".claude/commands/bootstrap.md": {
-    "merged_sha256": "3073b852b450760f65590216812c725d495c703aa85639c4beda0b16f6960c70",
-    "resolved_at": "2026-10-18T21:48:14.837490+00:00",
-    "template_sha256": "19bc5adc81c2bebec6693e69f5af59ced49b1946cc06e7f1089b73e390374d08"
+    "merged_sha256": "865a80baf9c660c7e97a682d8ac607b87b247c0bd3234239f157c262fe2de051",
+    "resolved_at": "2026-10-20T00:38:57.523893+00:00",
+    "template_sha256": "da540dd35fa26e9f4d9c55a4a9b39207a3e4c184d2d09fe12d0b58b05822738c"
+  },
+  ".claude/commands/bug-hunt.md": {
+    "merged_sha256": "9f5c1d599c711282753674640c1c081dd53c2d009be4f717313dd905638cc32c",
+    "resolved_at": "2026-10-20T00:38:57.524102+00:00",
+    "template_sha256": "9f5c1d599c711282753674640c1c081dd53c2d009be4f717313dd905638cc32c"
+  },
+  ".claude/commands/kit-doctor.md": {
+    "merged_sha256": "40646de76e26c018786bddd8326692e160d6f665db89b07d08731941b17cc933",
+    "resolved_at": "2026-10-20T00:38:57.524317+00:00",
+    "template_sha256": "f7f874f7542e50655c298422c4cb383119d5bb394ebd4216fa65444b76d749e5"
+  },
+  ".claude/commands/kit-merge.md": {
+    "merged_sha256": "8cda1005ea89c39e13f1d603c59cec831a32a677ca3dd842cf6781aa73552587",
+    "resolved_at": "2026-10-20T00:38:57.524505+00:00",
+    "template_sha256": "773a1845295e00f9cda0ed5022bb2f9a7bc8aa40746e0b99e70ecd895717106f"
+  },
+  ".claude/commands/kit-usage.md": {
+    "merged_sha256": "0c83a9471cc891f57bd47f5d19083c878839d0b6445ba22f5871dc9a7b7a0288",
+    "resolved_at": "2026-10-20T00:38:57.524678+00:00",
+    "template_sha256": "7324a60771cc4565763f5e1e63a7c0ff2159e8be9dbf98699994bfac87a8da04"
   },
   ".claude/commands/ui-overhaul.md": {
-    "merged_sha256": "ef57d8fe2574d183c37b751a9cf62dfa0c9778216d282d9714d3a87f3d01af79",
-    "resolved_at": "2026-10-18T21:48:14.837763+00:00",
-    "template_sha256": "ab812be763de7d1122062936436b7d6ecd727ac72c65bde4352a66b30aa823d2"
+    "merged_sha256": "f5f6b0c660aee5389aaf81804164904534025b505b232c95f2d70c3f909d5522",
+    "resolved_at": "2026-10-20T00:38:57.524861+00:00",
+    "template_sha256": "4bc860e0c54e4659e41e8e7ef6d3cfa809f4db4d3a8c34923224b7668178fa36"
   },
   ".claude/commands/wrap-up.md": {
     "merged_sha256": "700683d0dc8f47a3ae8c468bbfd305b687b36b51dd5d18e6b56650b241fd9dfd",
-    "resolved_at": "2026-10-18T21:48:14.837985+00:00",
+    "resolved_at": "2026-10-20T00:38:57.525009+00:00",
     "template_sha256": "075c4f2bff6fc5a05aa27ff61a3edbcbb97ae6efabfd4ee35bce048ac6f26152"
   },
+  ".claude/kit/detect-stack.py": {
+    "merged_sha256": "68f531b76b39609f6323085baedf640ab8e792d0a1ab889431b4bb4895d6c8e4",
+    "resolved_at": "2026-10-20T00:38:57.527050+00:00",
+    "template_sha256": "68f531b76b39609f6323085baedf640ab8e792d0a1ab889431b4bb4895d6c8e4"
+  },
   ".claude/live-rules/rules/android-build.md": {
-    "merged_sha256": "4e64d25d651892b6cb9e9b50b2a9284af132bd9a2b7554a97edc1fbc5df60aaa",
-    "resolved_at": "2026-10-18T21:48:14.838200+00:00",
-    "template_sha256": "cc9a3447728ca788564cf0b33df06d90c4b03575ed6863c5094b6336585ca706"
+    "merged_sha256": "2abcdd6ac234a769b2e9e2eb125ccfbde5ab5940c7614013ff27ca1e8665d72a",
+    "resolved_at": "2026-10-20T00:38:57.527279+00:00",
+    "template_sha256": "b792f5a08b202d1423d4e6fcb337fdddd435ece5eaf767384f5a551e0efa4306"
+  },
+  ".claude/live-rules/rules/android-orchestration.md": {
+    "merged_sha256": "889c3387849ac9fef5eff9e49a2acb5f685f677caaf03e634e1528d861a45711",
+    "resolved_at": "2026-10-20T00:38:57.527466+00:00",
+    "template_sha256": "10d6e7a2fea27f2790f980cef94dbbd06baf2afa80a1c0363640a369a2dcf6d8"
+  },
+  ".claude/skills/audit-remediate/SKILL.md": {
+    "merged_sha256": "d243de689f7a58300fded2423700c2e8a31986bc0f1d440e4f42f9eeb74b12bf",
+    "resolved_at": "2026-10-20T00:38:57.527631+00:00",
+    "template_sha256": "d243de689f7a58300fded2423700c2e8a31986bc0f1d440e4f42f9eeb74b12bf"
+  },
+  ".claude/skills/audit-remediate/references/orchestration.md": {
+    "merged_sha256": "4fed6ca9e94e0535a27b99be691537aedaf62b0defa4bc5221bb8ae03332730f",
+    "resolved_at": "2026-10-20T00:38:57.527804+00:00",
+    "template_sha256": "6cf943a95b15bc4cf12c1fa1174c65edfd381f079dba2754d1a932e1401eb282"
   },
   ".claude/skills/compose-design/SKILL.md": {
     "merged_sha256": "6b809a4de8b36e8067bd7f896908527bf5b3b033bc89bf2f2860d96b4f091d12",
     "resolved_at": "2026-10-18T21:48:14.838381+00:00",
     "template_sha256": "8a59180cb7a8181f72380aaa65f1a97c75c57fa0a546f07d07d1d7a21627695f"
+  },
+  ".claude/skills/full-repo-audit/SKILL.md": {
+    "merged_sha256": "65afa4c872a031b92367b69815fefe936ca4091ec4b4855c004aab2082a9bf94",
+    "resolved_at": "2026-10-20T00:38:57.527985+00:00",
+    "template_sha256": "e1724d233e207b39cbfeb5b1b3ace549dc9baf34e65f2c5c68cc10f4584e5a06"
+  },
+  ".claude/skills/full-repo-audit/references/android-kotlin-shizuku.md": {
+    "merged_sha256": "fb009bbd43e77d0683b55e7ed3dcc932698bc278b9986b766ad246196e33fd59",
+    "resolved_at": "2026-10-20T00:38:57.528171+00:00",
+    "template_sha256": "efd642989cfaebe156b0997193db47507035b07d28889ca44a56b16108fb3e90"
+  },
+  ".claude/skills/full-repo-audit/references/orchestration.md": {
+    "merged_sha256": "ba2c3951f0c580c6df3b2fd7ae233275a4e497850a0f4a401921047c08aa8c4b",
+    "resolved_at": "2026-10-20T00:38:57.528355+00:00",
+    "template_sha256": "1e8dee5a5eb52f522191acd23a24af2a804a171d3c6856be1d0aa7765a13069e"
   }
 }

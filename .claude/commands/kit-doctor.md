@@ -23,3 +23,9 @@ Run inline. No installation, enablement changes, imported hooks or inference.
 7. Return PASS/WARN/BLOCKED with specific actions. Gateway-backed sets need gateway readiness;
    gateway-off sets must not start it. Remote Control still requires compatible native transport,
    account login and runtime eligibility. No account/quota/inference guarantee follows from files.
+
+## Machine resources
+
+Run `python3 .claude/kit/resource-policy.py` from the project root and report RAM/available memory, effective CPU capacity, swap, disk, KVM access, warnings and recommended Gradle limits. With `--fix-resources` in the user request, run the helper with `--apply` to refresh only its generated resource-policy.json. This flag authorizes that file write; all other doctor checks remain read-only. Re-run after host resizing or moving machines. Follow the current policy for subsequent Gradle commands; never treat it as a ticket/agent dispatch cap. Unsupported probes are unknown, not successful checks. Report conflicting customized rules for kit-merge instead of rewriting them. Do not run maintenance during a blind audit.
+
+Check that escalation resolves to Opus/xhigh and code review to Opus/high. Report older model aliases, effort caps or environment overrides that lower effective effort; never claim requested effort proves actual runtime effort. Do not bypass organization limits.

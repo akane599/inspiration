@@ -31,6 +31,8 @@ Do not remove or relocate audit/remediation skills, kit metadata or project inst
    - **Priority 3:** Dead code removal and structural refactors.
 
 ### 2. Per-Finding Fix Cycle (Repeat for Each Target Finding)
+Run this cycle concurrently for all independent ready findings in separately owned worktrees. Priority orders dispatch when native capacity is full; it is not a barrier between independent findings. Preserve the ordered steps within each finding and serialize shared report/integration writes.
+
 For each finding `[ID]`:
 1. **Re-Verify Context:** Read the target file(s) and run `rg` on every symbol you plan to modify to ensure no callers are broken by signature or behavior changes.
 2. **Implement the Fix:** Apply the minimal, production-grade code change that resolves the root cause (not a superficial symptom band-aid).

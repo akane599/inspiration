@@ -14,7 +14,7 @@
     },
     {
       "path": "rules/android-build.md",
-      "hash": "6560954505c11d88ef996b9512610a8a44c33f32dbd02917f8d26e37e1e6456e",
+      "hash": "2abcdd6ac234a769b2e9e2eb125ccfbde5ab5940c7614013ff27ca1e8665d72a",
       "description": "Android build, test and dependency rules",
       "globs": [],
       "dirs": [],
@@ -36,8 +36,8 @@
     },
     {
       "path": "rules/android-orchestration.md",
-      "hash": "0dc2d22391c358024a96a937b84703f186d11c2959e3bfef82142aab09a7dd75",
-      "description": "Android ticket ownership, verification and mixed Claude/GPT routing through Sidequest profile android-kit-hybrid",
+      "hash": "889c3387849ac9fef5eff9e49a2acb5f685f677caaf03e634e1528d861a45711",
+      "description": "Android ticket ownership, verification and native Claude routing through Sidequest profile android-kit-claude-max",
       "globs": [],
       "dirs": [],
       "prompt": [],
