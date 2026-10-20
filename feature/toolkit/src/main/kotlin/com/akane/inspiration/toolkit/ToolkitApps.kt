@@ -40,6 +40,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.produceState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.ImageBitmap
@@ -67,7 +68,7 @@ import java.util.Locale
 
 // ---- picker --------------------------------------------------------------------------------------
 
-/** [enabled] is false while a request is in flight: opening an app then would drop it (N-16). */
+/** [enabled] is false while a request is in flight: opening an app then would drop it (N-16), so the rows are dimmed. */
 internal fun LazyGridScope.appsSection(
     apps: AppsSection,
     enabled: Boolean,
@@ -139,6 +140,9 @@ private fun NoApps(apps: AppsSection) {
     )
 }
 
+/** Material's disabled-content opacity: a row that can't be opened while busy (N-16) looks it. */
+private const val DISABLED_ROW_ALPHA = 0.38f
+
 @Composable
 private fun AppRow(
     app: AppItem,
@@ -151,6 +155,7 @@ private fun AppRow(
         modifier =
             Modifier
                 .fillMaxWidth()
+                .alpha(if (enabled) 1f else DISABLED_ROW_ALPHA)
                 .clip(MaterialTheme.shapes.medium)
                 .clickable(enabled = enabled, role = Role.Button, onClick = onOpen)
                 .heightIn(min = spacing.xxl)

@@ -105,6 +105,9 @@ internal object ToolkitPreviewData {
 
     val customDoze = ready.copy(doze = custom)
 
+    /** A doze apply or a restore in flight: the app rows can't be opened, and look it (N-16). */
+    val busy = ready.copy(busy = true)
+
     val dexoptRunning =
         ready.copy(
             dexopt =

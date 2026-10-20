@@ -2,7 +2,10 @@ package com.akane.inspiration.toolkit
 
 import android.content.res.Configuration
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.runtime.Composable
@@ -67,6 +70,15 @@ private fun OverridesBody(state: ToolkitState) {
     Surface(color = MaterialTheme.colorScheme.background) {
         Box(modifier = Modifier.padding(MaterialTheme.spacing.md)) {
             OverridesCard(state = state, onIntent = {}, timeZone = Utc)
+        }
+    }
+}
+
+@Composable
+private fun AppsBody(state: ToolkitState) {
+    Surface(color = MaterialTheme.colorScheme.background) {
+        LazyVerticalGrid(columns = GridCells.Fixed(1), contentPadding = PaddingValues(MaterialTheme.spacing.md)) {
+            appsSection(state.apps, enabled = !state.busy, onIntent = {}, loadIcon = { null })
         }
     }
 }
@@ -183,6 +195,16 @@ fun ToolkitReadyTurkish() = InspirationTheme(darkTheme = false) { Screen(Toolkit
 @Preview(name = "doze-custom-dark", showBackground = true, widthDp = 412, heightDp = 900, uiMode = Configuration.UI_MODE_NIGHT_YES)
 @Composable
 fun ToolkitDozeCustom() = InspirationTheme(darkTheme = true) { Screen(ToolkitPreviewData.customDoze) }
+
+@PreviewTest
+@Preview(name = "apps-busy-360", showBackground = true, widthDp = 360, heightDp = 460)
+@Composable
+fun ToolkitAppsBusy() = InspirationTheme(darkTheme = false) { AppsBody(ToolkitPreviewData.busy) }
+
+@PreviewTest
+@Preview(name = "apps-busy-dark", showBackground = true, widthDp = 412, heightDp = 460, uiMode = Configuration.UI_MODE_NIGHT_YES)
+@Composable
+fun ToolkitAppsBusyDark() = InspirationTheme(darkTheme = true) { AppsBody(ToolkitPreviewData.busy) }
 
 @PreviewTest
 @Preview(name = "reset-report", showBackground = true, widthDp = 412, heightDp = 1500)

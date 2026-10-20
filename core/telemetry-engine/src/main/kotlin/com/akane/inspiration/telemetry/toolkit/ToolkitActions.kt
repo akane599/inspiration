@@ -1213,11 +1213,13 @@ class ToolkitActions internal constructor(
             val name = pkg ?: continue
             val ops = if (group.any { it.kind == KIND_APPOP }) readAppOps(name) else null
             val bucket = if (group.any { it.kind == KIND_BUCKET }) readBucket(name) else null
+            val opsRead = (ops as? ToolkitOutcome.Done)?.value
+            val bucketRead = (bucket as? ToolkitOutcome.Done)?.value
             for (row in group) {
                 val current =
                     when (row.kind) {
-                        KIND_APPOP -> (ops as? ToolkitOutcome.Done)?.value?.modes?.get(AppOp.entries.firstOrNull { it.argv == row.op })
-                        else -> (bucket as? ToolkitOutcome.Done)?.value?.raw?.toString()
+                        KIND_APPOP -> opsRead?.modes?.get(AppOp.entries.firstOrNull { it.argv == row.op })
+                        else -> bucketRead?.raw?.toString()
                     }
                 val override =
                     if (current != null) {
@@ -1225,7 +1227,8 @@ class ToolkitActions internal constructor(
                     } else {
                         unverifiedOverride(row, if (row.kind == KIND_APPOP) ops else bucket, rows)
                     }
-                override?.let { result += it }
+                val protectedApp = (if (row.kind == KIND_APPOP) opsRead?.protection else bucketRead?.protection) != null
+                override?.let { result += if (protectedApp && !undoLifts(it)) it.copy(restorable = false) else it }
             }
         }
         candidates.firstOrNull { it.kind == KIND_DOZE }?.let { row ->
@@ -1363,6 +1366,29 @@ class ToolkitActions internal constructor(
             sinceMs = row.endedAt ?: row.startedAt,
             restorable = isRestorable(row, original),
         )
+
+    /**
+     * Whether undoing [override] (writing its chain original over the value read now) only lifts a restriction
+     * ([RestrictionLift]), the one write a protected app takes (N-06). A lift of ours made before the app became
+     * protected fails this: its undo would restrict a protected app again, so it is listed but not restorable while
+     * the app stays protected, and its restore and Reset all are refused as PROTECTED_APP without a write.
+     */
+    private fun undoLifts(override: Override): Boolean =
+        when (override.kind) {
+            OverrideKind.APP_OP -> {
+                override.previousRaw?.let { modeOf(it) }?.let { RestrictionLift.appOp(it) } == true
+            }
+
+            OverrideKind.BUCKET -> {
+                val target = StandbyBucket.entries.firstOrNull { it.rawValue.toString() == override.previousRaw }
+                val current = override.currentRaw?.toIntOrNull()
+                target != null && current != null && RestrictionLift.bucket(target, current)
+            }
+
+            OverrideKind.DOZE -> {
+                true
+            }
+        }
 
     /** Whether [restoreAction] could turn the chain original [original] back into an action. */
     private fun isRestorable(

@@ -12,6 +12,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -33,6 +34,7 @@ import com.akane.inspiration.ipc.toolkit.DozeProfile
 import com.akane.inspiration.telemetry.store.ToolkitActionStatus
 import com.akane.inspiration.telemetry.toolkit.BgDexoptStatus
 import kotlinx.collections.immutable.ImmutableList
+import java.time.ZoneId
 import java.util.TimeZone
 
 // ---- doze ----------------------------------------------------------------------------------------
@@ -247,7 +249,7 @@ private fun DexoptStatusLine(
     ) {
         LineDot(color = color)
         Text(
-            text = dexoptStatusText(status, format, timeZone.toZoneId()),
+            text = dexoptStatusText(status, format, rememberZoneId(timeZone)),
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurface,
             modifier = Modifier.padding(start = MaterialTheme.spacing.sm),
@@ -266,7 +268,7 @@ internal fun OverridesCard(
 ) {
     val spacing = MaterialTheme.spacing
     val format = rememberTelemetryFormat()
-    val zone = timeZone.toZoneId()
+    val zone = rememberZoneId(timeZone)
     InspirationCard(modifier = modifier.fillMaxWidth()) {
         Column(verticalArrangement = Arrangement.spacedBy(spacing.md)) {
             CardTitle(stringResource(R.string.toolkit_overrides_title))
@@ -395,7 +397,7 @@ internal fun HistoryCard(
 ) {
     val spacing = MaterialTheme.spacing
     val format = rememberTelemetryFormat()
-    val zone = timeZone.toZoneId()
+    val zone = rememberZoneId(timeZone)
     InspirationCard(modifier = modifier.fillMaxWidth()) {
         Column(verticalArrangement = Arrangement.spacedBy(spacing.md)) {
             CardTitle(stringResource(R.string.toolkit_history_title))
@@ -429,6 +431,10 @@ private fun HistoryRow(
         }
     }
 }
+
+/** [timeZone] as a `ZoneId`, converted once per time zone rather than on every recomposition. */
+@Composable
+private fun rememberZoneId(timeZone: TimeZone): ZoneId = remember(timeZone) { timeZone.toZoneId() }
 
 @Composable
 private fun ToolkitActionStatus.dotColor(): Color =
