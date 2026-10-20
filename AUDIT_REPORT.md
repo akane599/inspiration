@@ -37,7 +37,7 @@
 
 Severity and verdict come from a separate validation pass (fresh contexts) over each reviewer's candidates. "CONFIRMED" means the code path was re-traced independently. "PLAUSIBLE" means the code path was confirmed, but a framework or timing precondition could not be observed on the device.
 
-### R-01 [MEDIUM] Application UIDs absent from the reference snapshot are always invalid and disappear from X-Ray, the rules and Sleep Lab
+### R-01 [MEDIUM] Application UIDs absent from the reference snapshot are always invalid and disappear from X-Ray, the rules and Sleep Lab [FIXED in 6023c28]
 - **Category:** Logic Bug · **Verdict:** PLAUSIBLE (code path confirmed; completeness of Android 15 `BatteryUsageStats` per-UID output not compared on the device)
 - **Location:** `core/telemetry-engine/src/main/kotlin/com/akane/inspiration/telemetry/diff/SnapshotDiffer.kt:224-235, 258-260, 302-304`
   - Capture side: `.../telemetry/capture/SnapshotCapturer.kt:136, 156-187`
@@ -65,7 +65,7 @@ Severity and verdict come from a separate validation pass (fresh contexts) over 
   ```
   Update `SnapshotDifferTest.kt:68` to expect the newly observed UID to be valid when the reference membership is complete, and keep it invalid when `truncatedUids > 0` or the scope is unknown. Separately, surface the skipped-row count in X-Ray ("N apps hidden: no baseline").
 
-### R-02 [MEDIUM] A force-stop resets AlarmManager per-package stats, which invalidates the app's whole delta, energy included
+### R-02 [MEDIUM] A force-stop resets AlarmManager per-package stats, which invalidates the app's whole delta, energy included [FIXED in a75f869]
 - **Category:** Logic Bug · **Verdict:** CONFIRMED (code path); the AlarmManagerService reset on `ACTION_PACKAGE_RESTARTED` comes from AOSP source knowledge, because a force-stop on the device would change state
 - **Location:** `core/telemetry-engine/src/main/kotlin/com/akane/inspiration/telemetry/diff/SnapshotDiffer.kt:37-39, 219, 293-304, 480-491`
   - Data source: `.../capture/SnapshotCapturer.kt:155, 263-272`
@@ -86,7 +86,7 @@ Severity and verdict come from a separate validation pass (fresh contexts) over 
   ```
   Update the test "negative alarm dump wakeup delta invalidates only that uid delta" to expect energy to be kept and the alarm-dump detail to be dropped.
 
-### R-03 [MEDIUM] The "since screen off" (night) interval can never be evaluated by Sensor Leak, Night Vampire or Awake Violation
+### R-03 [MEDIUM] The "since screen off" (night) interval can never be evaluated by Sensor Leak, Night Vampire or Awake Violation [FIXED in d3fe19e, 8b9d9c3]
 - **Category:** Logic Bug / Architecture · **Verdict:** CONFIRMED (no real overnight data on the device)
 - **Location:**
   - Capture policy: `app/src/main/kotlin/com/akane/inspiration/capture/CapturePolicy.kt:26-29`, locked by `app/src/test/.../capture/CapturePolicyTest.kt:13-20`
@@ -106,7 +106,7 @@ Severity and verdict come from a separate validation pass (fresh contexts) over 
   - Add a rule-engine fixture shaped like a real SinceScreenOff interval.
   - Note that on API 34+ context-registered broadcasts to a cached process are deferred, so FULL screen captures only help while the process isn't cached. The status FGS keeps it uncached when enabled.
 
-### R-04 [LOW] Toolkit discards the outcome of an in-flight privileged write when the screen stops (rotation, screen-off, tab switch)
+### R-04 [LOW] Toolkit discards the outcome of an in-flight privileged write when the screen stops (rotation, screen-off, tab switch) [FIXED in d33d3f2]
 - **Category:** Logic Bug · **Verdict:** CONFIRMED
 - **Location:** `feature/toolkit/src/main/kotlin/com/akane/inspiration/toolkit/ToolkitViewModel.kt`
   - `:91-98` `invalidatePlanning` (unconditional `generation++`)
@@ -133,7 +133,7 @@ Severity and verdict come from a separate validation pass (fresh contexts) over 
   ```
   Add a ViewModel test: a confirmed ForceStop suspended in the gateway, then `Hidden` → `Visible`, completed with `Failed`, asserting that the notice is shown.
 
-### R-05 [LOW] A privileged write that went through, but whose audit update then failed, is reported as "The command failed."
+### R-05 [LOW] A privileged write that went through, but whose audit update then failed, is reported as "The command failed." [FIXED in 9af80a6, ae4976a]
 - **Category:** Logic Bug · **Verdict:** CONFIRMED
 - **Location:**
   - `core/telemetry-engine/src/main/kotlin/com/akane/inspiration/telemetry/toolkit/ToolkitActions.kt:700-720` (NonCancellable block: only `write` has try/catch; `settle` at :714, RESTORED update at :716), plus `:799, 807, 816, 821, 826, 845` (`audit.update`)
@@ -152,7 +152,7 @@ Severity and verdict come from a separate validation pass (fresh contexts) over 
   ```
   In both ViewModels, map a post-dispatch exception to the existing "sent, but couldn't be confirmed" notice (`Problem.Unavailable(UNVERIFIED)`). Keep `CALL_FAILED` for planning failures. Update the existing test "a write whose audit row cannot be stored says it failed" only for the pre-dispatch case.
 
-### R-06 [LOW] Turning the status-notification switch on then off before `startForeground` runs crashes the app process
+### R-06 [LOW] Turning the status-notification switch on then off before `startForeground` runs crashes the app process [FIXED in 4d1562b]
 - **Category:** Concurrency · **Verdict:** PLAUSIBLE (crash path confirmed in the device's `services.jar`; no live reproduction, which would need UI input)
 - **Location:**
   - `app/src/main/kotlin/com/akane/inspiration/status/StatusNotificationController.kt:19-30` (start :25, stop :26)
@@ -175,7 +175,7 @@ Severity and verdict come from a separate validation pass (fresh contexts) over 
   StatusNotificationController.startPending = false
   ```
 
-### R-07 [LOW] Command output still undrained when the 1 s reader join times out is reported as complete, which weakens the protected-package gate
+### R-07 [LOW] Command output still undrained when the 1 s reader join times out is reported as complete, which weakens the protected-package gate [FIXED in c986af1]
 - **Category:** Security · **Verdict:** PLAUSIBLE (code path confirmed; needs more than 1 s of reader-thread starvation, not reproduced). Note that the two original reviewers disagreed on reachability; the validator confirmed that data written before exit can remain in the pipe after `waitFor` returns.
 - **Location:**
   - `core/shizuku-ipc/src/main/kotlin/com/akane/inspiration/ipc/toolkit/CommandRunner.kt:124-145` (`awaitExit` / `output`), `:41` (`complete`), `:186` (`READER_JOIN_MS = 1_000L`)
@@ -199,7 +199,7 @@ Severity and verdict come from a separate validation pass (fresh contexts) over 
   ```
   Add a `ProcessCommandRunnerTest` case with a fake process whose stdout never reaches EOF after `waitFor` returns true, asserting `!output.complete`.
 
-### R-08 [LOW] The Shizuku UserService bind runs as a two-way binder transaction on Main under `bindingLock`, which IO threads also hold during their own transactions
+### R-08 [LOW] The Shizuku UserService bind runs as a two-way binder transaction on Main under `bindingLock`, which IO threads also hold during their own transactions [FIXED in 2ca53b2, 5385305]
 - **Category:** Performance / Concurrency · **Verdict:** CONFIRMED (two-way transaction codes 12/13 verified by javap on the Shizuku 13.1.5 jars; latency not measured)
 - **Location:** `core/shizuku-ipc/src/main/kotlin/com/akane/inspiration/ipc/ShizukuManagerImpl.kt`
   - `:299-305` `holdBinding`
@@ -218,7 +218,7 @@ Severity and verdict come from a separate validation pass (fresh contexts) over 
   ```
   Cache `applicationInfoProvider.load()` with `by lazy`, and move `MainActivity.onStart`'s `refresh()` onto `applicationScope`.
 
-### R-09 [LOW] Cockpit mAh/h divides whole-interval battery-stats counters by history time that may cover only part of the interval
+### R-09 [LOW] Cockpit mAh/h divides whole-interval battery-stats counters by history time that may cover only part of the interval [FIXED in d676100]
 - **Category:** Logic Bug · **Verdict:** CONFIRMED (the reachable window is narrower and more transient than the original worked example)
 - **Location:**
   - `feature/dashboard/src/main/kotlin/com/akane/inspiration/dashboard/CockpitMappers.kt:120-148` (`mahPerHour` at :145)
@@ -238,7 +238,7 @@ Severity and verdict come from a separate validation pass (fresh contexts) over 
   ```
   Add a `CockpitMappersTest` case with `unknownMs > 0`.
 
-### R-10 [LOW] Tapjacking guard: partially covered windows pass, and API 31+ overlay hiding is not used
+### R-10 [LOW] Tapjacking guard: partially covered windows pass, and API 31+ overlay hiding is not used [FIXED in 8d287e5]
 - **Category:** Security (hardening) · **Verdict:** PLAUSIBLE (API semantics; not exercised with a real overlay app)
 - **Location:**
   - `feature/toolkit/src/main/kotlin/com/akane/inspiration/toolkit/ToolkitTouchGuard.kt:96-103, 119`
@@ -249,7 +249,7 @@ Severity and verdict come from a separate validation pass (fresh contexts) over 
 - **Failure scenario:** An app with "Display over other apps" rewrites the "Force stop <app>?" dialog text and leaves the red confirm button visible. The user's tap performs a force stop, restriction or doze change they didn't intend. Impact is bounded: actions are reversible, and protected/system packages are hard-denied.
 - **Concrete fix:** declare `<uses-permission android:name="android.permission.HIDE_OVERLAY_WINDOWS"/>` (a normal permission, minSdk 31), and call `window.setHideOverlayWindows(true)` in `MainActivity.onCreate`, or at least while a privileged confirmation is shown. Blocking on `FLAG_WINDOW_IS_PARTIALLY_OBSCURED` is not recommended, because it would also block screen dimmers and chat heads.
 
-### R-11 [LOW] A handle drag ending near the window edge moves the edge the user didn't drag
+### R-11 [LOW] A handle drag ending near the window edge moves the edge the user didn't drag [FIXED in b96bde2]
 - **Category:** Logic Bug · **Verdict:** CONFIRMED (walked through with exact values)
 - **Location:** `core/designsystem/src/main/kotlin/com/akane/inspiration/designsystem/chart/math/ScrubGestureReducer.kt:280-293`, `.../chart/math/SeriesMath.kt:69-76`
   - Commit path: `chart/scrub/ScrubGestures.kt:209-221` → `feature/dashboard/.../CockpitChartCard.kt:47` → `CockpitViewModel.kt:270-276`
@@ -268,7 +268,7 @@ Severity and verdict come from a separate validation pass (fresh contexts) over 
   ```
   Add reducer tests with `other` within `minSelectionMs` of each window bound.
 
-### R-12 [LOW] Cockpit marker creation is not tracked as a job, so a dismissed sheet's completion lands on a reopened sheet
+### R-12 [LOW] Cockpit marker creation is not tracked as a job, so a dismissed sheet's completion lands on a reopened sheet [FIXED in ae1da72]
 - **Category:** Concurrency · **Verdict:** CONFIRMED
 - **Location:** `feature/dashboard/src/main/kotlin/com/akane/inspiration/dashboard/CockpitViewModel.kt:110, 123, 278-282, 301-316`; `CockpitState.kt:114-121`; `app/.../capture/MarkerCapture.kt:10-21`; `AppContainer.kt:228-233`
 - **Root cause:**
@@ -283,7 +283,7 @@ Severity and verdict come from a separate validation pass (fresh contexts) over 
   // openMarkers: MarkerSheetUi.loading(selected).copy(creating = markJob?.isActive == true)
   ```
 
-### R-13 [LOW] `forSelection` re-labels only a stale `Ready`, so the previous selection's `Empty`/`Failed` briefly shows for a new selection
+### R-13 [LOW] `forSelection` re-labels only a stale `Ready`, so the previous selection's `Empty`/`Failed` briefly shows for a new selection [FIXED in eb7e39c]
 - **Category:** Concurrency · **Verdict:** PLAUSIBLE (logic certain; whether a frame renders the stale state was not observed)
 - **Location:** `core/diagnostics/src/main/kotlin/com/akane/inspiration/diagnostics/analysis/AnalysisSession.kt:37-45, 70-78`
   - Consumers: `CockpitViewModel.kt:91-97`, `XRayViewModel.kt:169-180`, `SleepLabViewModel.kt:109-120`
@@ -292,7 +292,7 @@ Severity and verdict come from a separate validation pass (fresh contexts) over 
 - **Failure scenario:** After clearing a slice that had no data, the "no data" or error card (with Retry) flashes for the new selection. Sleep Lab also resets the hypnogram.
 - **Concrete fix:** `data class Empty(val kind: ReferenceKind)` and `data class Failed(val message: String, val kind: ReferenceKind)`, then map any non-Loading state whose kind differs to `Loading`. Replace the test at line 92.
 
-### R-14 [LOW] The status notification can miss the redraw after a capture: it subscribes to ticks only after its first redraw
+### R-14 [LOW] The status notification can miss the redraw after a capture: it subscribes to ticks only after its first redraw [FIXED in e3e4a05]
 - **Category:** Logic Bug · **Verdict:** PLAUSIBLE (ordering confirmed; impact small)
 - **Location:** `app/src/main/kotlin/com/akane/inspiration/status/StatusNotificationService.kt:94-99`; `.../status/StatusTicks.kt:14-27` (`MutableSharedFlow(extraBufferCapacity = 1, DROP_OLDEST)`, no replay); `app/.../capture/BootCaptureReceiver.kt:12-29` (no `emitAfter`)
 - **Failure scenario:** The app-open FULL capture finishes while the service is doing its first redraw, so the tick is dropped. The notification shows pre-capture figures until the next screen or charger event. The missing BOOT tick has negligible content impact.
@@ -302,44 +302,44 @@ Severity and verdict come from a separate validation pass (fresh contexts) over 
   ```
   Optionally wrap the boot capture in `statusTicker.emitAfter { … }`.
 
-### R-15 [LOW] Every analysis loads and maps the entire retained battery history (up to 30 days), whatever the interval
+### R-15 [LOW] Every analysis loads and maps the entire retained battery history (up to 30 days), whatever the interval [FIXED in 94ebe7c, bd60aed]
 - **Category:** Performance · **Verdict:** CONFIRMED (row count on real devices not measured; redroid has 11 rows)
 - **Location:** `core/diagnostics/.../analysis/IntervalAnalyzer.kt:41` → `core/telemetry-engine/.../diff/ReferenceResolver.kt:88-92` (`store.historyBetween(0, nowWallMs).filter{…}.sortedBy{…}`) → `core/database/.../store/RoomSnapshotStore.kt:154-157`, `Daos.kt:230-231`; retention is 30 days (`RetentionPrune.kt:6`)
 - **Root cause:** `historyBetween(0, now)` runs on every selection change, store tick, `recompute()` and resubscribe. The interval walk only needs the last state of each kind before `from`, which the timeline path already gets through `lastHistoryOfEachKindBefore` plus a windowed query (`AppContainer.kt:197-203`).
 - **Failure scenario:** After weeks of use, every app open and tab switch scans and allocates tens of thousands of rows before the story appears. This is avoidable CPU and GC work in an app that promises "zero observer effect".
 - **Concrete fix:** seed the metrics with `store.lastHistoryOfEachKindBefore(from) + store.historyBetween(from, now)`, and add indexed newest-of-kind queries (UNPLUGGED, SCREEN_ON, the off→on pair) for the resolver anchors.
 
-### R-16 [LOW] Test gap: touch-guard modifier wiring and single-target writes across Hidden → Visible are untested
+### R-16 [LOW] Test gap: touch-guard modifier wiring and single-target writes across Hidden → Visible are untested [FIXED in 9b56671, d33d3f2]
 - **Category:** Test Gap · **Verdict:** PLAUSIBLE
 - **Location:** `feature/toolkit/.../ToolkitTouchGuard.kt:78-119` and `feature/xray/.../XRayTouchGuard.kt:78-119` (near-identical copies); `*/src/test/.../ObscuredTouchGateTest.kt` covers only the pure gate; `ToolkitViewModelTest.kt:1104-1119` covers only ResetAll across Hidden.
 - **Risk:** reading `motionEvent.flags`, consuming at `PointerEventPass.Initial`, and children then not firing is the security-relevant part. A regression there leaves every test green. R-04 shipped for the same reason.
 - **Fix:** add a Robolectric Compose UI test that dispatches `MotionEvent.obtain(...).apply { setFlags(FLAG_WINDOW_IS_OBSCURED) }` to a guarded clickable and asserts no click plus one notice, and that a click without the flag goes through. Move the duplicated guard into `:core:designsystem` so one test covers both. Add the R-04 ViewModel test.
 
-### R-17 [LOW] Test gap: no automated release (R8) gate, and the service class name is a string literal
+### R-17 [LOW] Test gap: no automated release (R8) gate, and the service class name is a string literal [FIXED in bfa5311]
 - **Category:** Test Gap · **Verdict:** PLAUSIBLE (keep rules are complete today)
 - **Location:** `app/build.gradle.kts:45-51` (minify + shrink); `core/shizuku-ipc/src/main/kotlin/com/akane/inspiration/ipc/ShizukuManagerImpl.kt:496, 579-580`; `core/shizuku-ipc/consumer-rules.pro`; `core/telemetry-engine/consumer-rules.pro`
 - **Evidence:** `:app:assembleRelease` passes at this revision. The mapping keeps `TelemetryUserService` (both constructors in `seeds.txt`) and `ITelemetryUserService$Stub` unrenamed, and protobuf-lite, HiddenApiBypass and Shizuku rules are all present in `configuration.txt`. The validator found no reflection target without a keep rule. But no build-logic task or documented command builds or smoke-tests the minified APK, and nothing ties the string `"com.akane.inspiration.ipc.service.TelemetryUserService"` to the class.
 - **Failure scenario:** a rename or move of the service, or a new reflective path, breaks only the release build, at the moment Shizuku binds.
 - **Fix:** use `TelemetryUserService::class.java.name` (same module) or pin the string with a unit test. Add `:app:assembleRelease` (or `minifyReleaseWithR8`) to the documented gate, plus an optional release smoke probe on redroid.
 
-### R-18 [LOW] Test gap: the toolkit chain logic is never run against the real retention prune SQL
+### R-18 [LOW] Test gap: the toolkit chain logic is never run against the real retention prune SQL [FIXED in 8e7a5fb]
 - **Category:** Test Gap · **Verdict:** PLAUSIBLE (the predicates agree today; checked case by case)
 - **Location:** `core/telemetry-engine/src/test/.../toolkit/ToolkitActionsFakes.kt:39-69` (FakeAudit never prunes); `core/database/src/main/kotlin/com/akane/inspiration/database/Daos.kt:299-318, 336-338` (hand-written SQL); `core/telemetry-engine/.../toolkit/ToolkitActions.kt:1126-1143, 1924, 1947` (Kotlin predicates)
 - **Risk:** the SQL is a second copy of `changedTarget`/`landedElsewhere`, and the status literals (`'pending'`, `'done'`, …) are hard-coded. Drift would silently delete chain links older than 500 rows, and Reset all would then restore an intermediate value.
 - **Fix:** add a table-driven parity test in `:core:database` (status × kind × before/after, past 500 rows) asserting that the retained rows are a superset of `changedTarget(row)`. Build the SQL literals from `ToolkitActionStatus.*.code`.
 
-### R-19 [LOW] Wall-clock deadline tests with about 230 ms of headroom on a memory-constrained host
+### R-19 [LOW] Wall-clock deadline tests with about 230 ms of headroom on a memory-constrained host [FIXED in 8faa207]
 - **Category:** Test Gap (flaky pattern) · **Verdict:** PLAUSIBLE (no flake observed)
 - **Location:** `core/telemetry-engine/src/test/kotlin/com/akane/inspiration/telemetry/source/AndroidTelemetrySourceDeadlineTest.kt:91-123, 157-180, 198-215, 217-232, 509, 854-862`
 - **Evidence:** the baseline run recorded 0.867 s and 0.890 s against an 1100 ms bound (kernel), 0.441 s against 800 ms (capture), and 0.491 s against 950 ms (ingest). The timer includes dispatch to `Dispatchers.Default`. A second window exists: the test thread's `delay(600)` must finish before the production 800 ms deadline, or `transaction.entered.await(2s)` fails.
 - **Fix:** bound each assertion by the failure it guards against: kernel `< ACQUISITION + DEADLINE` (1400) with `KERNEL_ACQUISITION_MS` around 300, and capture `< usageMs` (1500). Better still, drive `elapsedMs` from the `TestCoroutineScheduler`. Keep the `transaction.finished.count == 1` oracle.
 
-### R-20 [LOW] `core/diagnostics` test gaps on the hidden-API failure path and a locked-in stale state
+### R-20 [LOW] `core/diagnostics` test gaps on the hidden-API failure path and a locked-in stale state [FIXED in 029e0c7, eb7e39c]
 - **Category:** Test Gap · **Verdict:** PLAUSIBLE (2 of 4 sub-claims confirmed)
 - **Location:** `core/diagnostics/src/test/.../sensor/AndroidSensorCatalogTest.kt` (no test for the `ReflectiveOperationException`/`SecurityException`/`ClassCastException` branches at `AndroidSensorCatalog.kt:40-48`); `AnalysisSessionTest.kt:92` (locks in R-13).
 - **Fix:** add a Robolectric shadow whose `Sensor.getHandle` throws, and assert the OTHER classification and a single log line. Replace the R-13 test as described there.
 
-### R-21 [LOW] `ChargingCaptureRunnerTest` contains an assertion that can never fail
+### R-21 [LOW] `ChargingCaptureRunnerTest` contains an assertion that can never fail [FIXED in a2340f9]
 - **Category:** Test Gap · **Verdict:** CONFIRMED
 - **Location:** `app/src/test/kotlin/com/akane/inspiration/capture/ChargingCaptureRunnerTest.kt:11-35`; runner `app/src/main/kotlin/com/akane/inspiration/capture/ChargingCaptureRunner.kt:17-29`
 - **Root cause:** `capture = { captureStarted = true; awaitCancellation(); savedTriggers += "CHARGE_JOB" }`. `awaitCancellation()` never returns normally, so `assertEquals(emptyList<String>(), savedTriggers)` cannot fail. The `pruned == false` assertion is still meaningful.
@@ -575,3 +575,39 @@ No application-code commit landed after `ec4a0d4`, so all 16 follow-ups remain a
 
 ### Post-freeze observations (not investigated)
 - None beyond follow-up 15, re-confirmed in source and listed above as delta-only.
+
+---
+
+## Remediation log (2026-10-20, branch `remediate/audit-2026-10-20`)
+
+R-01 to R-21 were all fixed, one or two atomic commits per finding, on top of `cb49e65`. Each fix was made in an isolated worktree, with a regression test written first (it failed before the fix where the code shape allowed it). Each fix passed its modules' unit tests and was integrated by cherry-pick. Independent read-only reviews of R-04, R-05, R-06, R-08 and R-15 found three low defects (in R-05, R-08 and R-15); each got a follow-up commit, listed in its finding's heading.
+
+**Design decisions**
+- **R-03 (user decision):** the night window is unchanged; it still ends at the first snapshot at or after the history SCREEN_ON. The rule gate now accepts screen-on time up to `CAPTURE_SLACK_MS` (10 s), with `unknownMs == 0` still required.
+  - SCREEN_OFF takes a FULL capture without history ingest, binding the service on demand if it isn't running (6 s deadline, LIGHT fallback).
+  - SCREEN_ON does the same only after a screen-off period of 30 min or more; otherwise it captures FULL if the service is warm, LIGHT if not.
+  - Cost: one bind plus one FULL read per screen-off, and one more of each after a long screen-off.
+  - A first design that ended the window before SCREEN_ON was dropped: on most nights no snapshot lies inside the screen-off period, so the night view would have lost its figures.
+- **R-15:** Room schema v5 → v6, adding an index-only migration with index `history_event(kind, wallMs)`. A migration test opens a real v5 database.
+- **R-16:** the duplicated touch guard now lives in `:core:designsystem` (`component/ObscuredTouchGuard.kt`). Its UI test adds `testImplementation(libs.robolectric)` to that module; the library is already in the catalog and used by three other modules.
+- **R-05:** when one item of Reset all throws, only that item reports Failed.
+- **R-12:** a reopened marker sheet shows the outcome of the capture still running from before it was closed.
+
+**Final gate at `8b9d9c3`**
+- `testDebugUnitTest lintDebug validateDebugScreenshotTest --max-workers=8` exited 0:
+  - 1,796 unit tests, 0 failing (baseline 1,732);
+  - 185 screenshot references, all valid;
+  - `:app` lint: 0 errors, 7 warnings (baseline 7).
+- `:app:assembleRelease --max-workers=8` exited 0. The mapping keeps `TelemetryUserService` and `ITelemetryUserService$Stub` unrenamed.
+
+**Not verified**
+- **No device run of the remediated build.** Redroid holds the signed 0.2.4 release, and this host's `assembleRelease` produced only `app-release-unsigned.apk`. A debug install can't upgrade over a release signature, so the v5 → v6 migration, the R-08 binding rework and the R-03 screen captures still need the `release` skill's same-key upgrade check (`upgrade-check.sh`).
+- **R-06 and R-10 have no Robolectric or UI test.** `:app` has no Robolectric. R-06 is covered by JVM tests of `StatusStartDecision`.
+
+**Open follow-ups (not part of R-01 to R-21)**
+- Show the skipped-row count (`skippedInvalidUids`) in X-Ray (R-01).
+- The delta-only `batterySupplyDirectory` `scope=Device` item (follow-up 15).
+- §3 dead-code cleanup.
+- `ToolkitExecutor` value reads (`readBucket`, doze `settingValue`) check `ok` but not `complete`.
+- Analysis reads aren't wrapped in one read transaction (a short mixed view is possible during an ingest).
+- R-08: Shizuku 13.1.5's unsynchronised stub cache, and binder calls still made on Main outside bind/unbind (permission and ping).
