@@ -36,7 +36,7 @@ Durations and deadlines use `elapsedRealtime`, never wall-clock differences: ret
 
 ## Persistence boundaries
 
-`RoomSnapshotStore` writes a snapshot and its child tables inside a transaction. Room is configured for WAL, schema export is enabled, and marker foreign keys restrict deletion while snapshot children cascade. `MaintenanceDao.prune()` downsamples old live samples to hourly rows, removes data older than 30 days (`RETENTION_WINDOW_MS`), keeps `telemetry_hourly` for 365 days, and preserves marker-referenced snapshots. History ingest skips rows that the prune would delete at the same `retentionNowMs`. Backup is disabled by the app manifest and extraction rules before production writes.
+`RoomSnapshotStore` writes a snapshot and its child tables inside a transaction; `SnapshotStore.readConsistently` (Room `withTransaction`) gives multi-read callers such as `IntervalAnalyzer` one consistent view (SQ-23). Room is configured for WAL, schema export is enabled, and marker foreign keys restrict deletion while snapshot children cascade. `MaintenanceDao.prune()` downsamples old live samples to hourly rows, removes data older than 30 days (`RETENTION_WINDOW_MS`), keeps `telemetry_hourly` for 365 days, and preserves marker-referenced snapshots. History ingest skips rows that the prune would delete at the same `retentionNowMs`. Backup is disabled by the app manifest and extraction rules before production writes.
 
 ## NotEvaluable instead of guessing
 

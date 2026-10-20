@@ -23,7 +23,7 @@ The second independent audit's remediation (N-01–N-28, release 0.2.4) adds:
 
 The third audit's remediation (R-01–R-21, branch `remediate/audit-2026-10-20`) adds proven-zero baselines for UIDs new to a complete reference, FULL screen-off captures that bind the service on demand, Room schema v6 with newest-of-kind history seeks, post-dispatch-safe toolkit outcomes, a queued Shizuku bind/unbind drainer, the status-start gate, and one shared touch guard in `:core:designsystem` with hidden overlay windows.
 
-The 2026-10-20 board follow-ups (SQ-1–SQ-22) add a history-only "Since screen off" with an Empty reason, a one-time history-cursor rewind for existing installs, one shared charge-state rule and calibration store for the gauge and the status notification, a plugged-in charge-counter unit check, one 24 h chart date rule, confirmed-only bg-dexopt cancels, and an X-Ray count of apps hidden for lack of a baseline.
+The 2026-10-20 board follow-ups (SQ-1–SQ-23) add consistent multi-read analysis transactions, a `STOPPED_STATE_EXIT` capture label for Android 15 stopped-state boot broadcasts, a history-only "Since screen off" with an Empty reason, a one-time history-cursor rewind for existing installs, one shared charge-state rule and calibration store for the gauge and the status notification, a plugged-in charge-counter unit check, one 24 h chart date rule, confirmed-only bg-dexopt cancels, and an X-Ray count of apps hidden for lack of a baseline.
 
 | Doc | What |
 |---|---|
