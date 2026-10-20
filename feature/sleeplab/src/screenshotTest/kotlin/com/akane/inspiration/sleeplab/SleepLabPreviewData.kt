@@ -24,6 +24,7 @@ import com.akane.inspiration.diagnostics.model.CulpritScope
 import com.akane.inspiration.diagnostics.model.DiagnosticReport
 import com.akane.inspiration.diagnostics.model.RuleId
 import com.akane.inspiration.diagnostics.model.Severity
+import com.akane.inspiration.diagnostics.rules.NO_SCREEN_OFF_FIGURES
 import com.akane.inspiration.diagnostics.rules.NO_SCREEN_OFF_TIME
 import com.akane.inspiration.diagnostics.story.BatteryStory
 import com.akane.inspiration.telemetry.diff.ResolvedReference
@@ -349,6 +350,54 @@ internal object SleepLabPreviewData {
 
     /** The device rebooted inside the period: kernel wakelocks and CPU residency cannot be compared. */
     val counterReset = apps.copy(analysis = ui(kernelValid = false), tab = SleepTab.KernelWakelocks)
+
+    /** Without a battery-stats dump that compares, only the kernel's own suspend clock is left (as SnapshotDiffer). */
+    private val kernelOnlySleep = SleepStats(sleep.deepSleepMs, null, null, null, null, null)
+    private val noScreenOffFigures = DiagnosticReport(emptyList(), mapOf(RuleId.AWAKE_VIOLATION to NO_SCREEN_OFF_FIGURES), 0)
+
+    /**
+     * One end is a light snapshot in the same boot (audit B-04): the culprit card, the kernel tab and the CPU card
+     * each say that end lacks their counters, never a short night or a restart.
+     */
+    val notCaptured =
+        apps.copy(
+            analysis =
+                ui(
+                    perUid = false,
+                    report = noScreenOffFigures,
+                    diff =
+                        diff(batteryStatsValid = false).let { d ->
+                            d.copy(
+                                now = d.now.copy(statsStartMs = null, statsDurationMs = null),
+                                validity = d.validity.copy(kernelWakelocks = false, cpuFreq = false, alarmDumpCounters = false),
+                                uids = emptyList(),
+                                kernelWakelocks = emptyList(),
+                                cpuFreqDelta = emptyList(),
+                                sleep = kernelOnlySleep,
+                            )
+                        },
+                ),
+            tab = SleepTab.KernelWakelocks,
+        )
+
+    /** Battery stats started a new session inside one boot (audit B-04): the counters were reset, CPU still compares. */
+    val statsReset =
+        apps.copy(
+            analysis =
+                ui(
+                    report = noScreenOffFigures,
+                    diff =
+                        diff(batteryStatsValid = false).let { d ->
+                            d.copy(
+                                now = d.now.copy(statsStartMs = end - 2 * HOUR, statsDurationMs = 2 * HOUR),
+                                validity = d.validity.copy(kernelWakelocks = false, alarmDumpCounters = false),
+                                uids = emptyList(),
+                                kernelWakelocks = emptyList(),
+                                sleep = kernelOnlySleep,
+                            )
+                        },
+                ),
+        )
 
     val hypnogramEmpty =
         apps.copy(

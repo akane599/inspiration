@@ -204,7 +204,8 @@ class DiagnosticRuleEngineTest {
         assertEquals(0, report.skippedInvalidUids)
         assertEquals(
             mapOf(
-                RuleId.AWAKE_VIOLATION to "no_screen_off_time",
+                // diffOf() carries no sleep figures at all, which is not a short screen-off.
+                RuleId.AWAKE_VIOLATION to "no_screen_off_figures",
                 RuleId.MODEM_DRAIN to "screen_power_zero",
                 RuleId.SENSOR_LEAK to "not_screen_off_interval",
             ),

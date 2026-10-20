@@ -79,23 +79,11 @@ internal fun DiagnosticsCard(
             modifier = Modifier.padding(top = spacing.sm),
         )
         when (tab) {
-            SleepTab.AppWakelocks -> RankedList(
-                list = analysis.appWakelocks,
-                unavailableTitle = R.string.sleeplab_apps_unavailable_title,
-                unavailableBody = R.string.sleeplab_apps_unavailable_body,
-            ) { _, row -> AppWakelockItem(row, explain) }
-            SleepTab.KernelWakelocks -> RankedList(
-                list = analysis.kernelWakelocks,
-                unavailableTitle = R.string.sleeplab_kernel_unavailable_title,
-                unavailableBody = R.string.sleeplab_kernel_unavailable_body,
-            ) { _, row -> KernelWakelockItem(row, explain) }
+            SleepTab.AppWakelocks -> RankedList(analysis.appWakelocks) { _, row -> AppWakelockItem(row, explain) }
+            SleepTab.KernelWakelocks -> RankedList(analysis.kernelWakelocks) { _, row -> KernelWakelockItem(row, explain) }
             SleepTab.Alarms -> {
                 val explanations = remember(analysis.alarms, explain) { alarmExplanationsOnce(analysis.alarms.rowsOrEmpty(), explain) }
-                RankedList(
-                    list = analysis.alarms,
-                    unavailableTitle = R.string.sleeplab_apps_unavailable_title,
-                    unavailableBody = R.string.sleeplab_apps_unavailable_body,
-                ) { index, row -> AlarmItem(row, explanations.getOrNull(index)) }
+                RankedList(analysis.alarms) { index, row -> AlarmItem(row, explanations.getOrNull(index)) }
             }
         }
     }
@@ -106,12 +94,26 @@ internal fun DiagnosticsCard(
 private fun excludedAppsText(count: Int): String =
     pluralStringResource(R.plurals.sleeplab_list_excluded, count, rememberTelemetryFormat().number(count.toDouble()))
 
+/** A tab whose counters can't be compared is worded by their true cause (audit B-04). */
+@StringRes
+private fun UnavailableCause.titleRes(): Int =
+    when (this) {
+        UnavailableCause.DeviceRestarted, UnavailableCause.StatsReset -> R.string.sleeplab_list_reset_title
+        UnavailableCause.NotCaptured -> R.string.sleeplab_list_not_captured_title
+    }
+
+@StringRes
+private fun UnavailableCause.bodyRes(): Int =
+    when (this) {
+        UnavailableCause.DeviceRestarted -> R.string.sleeplab_list_restarted_body
+        UnavailableCause.StatsReset -> R.string.sleeplab_list_stats_reset_body
+        UnavailableCause.NotCaptured -> R.string.sleeplab_list_not_captured_body
+    }
+
 /** A tab's rows with dividers, or the designed state that explains why there are none. */
 @Composable
 private fun <T> RankedList(
     list: ListUi<T>,
-    @StringRes unavailableTitle: Int,
-    @StringRes unavailableBody: Int,
     item: @Composable (index: Int, row: T) -> Unit,
 ) {
     when (list) {
@@ -120,9 +122,9 @@ private fun <T> RankedList(
             body = stringResource(R.string.sleeplab_needs_full_body),
             action = null,
         )
-        ListUi.Unavailable -> EmptyState(
-            title = stringResource(unavailableTitle),
-            body = stringResource(unavailableBody),
+        is ListUi.Unavailable -> EmptyState(
+            title = stringResource(list.cause.titleRes()),
+            body = stringResource(list.cause.bodyRes()),
             action = null,
         )
         is ListUi.Rows -> if (list.rows.isEmpty()) {

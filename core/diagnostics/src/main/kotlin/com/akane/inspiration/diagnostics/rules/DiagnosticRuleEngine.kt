@@ -32,8 +32,15 @@ const val AWAKE_AMBER_RATIO = 0.08
 /** Rule 2 fires RED above this awake share of screen-off time. */
 const val AWAKE_RED_RATIO = 0.20
 
-/** Rule 2's [DiagnosticReport.notEvaluable] reason: no screen-off figures, or less than [MIN_SCREEN_OFF_MS] of them. */
+/** Rule 2's [DiagnosticReport.notEvaluable] reason: the period has screen-off figures, but less than [MIN_SCREEN_OFF_MS]. */
 const val NO_SCREEN_OFF_TIME = "no_screen_off_time"
+
+/**
+ * Rule 2's [DiagnosticReport.notEvaluable] reason: the period has no screen-off figures at all, because the
+ * battery-stats dump does not compare across it (a stats reset, or an end without the dump, such as a LIGHT
+ * snapshot). Never worded as a short screen-off (audit B-04).
+ */
+const val NO_SCREEN_OFF_FIGURES = "no_screen_off_figures"
 
 /** Rule 2's [DiagnosticReport.notEvaluable] reason: screen-off time with no awake time recorded for it. */
 const val NO_AWAKE_TIME = "no_awake_time"
@@ -135,9 +142,9 @@ class DiagnosticRuleEngine(
         validUids: List<UidDelta>,
         screenOffOnly: Boolean,
     ): Outcome {
-        val sleep = diff.sleep ?: return Outcome.NotEvaluable(NO_SCREEN_OFF_TIME)
-        val screenOffMs = sleep.screenOffMs
-        if (screenOffMs == null || screenOffMs < MIN_SCREEN_OFF_MS) return Outcome.NotEvaluable(NO_SCREEN_OFF_TIME)
+        val sleep = diff.sleep ?: return Outcome.NotEvaluable(NO_SCREEN_OFF_FIGURES)
+        val screenOffMs = sleep.screenOffMs ?: return Outcome.NotEvaluable(NO_SCREEN_OFF_FIGURES)
+        if (screenOffMs < MIN_SCREEN_OFF_MS) return Outcome.NotEvaluable(NO_SCREEN_OFF_TIME)
         val awakeMs = sleep.screenOffAwakeMs ?: return Outcome.NotEvaluable(NO_AWAKE_TIME)
         val ratio = awakeMs.toDouble() / screenOffMs
         val severity =

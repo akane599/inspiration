@@ -13,10 +13,12 @@ import com.akane.inspiration.diagnostics.dictionary.EntryKind
 import com.akane.inspiration.diagnostics.model.AwakeViolation
 import com.akane.inspiration.diagnostics.model.RuleId
 import com.akane.inspiration.diagnostics.rules.NO_AWAKE_TIME
+import com.akane.inspiration.diagnostics.rules.NO_SCREEN_OFF_FIGURES
 import com.akane.inspiration.diagnostics.rules.NO_SCREEN_OFF_TIME
 import com.akane.inspiration.diagnostics.story.reportableDeepSleepRatio
 import com.akane.inspiration.telemetry.diff.ReferenceKind
 import com.akane.inspiration.telemetry.dump.UidAlarm
+import com.akane.inspiration.telemetry.snapshot.SnapshotClock
 import com.akane.inspiration.telemetry.snapshot.SnapshotDiff
 import kotlinx.collections.immutable.toImmutableList
 
@@ -148,9 +150,21 @@ private fun SnapshotDiff.excludedUids() = uids.count { !it.valid || it.packageCh
 private fun SnapshotDiff.perUidState(perUidAvailable: Boolean): ListUi<Nothing>? =
     when {
         !perUidAvailable -> ListUi.NeedsFullSnapshots
-        !validity.batteryStats -> ListUi.Unavailable
+        !validity.batteryStats -> ListUi.Unavailable(batteryStatsCause())
         else -> null
     }
+
+/**
+ * Why the battery-stats dump counters don't compare across the period (audit B-04). The differ also rejects a
+ * session it can't name, so only when both ends name their session does "battery stats" mean a reset; otherwise one
+ * end never read it (a light snapshot, a failed usage read) or missed the dump.
+ */
+private fun SnapshotDiff.batteryStatsCause(): UnavailableCause =
+    if (statsSessionChanged()) UnavailableCause.StatsReset else UnavailableCause.NotCaptured
+
+private fun SnapshotDiff.statsSessionChanged() = !validity.batteryStats && ref.namesStatsSession() && now.namesStatsSession()
+
+private fun SnapshotClock.namesStatsSession() = statsStartMs != null && statsDurationMs != null
 
 /**
  * Partial wakelocks per app, longest first. A uid the period could not check (owner unproven, counters reset under
@@ -163,7 +177,7 @@ internal fun appWakelockRows(
     labels: Map<String, String>,
 ): ListUi<AppWakelockRow> {
     diff.perUidState(perUidAvailable)?.let { return it }
-    if (!diff.validity.dumpCounters) return ListUi.Unavailable
+    if (!diff.validity.dumpCounters) return ListUi.Unavailable(diff.batteryStatsCause())
     val rows =
         diff.checkedUids().flatMap { uid ->
             uid.partialWakelocks.filter { it.durationMs > 0 || it.count > 0 }.map {
@@ -188,11 +202,14 @@ internal fun appWakelockRows(
 }
 
 /**
- * Kernel wakelocks as batterystats reports them, longest first. Unavailable when the kernel counters cannot be
- * compared across the interval; names whose delta went negative are dropped. `/sys/class/wakeup` is not read.
+ * Kernel wakelocks as batterystats reports them, longest first. Unavailable when they cannot be compared across the
+ * interval: after a restart, or when the battery-stats dump that carries them doesn't compare (a reset, or an end
+ * without it). Names whose delta went negative are dropped. `/sys/class/wakeup` is not read.
  */
 internal fun kernelWakelockRows(diff: SnapshotDiff): ListUi<KernelWakelockRow> {
-    if (!diff.validity.kernelWakelocks) return ListUi.Unavailable
+    if (!diff.validity.kernelWakelocks) {
+        return ListUi.Unavailable(if (diff.validity.kernelCounters) diff.batteryStatsCause() else UnavailableCause.DeviceRestarted)
+    }
     val rows =
         diff.kernelWakelocks
             .filter { it.name !in diff.validity.invalidKernelWakelocks && (it.durationMs > 0 || it.count > 0) }
@@ -211,7 +228,8 @@ internal fun alarmRows(
     labels: Map<String, String>,
 ): ListUi<AlarmRow> {
     diff.perUidState(perUidAvailable)?.let { return it }
-    if (!diff.validity.dumpCounters && !diff.validity.alarmDumpCounters) return ListUi.Unavailable
+    // Battery stats compare here, so batterystats' own alarm counts were not captured at one end.
+    if (!diff.validity.dumpCounters && !diff.validity.alarmDumpCounters) return ListUi.Unavailable(diff.batteryStatsCause())
     val rows =
         diff.checkedUids().mapNotNull { uid ->
             val tags = uid.wakeupAlarms.positive().ifEmpty { uid.alarmDumpWakeups.positive() }
@@ -252,13 +270,24 @@ internal fun <T> ListUi<T>.rowsOrEmpty(): List<T> = if (this is ListUi.Rows<T>) 
 // --- CPU residency ---
 
 /**
- * Time-in-state per CPU policy (cluster). Only valid when the kernel counters compare across the interval;
- * otherwise [CpuUi.Unavailable]. Each cluster lists its [MAX_FREQ_ROWS] busiest frequencies in ascending order
- * and sums the rest into [ClusterUi.otherShare]. Two or three clusters get a Little/Big or Little/Mid/Prime role
- * by policy order, which is how SoCs number them; any other count stays generic.
+ * Time-in-state per CPU policy (cluster). Only valid when the kernel counters compare across the interval and both
+ * ends read them (audit B-04): after a restart [CpuUi.Unavailable]; with a light snapshot at either end, which never
+ * reads them ([fullAtBothEnds] false, as `ResolvedReference.perUidAvailable` says), [CpuUi.NotCaptured]; otherwise
+ * the kernel reported none, [CpuUi.NoData]. Each cluster lists its [MAX_FREQ_ROWS] busiest frequencies in ascending
+ * order and sums the rest into [ClusterUi.otherShare]. Two or three clusters get a Little/Big or Little/Mid/Prime
+ * role by policy order, which is how SoCs number them; any other count stays generic.
  */
-internal fun cpuUi(diff: SnapshotDiff): CpuUi {
-    if (!diff.validity.cpuFreq) return CpuUi.Unavailable
+internal fun cpuUi(
+    diff: SnapshotDiff,
+    fullAtBothEnds: Boolean,
+): CpuUi {
+    if (!diff.validity.cpuFreq) {
+        return when {
+            !diff.validity.kernelCounters -> CpuUi.Unavailable
+            !fullAtBothEnds -> CpuUi.NotCaptured
+            else -> CpuUi.NoData
+        }
+    }
     val byPolicy =
         diff.cpuFreqDelta
             .filter { it.timeMs > 0 }
@@ -307,7 +336,7 @@ internal fun awakeCheckUi(
     labels: Map<String, String>,
 ): AwakeCheckUi {
     val report = analysis.report
-    report.notEvaluable[RuleId.AWAKE_VIOLATION]?.let { return AwakeCheckUi.NotEvaluable(awakeSkipReason(it)) }
+    report.notEvaluable[RuleId.AWAKE_VIOLATION]?.let { return AwakeCheckUi.NotEvaluable(awakeSkipReason(it, analysis.diff)) }
     val violation = report.insights.firstNotNullOfOrNull { it as? AwakeViolation } ?: return AwakeCheckUi.WithinLimit
     val perUid = analysis.resolved.perUidAvailable
     val packages = analysis.diff.uids.associate { it.uid to it.packageName }
@@ -338,9 +367,14 @@ internal fun awakeCheckUi(
     )
 }
 
-private fun awakeSkipReason(reason: String): AwakeSkipReason =
+/** Missing screen-off figures come from the battery-stats dump, so they share its cause (audit B-04). */
+private fun awakeSkipReason(
+    reason: String,
+    diff: SnapshotDiff,
+): AwakeSkipReason =
     when (reason) {
         NO_SCREEN_OFF_TIME -> AwakeSkipReason.ShortScreenOff
+        NO_SCREEN_OFF_FIGURES -> if (diff.statsSessionChanged()) AwakeSkipReason.StatsReset else AwakeSkipReason.NotCaptured
         NO_AWAKE_TIME -> AwakeSkipReason.NoAwakeTime
         else -> AwakeSkipReason.Other
     }
@@ -370,7 +404,7 @@ internal fun sleepLabAnalysis(
         appWakelocks = appWakelockRows(diff, perUid, labels),
         kernelWakelocks = kernelWakelockRows(diff),
         alarms = alarmRows(diff, perUid, labels),
-        cpu = cpuUi(diff),
+        cpu = cpuUi(diff, fullAtBothEnds = perUid),
         deepSleep = deepSleepUi(diff),
         awake = awakeCheckUi(analysis, labels),
     )

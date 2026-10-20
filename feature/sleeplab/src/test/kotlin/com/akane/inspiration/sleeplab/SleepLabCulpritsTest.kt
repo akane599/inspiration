@@ -108,10 +108,15 @@ class SleepLabCulpritsTest {
         val short = night.copy(sleep = sleep(screenOffMs = 20 * MIN_MS))
         val noAwake = night.copy(sleep = sleep(awakeMs = null))
         val noSleep = night.copy(sleep = null)
+        val noOffTime = night.copy(sleep = sleep().copy(screenOffMs = null))
+        val reset = snapshotDiff(batteryStatsValid = false, sleep = null)
 
         assertEquals(AwakeCheckUi.NotEvaluable(AwakeSkipReason.ShortScreenOff), awakeCheckUi(analysed(diff = short), emptyMap()))
         assertEquals(AwakeCheckUi.NotEvaluable(AwakeSkipReason.NoAwakeTime), awakeCheckUi(analysed(diff = noAwake), emptyMap()))
-        assertEquals(AwakeCheckUi.NotEvaluable(AwakeSkipReason.ShortScreenOff), awakeCheckUi(analysed(diff = noSleep), emptyMap()))
+        // Missing screen-off figures are never a short screen-off (audit B-04): they share the dump's cause.
+        assertEquals(AwakeCheckUi.NotEvaluable(AwakeSkipReason.NotCaptured), awakeCheckUi(analysed(diff = noSleep), emptyMap()))
+        assertEquals(AwakeCheckUi.NotEvaluable(AwakeSkipReason.NotCaptured), awakeCheckUi(analysed(diff = noOffTime), emptyMap()))
+        assertEquals(AwakeCheckUi.NotEvaluable(AwakeSkipReason.StatsReset), awakeCheckUi(analysed(diff = reset), emptyMap()))
     }
 
     @Test

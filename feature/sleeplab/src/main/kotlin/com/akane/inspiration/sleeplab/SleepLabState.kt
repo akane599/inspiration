@@ -40,13 +40,25 @@ data class AlarmRow(
     val tags: ImmutableList<AlarmTagRow>,
 )
 
+/** Why a tab's counters cannot be compared across the period (audit B-04). */
+enum class UnavailableCause {
+    /** The device restarted between the two snapshots, so the kernel's counters started over. */
+    DeviceRestarted,
+
+    /** Battery stats started a new session between the two snapshots, so its counters started over. */
+    StatsReset,
+
+    /** A snapshot at one end did not read these counters (a light snapshot, or a read that failed). */
+    NotCaptured,
+}
+
 /** What a tab's list can be. An empty [Rows] is a real answer ("nothing in this period"). */
 sealed interface ListUi<out T> {
     /** Per-app figures need a full snapshot at both ends of the interval (H14). */
     data object NeedsFullSnapshots : ListUi<Nothing>
 
-    /** The counters cannot be compared across this interval (reset or reboot). */
-    data object Unavailable : ListUi<Nothing>
+    /** The counters cannot be compared across this interval, for [cause]. */
+    data class Unavailable(val cause: UnavailableCause) : ListUi<Nothing>
 
     /**
      * [rows] ranked, at most [MAX_ROWS] of them; [hidden] more existed and are not shown. [excluded] apps could not be
@@ -79,7 +91,10 @@ sealed interface CpuUi {
     /** The kernel counters cannot be compared across this interval (reboot), so no residency is shown. */
     data object Unavailable : CpuUi
 
-    /** The counters are valid but no time-in-state was recorded. */
+    /** A snapshot at one end is a light one, which never reads frequency counters (audit B-04). */
+    data object NotCaptured : CpuUi
+
+    /** Both ends were full snapshots of one boot, but the kernel reported no time-in-state for the interval. */
     data object NoData : CpuUi
 
     @Immutable
@@ -109,8 +124,14 @@ data class CulpritRow(
 
 /** Why the screen-off awake check (Rule 2) could not run for the period. */
 enum class AwakeSkipReason {
-    /** Less than the rule's minimum screen-off time, or no screen-off figures at all. */
+    /** The period has screen-off figures, but less than the rule's minimum screen-off time. */
     ShortScreenOff,
+
+    /** No screen-off figures: battery stats started a new session during the period (audit B-04). */
+    StatsReset,
+
+    /** No screen-off figures: a snapshot at one end did not read battery stats, such as a light one (audit B-04). */
+    NotCaptured,
 
     /** The period has screen-off time but no awake time was recorded for it. */
     NoAwakeTime,

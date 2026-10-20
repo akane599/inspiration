@@ -55,6 +55,8 @@
     <string name="sleeplab_culprit_skipped_title">Cihazı neyin uyanık tuttuğu denetlenemedi</string>
     <!-- %1$s: the shortest screen-off time the check needs, e.g. "30 min" -->
     <string name="sleeplab_culprit_skipped_short">Bu dönemde ekran %1$s süreden az kapalı kaldı; telefonu neyin uyanık tuttuğunu söylemek için çok az. Gece gibi daha uzun bir dönem seç.</string>
+    <string name="sleeplab_culprit_skipped_stats_reset">Bu dönemde pil istatistikleri yeniden başladı, bu yüzden ekran kapalı süresi ölçülemiyor. Sıfırlamadan sonra daha fazla anlık görüntü toplandıkça tekrar bak.</string>
+    <string name="sleeplab_culprit_skipped_not_captured">Bu dönemin bir ucundaki anlık görüntüde pil istatistikleri yok, bu yüzden ekran kapalı süresi ölçülemiyor. Aşağı çekerek yenile, sonra daha fazla anlık görüntü toplandıkça tekrar bak.</string>
     <string name="sleeplab_culprit_skipped_no_awake">Pil istatistikleri bu dönemin ekran kapalı süresi için uyanık süre kaydetmedi, bu yüzden denetlenemiyor.</string>
     <string name="sleeplab_culprit_skipped_other">Ekran kapalıyken uyanıklık denetimi bu dönem için çalıştırılamadı.</string>
 
@@ -75,10 +77,11 @@
     </plurals>
     <string name="sleeplab_needs_full_title">Tam anlık görüntüler gerekli</string>
     <string name="sleeplab_needs_full_body">Uygulama listeleri için dönemin iki ucunda da tam bir anlık görüntü gerekir. Aşağı çekerek yenile, sonra daha fazla anlık görüntü toplandıkça tekrar bak.</string>
-    <string name="sleeplab_apps_unavailable_title">Sayaçlar sıfırlandı</string>
-    <string name="sleeplab_apps_unavailable_body">Bu dönemde pil istatistikleri yeniden başladı, bu yüzden uygulama sayaçları karşılaştırılamıyor. Sıfırlamadan sonra daha fazla anlık görüntü toplandıkça tekrar bak.</string>
-    <string name="sleeplab_kernel_unavailable_title">Sayaçlar sıfırlandı</string>
-    <string name="sleeplab_kernel_unavailable_body">Bu dönemde cihaz yeniden başladı, bu yüzden çekirdek sayaçları karşılaştırılamıyor. Yeniden başlatmadan sonra daha fazla anlık görüntü toplandıkça tekrar bak.</string>
+    <string name="sleeplab_list_reset_title">Sayaçlar sıfırlandı</string>
+    <string name="sleeplab_list_restarted_body">Bu dönemde cihaz yeniden başladı, bu yüzden bu sayaçlar karşılaştırılamıyor. Yeniden başlatmadan sonra daha fazla anlık görüntü toplandıkça tekrar bak.</string>
+    <string name="sleeplab_list_stats_reset_body">Bu dönemde pil istatistikleri yeniden başladı, bu yüzden bu sayaçlar karşılaştırılamıyor. Sıfırlamadan sonra daha fazla anlık görüntü toplandıkça tekrar bak.</string>
+    <string name="sleeplab_list_not_captured_title">Bir anlık görüntüde eksik</string>
+    <string name="sleeplab_list_not_captured_body">Bu dönemin bir ucundaki anlık görüntüde bu sayaçlar yok, bu yüzden karşılaştırılamıyor. Aşağı çekerek yenile, sonra daha fazla anlık görüntü toplandıkça tekrar bak.</string>
 
     <!-- %1$d: the app\'s UID, shown when its package is unknown -->
     <string name="sleeplab_owner_uid">UID %1$d</string>
@@ -131,6 +134,8 @@
     <string name="sleeplab_freq_other">Diğer frekanslar</string>
     <string name="sleeplab_cpu_unavailable_title">Frekans verisi yok</string>
     <string name="sleeplab_cpu_unavailable_body">Bu dönemde cihaz yeniden başladı, bu yüzden frekans sayaçları karşılaştırılamıyor.</string>
+    <string name="sleeplab_cpu_not_captured_title">Frekans verisi yok</string>
+    <string name="sleeplab_cpu_not_captured_body">Bu dönemin bir ucunda yalnızca hafif bir anlık görüntü var ve hafif anlık görüntüler frekans sayaçlarını okumaz. Aşağı çekerek yenile, sonra daha fazla anlık görüntü toplandıkça tekrar bak.</string>
     <string name="sleeplab_cpu_nodata_title">Frekans verisi yok</string>
     <string name="sleeplab_cpu_nodata_body">Çekirdek bu dönem için frekans başına süre bildirmedi.</string>
 </resources>

@@ -44,10 +44,11 @@ class AwakeViolationRuleTest {
 
     @Test
     fun notEvaluableReasons() {
+        // Missing figures (no comparable battery-stats dump) are not a short screen-off (audit B-04).
         val noSleep = engine.evaluate(inputOf(diffOf(sleep = null)))
-        assertEquals("no_screen_off_time", noSleep.notEvaluable[RuleId.AWAKE_VIOLATION])
+        assertEquals("no_screen_off_figures", noSleep.notEvaluable[RuleId.AWAKE_VIOLATION])
         val noOffTime = engine.evaluate(inputOf(diffOf(sleep = sleepStats(null, 1_000_000))))
-        assertEquals("no_screen_off_time", noOffTime.notEvaluable[RuleId.AWAKE_VIOLATION])
+        assertEquals("no_screen_off_figures", noOffTime.notEvaluable[RuleId.AWAKE_VIOLATION])
         val noAwake = engine.evaluate(inputOf(diffOf(sleep = sleepStats(2 * HOUR, null))))
         assertEquals("no_awake_time", noAwake.notEvaluable[RuleId.AWAKE_VIOLATION])
     }

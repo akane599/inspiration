@@ -69,6 +69,8 @@ private fun NotEvaluableCard(
             subtitle =
                 when (reason) {
                     AwakeSkipReason.ShortScreenOff -> stringResource(R.string.sleeplab_culprit_skipped_short, format.duration(MIN_SCREEN_OFF_MS))
+                    AwakeSkipReason.StatsReset -> stringResource(R.string.sleeplab_culprit_skipped_stats_reset)
+                    AwakeSkipReason.NotCaptured -> stringResource(R.string.sleeplab_culprit_skipped_not_captured)
                     AwakeSkipReason.NoAwakeTime -> stringResource(R.string.sleeplab_culprit_skipped_no_awake)
                     AwakeSkipReason.Other -> stringResource(R.string.sleeplab_culprit_skipped_other)
                 },

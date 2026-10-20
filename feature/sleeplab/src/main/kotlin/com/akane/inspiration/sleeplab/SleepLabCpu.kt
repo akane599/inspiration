@@ -43,6 +43,11 @@ internal fun CpuCard(cpu: CpuUi, deepSleep: DeepSleepUi, modifier: Modifier = Mo
                 body = stringResource(R.string.sleeplab_cpu_unavailable_body),
                 action = null,
             )
+            CpuUi.NotCaptured -> EmptyState(
+                title = stringResource(R.string.sleeplab_cpu_not_captured_title),
+                body = stringResource(R.string.sleeplab_cpu_not_captured_body),
+                action = null,
+            )
             CpuUi.NoData -> EmptyState(
                 title = stringResource(R.string.sleeplab_cpu_nodata_title),
                 body = stringResource(R.string.sleeplab_cpu_nodata_body),

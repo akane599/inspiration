@@ -45,8 +45,9 @@ class SleepLabMappersTest {
         assertTrue((alarmRows(diff, true, emptyMap()) as ListUi.Rows).rows.isEmpty())
     }
 
+    /** Audit B-04: one boot and one battery-stats session, so a missing source is "not captured", never a restart. */
     @Test
-    fun `missing counter sources render unavailable rather than empty or cumulative rows`() {
+    fun `missing counter sources render unavailable with their cause rather than empty or cumulative rows`() {
         val base = snapshotDiff(kernel = listOf(KernelWakelock("wlan", 1_000, 1)), cpu = listOf(CpuFreqDelta(0, 1_000, 10)))
         val diff =
             base.copy(
@@ -58,10 +59,12 @@ class SleepLabMappersTest {
                         alarmDumpCounters = false,
                     ),
             )
-        assertEquals(ListUi.Unavailable, appWakelockRows(diff, true, emptyMap()))
-        assertEquals(ListUi.Unavailable, kernelWakelockRows(diff))
-        assertEquals(ListUi.Unavailable, alarmRows(diff, true, emptyMap()))
-        assertEquals(CpuUi.Unavailable, cpuUi(diff))
+        val notCaptured = ListUi.Unavailable(UnavailableCause.NotCaptured)
+        assertEquals(notCaptured, appWakelockRows(diff, true, emptyMap()))
+        assertEquals(notCaptured, kernelWakelockRows(diff))
+        assertEquals(notCaptured, alarmRows(diff, true, emptyMap()))
+        assertEquals("two full ends: the kernel reported none", CpuUi.NoData, cpuUi(diff, fullAtBothEnds = true))
+        assertEquals("a light end never reads them", CpuUi.NotCaptured, cpuUi(diff, fullAtBothEnds = false))
     }
 
     // --- Timeline -> HypnogramData ---
@@ -353,10 +356,22 @@ class SleepLabMappersTest {
 
     @Test
     fun `reset battery stats make the per-app tabs unavailable`() {
+        // Both ends name their battery-stats session, so an invalid one is a reset.
         val diff = snapshotDiff(batteryStatsValid = false)
+        val reset = ListUi.Unavailable(UnavailableCause.StatsReset)
 
-        assertEquals(ListUi.Unavailable, appWakelockRows(diff, perUidAvailable = true, labels = emptyMap()))
-        assertEquals(ListUi.Unavailable, alarmRows(diff, perUidAvailable = true, labels = emptyMap()))
+        assertEquals(reset, appWakelockRows(diff, perUidAvailable = true, labels = emptyMap()))
+        assertEquals(reset, alarmRows(diff, perUidAvailable = true, labels = emptyMap()))
+    }
+
+    @Test
+    fun `battery stats an end never read are not captured, not reset`() {
+        val base = snapshotDiff(batteryStatsValid = false)
+        val diff = base.copy(now = base.now.copy(statsStartMs = null, statsDurationMs = null))
+        val notCaptured = ListUi.Unavailable(UnavailableCause.NotCaptured)
+
+        assertEquals(notCaptured, appWakelockRows(diff, perUidAvailable = true, labels = emptyMap()))
+        assertEquals(notCaptured, alarmRows(diff, perUidAvailable = true, labels = emptyMap()))
     }
 
     /** Audit B-03: apps the period could not check are not "nothing recorded". */
@@ -457,7 +472,7 @@ class SleepLabMappersTest {
     fun `kernel wakelocks are unavailable when the kernel counters cannot be compared`() {
         val diff = snapshotDiff(kernel = listOf(KernelWakelock("wlan", 1_000, 1)), kernelCountersValid = false)
 
-        assertEquals(ListUi.Unavailable, kernelWakelockRows(diff))
+        assertEquals(ListUi.Unavailable(UnavailableCause.DeviceRestarted), kernelWakelockRows(diff))
     }
 
     // --- Alarms ---
@@ -545,7 +560,7 @@ class SleepLabMappersTest {
                     ),
             )
 
-        val clusters = (cpuUi(diff) as CpuUi.Ready).clusters
+        val clusters = (cpuUi(diff, fullAtBothEnds = true) as CpuUi.Ready).clusters
 
         assertEquals(listOf(0, 4), clusters.map { it.policy })
         assertEquals(listOf(ClusterRole.Little, ClusterRole.Big), clusters.map { it.role })
@@ -562,7 +577,7 @@ class SleepLabMappersTest {
         val deltas = (1..8).map { cpu(0, it * 100_000L, it * 100L) } // total 3600, the five busiest are 8..4 = 3000
         val diff = snapshotDiff(cpu = deltas)
 
-        val cluster = (cpuUi(diff) as CpuUi.Ready).clusters.single()
+        val cluster = (cpuUi(diff, fullAtBothEnds = true) as CpuUi.Ready).clusters.single()
 
         assertEquals(MAX_FREQ_ROWS, cluster.rows.size)
         assertEquals(listOf(400_000L, 500_000L, 600_000L, 700_000L, 800_000L), cluster.rows.map { it.freqKhz })
@@ -573,7 +588,7 @@ class SleepLabMappersTest {
     @Test
     fun `three clusters are little mid prime and other counts stay generic`() {
         fun roles(vararg policies: Int) =
-            (cpuUi(snapshotDiff(cpu = policies.map { cpu(it, 1_000_000, 10) })) as CpuUi.Ready).clusters.map { it.role }
+            (cpuUi(snapshotDiff(cpu = policies.map { cpu(it, 1_000_000, 10) }), fullAtBothEnds = true) as CpuUi.Ready).clusters.map { it.role }
 
         assertEquals(listOf(ClusterRole.Little, ClusterRole.Mid, ClusterRole.Prime), roles(7, 0, 4))
         assertEquals(listOf(ClusterRole.Generic), roles(0))
@@ -584,13 +599,14 @@ class SleepLabMappersTest {
     fun `invalid kernel counters make cpu residency explicitly unavailable even if rows exist`() {
         val diff = snapshotDiff(cpu = listOf(cpu(0, 1_000_000, 500)), kernelCountersValid = false)
 
-        assertEquals(CpuUi.Unavailable, cpuUi(diff))
+        assertEquals(CpuUi.Unavailable, cpuUi(diff, fullAtBothEnds = true))
+        assertEquals("a restart outranks a light end", CpuUi.Unavailable, cpuUi(diff, fullAtBothEnds = false))
     }
 
     @Test
     fun `valid counters with no time in state is no data, and zero-time rows are ignored`() {
-        assertEquals(CpuUi.NoData, cpuUi(snapshotDiff()))
-        assertEquals(CpuUi.NoData, cpuUi(snapshotDiff(cpu = listOf(cpu(0, 1_000_000, 0), cpu(0, 2_000_000, -5)))))
+        assertEquals(CpuUi.NoData, cpuUi(snapshotDiff(), fullAtBothEnds = true))
+        assertEquals(CpuUi.NoData, cpuUi(snapshotDiff(cpu = listOf(cpu(0, 1_000_000, 0), cpu(0, 2_000_000, -5))), fullAtBothEnds = true))
     }
 
     @Test

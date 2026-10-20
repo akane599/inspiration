@@ -55,6 +55,8 @@
     <string name="sleeplab_culprit_skipped_title">Couldn\'t check what kept it awake</string>
     <!-- %1$s: the shortest screen-off time the check needs, e.g. "30 min" -->
     <string name="sleeplab_culprit_skipped_short">This period has less than %1$s of screen-off time, too little to tell what kept the phone awake. Pick a longer period, such as a night.</string>
+    <string name="sleeplab_culprit_skipped_stats_reset">Battery stats restarted during this period, so its screen-off time can\'t be measured. Check back as more snapshots are collected after the reset.</string>
+    <string name="sleeplab_culprit_skipped_not_captured">A snapshot at one end of this period doesn\'t include battery stats, so its screen-off time can\'t be measured. Pull down to refresh, then check back as more snapshots are collected.</string>
     <string name="sleeplab_culprit_skipped_no_awake">Battery stats recorded no awake time for this period\'s screen-off time, so it can\'t be checked.</string>
     <string name="sleeplab_culprit_skipped_other">The screen-off awake check couldn\'t run for this period.</string>
 
@@ -75,10 +77,12 @@
     </plurals>
     <string name="sleeplab_needs_full_title">Needs full snapshots</string>
     <string name="sleeplab_needs_full_body">Per-app lists need a full snapshot at both ends of the period. Pull down to refresh, then check back as more snapshots are collected.</string>
-    <string name="sleeplab_apps_unavailable_title">Counters were reset</string>
-    <string name="sleeplab_apps_unavailable_body">Battery stats restarted during this period, so per-app counters can\'t be compared. Check back as more snapshots are collected after the reset.</string>
-    <string name="sleeplab_kernel_unavailable_title">Counters were reset</string>
-    <string name="sleeplab_kernel_unavailable_body">The device restarted during this period, so kernel counters can\'t be compared. Check back as more snapshots are collected after the restart.</string>
+    <!-- A tab whose counters can't be compared across the period, one body per cause -->
+    <string name="sleeplab_list_reset_title">Counters were reset</string>
+    <string name="sleeplab_list_restarted_body">The device restarted during this period, so these counters can\'t be compared. Check back as more snapshots are collected after the restart.</string>
+    <string name="sleeplab_list_stats_reset_body">Battery stats restarted during this period, so these counters can\'t be compared. Check back as more snapshots are collected after the reset.</string>
+    <string name="sleeplab_list_not_captured_title">Missing from one snapshot</string>
+    <string name="sleeplab_list_not_captured_body">A snapshot at one end of this period doesn\'t include these counters, so they can\'t be compared. Pull down to refresh, then check back as more snapshots are collected.</string>
 
     <!-- %1$d: the app\'s UID, shown when its package is unknown -->
     <string name="sleeplab_owner_uid">UID %1$d</string>
@@ -131,6 +135,8 @@
     <string name="sleeplab_freq_other">Other frequencies</string>
     <string name="sleeplab_cpu_unavailable_title">No frequency data</string>
     <string name="sleeplab_cpu_unavailable_body">The device restarted during this period, so frequency counters can\'t be compared.</string>
+    <string name="sleeplab_cpu_not_captured_title">No frequency data</string>
+    <string name="sleeplab_cpu_not_captured_body">One end of this period only has a light snapshot, which doesn\'t read frequency counters. Pull down to refresh, then check back as more snapshots are collected.</string>
     <string name="sleeplab_cpu_nodata_title">No frequency data</string>
     <string name="sleeplab_cpu_nodata_body">The kernel did not report time per frequency for this period.</string>
 </resources>

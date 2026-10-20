@@ -47,6 +47,15 @@ import com.android.tools.screenshot.PreviewTest
 @PreviewTest @Preview(name = "counter-reset", showBackground = true, widthDp = 412, heightDp = 1700)
 @Composable fun SleepLabCounterReset() = SleepLabPreviewHost(darkTheme = true, state = SleepLabPreviewData.counterReset)
 
+@PreviewTest @Preview(name = "not-captured", showBackground = true, widthDp = 412, heightDp = 2000)
+@Composable fun SleepLabNotCaptured() = SleepLabPreviewHost(darkTheme = true, state = SleepLabPreviewData.notCaptured)
+
+@PreviewTest @Preview(name = "not-captured-turkish", showBackground = true, widthDp = 412, heightDp = 2200, locale = "tr")
+@Composable fun SleepLabNotCapturedTurkish() = SleepLabPreviewHost(darkTheme = true, state = SleepLabPreviewData.notCaptured)
+
+@PreviewTest @Preview(name = "stats-reset", showBackground = true, widthDp = 412, heightDp = 2000)
+@Composable fun SleepLabStatsReset() = SleepLabPreviewHost(darkTheme = true, state = SleepLabPreviewData.statsReset)
+
 @PreviewTest @Preview(name = "hypnogram-empty", showBackground = true, widthDp = 412, heightDp = 1800)
 @Composable fun SleepLabHypnogramEmpty() = SleepLabPreviewHost(darkTheme = true, state = SleepLabPreviewData.hypnogramEmpty)
 
