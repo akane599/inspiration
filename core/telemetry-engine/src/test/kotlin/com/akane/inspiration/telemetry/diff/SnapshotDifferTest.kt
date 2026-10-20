@@ -681,27 +681,65 @@ class SnapshotDifferTest {
     }
 
     @Test
-    fun `negative alarm dump wakeup delta invalidates only that uid delta`() {
+    fun `negative alarm dump wakeup delta drops only that uid's alarm dump detail`() {
+        // A force-stop clears AlarmManager's per-package stats: a per-source reset, not a broken energy baseline.
         val diff =
             SnapshotDiffer.diff(
-                snapshot(elapsed = 1_000, uids = listOf(uid(totalMah = 1.0).copy(alarmDumpWakeups = listOf(UidAlarm("sync", 5))))),
+                snapshot(
+                    elapsed = 1_000,
+                    uids =
+                        listOf(
+                            uid(totalMah = 1.0).copy(
+                                wakeupAlarms = listOf(UidAlarm("sync", 10)),
+                                alarmDumpWakeups = listOf(UidAlarm("sync", 5), UidAlarm("other", 1)),
+                            ),
+                            uid(uid = 10_002, totalMah = 1.0).copy(alarmDumpWakeups = listOf(UidAlarm("sync", 1))),
+                        ),
+                ),
                 snapshot(
                     elapsed = 2_000,
                     duration = 2_000,
-                    uids = listOf(uid(totalMah = 1.0).copy(alarmDumpWakeups = listOf(UidAlarm("sync", 2)))),
+                    uids =
+                        listOf(
+                            uid(totalMah = 4.0).copy(
+                                wakeupAlarms = listOf(UidAlarm("sync", 12)),
+                                alarmDumpWakeups = listOf(UidAlarm("sync", 2), UidAlarm("other", 3)),
+                            ),
+                            uid(uid = 10_002, totalMah = 2.0).copy(alarmDumpWakeups = listOf(UidAlarm("sync", 4))),
+                        ),
+                ),
+            )
+
+        val reset = diff.uids.single { it.uid == 10_001 }
+        assertTrue(reset.valid)
+        assertEquals(3.0, reset.totalMah, 0.0)
+        assertEquals(listOf(UidAlarm("sync", 2)), reset.wakeupAlarms)
+        assertEquals(emptyList<UidAlarm>(), reset.alarmDumpWakeups)
+        assertTrue(diff.validity.problems.contains("negative_uid_alarm_dump:10001:sync"))
+        assertTrue(diff.validity.problems.contains("uid_alarm_dump_reset:10001"))
+        assertFalse(diff.validity.problems.contains("negative_uid:10001"))
+
+        val other = diff.uids.single { it.uid == 10_002 }
+        assertTrue(other.valid)
+        assertEquals(listOf(UidAlarm("sync", 3)), other.alarmDumpWakeups)
+        assertTrue(diff.validity.alarmDumpCounters)
+    }
+
+    @Test
+    fun `an alarm dump reset does not hide another negative counter on the same uid`() {
+        val diff =
+            SnapshotDiffer.diff(
+                snapshot(elapsed = 1_000, uids = listOf(uid(totalMah = 5.0).copy(alarmDumpWakeups = listOf(UidAlarm("sync", 5))))),
+                snapshot(
+                    elapsed = 2_000,
+                    duration = 2_000,
+                    uids = listOf(uid(totalMah = 4.0).copy(alarmDumpWakeups = listOf(UidAlarm("sync", 2)))),
                 ),
             )
 
         assertFalse(diff.uids.single().valid)
-        assertEquals(
-            -3L,
-            diff.uids
-                .single()
-                .alarmDumpWakeups
-                .single()
-                .count,
-        )
-        assertTrue(diff.validity.problems.contains("negative_uid_alarm_dump:10001:sync"))
+        assertTrue(diff.validity.problems.contains("uid_alarm_dump_reset:10001"))
+        assertTrue(diff.validity.problems.contains("negative_uid:10001"))
     }
 
     @Test

@@ -309,9 +309,14 @@ object SnapshotDiffer {
                                 "negative_uid_alarm_dump",
                             ),
                     )
-                val countersValid = !hasNegative(delta)
+                // A force-stop clears AlarmManager's per-package stats. That resets only the alarm dump's
+                // source, so drop its detail for this UID and keep the independently comparable counters.
+                val alarmDumpReset = delta.alarmDumpWakeups.any { it.count < 0 }
+                if (alarmDumpReset) problems += "uid_alarm_dump_reset:$uid"
+                val checked = if (alarmDumpReset) delta.copy(alarmDumpWakeups = emptyList()) else delta
+                val countersValid = !hasNegative(checked)
                 if (!countersValid) problems += "negative_uid:$uid"
-                delta.copy(valid = identityValid && countersValid)
+                checked.copy(valid = identityValid && countersValid)
             }
         }
     }
