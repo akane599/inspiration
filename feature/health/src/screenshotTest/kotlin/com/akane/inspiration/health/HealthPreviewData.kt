@@ -123,7 +123,7 @@ internal object HealthPreviewData {
                     cycles = null,
                     cyclesMissing = MissingReason.NotReported,
                 ),
-            wear = WearUi.NotEnough(1),
+            wear = WearUi.NotEnough,
             analysis = null,
             refreshing = false,
         )

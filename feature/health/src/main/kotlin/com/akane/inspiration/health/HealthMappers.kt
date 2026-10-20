@@ -134,9 +134,6 @@ internal data class LastCharge(
         if (span != null && startsBeforeWindow && plugInMs != null && plugInMs < span.startMs) span.copy(startMs = plugInMs) else span
 }
 
-/** The most recent plug-in span in [events]; see [lastCharge]. */
-internal fun lastChargeSpan(events: List<HistoryEvent>): ChargeSpan? = lastCharge(events).span
-
 /**
  * The most recent plug-in span in [events]. A window that opens mid-charge (first plug event is an unplug, also one
  * right after an unplug reset, or a reset while plugged in) starts the span at the window's first event and says so,
@@ -564,7 +561,7 @@ internal fun wearUi(samples: List<HealthSample>): WearUi {
             .filter { it.designMah > 0.0 && it.fccMah > 0.0 }
             .distinctBy { it.wallMs }
             .sortedBy { it.wallMs }
-    if (usable.size < MIN_WEAR_SAMPLES) return WearUi.NotEnough(usable.size)
+    if (usable.size < MIN_WEAR_SAMPLES) return WearUi.NotEnough
     val startMs = usable.first().wallMs
     val pct = usable.map { (it.wallMs - startMs).toFloat() to (it.fccMah / it.designMah * PERCENT).toFloat() }
     return WearUi.Ready(

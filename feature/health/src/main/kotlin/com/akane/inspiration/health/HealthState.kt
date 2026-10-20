@@ -90,9 +90,7 @@ data class HealthCardUi(
 
 sealed interface WearUi {
     /** Fewer than two usable health records: a designed empty state, not a flat line. */
-    data class NotEnough(
-        val sampleCount: Int,
-    ) : WearUi
+    data object NotEnough : WearUi
 
     /** x = milliseconds since [startMs], y = full-charge capacity as a percentage of design. */
     @Immutable
@@ -146,7 +144,7 @@ data class HealthState(
                 charging = false,
                 curve = CurveUi.None,
                 card = null,
-                wear = WearUi.NotEnough(0),
+                wear = WearUi.NotEnough,
                 analysis = null,
                 refreshing = false,
             )

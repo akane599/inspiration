@@ -103,7 +103,7 @@ class HealthMappersTest {
                 event(4 * MIN_MS, level = 80),
                 event(5 * MIN_MS, level = 79),
             )
-        val span = lastChargeSpan(events)
+        val span = lastCharge(events).span
         assertEquals(ChargeSpan(MIN_MS, 2 * MIN_MS), span)
         assertTrue(chargeSession(span, emptyList(), events.mapNotNull { it.toCurvePoint() }, false).isEmpty())
     }
@@ -112,14 +112,14 @@ class HealthMappersTest {
     fun `boot and reset use the plug baseline and never infer a charge across a known boundary`() {
         for (kind in listOf(HistoryKind.START, HistoryKind.RESET)) {
             val plugged = listOf(event(MIN_MS, kind), event(2 * MIN_MS, level = 50), event(3 * MIN_MS, level = 51))
-            val span = lastChargeSpan(plugged)
+            val span = lastCharge(plugged).span
             assertEquals(ChargeSpan(MIN_MS, null), span)
             assertEquals(2, chargeSession(span, emptyList(), plugged.mapNotNull { it.toCurvePoint() }, false).size)
             val unplugged = listOf(event(MIN_MS, kind).copy(plugType = 0), event(2 * MIN_MS, HistoryKind.UNPLUGGED))
-            assertNull(lastChargeSpan(unplugged))
+            assertNull(lastCharge(unplugged).span)
             // A plugged boot without a graceful shutdown replaces the previous open charge; a reset while plugged in
             // is no boot and keeps it.
-            val afterPlugIn = lastChargeSpan(listOf(event(0, HistoryKind.PLUGGED)) + plugged)
+            val afterPlugIn = lastCharge(listOf(event(0, HistoryKind.PLUGGED)) + plugged).span
             assertEquals(ChargeSpan(if (kind == HistoryKind.START) MIN_MS else 0, null), afterPlugIn)
         }
     }
@@ -138,7 +138,7 @@ class HealthMappersTest {
 
         assertEquals(LastCharge(ChargeSpan(0, 8 * HOUR_MS), startsBeforeWindow = false), lastCharge(events))
         // Still charging: the open span keeps its plug-in too.
-        assertEquals(ChargeSpan(0, null), lastChargeSpan(events.dropLast(1)))
+        assertEquals(ChargeSpan(0, null), lastCharge(events.dropLast(1)).span)
     }
 
     @Test
@@ -203,13 +203,13 @@ class HealthMappersTest {
                 event(9 * HOUR_MS, level = 99).copy(plugType = 0),
             )
 
-        val span = lastChargeSpan(events)
+        val span = lastCharge(events).span
 
         assertEquals(ChargeSpan(0, 8 * HOUR_MS), span)
         assertEquals(span, effectiveChargeSpan(span, emptyList(), hasLive = false))
         // A reset while still plugged keeps the charge from its plug-in, and a reset on battery opens nothing.
-        assertEquals(ChargeSpan(0, null), lastChargeSpan(events.take(2) + event(8 * HOUR_MS, HistoryKind.RESET)))
-        assertNull(lastChargeSpan(listOf(event(8 * HOUR_MS, HistoryKind.RESET).copy(plugType = 0), event(9 * HOUR_MS))))
+        assertEquals(ChargeSpan(0, null), lastCharge(events.take(2) + event(8 * HOUR_MS, HistoryKind.RESET)).span)
+        assertNull(lastCharge(listOf(event(8 * HOUR_MS, HistoryKind.RESET).copy(plugType = 0), event(9 * HOUR_MS))).span)
     }
 
     @Test
@@ -226,7 +226,7 @@ class HealthMappersTest {
                 event(9 * HOUR_MS, level = 99).copy(plugType = 0),
             )
 
-        assertEquals(ChargeSpan(30 * MIN_MS, 8 * HOUR_MS), lastChargeSpan(events))
+        assertEquals(ChargeSpan(30 * MIN_MS, 8 * HOUR_MS), lastCharge(events).span)
     }
 
     @Test
@@ -240,11 +240,11 @@ class HealthMappersTest {
                 event(3 * HOUR_MS, level = 59).copy(plugType = 0),
             )
 
-        assertNull(lastChargeSpan(events))
+        assertNull(lastCharge(events).span)
         // A later charge in the window is still found.
         val charged =
             events + event(4 * HOUR_MS, HistoryKind.PLUGGED) + event(5 * HOUR_MS, HistoryKind.UNPLUGGED).copy(plugType = 0)
-        assertEquals(ChargeSpan(4 * HOUR_MS, 5 * HOUR_MS), lastChargeSpan(charged))
+        assertEquals(ChargeSpan(4 * HOUR_MS, 5 * HOUR_MS), lastCharge(charged).span)
     }
 
     @Test
@@ -512,21 +512,21 @@ class HealthMappersTest {
                 event(30 * MIN_MS, HistoryKind.UNPLUGGED),
                 event(40 * MIN_MS, HistoryKind.PLUGGED),
             )
-        assertEquals(ChargeSpan(40 * MIN_MS, null), lastChargeSpan(events))
-        assertEquals(ChargeSpan(10 * MIN_MS, 30 * MIN_MS), lastChargeSpan(events.dropLast(1)))
-        assertEquals("unsorted input", ChargeSpan(10 * MIN_MS, 30 * MIN_MS), lastChargeSpan(events.dropLast(1).reversed()))
+        assertEquals(ChargeSpan(40 * MIN_MS, null), lastCharge(events).span)
+        assertEquals(ChargeSpan(10 * MIN_MS, 30 * MIN_MS), lastCharge(events.dropLast(1)).span)
+        assertEquals("unsorted input", ChargeSpan(10 * MIN_MS, 30 * MIN_MS), lastCharge(events.dropLast(1).reversed()).span)
     }
 
     @Test
     fun `a window that opens mid charge starts the span at its first event`() {
         val events = listOf(event(5 * MIN_MS, HistoryKind.LEVEL), event(25 * MIN_MS, HistoryKind.UNPLUGGED))
-        assertEquals(ChargeSpan(5 * MIN_MS, 25 * MIN_MS), lastChargeSpan(events))
+        assertEquals(ChargeSpan(5 * MIN_MS, 25 * MIN_MS), lastCharge(events).span)
     }
 
     @Test
     fun `no plug event means no span`() {
-        assertNull(lastChargeSpan(emptyList()))
-        assertNull(lastChargeSpan(listOf(event(MIN_MS, HistoryKind.LEVEL), event(2 * MIN_MS, HistoryKind.SCREEN_ON))))
+        assertNull(lastCharge(emptyList()).span)
+        assertNull(lastCharge(listOf(event(MIN_MS, HistoryKind.LEVEL), event(2 * MIN_MS, HistoryKind.SCREEN_ON))).span)
     }
 
     @Test
@@ -851,16 +851,16 @@ class HealthMappersTest {
 
     @Test
     fun `fewer than two usable health records is the empty state`() {
-        assertEquals(WearUi.NotEnough(0), wearUi(emptyList()))
-        assertEquals(WearUi.NotEnough(1), wearUi(listOf(healthSample(10))))
+        assertEquals(WearUi.NotEnough, wearUi(emptyList()))
+        assertEquals(WearUi.NotEnough, wearUi(listOf(healthSample(10))))
         assertEquals(
             "a record without a design capacity cannot be drawn",
-            WearUi.NotEnough(1),
+            WearUi.NotEnough,
             wearUi(listOf(healthSample(10), healthSample(20, design = 0.0))),
         )
         assertEquals(
             "the same instant twice is one record",
-            WearUi.NotEnough(1),
+            WearUi.NotEnough,
             wearUi(listOf(healthSample(10), healthSample(10, fcc = 4_000.0))),
         )
     }
