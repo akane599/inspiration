@@ -68,14 +68,14 @@ core/
       diff/{BatteryStatsSession,ReferenceResolver,SnapshotDiffer}.kt
       dump/{DumpModels,DumpParser,DumpReader}.kt
       interval/{IntervalHistory,IntervalMetrics}.kt
-      app/AppFacingModels.kt       # RefreshResult, KernelCapacitySnapshot, AppEntry, AppLabels, packageForUid
+      app/AppFacingModels.kt       # RefreshResult, KernelCapacitySnapshot, AppEntry, AppLabels, packageForUid, identifyingPackage
       app/Attempt.kt               # shared attempt {} for feature ViewModels
       live/{KernelUnits,LiveTelemetry}.kt
       snapshot/{SnapshotModels,UidIdentity}.kt
       source/{AndroidClocks,AndroidTelemetrySource,TelemetrySource,UidIdentityReader}.kt
       status/{ChargeState,LightCurrent,UnplugSummary}.kt
       store/{HistoryHorizon,RetentionPrune,SnapshotStore,StoreModels}.kt
-      toolkit/{ToolkitActions,ToolkitGateway,ToolkitModels}.kt
+      toolkit/{ToolkitActions,ToolkitAdmission,ToolkitGateway,ToolkitModels}.kt
     src/test/kotlin/com/akane/inspiration/telemetry/**
     src/test/resources/proto/{alarm-api35,alarm-api36,alarm-api37,
       batterystats-api35,batterystats-api36,batterystats-api37}.pb
