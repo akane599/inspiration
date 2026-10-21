@@ -30,8 +30,8 @@ internal object GalleryDataGenerator {
     const val POINT_COUNT = 8_640
     const val WAKE_PULSE_COUNT = 25
 
-    /** 2026-01-01T00:00:00Z, fixed so screenshots and frame stats are comparable across runs. */
-    const val WINDOW_START_MS = 1_767_225_600_000L
+    /** 2026-01-01T12:00:00Z (midday), fixed so screenshots and frame stats are comparable across runs. */
+    const val WINDOW_START_MS = 1_767_268_800_000L
 
     private const val MINUTE_MS = 60_000L
     private const val HOUR_MS = 60 * MINUTE_MS
