@@ -201,9 +201,10 @@ class CockpitViewModel(
     private fun onReading(reading: LiveReading) {
         // Live reads go through the Shizuku service; one finishing as Shizuku went away is not shown as live.
         if (deps.shizukuState.value !is ShizukuState.Ready) return
+        // A negative age (the wall clock set back past the snapshot) says nothing about how fresh the estimate is.
         val estimate =
             systemEstimate
-                ?.takeIf { reading.wallMs - it.wallMs <= SYSTEM_ESTIMATE_MAX_AGE_MS }
+                ?.takeIf { reading.wallMs - it.wallMs in 0..SYSTEM_ESTIMATE_MAX_AGE_MS }
                 ?.remainingMs
         // The shown gauge is the last live reading's: cleared when hidden or stale, so it never carries over a gap.
         _state.update { it.copy(live = liveUi(reading, estimate, previous = it.live)) }

@@ -1144,4 +1144,23 @@ class CockpitViewModelTest {
             assertNotNull(vm.state.value.live)
             vm.onIntent(CockpitIntent.Hidden)
         }
+
+    @Test
+    fun `time left ignores a system estimate taken after the reading, as after the clock was set back`() =
+        runTest(dispatcher) {
+            // The snapshot is an hour "newer" than the reading: its age is negative, so it is not a fresh estimate.
+            deps.analysis.value =
+                ready(
+                    intervalAnalysis(resolved(coveredTo = NOW_MS + HOUR_MS, nowSystem = systemTimers(5 * HOUR_MS))),
+                )
+            val vm = viewModel()
+
+            visit(vm) {
+                assertNotNull(vm.state.value.live)
+                assertNull(
+                    vm.state.value.live
+                        ?.remainingMs,
+                )
+            }
+        }
 }
