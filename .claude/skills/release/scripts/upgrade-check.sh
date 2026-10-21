@@ -40,6 +40,10 @@ command -v gh >/dev/null || die "gh is not installed"
 bt=$(ls -d "${ANDROID_HOME:?ANDROID_HOME is unset}"/build-tools/* | sort -V | tail -1)
 [ -x "$bt/aapt2" ] && [ -x "$bt/apksigner" ] || die "aapt2/apksigner missing in $bt"
 adb get-state >/dev/null 2>&1 || die "device $ANDROID_SERIAL is not attached"
+# This check uninstalls the app. Through an SSH-forwarded adb server, localhost:5555 can be the user's phone.
+model=$(adb shell getprop ro.product.model | tr -d '\r')
+[ "$model" = redroid15_x86_64 ] ||
+  die "device $ANDROID_SERIAL is '$model', not the disposable redroid15_x86_64: refused before any install (is adb reaching a personal phone?)"
 if adb shell 'su 0 id' 2>/dev/null | grep -q 'uid=0'; then
   root='su 0 '
 elif adb root >/dev/null 2>&1 && adb wait-for-device && adb shell id | grep -q 'uid=0'; then

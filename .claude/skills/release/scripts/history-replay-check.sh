@@ -28,6 +28,12 @@
 #   $HOME/.cache/akastudio-emulator-5554.lock when it exists); REPLAY_TIMEOUT_S (default 90).
 # Exit: 0 every check passed, 1 a check failed, 2 setup problem or refused (no phase verdict).
 set -uo pipefail
+# A signal sent to this script's pid ends it through the EXIT trap below, and only after the foreground command (an
+# `am start -W`, an adb shell) has returned, so the cleanup does not race a launch it started. A signal to the whole
+# process group (Ctrl-C, a killed terminal) also ends the adb client; then only the process wait in `undo` protects.
+trap 'exit 143' TERM
+trap 'exit 130' INT
+trap 'exit 129' HUP
 
 pkg=com.akane.inspiration
 db=/data/data/$pkg/databases/inspiration.db
@@ -170,18 +176,28 @@ log "target  START id $start_id at historyTimeMs $ht, wallMs $wall (session $ses
 # Rows the launches stored stay. When the device cannot confirm the result, the out-dir backup is the way back.
 companion=0
 undo() {
-  local left
-  stop_app
+  local left pid gone=0
+  trap '' INT TERM HUP   # a second signal must not cut the cleanup short
+  # Stop the app and wait until its process is gone (a launch that was still in flight can bring it back once): two
+  # consecutive empty samples, two seconds apart, and a failing or hung adb is read as "still there" (signals are
+  # ignored from here on, so a stuck adb gets a timeout instead).
+  for _ in 1 2 3 4 5 6 7 8 9 10; do
+    timeout 10 adb shell am force-stop $pkg
+    sleep 2
+    pid=$(timeout 10 adb shell pidof $pkg 2>&1 | tr -d '\r')
+    if [ -z "$pid" ]; then gone=$((gone + 1)); [ "$gone" -ge 2 ] && break; else gone=0; fi
+  done
+  [ "$gone" -ge 2 ] || pid=${pid:-unconfirmed}
   left=$(sql "DELETE FROM history_event WHERE historyTimeMs = $ht AND wallMs = $wall AND kind != '$start_kind';
     DELETE FROM history_cursor WHERE id = $marker_id;
     SELECT COUNT(*) FROM history_event WHERE historyTimeMs = $ht AND wallMs = $wall AND kind != '$start_kind';
     SELECT COUNT(*) FROM history_cursor WHERE id = $marker_id;" | tr '\n' ' ')
   own_db
-  if [ "$left" = "0 0 " ]; then
-    echo "undo    stopped part-way: synthetic rows at the START's instant removed, replay re-armed; the START returns at the next app start (Shizuku needed); nothing else was touched" |
+  if [ "$left" = "0 0 " ] && [ -z "$pid" ]; then
+    echo "undo    stopped part-way: app stopped, synthetic rows at the START's instant removed, replay re-armed. The script changed nothing else; the START returns at the next app start (Shizuku needed), the launches' captures and the cursor's position remain" |
       tee -a "$report" >&2
   else
-    echo "undo    stopped part-way and the cleanup could not confirm the database (got '$left'): restore from $out/inspiration.db*" |
+    echo "undo    stopped part-way and the cleanup could not confirm the database (rows/marker left: '$left'; process still alive: '${pid:-none}'): restore from $out/inspiration.db*" |
       tee -a "$report" >&2
   fi
 }
