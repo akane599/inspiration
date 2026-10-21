@@ -1,0 +1,1433 @@
+{
+  "formatVersion": 1,
+  "database": {
+    "version": 8,
+    "identityHash": "a2762c5ea5954ba5fb6443ea177bf5af",
+    "entities": [
+      {
+        "tableName": "snapshot",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `kind` TEXT NOT NULL, `trigger` TEXT NOT NULL, `wallMs` INTEGER NOT NULL, `elapsedRealtimeMs` INTEGER NOT NULL, `uptimeMs` INTEGER NOT NULL, `bootCount` INTEGER NOT NULL, `statsStartMs` INTEGER, `statsDurationMs` INTEGER, `levelPct` INTEGER, `plugged` INTEGER, `statusText` TEXT, `temperatureDeciC` INTEGER, `voltageMv` INTEGER, `currentMa` INTEGER, `chargeCounterUah` INTEGER, `dischargedMah` REAL, `truncatedUids` INTEGER NOT NULL DEFAULT 0, `uidIdentityUserId` INTEGER, `uidIdentityUserSerial` INTEGER, `uidIdentityReaderEpoch` TEXT, `uidIdentityPackageChangeSequence` INTEGER)",
+        "fields": [
+          {
+            "fieldPath": "id",
+            "columnName": "id",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "kind",
+            "columnName": "kind",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "trigger",
+            "columnName": "trigger",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "wallMs",
+            "columnName": "wallMs",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "elapsedRealtimeMs",
+            "columnName": "elapsedRealtimeMs",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "uptimeMs",
+            "columnName": "uptimeMs",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "bootCount",
+            "columnName": "bootCount",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "statsStartMs",
+            "columnName": "statsStartMs",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "statsDurationMs",
+            "columnName": "statsDurationMs",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "levelPct",
+            "columnName": "levelPct",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "plugged",
+            "columnName": "plugged",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "statusText",
+            "columnName": "statusText",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "temperatureDeciC",
+            "columnName": "temperatureDeciC",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "voltageMv",
+            "columnName": "voltageMv",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "currentMa",
+            "columnName": "currentMa",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "chargeCounterUah",
+            "columnName": "chargeCounterUah",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "dischargedMah",
+            "columnName": "dischargedMah",
+            "affinity": "REAL"
+          },
+          {
+            "fieldPath": "truncatedUids",
+            "columnName": "truncatedUids",
+            "affinity": "INTEGER",
+            "notNull": true,
+            "defaultValue": "0"
+          },
+          {
+            "fieldPath": "uidIdentityUserId",
+            "columnName": "uidIdentityUserId",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "uidIdentityUserSerial",
+            "columnName": "uidIdentityUserSerial",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "uidIdentityReaderEpoch",
+            "columnName": "uidIdentityReaderEpoch",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "uidIdentityPackageChangeSequence",
+            "columnName": "uidIdentityPackageChangeSequence",
+            "affinity": "INTEGER"
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": true,
+          "columnNames": [
+            "id"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_snapshot_bootCount_elapsedRealtimeMs",
+            "unique": false,
+            "columnNames": [
+              "bootCount",
+              "elapsedRealtimeMs"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_snapshot_bootCount_elapsedRealtimeMs` ON `${TABLE_NAME}` (`bootCount`, `elapsedRealtimeMs`)"
+          },
+          {
+            "name": "index_snapshot_wallMs",
+            "unique": false,
+            "columnNames": [
+              "wallMs"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_snapshot_wallMs` ON `${TABLE_NAME}` (`wallMs`)"
+          },
+          {
+            "name": "index_snapshot_statsStartMs",
+            "unique": false,
+            "columnNames": [
+              "statsStartMs"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_snapshot_statsStartMs` ON `${TABLE_NAME}` (`statsStartMs`)"
+          },
+          {
+            "name": "index_snapshot_trigger_wallMs",
+            "unique": false,
+            "columnNames": [
+              "trigger",
+              "wallMs"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_snapshot_trigger_wallMs` ON `${TABLE_NAME}` (`trigger`, `wallMs`)"
+          }
+        ]
+      },
+      {
+        "tableName": "snapshot_system",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`snapshotId` INTEGER NOT NULL, `startClockTimeMs` INTEGER NOT NULL, `totalRealtimeMs` INTEGER NOT NULL, `totalUptimeMs` INTEGER NOT NULL, `batteryRealtimeMs` INTEGER NOT NULL, `batteryUptimeMs` INTEGER NOT NULL, `screenOffRealtimeMs` INTEGER NOT NULL, `screenOffUptimeMs` INTEGER NOT NULL, `screenDozeMs` INTEGER NOT NULL, `screenOnMs` INTEGER NOT NULL, `interactiveMs` INTEGER NOT NULL, `deepDozeMs` INTEGER NOT NULL, `deepDozeCount` INTEGER NOT NULL, `lightDozeMs` INTEGER NOT NULL, `dischargeTotalMah` REAL NOT NULL, `dischargeScreenOffMah` REAL NOT NULL, `chargeTimeRemainingMs` INTEGER, `dischargeTimeRemainingMs` INTEGER, `signalBin0Ms` INTEGER, `signalBin1Ms` INTEGER, `signalBin2Ms` INTEGER, `signalBin3Ms` INTEGER, `signalBin4Ms` INTEGER, `signalScanningMs` INTEGER, `mobileRadioActiveMs` INTEGER, PRIMARY KEY(`snapshotId`), FOREIGN KEY(`snapshotId`) REFERENCES `snapshot`(`id`) ON UPDATE NO ACTION ON DELETE CASCADE )",
+        "fields": [
+          {
+            "fieldPath": "snapshotId",
+            "columnName": "snapshotId",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "startClockTimeMs",
+            "columnName": "startClockTimeMs",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "totalRealtimeMs",
+            "columnName": "totalRealtimeMs",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "totalUptimeMs",
+            "columnName": "totalUptimeMs",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "batteryRealtimeMs",
+            "columnName": "batteryRealtimeMs",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "batteryUptimeMs",
+            "columnName": "batteryUptimeMs",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "screenOffRealtimeMs",
+            "columnName": "screenOffRealtimeMs",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "screenOffUptimeMs",
+            "columnName": "screenOffUptimeMs",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "screenDozeMs",
+            "columnName": "screenDozeMs",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "screenOnMs",
+            "columnName": "screenOnMs",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "interactiveMs",
+            "columnName": "interactiveMs",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "deepDozeMs",
+            "columnName": "deepDozeMs",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "deepDozeCount",
+            "columnName": "deepDozeCount",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "lightDozeMs",
+            "columnName": "lightDozeMs",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "dischargeTotalMah",
+            "columnName": "dischargeTotalMah",
+            "affinity": "REAL",
+            "notNull": true
+          },
+          {
+            "fieldPath": "dischargeScreenOffMah",
+            "columnName": "dischargeScreenOffMah",
+            "affinity": "REAL",
+            "notNull": true
+          },
+          {
+            "fieldPath": "chargeTimeRemainingMs",
+            "columnName": "chargeTimeRemainingMs",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "dischargeTimeRemainingMs",
+            "columnName": "dischargeTimeRemainingMs",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "signalBin0Ms",
+            "columnName": "signalBin0Ms",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "signalBin1Ms",
+            "columnName": "signalBin1Ms",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "signalBin2Ms",
+            "columnName": "signalBin2Ms",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "signalBin3Ms",
+            "columnName": "signalBin3Ms",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "signalBin4Ms",
+            "columnName": "signalBin4Ms",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "signalScanningMs",
+            "columnName": "signalScanningMs",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "mobileRadioActiveMs",
+            "columnName": "mobileRadioActiveMs",
+            "affinity": "INTEGER"
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "snapshotId"
+          ]
+        },
+        "foreignKeys": [
+          {
+            "table": "snapshot",
+            "onDelete": "CASCADE",
+            "onUpdate": "NO ACTION",
+            "columns": [
+              "snapshotId"
+            ],
+            "referencedColumns": [
+              "id"
+            ]
+          }
+        ]
+      },
+      {
+        "tableName": "snapshot_availability",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`snapshotId` INTEGER NOT NULL, `source` TEXT NOT NULL, `available` INTEGER NOT NULL, `reason` TEXT, PRIMARY KEY(`snapshotId`, `source`), FOREIGN KEY(`snapshotId`) REFERENCES `snapshot`(`id`) ON UPDATE NO ACTION ON DELETE CASCADE )",
+        "fields": [
+          {
+            "fieldPath": "snapshotId",
+            "columnName": "snapshotId",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "source",
+            "columnName": "source",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "available",
+            "columnName": "available",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "reason",
+            "columnName": "reason",
+            "affinity": "TEXT"
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "snapshotId",
+            "source"
+          ]
+        },
+        "foreignKeys": [
+          {
+            "table": "snapshot",
+            "onDelete": "CASCADE",
+            "onUpdate": "NO ACTION",
+            "columns": [
+              "snapshotId"
+            ],
+            "referencedColumns": [
+              "id"
+            ]
+          }
+        ]
+      },
+      {
+        "tableName": "snapshot_uid",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`snapshotId` INTEGER NOT NULL, `uid` INTEGER NOT NULL, `packageName` TEXT, `totalMah` REAL NOT NULL, `fgMah` REAL, `bgMah` REAL, `fgsMah` REAL, `cachedMah` REAL, `cpuUserMs` INTEGER NOT NULL, `cpuSystemMs` INTEGER NOT NULL, `fgActivityMs` INTEGER NOT NULL, `fgServiceMs` INTEGER NOT NULL, `ownerInstallFingerprint` TEXT, PRIMARY KEY(`snapshotId`, `uid`), FOREIGN KEY(`snapshotId`) REFERENCES `snapshot`(`id`) ON UPDATE NO ACTION ON DELETE CASCADE )",
+        "fields": [
+          {
+            "fieldPath": "snapshotId",
+            "columnName": "snapshotId",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "uid",
+            "columnName": "uid",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "packageName",
+            "columnName": "packageName",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "totalMah",
+            "columnName": "totalMah",
+            "affinity": "REAL",
+            "notNull": true
+          },
+          {
+            "fieldPath": "fgMah",
+            "columnName": "fgMah",
+            "affinity": "REAL"
+          },
+          {
+            "fieldPath": "bgMah",
+            "columnName": "bgMah",
+            "affinity": "REAL"
+          },
+          {
+            "fieldPath": "fgsMah",
+            "columnName": "fgsMah",
+            "affinity": "REAL"
+          },
+          {
+            "fieldPath": "cachedMah",
+            "columnName": "cachedMah",
+            "affinity": "REAL"
+          },
+          {
+            "fieldPath": "cpuUserMs",
+            "columnName": "cpuUserMs",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "cpuSystemMs",
+            "columnName": "cpuSystemMs",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "fgActivityMs",
+            "columnName": "fgActivityMs",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "fgServiceMs",
+            "columnName": "fgServiceMs",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "ownerInstallFingerprint",
+            "columnName": "ownerInstallFingerprint",
+            "affinity": "TEXT"
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "snapshotId",
+            "uid"
+          ]
+        },
+        "foreignKeys": [
+          {
+            "table": "snapshot",
+            "onDelete": "CASCADE",
+            "onUpdate": "NO ACTION",
+            "columns": [
+              "snapshotId"
+            ],
+            "referencedColumns": [
+              "id"
+            ]
+          }
+        ]
+      },
+      {
+        "tableName": "snapshot_component",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`snapshotId` INTEGER NOT NULL, `uid` INTEGER NOT NULL, `component` TEXT NOT NULL, `mah` REAL NOT NULL, PRIMARY KEY(`snapshotId`, `uid`, `component`), FOREIGN KEY(`snapshotId`) REFERENCES `snapshot`(`id`) ON UPDATE NO ACTION ON DELETE CASCADE )",
+        "fields": [
+          {
+            "fieldPath": "snapshotId",
+            "columnName": "snapshotId",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "uid",
+            "columnName": "uid",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "component",
+            "columnName": "component",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "mah",
+            "columnName": "mah",
+            "affinity": "REAL",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "snapshotId",
+            "uid",
+            "component"
+          ]
+        },
+        "foreignKeys": [
+          {
+            "table": "snapshot",
+            "onDelete": "CASCADE",
+            "onUpdate": "NO ACTION",
+            "columns": [
+              "snapshotId"
+            ],
+            "referencedColumns": [
+              "id"
+            ]
+          }
+        ]
+      },
+      {
+        "tableName": "snapshot_wakelock",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`snapshotId` INTEGER NOT NULL, `kind` TEXT NOT NULL, `uid` INTEGER NOT NULL, `name` TEXT NOT NULL, `durationMs` INTEGER NOT NULL, `bgDurationMs` INTEGER NOT NULL, `count` INTEGER NOT NULL, PRIMARY KEY(`snapshotId`, `kind`, `uid`, `name`), FOREIGN KEY(`snapshotId`) REFERENCES `snapshot`(`id`) ON UPDATE NO ACTION ON DELETE CASCADE )",
+        "fields": [
+          {
+            "fieldPath": "snapshotId",
+            "columnName": "snapshotId",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "kind",
+            "columnName": "kind",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "uid",
+            "columnName": "uid",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "name",
+            "columnName": "name",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "durationMs",
+            "columnName": "durationMs",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "bgDurationMs",
+            "columnName": "bgDurationMs",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "count",
+            "columnName": "count",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "snapshotId",
+            "kind",
+            "uid",
+            "name"
+          ]
+        },
+        "foreignKeys": [
+          {
+            "table": "snapshot",
+            "onDelete": "CASCADE",
+            "onUpdate": "NO ACTION",
+            "columns": [
+              "snapshotId"
+            ],
+            "referencedColumns": [
+              "id"
+            ]
+          }
+        ]
+      },
+      {
+        "tableName": "snapshot_alarm",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`snapshotId` INTEGER NOT NULL, `uid` INTEGER NOT NULL, `tag` TEXT NOT NULL, `count` INTEGER NOT NULL, `alarmDumpWakeups` INTEGER NOT NULL DEFAULT 0, PRIMARY KEY(`snapshotId`, `uid`, `tag`), FOREIGN KEY(`snapshotId`) REFERENCES `snapshot`(`id`) ON UPDATE NO ACTION ON DELETE CASCADE )",
+        "fields": [
+          {
+            "fieldPath": "snapshotId",
+            "columnName": "snapshotId",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "uid",
+            "columnName": "uid",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "tag",
+            "columnName": "tag",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "count",
+            "columnName": "count",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "alarmDumpWakeups",
+            "columnName": "alarmDumpWakeups",
+            "affinity": "INTEGER",
+            "notNull": true,
+            "defaultValue": "0"
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "snapshotId",
+            "uid",
+            "tag"
+          ]
+        },
+        "foreignKeys": [
+          {
+            "table": "snapshot",
+            "onDelete": "CASCADE",
+            "onUpdate": "NO ACTION",
+            "columns": [
+              "snapshotId"
+            ],
+            "referencedColumns": [
+              "id"
+            ]
+          }
+        ]
+      },
+      {
+        "tableName": "snapshot_uid_sensor",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`snapshotId` INTEGER NOT NULL, `uid` INTEGER NOT NULL, `handle` INTEGER NOT NULL, `totalMs` INTEGER NOT NULL, `bgMs` INTEGER NOT NULL, `count` INTEGER NOT NULL, PRIMARY KEY(`snapshotId`, `uid`, `handle`), FOREIGN KEY(`snapshotId`) REFERENCES `snapshot`(`id`) ON UPDATE NO ACTION ON DELETE CASCADE )",
+        "fields": [
+          {
+            "fieldPath": "snapshotId",
+            "columnName": "snapshotId",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "uid",
+            "columnName": "uid",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "handle",
+            "columnName": "handle",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "totalMs",
+            "columnName": "totalMs",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "bgMs",
+            "columnName": "bgMs",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "count",
+            "columnName": "count",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "snapshotId",
+            "uid",
+            "handle"
+          ]
+        },
+        "foreignKeys": [
+          {
+            "table": "snapshot",
+            "onDelete": "CASCADE",
+            "onUpdate": "NO ACTION",
+            "columns": [
+              "snapshotId"
+            ],
+            "referencedColumns": [
+              "id"
+            ]
+          }
+        ]
+      },
+      {
+        "tableName": "snapshot_cpu_freq",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`snapshotId` INTEGER NOT NULL, `policy` INTEGER NOT NULL, `freqKhz` INTEGER NOT NULL, `timeMs` INTEGER NOT NULL, PRIMARY KEY(`snapshotId`, `policy`, `freqKhz`), FOREIGN KEY(`snapshotId`) REFERENCES `snapshot`(`id`) ON UPDATE NO ACTION ON DELETE CASCADE )",
+        "fields": [
+          {
+            "fieldPath": "snapshotId",
+            "columnName": "snapshotId",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "policy",
+            "columnName": "policy",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "freqKhz",
+            "columnName": "freqKhz",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "timeMs",
+            "columnName": "timeMs",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "snapshotId",
+            "policy",
+            "freqKhz"
+          ]
+        },
+        "foreignKeys": [
+          {
+            "table": "snapshot",
+            "onDelete": "CASCADE",
+            "onUpdate": "NO ACTION",
+            "columns": [
+              "snapshotId"
+            ],
+            "referencedColumns": [
+              "id"
+            ]
+          }
+        ]
+      },
+      {
+        "tableName": "marker",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `snapshotId` INTEGER NOT NULL, `label` TEXT NOT NULL, `wallMs` INTEGER NOT NULL, FOREIGN KEY(`snapshotId`) REFERENCES `snapshot`(`id`) ON UPDATE NO ACTION ON DELETE RESTRICT )",
+        "fields": [
+          {
+            "fieldPath": "id",
+            "columnName": "id",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "snapshotId",
+            "columnName": "snapshotId",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "label",
+            "columnName": "label",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "wallMs",
+            "columnName": "wallMs",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": true,
+          "columnNames": [
+            "id"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_marker_snapshotId",
+            "unique": false,
+            "columnNames": [
+              "snapshotId"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_marker_snapshotId` ON `${TABLE_NAME}` (`snapshotId`)"
+          }
+        ],
+        "foreignKeys": [
+          {
+            "table": "snapshot",
+            "onDelete": "RESTRICT",
+            "onUpdate": "NO ACTION",
+            "columns": [
+              "snapshotId"
+            ],
+            "referencedColumns": [
+              "id"
+            ]
+          }
+        ]
+      },
+      {
+        "tableName": "history_event",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `statsStartMs` INTEGER NOT NULL, `historyTimeMs` INTEGER NOT NULL, `wallMs` INTEGER NOT NULL, `kind` TEXT NOT NULL, `levelPct` INTEGER, `chargeUah` INTEGER, `temperatureDeciC` INTEGER, `voltageMv` INTEGER, `plugType` TEXT)",
+        "fields": [
+          {
+            "fieldPath": "id",
+            "columnName": "id",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "statsStartMs",
+            "columnName": "statsStartMs",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "historyTimeMs",
+            "columnName": "historyTimeMs",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "wallMs",
+            "columnName": "wallMs",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "kind",
+            "columnName": "kind",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "levelPct",
+            "columnName": "levelPct",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "chargeUah",
+            "columnName": "chargeUah",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "temperatureDeciC",
+            "columnName": "temperatureDeciC",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "voltageMv",
+            "columnName": "voltageMv",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "plugType",
+            "columnName": "plugType",
+            "affinity": "TEXT"
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": true,
+          "columnNames": [
+            "id"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_history_event_wallMs",
+            "unique": false,
+            "columnNames": [
+              "wallMs"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_history_event_wallMs` ON `${TABLE_NAME}` (`wallMs`)"
+          },
+          {
+            "name": "index_history_event_historyTimeMs_kind_wallMs",
+            "unique": true,
+            "columnNames": [
+              "historyTimeMs",
+              "kind",
+              "wallMs"
+            ],
+            "orders": [],
+            "createSql": "CREATE UNIQUE INDEX IF NOT EXISTS `index_history_event_historyTimeMs_kind_wallMs` ON `${TABLE_NAME}` (`historyTimeMs`, `kind`, `wallMs`)"
+          },
+          {
+            "name": "index_history_event_kind_wallMs",
+            "unique": false,
+            "columnNames": [
+              "kind",
+              "wallMs"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_history_event_kind_wallMs` ON `${TABLE_NAME}` (`kind`, `wallMs`)"
+          }
+        ]
+      },
+      {
+        "tableName": "history_cursor",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` INTEGER NOT NULL, `statsStartMs` INTEGER NOT NULL, `lastHistoryTimeMs` INTEGER NOT NULL, PRIMARY KEY(`id`))",
+        "fields": [
+          {
+            "fieldPath": "id",
+            "columnName": "id",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "statsStartMs",
+            "columnName": "statsStartMs",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "lastHistoryTimeMs",
+            "columnName": "lastHistoryTimeMs",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "id"
+          ]
+        }
+      },
+      {
+        "tableName": "history_watermark",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` INTEGER NOT NULL, `seenThroughHistoryTimeMs` INTEGER NOT NULL, `prunedBeforeWallMs` INTEGER NOT NULL, PRIMARY KEY(`id`))",
+        "fields": [
+          {
+            "fieldPath": "id",
+            "columnName": "id",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "seenThroughHistoryTimeMs",
+            "columnName": "seenThroughHistoryTimeMs",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "prunedBeforeWallMs",
+            "columnName": "prunedBeforeWallMs",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "id"
+          ]
+        }
+      },
+      {
+        "tableName": "telemetry_sample",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `wallMs` INTEGER NOT NULL, `elapsedRealtimeMs` INTEGER NOT NULL, `bootCount` INTEGER NOT NULL, `currentMa` INTEGER, `voltageMv` INTEGER, `watts` REAL, `temperatureDeciC` INTEGER, `levelPct` INTEGER, `plugged` INTEGER, `thermalStatus` INTEGER)",
+        "fields": [
+          {
+            "fieldPath": "id",
+            "columnName": "id",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "wallMs",
+            "columnName": "wallMs",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "elapsedRealtimeMs",
+            "columnName": "elapsedRealtimeMs",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "bootCount",
+            "columnName": "bootCount",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "currentMa",
+            "columnName": "currentMa",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "voltageMv",
+            "columnName": "voltageMv",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "watts",
+            "columnName": "watts",
+            "affinity": "REAL"
+          },
+          {
+            "fieldPath": "temperatureDeciC",
+            "columnName": "temperatureDeciC",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "levelPct",
+            "columnName": "levelPct",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "plugged",
+            "columnName": "plugged",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "thermalStatus",
+            "columnName": "thermalStatus",
+            "affinity": "INTEGER"
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": true,
+          "columnNames": [
+            "id"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_telemetry_sample_wallMs",
+            "unique": false,
+            "columnNames": [
+              "wallMs"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_telemetry_sample_wallMs` ON `${TABLE_NAME}` (`wallMs`)"
+          }
+        ]
+      },
+      {
+        "tableName": "telemetry_hourly",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`hourStartWallMs` INTEGER NOT NULL, `sampleCount` INTEGER NOT NULL, `avgCurrentMa` REAL, `minCurrentMa` INTEGER, `maxCurrentMa` INTEGER, `avgVoltageMv` REAL, `avgWatts` REAL, `maxTemperatureDeciC` INTEGER, `minLevelPct` INTEGER, `maxLevelPct` INTEGER, PRIMARY KEY(`hourStartWallMs`))",
+        "fields": [
+          {
+            "fieldPath": "hourStartWallMs",
+            "columnName": "hourStartWallMs",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "sampleCount",
+            "columnName": "sampleCount",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "avgCurrentMa",
+            "columnName": "avgCurrentMa",
+            "affinity": "REAL"
+          },
+          {
+            "fieldPath": "minCurrentMa",
+            "columnName": "minCurrentMa",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "maxCurrentMa",
+            "columnName": "maxCurrentMa",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "avgVoltageMv",
+            "columnName": "avgVoltageMv",
+            "affinity": "REAL"
+          },
+          {
+            "fieldPath": "avgWatts",
+            "columnName": "avgWatts",
+            "affinity": "REAL"
+          },
+          {
+            "fieldPath": "maxTemperatureDeciC",
+            "columnName": "maxTemperatureDeciC",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "minLevelPct",
+            "columnName": "minLevelPct",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "maxLevelPct",
+            "columnName": "maxLevelPct",
+            "affinity": "INTEGER"
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "hourStartWallMs"
+          ]
+        }
+      },
+      {
+        "tableName": "charge_session",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `statsStartMs` INTEGER NOT NULL, `startHistoryTimeMs` INTEGER NOT NULL, `startWallMs` INTEGER NOT NULL, `endWallMs` INTEGER NOT NULL, `startPct` INTEGER NOT NULL, `endPct` INTEGER NOT NULL, `deltaChargeUah` INTEGER, `integratedMah` REAL, `maxTemperatureDeciC` INTEGER, `estimateMah` REAL, `independent` INTEGER NOT NULL, `accepted` INTEGER NOT NULL, `rejectReason` TEXT)",
+        "fields": [
+          {
+            "fieldPath": "id",
+            "columnName": "id",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "statsStartMs",
+            "columnName": "statsStartMs",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "startHistoryTimeMs",
+            "columnName": "startHistoryTimeMs",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "startWallMs",
+            "columnName": "startWallMs",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "endWallMs",
+            "columnName": "endWallMs",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "startPct",
+            "columnName": "startPct",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "endPct",
+            "columnName": "endPct",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "deltaChargeUah",
+            "columnName": "deltaChargeUah",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "integratedMah",
+            "columnName": "integratedMah",
+            "affinity": "REAL"
+          },
+          {
+            "fieldPath": "maxTemperatureDeciC",
+            "columnName": "maxTemperatureDeciC",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "estimateMah",
+            "columnName": "estimateMah",
+            "affinity": "REAL"
+          },
+          {
+            "fieldPath": "independent",
+            "columnName": "independent",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "accepted",
+            "columnName": "accepted",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "rejectReason",
+            "columnName": "rejectReason",
+            "affinity": "TEXT"
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": true,
+          "columnNames": [
+            "id"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_charge_session_statsStartMs_startHistoryTimeMs",
+            "unique": true,
+            "columnNames": [
+              "statsStartMs",
+              "startHistoryTimeMs"
+            ],
+            "orders": [],
+            "createSql": "CREATE UNIQUE INDEX IF NOT EXISTS `index_charge_session_statsStartMs_startHistoryTimeMs` ON `${TABLE_NAME}` (`statsStartMs`, `startHistoryTimeMs`)"
+          }
+        ]
+      },
+      {
+        "tableName": "capture_miss",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `wallMs` INTEGER NOT NULL, `trigger` TEXT NOT NULL, `reason` TEXT NOT NULL)",
+        "fields": [
+          {
+            "fieldPath": "id",
+            "columnName": "id",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "wallMs",
+            "columnName": "wallMs",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "trigger",
+            "columnName": "trigger",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "reason",
+            "columnName": "reason",
+            "affinity": "TEXT",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": true,
+          "columnNames": [
+            "id"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_capture_miss_wallMs",
+            "unique": false,
+            "columnNames": [
+              "wallMs"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_capture_miss_wallMs` ON `${TABLE_NAME}` (`wallMs`)"
+          }
+        ]
+      },
+      {
+        "tableName": "battery_health_sample",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`wallMs` INTEGER NOT NULL, `fccMah` REAL NOT NULL, `designMah` REAL NOT NULL, `cycleCount` INTEGER, `measuredMah` REAL, PRIMARY KEY(`wallMs`))",
+        "fields": [
+          {
+            "fieldPath": "wallMs",
+            "columnName": "wallMs",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "fccMah",
+            "columnName": "fccMah",
+            "affinity": "REAL",
+            "notNull": true
+          },
+          {
+            "fieldPath": "designMah",
+            "columnName": "designMah",
+            "affinity": "REAL",
+            "notNull": true
+          },
+          {
+            "fieldPath": "cycleCount",
+            "columnName": "cycleCount",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "measuredMah",
+            "columnName": "measuredMah",
+            "affinity": "REAL"
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "wallMs"
+          ]
+        }
+      },
+      {
+        "tableName": "toolkit_action",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `startedAt` INTEGER NOT NULL, `endedAt` INTEGER, `kind` TEXT NOT NULL, `pkg` TEXT, `op` TEXT NOT NULL, `param` TEXT, `status` TEXT NOT NULL, `code` INTEGER, `beforeRaw` TEXT, `afterRaw` TEXT, `restoresId` INTEGER)",
+        "fields": [
+          {
+            "fieldPath": "id",
+            "columnName": "id",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "startedAt",
+            "columnName": "startedAt",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "endedAt",
+            "columnName": "endedAt",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "kind",
+            "columnName": "kind",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "pkg",
+            "columnName": "pkg",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "op",
+            "columnName": "op",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "param",
+            "columnName": "param",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "status",
+            "columnName": "status",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "code",
+            "columnName": "code",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "beforeRaw",
+            "columnName": "beforeRaw",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "afterRaw",
+            "columnName": "afterRaw",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "restoresId",
+            "columnName": "restoresId",
+            "affinity": "INTEGER"
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": true,
+          "columnNames": [
+            "id"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_toolkit_action_status",
+            "unique": false,
+            "columnNames": [
+              "status"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_toolkit_action_status` ON `${TABLE_NAME}` (`status`)"
+          }
+        ]
+      }
+    ],
+    "setupQueries": [
+      "CREATE TABLE IF NOT EXISTS room_master_table (id INTEGER PRIMARY KEY,identity_hash TEXT)",
+      "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, 'a2762c5ea5954ba5fb6443ea177bf5af')"
+    ]
+  }
+}

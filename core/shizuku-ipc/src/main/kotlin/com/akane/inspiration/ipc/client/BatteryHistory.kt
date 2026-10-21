@@ -80,6 +80,16 @@ internal object BatteryHistoryExtractor {
             val record = records.next()
             // State is tracked from the start of history even before the cursor.
             val itemEvents = walker.advance(record)
+            // A reboot START is written before the CURRENT_TIME that dates it, at the same history time (the
+            // persisted history clock skips the powered-off gap). Date it from that anchor before anything can
+            // end the page: this runs even when the anchor record emits nothing or overflows the capacity.
+            if (record.cmd == HistoryBits.CMD_CURRENT_TIME || record.cmd == HistoryBits.CMD_RESET) {
+                for (index in events.indices.reversed()) {
+                    val event = events[index]
+                    if (event.historyTimeMs != record.time) break
+                    if (event.kind == HistoryKind.START) events[index] = event.copy(wallMs = record.currentTime)
+                }
+            }
             if (record.time <= after || itemEvents.isEmpty()) continue
             if (events.size + itemEvents.size > cap) {
                 truncated = true
@@ -121,6 +131,12 @@ private class HistoryWalker {
     private var level: Int? = null
 
     fun advance(record: HistoryRecord): List<HistoryEvent> {
+        if (record.cmd == HistoryBits.CMD_START) {
+            // A new boot: the previous anchor plus the history clock would date this boot's records as if the
+            // device had never been off. Only this boot's own CURRENT_TIME/RESET can date them.
+            anchorWallMs = null
+            anchorTimeMs = record.time
+        }
         if (record.cmd == HistoryBits.CMD_CURRENT_TIME || record.cmd == HistoryBits.CMD_RESET) {
             anchorWallMs = record.currentTime
             anchorTimeMs = record.time

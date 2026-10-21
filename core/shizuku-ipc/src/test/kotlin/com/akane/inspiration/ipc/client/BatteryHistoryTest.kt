@@ -88,6 +88,102 @@ class BatteryHistoryTest {
         assertEquals(500L, snapshot.events[4].historyTimeMs)
     }
 
+    /**
+     * A reboot as the framework writes it: SHUTDOWN, then START and CURRENT_TIME at one history time. The persisted
+     * history clock advances one tick across a two-hour powered-off gap; only the CURRENT_TIME knows the real time.
+     */
+    private fun rebootRecords() =
+        listOf(
+            record(time = 1_000, cmd = HistoryBits.CMD_RESET, currentTime = 1_000_000L),
+            record(time = 2_000, cmd = HistoryBits.CMD_SHUTDOWN),
+            record(time = 2_001, cmd = HistoryBits.CMD_START, level = 0),
+            record(time = 2_001, cmd = HistoryBits.CMD_CURRENT_TIME, currentTime = 8_201_000L, level = 0),
+            record(time = 2_002, screenOn = true),
+        )
+
+    @Test
+    fun `a reboot START is dated by the CURRENT_TIME written with it, not by the previous boot's anchor`() {
+        val events = read(FakeBatteryHistory(records = rebootRecords())).events
+
+        assertEquals(1_001_000L, events.single { it.kind == HistoryKind.SHUTDOWN }.wallMs)
+        assertEquals(8_201_000L, events.single { it.kind == HistoryKind.START }.wallMs)
+        assertEquals(8_201_001L, events.single { it.kind == HistoryKind.SCREEN_ON }.wallMs)
+    }
+
+    @Test
+    fun `a CURRENT_TIME that emits nothing still dates a START that exactly fills the page`() {
+        val history = FakeBatteryHistory(records = rebootRecords())
+        val first = read(history, maxEvents = 4)
+
+        assertTrue(first.truncated)
+        assertEquals(4, first.events.size)
+        assertEquals(HistoryKind.START, first.events.last().kind)
+        assertEquals(8_201_000L, first.events.last().wallMs)
+        val next = read(history, after = first.events.last().historyTimeMs, maxEvents = 4)
+        assertFalse(next.truncated)
+        assertEquals(listOf(HistoryKind.SCREEN_ON, HistoryKind.LEVEL), next.kinds())
+        assertTrue(next.events.all { it.wallMs == 8_201_001L })
+        assertEquals(read(history).events, first.events + next.events)
+
+        val exactEnd = read(FakeBatteryHistory(records = rebootRecords().dropLast(1)), maxEvents = 4)
+        assertFalse(exactEnd.truncated)
+        assertEquals(8_201_000L, exactEnd.events.last().wallMs)
+    }
+
+    @Test
+    fun `an anchor whose transitions overflow the page rolls START back with them and the next page replays all`() {
+        for (anchor in listOf(HistoryBits.CMD_CURRENT_TIME, HistoryBits.CMD_RESET)) {
+            val records =
+                rebootRecords().take(3) +
+                    record(time = 2_001, cmd = anchor, currentTime = 8_201_000L, screenOn = true, level = 50)
+            val history = FakeBatteryHistory(records = records)
+            val first = read(history, maxEvents = 4)
+
+            assertTrue(first.truncated)
+            assertEquals(listOf(HistoryKind.RESET, HistoryKind.SCREEN_OFF, HistoryKind.SHUTDOWN), first.kinds())
+            val next = read(history, after = first.events.last().historyTimeMs, maxEvents = 4)
+            assertFalse(next.truncated)
+            assertEquals(HistoryKind.START, next.events.first().kind)
+            assertTrue(next.events.all { it.historyTimeMs == 2_001L && it.wallMs == 8_201_000L })
+            assertEquals(read(history).events, first.events + next.events)
+        }
+    }
+
+    @Test
+    fun `a RESET written with the START dates it even when that timestamp is the whole page`() {
+        val records =
+            listOf(
+                record(time = 10, cmd = HistoryBits.CMD_START, level = 0),
+                record(time = 10, cmd = HistoryBits.CMD_RESET, currentTime = 8_201_000L, screenOn = true),
+            )
+        val page = read(FakeBatteryHistory(records = records), maxEvents = 3)
+
+        assertFalse(page.truncated)
+        assertEquals(listOf(HistoryKind.START, HistoryKind.RESET, HistoryKind.SCREEN_ON), page.kinds())
+        assertTrue(page.events.all { it.wallMs == 8_201_000L })
+    }
+
+    @Test
+    fun `START drops the previous boot's anchor and a later anchor never dates it after the fact`() {
+        val records =
+            rebootRecords().take(3) +
+                listOf(
+                    record(time = 2_002, screenOn = true),
+                    record(time = 2_003, cmd = HistoryBits.CMD_CURRENT_TIME, currentTime = 8_201_000L, screenOn = true),
+                    record(time = 2_004, screenOn = false),
+                )
+        val events = read(FakeBatteryHistory(records = records)).events
+
+        // Between START and its boot's first anchor the wall time is unknown, never the old boot's.
+        assertEquals(-1L, events.single { it.kind == HistoryKind.START }.wallMs)
+        assertEquals(-1L, events.single { it.kind == HistoryKind.SCREEN_ON }.wallMs)
+        assertEquals(8_201_001L, events.last().wallMs)
+        val withoutAnyAnchor = read(FakeBatteryHistory(records = records.drop(2).take(2))).events
+        assertTrue(withoutAnyAnchor.all { it.wallMs == -1L })
+        val resumed = read(FakeBatteryHistory(records = records), after = 2_001L).events
+        assertEquals(events.filter { it.historyTimeMs > 2_001L }, resumed)
+    }
+
     @Test
     fun `an unplug RESET restates its live screen state, then the plugged flag clears into UNPLUGGED`() {
         // AOSP writes the unplug RESET whole from the live state: screen on, plugged flag still set, plugType 0.

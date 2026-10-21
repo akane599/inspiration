@@ -29,7 +29,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         HealthSampleEntity::class,
         ToolkitActionEntity::class,
     ],
-    version = 7,
+    version = 8,
     exportSchema = true,
 )
 abstract class InspirationDatabase : RoomDatabase() {
@@ -62,7 +62,15 @@ abstract class InspirationDatabase : RoomDatabase() {
                     InspirationDatabase::class.java,
                     name,
                 ).setJournalMode(JournalMode.WRITE_AHEAD_LOGGING)
-                .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7)
+                .addMigrations(
+                    MIGRATION_1_2,
+                    MIGRATION_2_3,
+                    MIGRATION_3_4,
+                    MIGRATION_4_5,
+                    MIGRATION_5_6,
+                    MIGRATION_6_7,
+                    MIGRATION_7_8,
+                )
                 .build()
 
         val MIGRATION_1_2: Migration =
@@ -139,6 +147,41 @@ abstract class InspirationDatabase : RoomDatabase() {
                     )
                 }
             }
+
+        /**
+         * Earlier builds dated a reboot START from the previous boot's wall anchor, so it carried the moment the
+         * device went down instead of the moment it came back (audit A03). A START whose same-session, same-history-
+         * time group has a row with a known wall time takes that wall time: those rows were dated by the CURRENT_TIME
+         * or RESET written with the START, so the value is exact and the row keeps its id and place. Any other START
+         * is deleted: its wall time is wrong by the powered-off gap and nothing stored can date it. Dropping the
+         * rewind marker makes the next ingest page the stats session again once, so the extractor, which now dates
+         * START itself, restores every deleted START the framework still holds. STARTs the framework or retention
+         * already dropped stay lost: this is a repair of what is provable, not a reconstruction of history.
+         */
+        val MIGRATION_7_8: Migration =
+            object : Migration(7, 8) {
+                override fun migrate(db: SupportSQLiteDatabase) {
+                    // A known-wall companion row of the START: same stats session, same history time, any other kind.
+                    val companionWallMs =
+                        "SELECT MIN(c.wallMs) FROM history_event c WHERE c.statsStartMs = history_event.statsStartMs " +
+                            "AND c.historyTimeMs = history_event.historyTimeMs AND c.kind != '$START_KIND' AND c.wallMs >= 0"
+                    // OR IGNORE: a duplicate START at that wall time (unique index) stays and this one is deleted below.
+                    db.execSQL(
+                        "UPDATE OR IGNORE history_event SET wallMs = ($companionWallMs) " +
+                            "WHERE kind = '$START_KIND' AND ($companionWallMs) IS NOT NULL",
+                    )
+                    db.execSQL(
+                        "DELETE FROM history_event WHERE kind = '$START_KIND' AND NOT EXISTS (" +
+                            "SELECT 1 FROM history_event c WHERE c.statsStartMs = history_event.statsStartMs " +
+                            "AND c.historyTimeMs = history_event.historyTimeMs AND c.kind != '$START_KIND' " +
+                            "AND c.wallMs >= 0 AND c.wallMs = history_event.wallMs)",
+                    )
+                    db.execSQL("DELETE FROM history_cursor WHERE id = ${HistoryDao.REWOUND_MARKER.id}")
+                }
+            }
+
+        /** `HistoryKind.START` as `history_event.kind` stores it (`RoomSnapshotStore` writes the code's decimal string). */
+        private const val START_KIND = 7
 
         const val DATABASE_NAME = "inspiration.db"
     }

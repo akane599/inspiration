@@ -245,7 +245,7 @@ class InspirationDatabaseTest {
                 0.0,
             )
             val sqlite = database.openHelper.readableDatabase
-            assertEquals(7, sqlite.version)
+            assertEquals(8, sqlite.version)
             val freshName = "$databaseName-fresh"
             val fresh = InspirationDatabase.create(context, freshName)
             try {
@@ -298,7 +298,7 @@ class InspirationDatabaseTest {
             database = InspirationDatabase.create(context, databaseName)
 
             val sqlite = database.openHelper.readableDatabase
-            assertEquals(7, sqlite.version)
+            assertEquals(8, sqlite.version)
             assertEquals(listOf("kind", "wallMs"), sqlite.query("PRAGMA index_info(`$HISTORY_KIND_INDEX`)").strings("name"))
             assertEquals(6, database.historyDao().between(-1, Long.MAX_VALUE).size)
             // Every row at each kind's newest wall time before the bound, ties included, unknown wall times never.
@@ -328,7 +328,7 @@ class InspirationDatabaseTest {
             database = InspirationDatabase.create(context, databaseName)
 
             val sqlite = database.openHelper.readableDatabase
-            assertEquals(7, sqlite.version)
+            assertEquals(8, sqlite.version)
             assertEquals(
                 "H is the larger of the cursor and the newest stored event; W the oldest known wall time",
                 HistoryWatermarkEntity(seenThroughHistoryTimeMs = 150L, prunedBeforeWallMs = 1_500L),
@@ -336,8 +336,56 @@ class InspirationDatabaseTest {
             )
             assertEquals(listOf(1L, 2L, 3L, 4L), database.historyDao().between(-1, Long.MAX_VALUE).map { it.id }.sorted())
             assertEquals(HistoryCursorEntity(1, 10L, 120L), database.historyDao().cursor())
-            assertEquals(HistoryCursorEntity(2, 0L, 0L), database.historyDao().cursor(2))
+            assertNull("7 -> 8 re-arms the one-time replay", database.historyDao().cursor(2))
             assertNewestOfEachKindSeeksTheIndex()
+        }
+
+    @Test
+    fun `version seven reboot STARTs take the wall time of the rows written with them or are dropped, and replay is re-armed`() =
+        runBlocking {
+            database.close()
+            context.openOrCreateDatabase(databaseName, 0, null).use { old ->
+                createExportedSchema(old, version = 7)
+                old.execSQL(
+                    "INSERT INTO history_event (id, statsStartMs, historyTimeMs, wallMs, kind, levelPct) VALUES " +
+                        // Boot one: a RESET with its screen state, then the SHUTDOWN.
+                        "(1, 10, 1000, 1000000, '6', 80), (2, 10, 1000, 1000000, '2', 80), (3, 10, 2000, 1001000, '8', 80), " +
+                        // Boot two, two hours later: the START was dated from boot one; the rows written with it were not.
+                        "(4, 10, 2001, 1001001, '7', 0), (5, 10, 2001, 8201000, '1', 50), (6, 10, 2001, 8201000, '5', 50), " +
+                        // Another stats session at the same history time is no evidence for it.
+                        "(7, 20, 2001, 9000000, '1', 50), " +
+                        // A START stored alone, and one with no known wall time: nothing stored can date them.
+                        "(8, 10, 3000, 1002000, '7', 50), (9, 10, 3001, 8300000, '1', 50), (10, 10, 4000, -1, '7', 50), " +
+                        // Two STARTs at one history time (an earlier replay): the correctly dated one stays.
+                        "(11, 10, 5000, 1005000, '7', 50), (12, 10, 5000, 8500000, '7', 50), (13, 10, 5000, 8500000, '3', 50)",
+                )
+                old.execSQL("INSERT INTO history_cursor (id, statsStartMs, lastHistoryTimeMs) VALUES (1, 10, 5000), (2, 0, 0)")
+                old.execSQL("INSERT INTO history_watermark (id, seenThroughHistoryTimeMs, prunedBeforeWallMs) VALUES (1, 5000, 1000000)")
+                old.version = 7
+            }
+
+            // The production builder runs 7->8, then Room validates the migrated schema against the current entities.
+            database = InspirationDatabase.create(context, databaseName)
+
+            assertEquals(8, database.openHelper.readableDatabase.version)
+            val rows = database.historyDao().between(-1, Long.MAX_VALUE)
+            assertEquals(
+                "dated STARTs keep their id, so they still precede the rows written with them; the rest are gone",
+                listOf(1L, 2L, 3L, 4L, 5L, 6L, 9L, 12L, 13L, 7L),
+                rows.map { it.id },
+            )
+            assertEquals(8_201_000L, rows.single { it.id == 4L }.wallMs)
+            assertEquals(8_500_000L, rows.single { it.id == 12L }.wallMs)
+            assertEquals("the ingest cursor is untouched", HistoryCursorEntity(1, 10L, 5000L), database.historyDao().cursor())
+            assertEquals(
+                HistoryWatermarkEntity(seenThroughHistoryTimeMs = 5000L, prunedBeforeWallMs = 1_000_000L),
+                database.historyDao().watermark(),
+            )
+            // The marker is gone, so the next ingest rewinds the cursor once more and marks the replay done again.
+            assertNull(database.historyDao().cursor(2))
+            assertEquals(HistoryCursorEntity(1, 10L, 0L), database.historyDao().resumeCursor())
+            assertNotNull(database.historyDao().cursor(2))
+            assertEquals(HistoryCursorEntity(1, 10L, 0L), database.historyDao().resumeCursor())
         }
 
     @Test
@@ -361,7 +409,7 @@ class InspirationDatabaseTest {
                     HistoryWatermarkEntity(seenThroughHistoryTimeMs = 120L, prunedBeforeWallMs = Long.MIN_VALUE),
                     database.historyDao().watermark(),
                 )
-                assertEquals(7, empty.openHelper.readableDatabase.version)
+                assertEquals(8, empty.openHelper.readableDatabase.version)
                 assertNull("an empty database gets no row", empty.historyDao().watermark())
             } finally {
                 empty.close()
@@ -370,9 +418,9 @@ class InspirationDatabaseTest {
         }
 
     @Test
-    fun `a database created at version seven has no watermark row`() =
+    fun `a database created at version eight has no watermark row`() =
         runBlocking {
-            assertEquals(7, database.openHelper.readableDatabase.version)
+            assertEquals(8, database.openHelper.readableDatabase.version)
             assertNull(database.historyDao().watermark())
         }
 
