@@ -28,6 +28,7 @@ import com.akane.inspiration.telemetry.store.Marker
 import com.akane.inspiration.telemetry.store.SnapshotStore
 import com.akane.inspiration.telemetry.store.TelemetrySample
 import com.akane.inspiration.telemetry.store.ToolkitActionRecord
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.Flow
@@ -86,10 +87,11 @@ class ChargeJobCaptureTest {
             assertEquals("disk full", thrown?.message)
             assertEquals(listOf(event(5_000, HistoryKind.PLUGGED)), store.history)
             assertEquals(1, ticks)
+            assertEquals(emptyList<Long>(), store.prunedAt)
         }
 
     @Test
-    fun `a skipped run still reads once and saves nothing`() =
+    fun `a skipped run ingests then prunes then ticks without capturing or analyzing`() =
         runTest {
             val source = CountingSource(history = listOf(event(5_000, HistoryKind.PLUGGED)))
             // The last charge job already ran after this charge session's PLUGGED event, in this boot.
@@ -102,14 +104,89 @@ class ChargeJobCaptureTest {
                 FixedClocks,
                 DEADLINE_MS,
                 analyze = { analyzed = true },
-                onHistoryStored = {},
+                onHistoryStored = { store.passEvents += "tick" },
             )
 
             assertEquals(1, source.fullReads)
             assertEquals(listOf(SnapshotKind.FULL to CaptureTrigger.CHARGE_JOB), store.saved())
             assertEquals(false, analyzed)
+            assertEquals(listOf(event(5_000, HistoryKind.PLUGGED)), store.history)
+            // Both reads have elapsed=2: the earlier snapshot's wall=6_000 anchors safe retention now.
+            assertEquals(listOf(6_000L), store.prunedAt)
+            assertEquals(listOf("history", "prune", "tick"), store.passEvents)
             assertEquals(0, store.wholeHistoryLoads)
         }
+
+    @Test
+    fun `ingest failure or cancellation does not prune but still ticks`() = runTest {
+        for (failure in listOf(IllegalStateException("ingest"), CancellationException("ingest"))) {
+            val delegate = CountingSource(history = emptyList())
+            val source = object : TelemetrySource {
+                override suspend fun full(trigger: CaptureTrigger, historyCursor: Pair<Long, Long>?): FullRead = throw failure
+
+                override fun light(): LightRead = delegate.light()
+            }
+            val store = FakeStore()
+            var analyzed = false
+            val thrown = runCatching {
+                runChargeJobCapture(
+                    SnapshotCapturer(source, store, FixedClocks),
+                    store,
+                    FixedClocks,
+                    DEADLINE_MS,
+                    analyze = { analyzed = true },
+                    onHistoryStored = { store.passEvents += "tick" },
+                )
+            }.exceptionOrNull()
+
+            // The timeout boundary may copy exceptions when recovering coroutine stack traces.
+            assertEquals(failure.javaClass, thrown?.javaClass)
+            assertEquals(failure.message, thrown?.message)
+            assertEquals(false, analyzed)
+            assertEquals(emptyList<Pair<SnapshotKind, CaptureTrigger>>(), store.saved())
+            assertEquals(emptyList<Long>(), store.prunedAt)
+            assertEquals(listOf("tick"), store.passEvents)
+        }
+    }
+
+    @Test
+    fun `same boot and charge keep pruning as elapsed time advances beyond thirty days`() = runTest {
+        val dayMs = 24L * 60L * 60_000L
+        val bootWallMs = 100L * dayMs
+        val firstClock = SnapshotClock(bootWallMs + dayMs, dayMs, dayMs, BOOT, null, null)
+        val store = FakeStore(
+            snapshots = mutableListOf(snapshot(CaptureTrigger.CHARGE_JOB, firstClock.wallMs).copy(clock = firstClock)),
+        )
+        store.history += event(bootWallMs, HistoryKind.PLUGGED)
+        var analyses = 0
+        val expectedPrunes = mutableListOf<Long>()
+
+        // No new PLUGGED event or foreground refresh; every pass must stay a skipped snapshot.
+        for (day in listOf(2L, 30L, 32L, 45L)) {
+            val elapsedMs = day * dayMs
+            val clocks = ClocksAt(wallMs = bootWallMs + elapsedMs, elapsedMs = elapsedMs)
+            val level = event(clocks.wallMs(), HistoryKind.LEVEL)
+            val source = CountingSource(
+                history = listOf(level),
+                clock = SnapshotClock(clocks.wallMs(), elapsedMs, elapsedMs, BOOT, null, null),
+            )
+            store.passEvents.clear()
+
+            runChargeJobCapture(
+                SnapshotCapturer(source, store, clocks), store, clocks, DEADLINE_MS,
+                analyze = { analyses++ },
+                onHistoryStored = { store.passEvents += "tick" },
+            )
+
+            expectedPrunes += clocks.wallMs()
+            assertEquals(1, source.fullReads)
+            assertEquals(level, store.history.last())
+            assertEquals(listOf("history", "prune", "tick"), store.passEvents)
+            assertEquals(expectedPrunes, store.prunedAt)
+            assertEquals(1, store.saved().size)
+            assertEquals(0, analyses)
+        }
+    }
 
     @Test
     fun `a newer PLUGGED event from the per-kind lookup makes the run capture`() =
@@ -341,6 +418,7 @@ class ChargeJobCaptureTest {
         private val snapshots: MutableList<BatterySnapshot> = mutableListOf(),
     ) : SnapshotStore {
         val history = mutableListOf<HistoryEvent>()
+        val passEvents = mutableListOf<String>()
         var wholeHistoryLoads = 0
         var perKindLookups = 0
         val prunedAt = mutableListOf<Long>()
@@ -365,6 +443,7 @@ class ChargeJobCaptureTest {
             statsStartMs: Long,
         ) {
             history += events
+            passEvents += "history"
         }
 
         override suspend fun historyBetween(
@@ -462,6 +541,7 @@ class ChargeJobCaptureTest {
 
         override suspend fun prune(nowWallMs: Long) {
             prunedAt += nowWallMs
+            passEvents += "prune"
         }
     }
 

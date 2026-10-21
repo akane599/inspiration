@@ -22,9 +22,11 @@ class ChargingCaptureRunner {
         prune: suspend () -> Unit,
         analyze: suspend () -> Unit = {},
     ) {
-        if (!shouldCapture) return
-        capture()
-        analyze()
+        if (shouldCapture) {
+            capture()
+            analyze()
+        }
+        // Snapshot policy does not gate retention; only a completed pass reaches maintenance.
         prune()
     }
 }
