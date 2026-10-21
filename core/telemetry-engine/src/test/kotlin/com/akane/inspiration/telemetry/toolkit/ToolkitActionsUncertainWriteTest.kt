@@ -137,8 +137,9 @@ class ToolkitActionsUncertainWriteTest {
             assertEquals(ToolkitPlan.Refused(ToolkitRefusal.READ_FAILED), actions.planRestore(row.id))
             assertEquals(ToolkitActionStatus.PENDING, audit.byId(row.id).status)
 
-            // Reset all reports it as not restored. Even with writes reaching the service and only the reads failing,
-            // nothing is written over the unsettled row.
+            // Reset all reports it as not restored, refused because the earlier change is still being checked (nothing
+            // was sent, so not "sent, but unconfirmed"). Even with writes reaching the service and only the reads
+            // failing, nothing is written over the unsettled row.
             for (unreadable in listOf({ }, {
                 backend.unavailable = null
                 backend.scriptedRead = ToolkitResult.refused(ToolkitCode.PARSE)
@@ -148,7 +149,7 @@ class ToolkitActionsUncertainWriteTest {
                 val item = actions.resetAll().single()
 
                 assertEquals(row.id, item.override.actionId)
-                assertEquals(ToolkitOutcome.Unavailable(ToolkitUnavailable.UNVERIFIED), item.outcome)
+                assertEquals(ToolkitOutcome.Refused(ToolkitRefusal.PENDING_CHECK), item.outcome)
                 assertTrue("Reset all must not write: ${backend.writes}", backend.writes.isEmpty())
                 assertEquals(ToolkitActionStatus.PENDING, audit.byId(row.id).status)
             }
@@ -223,7 +224,8 @@ class ToolkitActionsUncertainWriteTest {
             backend.unavailableReads = 1
             val outcome = actions.execute(ToolkitAction.SetBucket(PKG, StandbyBucket.ACTIVE), confirmed = true)
 
-            assertEquals(ToolkitOutcome.Unavailable(ToolkitUnavailable.UNVERIFIED), outcome)
+            // Nothing was sent, so the answer is a refusal naming the earlier change, not "sent, but unconfirmed".
+            assertEquals(ToolkitOutcome.Refused(ToolkitRefusal.PENDING_CHECK), outcome)
             assertTrue("nothing may be written: ${backend.writes}", backend.writes.isEmpty())
             assertEquals(ToolkitActionStatus.PENDING, audit.byId(rowA.id).status)
             assertEquals(1, audit.rows.size)

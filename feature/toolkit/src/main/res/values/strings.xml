@@ -240,6 +240,7 @@
     <string name="toolkit_refused_already_restored">This change was already restored.</string>
     <string name="toolkit_refused_unknown_action">Inspiration doesn\'t recognize that action.</string>
     <string name="toolkit_refused_unattributed">Part or all of this change was checked too late to confirm Inspiration made it. It can only be restored on its own.</string>
+    <string name="toolkit_refused_pending_check">An earlier change to this setting is still being checked, so nothing was sent. Try again in a moment.</string>
     <string name="toolkit_refused_other">The request was refused.</string>
     <string name="toolkit_unavailable_no_service">The Shizuku or Sui service can\'t be reached. Check that Shizuku or Sui is running.</string>
     <string name="toolkit_unavailable_stale_service">The Shizuku or Sui service is out of date. Restart Shizuku or Sui, then try again.</string>

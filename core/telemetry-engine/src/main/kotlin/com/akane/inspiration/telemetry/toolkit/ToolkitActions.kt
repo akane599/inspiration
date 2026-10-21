@@ -352,7 +352,7 @@ class ToolkitActions internal constructor(
      * listed and nothing is written for it. An [unverified][Override.unverified] one is tried too: its restore reads
      * the target first, and is reported as not restored, with why, while that read still fails. A write whose outcome
      * is still unknown (a PENDING row its read-back could not settle) is listed but not written over: it is reported
-     * as [ToolkitUnavailable.UNVERIFIED] until a read-back settles it. A change Inspiration cannot attribute to its own
+     * as refused with [ToolkitRefusal.PENDING_CHECK] until a read-back settles it. A change Inspiration cannot attribute to its own
      * writes ([ToolkitRefusal.UNATTRIBUTED]: one read back too late, or one whose restore would undo such a value) is
      * left alone too, reported as refused with that reason: only its own restore, after a warning, writes over it. The user asked for this explicitly, so the per-item restore is
      * confirmed; a failure does not stop the remaining items. One lock covers the whole reset, so the chains read here
@@ -367,7 +367,7 @@ class ToolkitActions internal constructor(
         }
 
     /**
-     * An unsettled PENDING override ([unsettledOverrides]) is not written over: [run] answers Unavailable(UNVERIFIED)
+     * An unsettled PENDING override ([unsettledOverrides]) is not written over: [run] answers Refused(PENDING_CHECK)
      * for a target with a PENDING row, so Reset all reports it as not restored until its read-back settles it. A change
      * listed as one Inspiration cannot attribute ([ToolkitRefusal.UNATTRIBUTED], see [attributed]) is refused with that
      * reason without a read or a write: nothing will settle it later, and its restore would undo a value that may be
@@ -737,9 +737,10 @@ class ToolkitActions internal constructor(
             return refuse(spec, restoresId, ToolkitRefusal.NOT_CONFIRMED, ToolkitClientCode.NOT_CONFIRMED)
         }
         // A same-target row that could not be settled (see reconcileTargets) may have committed; writing on top of
-        // it would make it settle against this write's value later and drop out of the chain. Nothing is written.
+        // it would make it settle against this write's value later and drop out of the chain. Nothing is written, so
+        // the answer is PENDING_CHECK, never UNVERIFIED (which means this request's own write was sent).
         if (spec.kind in OVERRIDE_KINDS && audit.pending().any { targetKey(it) == targetKey(spec) }) {
-            return ToolkitOutcome.Unavailable(ToolkitUnavailable.UNVERIFIED)
+            return ToolkitOutcome.Refused(ToolkitRefusal.PENDING_CHECK)
         }
         val prep =
             when (val prepared = prepare(action, restoring)) {
