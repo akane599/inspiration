@@ -23,11 +23,16 @@ import kotlinx.coroutines.launch
 
 /**
  * Compose's counterpart of `View.setFilterTouchesWhenObscured(true)`, which Compose has no modifier for.
- * While another window covers this one, the system marks the touch with FLAG_WINDOW_IS_OBSCURED; the
- * events are consumed on the way down, before any child (button, switch, chip) sees them, so a
- * tapjacking overlay can't press privileged controls. Put it on the container of destructive controls,
- * never on a Cancel or dismiss control (an overlay pressing those can do no harm, and a screen dimmer
- * would otherwise trap the user). The first blocked press of each gesture calls [LocalObscuredTouchNotice].
+ * While another window covers this one, the system marks the touch with FLAG_WINDOW_IS_OBSCURED; its
+ * presses and releases are consumed on the way down, before any child (button, switch, chip) sees them, so
+ * a tapjacking overlay can't press privileged controls. Moves stay unconsumed, so, as with the View flag,
+ * an ancestor `verticalScroll` or `LazyColumn` still scrolls under a screen dimmer when the drag starts on
+ * the guarded container; the release is still consumed, so that scroll stops where the finger lifts, without
+ * a fling. The tradeoff: a drag-driven child (a Slider, a swipe-to-dismiss row) that takes
+ * consumed presses would still follow an obscured drag, so it needs a guard of its own; none sits inside a
+ * guard today. Put it on the container of destructive controls, never on a Cancel or dismiss control (an
+ * overlay pressing those can do no harm, and a screen dimmer would otherwise trap the user). The first
+ * blocked press of each gesture calls [LocalObscuredTouchNotice].
  */
 fun Modifier.filterTouchesWhenObscured(): Modifier = this then ObscuredTouchGuardElement
 
@@ -98,7 +103,10 @@ private class ObscuredTouchGuardNode : DelegatingNode(), PointerInputModifierNod
                             pressed = event.changes.any { it.pressed && !it.previousPressed },
                             anyDown = event.changes.any { it.pressed },
                         )
-                        if (verdict != ObscuredTouchGate.Verdict.PASS) event.changes.forEach { it.consume() }
+                        // Only presses and releases: an unconsumed move leaves an ancestor scroll free to claim the drag.
+                        if (verdict != ObscuredTouchGate.Verdict.PASS) {
+                            event.changes.forEach { if (it.pressed != it.previousPressed) it.consume() }
+                        }
                         if (verdict == ObscuredTouchGate.Verdict.BLOCK_AND_NOTIFY) currentValueOf(LocalObscuredTouchNotice)()
                     }
                 }
