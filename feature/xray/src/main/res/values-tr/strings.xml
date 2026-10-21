@@ -173,6 +173,7 @@
     <string name="xray_refused_already_restored">Bu değişiklik zaten geri alınmış.</string>
     <string name="xray_refused_unknown_action">Inspiration bu işlemi tanımıyor.</string>
     <string name="xray_refused_unattributed">Bu değişikliğin bir kısmı veya tamamı, Inspiration\'ın yaptığı doğrulanamayacak kadar geç denetlendi. Yalnızca tek başına geri alınabilir.</string>
+    <string name="xray_refused_pending_check">Bu ayara yapılan önceki bir değişiklik hâlâ denetleniyor, bu yüzden hiçbir şey gönderilmedi. Birazdan yeniden deneyin.</string>
     <string name="xray_refused_other">İstek reddedildi.</string>
     <string name="xray_unavailable_no_service">Shizuku/Sui hizmetine ulaşılamıyor. Shizuku/Sui\'nin çalıştığını kontrol edin.</string>
     <string name="xray_unavailable_stale_service">Shizuku/Sui hizmeti güncel değil. Shizuku/Sui\'yu yeniden başlatıp tekrar deneyin.</string>

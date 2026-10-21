@@ -127,6 +127,13 @@ enum class ToolkitRefusal {
      * needs [ToolkitWarning.UNATTRIBUTED_CHANGE].
      */
     UNATTRIBUTED,
+
+    /**
+     * An earlier change to the same setting was sent but is still PENDING: its read-back has not settled it, so it may
+     * have committed. Nothing was sent for this request (writing on top would let the earlier row settle against this
+     * value and drop out of the chain); the earlier change is read back before the setting is used again.
+     */
+    PENDING_CHECK,
     OTHER,
 }
 

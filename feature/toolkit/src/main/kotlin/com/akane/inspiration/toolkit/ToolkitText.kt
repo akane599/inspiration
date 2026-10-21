@@ -174,6 +174,7 @@ internal fun refusalRes(reason: ToolkitRefusal): Int =
         ToolkitRefusal.ALREADY_RESTORED -> R.string.toolkit_refused_already_restored
         ToolkitRefusal.UNKNOWN_ACTION -> R.string.toolkit_refused_unknown_action
         ToolkitRefusal.UNATTRIBUTED -> R.string.toolkit_refused_unattributed
+        ToolkitRefusal.PENDING_CHECK -> R.string.toolkit_refused_pending_check
         ToolkitRefusal.OTHER -> R.string.toolkit_refused_other
     }
 
