@@ -81,6 +81,12 @@ internal class BgDexoptController(
     private var userCancelRequested = false
     private var cancelGeneration = 0L
     private var cancellationsInFlight = 0
+
+    /**
+     * False once a cancel of the current in-flight run (from the first [beginUserCancel] until
+     * [cancellationsInFlight] is back at 0) began while a job of ours ran; see [endUserCancel].
+     */
+    private var inFlightCancelsProveIdle = true
     private var shuttingDown = false
 
     /** Our running `bg-dexopt-job` client, from its start until the worker is done with it. */
@@ -136,20 +142,26 @@ internal class BgDexoptController(
     fun beginUserCancel() {
         synchronized(lock) {
             cancelGeneration += 1
+            if (cancellationsInFlight == 0) inFlightCancelsProveIdle = true
             cancellationsInFlight += 1
-            if (state == BgDexoptState.RUNNING) userCancelRequested = true
+            if (state == BgDexoptState.RUNNING) {
+                userCancelRequested = true
+                inFlightCancelsProveIdle = false
+            }
         }
     }
 
     /**
-     * A successful cancel while no job of this instance runs proves nothing is running (UNKNOWN becomes IDLE).
-     * While ours runs it proves nothing: it may have stopped a job ours waits behind, so the worker settles
-     * the state from our client's exit.
+     * A successful cancel begun while no job of this instance ran proves nothing is running (UNKNOWN becomes IDLE).
+     * One begun while ours ran proves nothing, even if the worker has reported UNKNOWN by the time it returns:
+     * it may have stopped a job ours waits behind, so the worker settles the state from our client's exit.
+     * A cancel in flight fences every start, so one begun while nothing of ours ran sees no start or finish.
+     * Overlapping cancels do not say which one ends, so none of them proves idle if any began while ours ran.
      */
     fun endUserCancel(success: Boolean) {
         synchronized(lock) {
             cancellationsInFlight -= 1
-            if (success && state == BgDexoptState.UNKNOWN) state = BgDexoptState.IDLE
+            if (success && inFlightCancelsProveIdle && state == BgDexoptState.UNKNOWN) state = BgDexoptState.IDLE
         }
     }
 
