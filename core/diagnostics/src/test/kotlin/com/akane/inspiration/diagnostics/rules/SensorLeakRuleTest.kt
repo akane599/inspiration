@@ -5,6 +5,7 @@ import com.akane.inspiration.diagnostics.model.SensorKind
 import com.akane.inspiration.diagnostics.model.SensorLeak
 import com.akane.inspiration.diagnostics.model.Severity
 import com.akane.inspiration.diagnostics.sensor.GPS_SENSOR_HANDLE
+import com.akane.inspiration.diagnostics.sensor.SensorCatalog
 import com.akane.inspiration.telemetry.diff.ReferenceResolver.Companion.CAPTURE_SLACK_MS
 import com.akane.inspiration.telemetry.dump.UidSensor
 import com.akane.inspiration.telemetry.interval.IntervalMetrics
@@ -15,6 +16,15 @@ import org.junit.Test
 
 class SensorLeakRuleTest {
     private val engine = DiagnosticRuleEngine(fakeCatalog)
+
+    private val unavailableEngine =
+        DiagnosticRuleEngine(
+            object : SensorCatalog {
+                override fun kindOf(handle: Int) = if (handle == GPS_SENSOR_HANDLE) SensorKind.GPS else SensorKind.OTHER
+
+                override val available = false
+            },
+        )
 
     private fun leaks(
         vararg uids: UidDelta,
@@ -173,6 +183,41 @@ class SensorLeakRuleTest {
         // The source is there; what is missing is an app the rule could check (B-03), which is not a pass either.
         assertEquals(APPS_UNPROVEN, report.notEvaluable[RuleId.SENSOR_LEAK])
         assertTrue(report.insights.isEmpty())
+    }
+
+    /** SQ-44: an unavailable catalog reads every motion handle as OTHER, which is not an all-clear. */
+    @Test
+    fun unavailableCatalogWithANonGpsSensorIsNotEvaluable() {
+        val report = unavailableEngine.evaluate(inputOf(diffOf(uids = listOf(withSensor(ACCEL_HANDLE, 2 * HOUR))), metricsOf()))
+        assertEquals(SENSOR_CATALOG_UNAVAILABLE, report.notEvaluable[RuleId.SENSOR_LEAK])
+        assertEquals("sensor_catalog_unavailable", SENSOR_CATALOG_UNAVAILABLE)
+        assertTrue(report.insights.none { it is SensorLeak })
+    }
+
+    /** A GPS leak needs no catalog, so it is still reported; it is a real finding, so the report is no all-clear. */
+    @Test
+    fun unavailableCatalogStillReportsAGpsLeak() {
+        val uid = uidDelta(10_001, sensors = listOf(sensor(GPS_SENSOR_HANDLE, 10 * MIN), sensor(ACCEL_HANDLE, 2 * HOUR)))
+        val report = unavailableEngine.evaluate(inputOf(diffOf(uids = listOf(uid)), metricsOf()))
+        assertTrue(RuleId.SENSOR_LEAK !in report.notEvaluable)
+        assertEquals(listOf(SensorKind.GPS), report.insights.filterIsInstance<SensorLeak>().map { it.sensor })
+    }
+
+    /** With only GPS held by apps the catalog is never consulted, so the rule is fully evaluated. */
+    @Test
+    fun unavailableCatalogWithOnlyGpsIsEvaluated() {
+        val report = unavailableEngine.evaluate(inputOf(diffOf(uids = listOf(withSensor(GPS_SENSOR_HANDLE, MIN))), metricsOf()))
+        assertTrue(RuleId.SENSOR_LEAK !in report.notEvaluable)
+        assertTrue(report.insights.none { it is SensorLeak })
+    }
+
+    /** A non-GPS sensor on a system UID is not checked by the rule, so the catalog does not matter for it. */
+    @Test
+    fun unavailableCatalogIgnoresNonGpsSensorsOnSystemUids() {
+        val report = unavailableEngine.evaluate(
+            inputOf(diffOf(uids = listOf(withSensor(ACCEL_HANDLE, 2 * HOUR, uid = 1_000), withSensor(GPS_SENSOR_HANDLE, MIN))), metricsOf()),
+        )
+        assertTrue(RuleId.SENSOR_LEAK !in report.notEvaluable)
     }
 
     @Test

@@ -54,6 +54,13 @@ const val NO_AWAKE_TIME = "no_awake_time"
 const val APPS_UNPROVEN = "apps_unproven"
 
 /**
+ * Sensor Leak's [DiagnosticReport.notEvaluable] reason: an app held a non-GPS sensor, but the sensor catalog could
+ * not be built ([SensorCatalog.available] is false), so whether it was an accelerometer or gyroscope is unknown.
+ * Never an all-clear (SQ-44).
+ */
+const val SENSOR_CATALOG_UNAVAILABLE = "sensor_catalog_unavailable"
+
+/**
  * The four deterministic rules of docs/plans/phase-3.md F4. Every rule either returns insights
  * (possibly none: evaluable but not firing) or exactly one [DiagnosticReport.notEvaluable] reason.
  */
@@ -238,8 +245,9 @@ class DiagnosticRuleEngine(
         if (appsUnproven) return Outcome.NotEvaluable(APPS_UNPROVEN)
 
         val motionThresholdMs = maxOf(MOTION_MIN_MS.toDouble(), MOTION_SCREEN_OFF_FRACTION * metrics.screenOffMs)
+        val apps = validUids.filter { isApplicationUid(it.uid) }
         val items =
-            validUids.filter { isApplicationUid(it.uid) }.flatMap { uid ->
+            apps.flatMap { uid ->
                 val leaks = mutableListOf<SensorLeak>()
 
                 fun leak(
@@ -263,6 +271,10 @@ class DiagnosticRuleEngine(
                 }
                 leaks
             }
+        // Without the catalog every non-GPS handle reads as OTHER, so no motion check could fire: an empty result
+        // would be a false all-clear. A GPS leak needs no catalog and is a real finding, so it is still reported.
+        val motionUnchecked = !sensors.available && apps.any { uid -> uid.sensors.any { it.handle != GPS_SENSOR_HANDLE } }
+        if (items.isEmpty() && motionUnchecked) return Outcome.NotEvaluable(SENSOR_CATALOG_UNAVAILABLE)
         return Outcome.Insights(items)
     }
 

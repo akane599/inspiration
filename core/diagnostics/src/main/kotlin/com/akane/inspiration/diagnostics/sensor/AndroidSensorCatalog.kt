@@ -10,19 +10,21 @@ import com.akane.inspiration.diagnostics.model.SensorKind
  * Resolves handles from `SensorManager.getSensorList(TYPE_ALL)`. `Sensor.getHandle()` is hidden,
  * so it is read by plain reflection; the app exempts exactly [GET_HANDLE_SIGNATURE] from the
  * hidden-API policy, and nothing else in its process.
- * The map is built once, on first use; any failure leaves it empty, so every unknown handle is OTHER,
- * and the failure is logged once. Only the failures that can occur are caught (a missing or failing
- * sensor service, a hidden or inaccessible `getHandle()`, a non-Int handle); errors propagate.
+ * The map is built once, on first use; any failure leaves it absent, so every non-GPS handle is OTHER and
+ * [available] is false, and the failure is logged once. Only the failures that can occur are caught (a missing or
+ * failing sensor service, a hidden or inaccessible `getHandle()`, a non-Int handle); errors propagate.
  */
 class AndroidSensorCatalog(
     private val context: Context,
 ) : SensorCatalog {
-    private val kindsByHandle: Map<Int, SensorKind> by lazy { buildKinds() }
+    private val kindsByHandle: Map<Int, SensorKind>? by lazy { buildKinds() }
+
+    override val available: Boolean get() = kindsByHandle != null
 
     override fun kindOf(handle: Int): SensorKind =
-        if (handle == GPS_SENSOR_HANDLE) SensorKind.GPS else kindsByHandle[handle] ?: SensorKind.OTHER
+        if (handle == GPS_SENSOR_HANDLE) SensorKind.GPS else kindsByHandle?.get(handle) ?: SensorKind.OTHER
 
-    private fun buildKinds(): Map<Int, SensorKind> {
+    private fun buildKinds(): Map<Int, SensorKind>? {
         val sensors =
             try {
                 context.getSystemService(SensorManager::class.java)?.getSensorList(Sensor.TYPE_ALL).orEmpty()
@@ -49,9 +51,9 @@ class AndroidSensorCatalog(
         }
     }
 
-    private fun unavailable(cause: Exception): Map<Int, SensorKind> {
+    private fun unavailable(cause: Exception): Map<Int, SensorKind>? {
         Log.w(TAG, "Sensor handles unavailable; accelerometer and gyroscope report as OTHER", cause)
-        return emptyMap()
+        return null
     }
 
     private fun kindOfType(type: Int): SensorKind =
