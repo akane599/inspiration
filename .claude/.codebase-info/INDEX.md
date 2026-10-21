@@ -27,6 +27,26 @@ The 2026-10-20 board follow-ups (SQ-1–SQ-23) add consistent multi-read analysi
 
 The fourth audit's remediation ([`AUDIT_REPORT.md`](../../AUDIT_REPORT.md) B-01–B-23, release 0.2.7) adds: toolkit reconcile that credits only a prompt read-back to a PENDING write, keeping a late one as an observed, unattributed change outside Reset all (B-01); history ingests that stop at the page cap or on a failed page no longer counting as complete (`page_cap`, B-02); no batterystats history query below API 34 (B-09); app labels/icons that cache only found entries and drop on package broadcasts (`PackageChanges.kt`, B-18); Sleep Lab owner lookups limited to shown rows (B-17); Shizuku state reads and the permission request off Main with a suspending `refresh()` (B-10); epoch-tagged refresh failures (B-13); Health live readings ordered on the elapsed clock (B-15) and a stored day shown without waiting for the kernel read (B-14); Cockpit time to empty extrapolated only from a counter past the µAh floor (B-07); timeline level/temperature lines carried in at the window start and held to known history (B-05); a marker-sheet list-read failure kept apart from a capture failure (B-19); a chart that ignores a press an ancestor already consumed (B-11); app UIDs judged by app id (B-16); no all-clear when no app could be checked (`APPS_UNPROVEN`, B-03); Sleep Lab tabs and cards that name why figures are missing (`NO_SCREEN_OFF_FIGURES`, `UnavailableCause`, B-04); one shared toolkit admission rule for X-Ray and Toolkit (`ToolkitAdmission`, B-06) and a Reset-all title that counts only what it restores (B-21); X-Ray writes tracked per app with newest-read tickets (B-12); a shared UID named only by the owner its process identifies, and otherwise titled "shared by N apps" in both X-Ray and Sleep Lab (`uidIdentity`, `identifyingPackage`, B-08); a per-target bound on service dump writers (`busy`, B-20); a FULL read that takes the batterystats dump first and reuses its stats sync (B-22); and X-Ray component shares that stay within the whole for the system UID (B-23). The audit's §3 cleanup moves the debug probe's in-process IPC readers and models to `:core:shizuku-ipc`'s `src/debug`, deletes the unreferenced AIDL parcelable declarations, shares one clock and tick-label rule between both charts (`ClockLabels.kt`), gives X-Ray and Toolkit one monogram, one `currentLocale()` (`:core:designsystem` `component/format`) and one Shizuku blocked-reason mapping (`ShizukuState.blockedReason()`), and removes dead code (unread kernel fields, `unplugWindowSnapshots`, `AOSP_KEYS`, Sleep Lab's unreachable needs-full culprit state).
 
+The 2026-10-21 whole-repo bug hunt (SQ-42–SQ-60) adds the following.
+- **Capture and storage:**
+  - one battery-stats session across a wall-clock step, via a two-clock `sameStart` and `SnapshotStore.firstInSession`;
+  - LIGHT broadcast rows stored `NonCancellable` with their broadcast-time clock;
+  - BOOT vs `STOPPED_STATE_EXIT` read against the last inserted capture (`latestClock()`);
+  - an hourly downsample that merges into an existing hour.
+- **Diagnostics:**
+  - mAh-kernel capacity nodes read as missing;
+  - no Sensor Leak all-clear without the sensor catalog (`sensor_catalog_unavailable`);
+  - Battery Story numbers in the text's own locale.
+- **Toolkit:**
+  - bg-dexopt cancels that prove idle only when none began during our pass;
+  - a Restore that finds the target already restored drops the override at once;
+  - a same-target PENDING guard that says nothing was sent (`PENDING_CHECK`).
+- **UI:**
+  - a rotation-safe `VisibilityEffect` for every route;
+  - obscured drags that still scroll;
+  - X-Ray failure notices only for refreshes the user asked for.
+- **Debug probes:** no silent latest-two fallback, plus an 8 s capture budget.
+
 | Doc | What |
 |---|---|
 | [architecture.md](architecture.md) | Runtime layers, capture flow, persistence, and privileged data flow |

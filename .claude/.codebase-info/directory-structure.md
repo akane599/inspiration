@@ -113,7 +113,7 @@ core/
       component/{CardTitle,EmptyState,InspirationCard,LegendRow,LiveGauge,MetricBar,MetricTile,
         MetricValue,ReducedMotion,ReferencePill,ScreenHeader,SegmentedToggle,SemanticDot,
         ShizukuPulse,StackedBar,TimeSliceBanner}.kt
-      component/ObscuredTouchGuard.kt
+      component/{ObscuredTouchGuard,VisibilityEffect}.kt
       component/format/{CurrentLocale,Monogram,SystemZone,TelemetryFormat}.kt
       chart/model/{ChartLabels,ChartModels}.kt
       chart/math/{ClockLabels,Scales,ScrubGestureReducer,SeriesMath,TimeRanges,TimeTicks}.kt
@@ -123,7 +123,7 @@ core/
       chart/hypnogram/{HypnogramMath,SleepHypnogram}.kt
     src/main/res/font/inter_{regular,medium,semibold}.ttf
     src/main/res/{values,values-tr}/strings_chart.xml
-    src/test/kotlin/.../designsystem/**       # math, model, contrast tests; component/ObscuredTouch{Gate,GuardUi}Test (Robolectric)
+    src/test/kotlin/.../designsystem/**       # math, model, contrast tests; component/ObscuredTouch{Gate,GuardUi}Test, VisibilityEffectTest (Robolectric)
     src/screenshotTest/kotlin/.../designsystem/{theme,component,chart/scrub,chart/hypnogram}/   # component/ incl. Phase5Component*
     src/screenshotTestDebug/reference/.../    # per-area PNG references
 
