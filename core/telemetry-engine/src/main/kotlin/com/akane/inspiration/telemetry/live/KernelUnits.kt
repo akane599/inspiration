@@ -1,6 +1,7 @@
 package com.akane.inspiration.telemetry.live
 
 import com.akane.inspiration.ipc.model.KernelBatterySnapshot
+import com.akane.inspiration.telemetry.calibration.microampHourCounter
 import com.akane.inspiration.telemetry.capacity.KernelCapacity
 
 /**
@@ -35,11 +36,14 @@ object KernelUnits {
         return if (invertedKernel) -currentMa else currentMa
     }
 
-    /** Maps the sysfs capacity nodes (all in micro-amp-hours) to the estimator's mAh [KernelCapacity]. */
+    /**
+     * Maps the sysfs capacity nodes to the estimator's mAh [KernelCapacity]. A node is read as µAh only through
+     * [microampHourCounter]: one under its floor (a kernel reporting mAh, or zero) is missing, not a tiny capacity.
+     */
     fun kernelCapacity(kernel: KernelBatterySnapshot): KernelCapacity =
         KernelCapacity(
-            chargeFullMah = uahToMah(kernel.chargeFullRaw)?.takeIf { it > 0.0 },
-            designMah = uahToMah(kernel.chargeFullDesignRaw)?.takeIf { it > 0.0 },
+            chargeFullMah = uahToMah(microampHourCounter(kernel.chargeFullRaw)),
+            designMah = uahToMah(microampHourCounter(kernel.chargeFullDesignRaw)),
             cycleCount = kernel.cycleCount,
         )
 

@@ -144,6 +144,20 @@ class CapacityEstimatorTest {
     }
 
     @Test
+    fun `history charges under the micro amp hour floor leave the charge delta unknown`() {
+        val segment =
+            oneSessionSegments(
+                listOf(
+                    historyEvent(timeMs = 0, kind = HistoryKind.PLUGGED, levelPct = 40, chargeUah = 1_000),
+                    historyEvent(timeMs = 1_000, kind = HistoryKind.UNPLUGGED, levelPct = 90, chargeUah = 3_400),
+                ),
+            ).single()
+
+        assertEquals(50, segment.endPct - segment.startPct)
+        assertNull(segment.deltaChargeUah)
+    }
+
+    @Test
     fun `evaluate rejects a segment hotter than forty five degrees Celsius`() {
         val verdict =
             CapacityEstimator.evaluate(

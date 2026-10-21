@@ -55,6 +55,16 @@ class KernelUnitsTest {
         assertNull(missing.cycleCount)
     }
 
+    @Test
+    fun `kernel capacity treats nodes under the micro amp hour floor as missing`() {
+        val milliampHourKernel =
+            KernelUnits.kernelCapacity(kernel(chargeFullRaw = 5_000L, chargeFullDesignRaw = 5_000L, cycleCount = 212))
+
+        assertNull(milliampHourKernel.chargeFullMah)
+        assertNull(milliampHourKernel.designMah)
+        assertEquals(212, milliampHourKernel.cycleCount)
+    }
+
     private fun kernel(
         chargeFullRaw: Long?,
         chargeFullDesignRaw: Long?,
