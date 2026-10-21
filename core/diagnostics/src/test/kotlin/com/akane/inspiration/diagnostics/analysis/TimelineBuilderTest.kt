@@ -355,7 +355,7 @@ class TimelineBuilderTest {
     }
 
     @Test
-    fun `level and temperature points are the window's LEVEL events between the carried-in and held edges`() {
+    fun `level and temperature points retain distinct timestamps between the carried-in and held edges`() {
         val timeline =
             build(
                 listOf(
@@ -408,6 +408,154 @@ class TimelineBuilderTest {
     }
 
     @Test
+    fun `screen plug and idle transitions retain temperature at stable battery percentage`() {
+        val transitions =
+            listOf(
+                HistoryKind.SCREEN_ON,
+                HistoryKind.SCREEN_OFF,
+                HistoryKind.PLUGGED,
+                HistoryKind.UNPLUGGED,
+                HistoryKind.DEEP_IDLE_ON,
+                HistoryKind.DEEP_IDLE_OFF,
+                HistoryKind.LIGHT_IDLE_ON,
+                HistoryKind.LIGHT_IDLE_OFF,
+            )
+        for (kind in transitions) {
+            val timeline =
+                build(
+                    listOf(
+                        at(0, HistoryKind.RESET, level = 100, deciC = 300),
+                        at(30 * min, kind, level = 100, deciC = 450),
+                    ),
+                    to = 60 * min,
+                )
+
+            assertEquals(
+                "temperature for kind $kind",
+                listOf(TimelinePoint(base, 30f), TimelinePoint(base + 30 * min, 45f), TimelinePoint(base + 60 * min, 45f)),
+                timeline.temperaturePoints,
+            )
+            assertEquals(listOf(TimelinePoint(base, 100f), TimelinePoint(base + 60 * min, 100f)), timeline.levelPoints)
+        }
+    }
+
+    @Test
+    fun `reset and shutdown carry measured temperature without sampling their battery percentage inside the window`() {
+        for (kind in listOf(HistoryKind.RESET, HistoryKind.SHUTDOWN)) {
+            val timeline =
+                build(
+                    listOf(
+                        at(0, HistoryKind.LEVEL, level = 80, deciC = 300),
+                        at(10 * min, kind, level = 79, deciC = 420),
+                        at(20 * min, HistoryKind.LEVEL, level = 78, deciC = 350),
+                    ),
+                    to = 30 * min,
+                )
+
+            assertEquals(
+                listOf(
+                    TimelinePoint(base, 30f),
+                    TimelinePoint(base + 10 * min, 42f),
+                    TimelinePoint(base + 20 * min, 35f),
+                    TimelinePoint(base + 30 * min, 35f),
+                ),
+                timeline.temperaturePoints,
+            )
+            assertEquals(
+                listOf(TimelinePoint(base, 80f), TimelinePoint(base + 20 * min, 78f), TimelinePoint(base + 30 * min, 78f)),
+                timeline.levelPoints,
+            )
+        }
+    }
+
+    @Test
+    fun `synthetic start inside the window is not a temperature sample`() {
+        val timeline =
+            build(
+                listOf(
+                    at(0, HistoryKind.LEVEL, level = 80, deciC = 300),
+                    at(10 * min, HistoryKind.START, level = 0, deciC = 0),
+                    at(20 * min, HistoryKind.SCREEN_ON, level = 79, deciC = 410),
+                ),
+                to = 30 * min,
+            )
+
+        assertEquals(
+            listOf(TimelinePoint(base, 30f), TimelinePoint(base + 20 * min, 41f), TimelinePoint(base + 30 * min, 41f)),
+            timeline.temperaturePoints,
+        )
+        assertEquals(listOf(TimelinePoint(base, 80f), TimelinePoint(base + 30 * min, 80f)), timeline.levelPoints)
+        assertTrue(build(listOf(at(min, HistoryKind.START, level = 0, deciC = 0))).temperaturePoints.isEmpty())
+    }
+
+    @Test
+    fun `equal timestamps keep the last eligible measurement in input order for each series`() {
+        val timeline =
+            build(
+                listOf(
+                    at(10 * min, HistoryKind.LEVEL, level = 79, deciC = 350),
+                    at(0, HistoryKind.RESET, level = 80, deciC = 300), // deliberately unsorted
+                    at(10 * min, HistoryKind.LEVEL, level = 78, deciC = 360),
+                    at(10 * min, HistoryKind.SCREEN_ON, level = 77, deciC = 450),
+                    at(10 * min, HistoryKind.START, level = 0, deciC = 0),
+                ),
+                to = 20 * min,
+            )
+
+        assertEquals(
+            listOf(TimelinePoint(base, 30f), TimelinePoint(base + 10 * min, 45f), TimelinePoint(base + 20 * min, 45f)),
+            timeline.temperaturePoints,
+        )
+        assertEquals(
+            listOf(TimelinePoint(base, 80f), TimelinePoint(base + 10 * min, 78f), TimelinePoint(base + 20 * min, 78f)),
+            timeline.levelPoints,
+        )
+    }
+
+    @Test
+    fun `temperature samples include both window endpoints once and exclude unknown or later records`() {
+        val timeline =
+            build(
+                listOf(
+                    at(0, HistoryKind.LEVEL, deciC = 300),
+                    at(5 * min, HistoryKind.SCREEN_ON, deciC = 350),
+                    at(5 * min, HistoryKind.PLUGGED, deciC = 360),
+                    at(20 * min, HistoryKind.SCREEN_OFF, deciC = 420),
+                    at(20 * min, HistoryKind.UNPLUGGED, deciC = 430),
+                    at(21 * min, HistoryKind.SCREEN_ON, deciC = 500),
+                    at(0, HistoryKind.SCREEN_ON, deciC = 999).copy(wallMs = -1),
+                ),
+                from = 5 * min,
+                to = 20 * min,
+            )
+
+        assertEquals(listOf(TimelinePoint(base + 5 * min, 36f), TimelinePoint(base + 20 * min, 43f)), timeline.temperaturePoints)
+        assertEquals(listOf(TimelinePoint(base + 5 * min, 50f), TimelinePoint(base + 20 * min, 50f)), timeline.levelPoints)
+    }
+
+    @Test
+    fun `transition temperature is held only through the known horizon with existing grace`() {
+        val events = listOf(at(0, HistoryKind.LEVEL, deciC = 300), at(30 * min, HistoryKind.SCREEN_ON, deciC = 450))
+        val horizon = base + 40 * min
+        val stale = TimelineBuilder.build(events, base + 10 * min, base + 120 * min, historyHorizonMs = horizon)
+        assertEquals(
+            listOf(TimelinePoint(base + 10 * min, 30f), TimelinePoint(base + 30 * min, 45f), TimelinePoint(horizon, 45f)),
+            stale.temperaturePoints,
+        )
+
+        val atEvent = TimelineBuilder.build(events, base + 10 * min, base + 120 * min, historyHorizonMs = base + 30 * min)
+        val unknown = TimelineBuilder.build(events, base + 10 * min, base + 120 * min, historyHorizonMs = Long.MIN_VALUE)
+        val measured = listOf(TimelinePoint(base + 10 * min, 30f), TimelinePoint(base + 30 * min, 45f))
+        assertEquals(measured, atEvent.temperaturePoints)
+        assertEquals(measured, unknown.temperaturePoints)
+
+        val within = TimelineBuilder.build(events, base + 10 * min, horizon + HISTORY_HORIZON_GRACE_MS, historyHorizonMs = horizon)
+        assertEquals(stale.temperaturePoints.dropLast(1) + TimelinePoint(within.to, 45f), within.temperaturePoints)
+        val past = TimelineBuilder.build(events, base + 10 * min, horizon + HISTORY_HORIZON_GRACE_MS + 1, historyHorizonMs = horizon)
+        assertEquals(stale.temperaturePoints, past.temperaturePoints)
+    }
+
+    @Test
     fun `the last level is held only to where the history is known`() {
         val events = listOf(at(0, HistoryKind.LEVEL, level = 80), at(30 * min, HistoryKind.LEVEL, level = 79))
 
@@ -445,6 +593,7 @@ class TimelineBuilderTest {
         val timeline = build(events, from = 5 * min, to = 60 * min)
 
         assertEquals(listOf(TimelinePoint(base + 8 * min, 58f), TimelinePoint(base + 60 * min, 58f)), timeline.levelPoints)
+        assertEquals(listOf(TimelinePoint(base + 8 * min, 28f), TimelinePoint(base + 60 * min, 28f)), timeline.temperaturePoints)
     }
 
     @Test

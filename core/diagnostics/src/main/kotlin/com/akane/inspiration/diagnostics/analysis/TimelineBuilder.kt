@@ -23,9 +23,10 @@ import com.akane.inspiration.telemetry.store.knownStateEndWallMs
  *   DEEP_IDLE_OFF with no `*_IDLE_ON` within
  *   [WAKE_PULSE_REENTRY_MS] (inclusive; light idle counts, so deep-to-light is not a pulse). A pulse
  *   inside a MAINTENANCE gap (start inclusive, end exclusive) is dropped. No cause is claimed.
- * - **Points.** One level point per LEVEL event in (from, to], plus the value in force at `from` (from the newest
- *   event at or before it, so a caller includes the last LEVEL event before `from` too) and the last value held to
- *   where the history is known complete (the lane end); temperature is deci-Celsius / 10 and follows the same rule.
+ * - **Points.** Level samples come only from LEVEL events in (from, to]; temperature samples come from every event
+ *   except synthetic START records and convert deci-Celsius / 10. Equal-time samples keep the last eligible event.
+ *   Both series include the value in force at `from` (from the newest event at or before it, unless it is a START)
+ *   and the last value held to where the history is known complete (the lane end).
  */
 object TimelineBuilder {
     /** Longest idle-exit gap that still counts as a maintenance window (inclusive). */
@@ -60,7 +61,7 @@ object TimelineBuilder {
         return Timeline(
             segments = segments(spans, maintenance, from, to),
             levelPoints = points(ordered, from, laneEnd, carryIn) { it.levelPct.toFloat() },
-            temperaturePoints = points(ordered, from, laneEnd, carryIn) { it.temperatureDeciC / 10f },
+            temperaturePoints = points(ordered, from, laneEnd, carryIn, sample = { it.kind != HistoryKind.START }) { it.temperatureDeciC / 10f },
             wakePulsesMs = wakePulses(ordered, maintenance, from, to),
             from = from,
             to = to,
@@ -99,17 +100,18 @@ object TimelineBuilder {
     }
 
     /**
-     * A LEVEL event's point for each one in `(from, to]` ([ordered] ends at `to`), between two edges. Every event carries
-     * its record's level and temperature, so with [carryIn] the newest event at or before [from] (a caller's seed)
-     * gives the value in force as the window opens, unless it is a START: that record is written before the battery
-     * service reports anything, so its zeroed values are no evidence. The last value is then held to [holdTo], where
-     * the history is known complete, never past it: no 1% step was recorded until there.
+     * A point for each event accepted by [sample] in `(from, to]` ([ordered] ends at `to`); the last accepted event
+     * wins at equal timestamps. Every event carries its record's level and temperature, so with [carryIn] the newest
+     * event at or before [from] (a caller's seed) gives the value in force as the window opens, unless it is a START:
+     * that record is written before the battery service reports anything, so its zeroed values are no evidence.
+     * The last value is then held to [holdTo], where the history is known complete, never past it.
      */
     private fun points(
         ordered: List<HistoryEvent>,
         from: Long,
         holdTo: Long,
         carryIn: Boolean,
+        sample: (HistoryEvent) -> Boolean = { it.kind == HistoryKind.LEVEL },
         value: (HistoryEvent) -> Float,
     ): List<TimelinePoint> {
         val out = ArrayList<TimelinePoint>()
@@ -119,7 +121,16 @@ object TimelineBuilder {
                 ?.takeIf { it.kind != HistoryKind.START }
                 ?.let { out += TimelinePoint(from, value(it)) }
         }
-        ordered.filter { it.kind == HistoryKind.LEVEL && it.wallMs > from }.mapTo(out) { TimelinePoint(it.wallMs, value(it)) }
+        ordered.asSequence()
+            .filter { sample(it) && it.wallMs > from }
+            .forEach { event ->
+                val point = TimelinePoint(event.wallMs, value(event))
+                if (out.lastOrNull()?.tMs == point.tMs) {
+                    out[out.lastIndex] = point
+                } else {
+                    out += point
+                }
+            }
         out.lastOrNull()?.let { last -> if (holdTo > last.tMs) out += TimelinePoint(holdTo, last.value) }
         return out
     }
