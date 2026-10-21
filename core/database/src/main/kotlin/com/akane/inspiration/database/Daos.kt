@@ -295,6 +295,16 @@ interface HistoryDao {
         toWallMs: Long,
     ): List<HistoryEventEntity>
 
+    /** Whether a row of a kind other than [kind] is stored at exactly this history time and wall time (one index seek). */
+    @Query(
+        "SELECT EXISTS(SELECT 1 FROM history_event WHERE historyTimeMs = :historyTimeMs AND wallMs = :wallMs AND kind != :kind)",
+    )
+    suspend fun hasOtherKindAt(
+        historyTimeMs: Long,
+        wallMs: Long,
+        kind: String,
+    ): Boolean
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsertCursor(cursor: HistoryCursorEntity)
 

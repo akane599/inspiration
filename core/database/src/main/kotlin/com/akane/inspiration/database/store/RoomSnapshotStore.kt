@@ -224,7 +224,8 @@ class RoomSnapshotStore(
                 historyDao.watermark()?.let { HistoryWatermark(it.seenThroughHistoryTimeMs, it.prunedBeforeWallMs) }
                     ?: HistoryWatermark.NEUTRAL
             val page = stored.judgePage(events, truncated, cutoffWallMs)
-            historyDao.insertIgnore(page.kept.map { it.toEntity(statsStartMs) })
+            val kept = page.kept.filterNot { historyDao.startOfStoredGroup(it) }
+            historyDao.insertIgnore(kept.map { it.toEntity(statsStartMs) })
             events.lastOrNull()?.let {
                 historyDao.advanceCursor(HistoryCursorEntity(statsStartMs = statsStartMs, lastHistoryTimeMs = it.historyTimeMs))
             }
@@ -234,8 +235,22 @@ class RoomSnapshotStore(
                     prunedBeforeWallMs = page.watermark.prunedBeforeWallMs,
                 ),
             )
-            page.kept.size
+            kept.size
         }
+
+    /**
+     * A START whose instant already has a stored row of another kind. A START is written with the CURRENT_TIME or
+     * RESET that dates it, so every row of its history time has its wall time to the millisecond, whatever label the
+     * session carried when each was stored; such a row proves the group was ingested. This build stores a START before
+     * the rows of its instant in one page, so either that START is stored too (the unique key would ignore it again)
+     * or it was dated by a build before audit A03, from the previous boot and early by the powered-off gap: the prune
+     * then reached it before the rows written with it, or the cutoff or watermark refused it at its first ingest, or
+     * it had no wall time at all. The watermark cannot recognise it under its repaired wall time, and a new id would
+     * order it after those rows, where every consumer reads a START as ending the state they begin. It stays out,
+     * which leaves the stored history as it was before the upgrade.
+     */
+    private suspend fun HistoryDao.startOfStoredGroup(event: HistoryEvent): Boolean =
+        event.kind == HistoryKind.START && hasOtherKindAt(event.historyTimeMs, event.wallMs, HistoryKind.START.toString())
 
     override suspend fun historyBetween(
         fromWallMs: Long,

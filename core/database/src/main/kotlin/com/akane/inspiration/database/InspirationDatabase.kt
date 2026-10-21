@@ -155,8 +155,12 @@ abstract class InspirationDatabase : RoomDatabase() {
          * or RESET written with the START, so the value is exact and the row keeps its id and place. Any other START
          * is deleted: its wall time is wrong by the powered-off gap and nothing stored can date it. Dropping the
          * rewind marker makes the next ingest page the stats session again once, so the extractor, which now dates
-         * START itself, restores every deleted START the framework still holds. STARTs the framework or retention
-         * already dropped stay lost: this is a repair of what is provable, not a reconstruction of history.
+         * START itself, restores every deleted START the framework still holds. STARTs the framework no longer holds
+         * stay lost: this is a repair of what is provable, not a reconstruction of history. A restored START gets a
+         * new id under the label the session carries at the replay, so it follows every stored row in insertion
+         * order: `RoomSnapshotStore.persistHistoryPage` leaves out one whose same-instant rows are already stored,
+         * and a lone one replayed after a wall-clock relabel heads the newer run (`ChargeSegmentExtractor` can then
+         * discard one charge spanning that relabel; see `HistoryReplayOrderTest`).
          */
         val MIGRATION_7_8: Migration =
             object : Migration(7, 8) {

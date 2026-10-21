@@ -193,9 +193,11 @@ interface SnapshotStore {
     /**
      * Stores one available history page of the session [statsStartMs] ([events] unfiltered, ascending) and moves the
      * cursor to its last event. Keeps what [HistoryWatermark.keeps] keeps at [cutoffWallMs] and returns how many
-     * events that is (before the insert's dedupe). The default judges by the cutoff alone ([HistoryWatermark.NEUTRAL])
-     * in separate [insertHistory] and [setHistoryCursor] calls (for fakes); the Room store applies its stored
-     * watermark ([HistoryWatermark.judgePage]) and advances it with the page in one transaction.
+     * events it offered the insert (before the unique key's dedupe). The default judges by the cutoff alone
+     * ([HistoryWatermark.NEUTRAL]) in separate [insertHistory] and [setHistoryCursor] calls (for fakes); the Room
+     * store applies its stored watermark ([HistoryWatermark.judgePage]) and advances it with the page in one
+     * transaction, and also leaves out, and does not count, a START whose instant already has a stored row of
+     * another kind (audit A03).
      */
     suspend fun persistHistoryPage(
         statsStartMs: Long,
