@@ -81,6 +81,22 @@
       "priority": 20,
       "enabled": true,
       "include": []
+    },
+    {
+      "path": "rules/robolectric-compose-teardown.md",
+      "hash": "bebd50b7470fcb4f71f95e04a56b7fd6d244aaff4f3bd95ef6d28e02c7aa6260",
+      "description": "Robolectric Compose UI tests idle the main looper at teardown",
+      "globs": [
+        "**/src/test/**/*UiTest.kt",
+        "**/src/test/**/VisibilityEffectTest.kt"
+      ],
+      "dirs": [],
+      "prompt": [
+        "/robolectric/i"
+      ],
+      "priority": 0,
+      "enabled": true,
+      "include": []
     }
   ]
 }
