@@ -34,7 +34,15 @@ object SnapshotDiffer {
             batteryStatsSessionValid && !sessionSkew &&
                 ref.sourceAvailable("dump") && now.sourceAvailable("dump")
         val kernelWakelocksValid = kernelCounterSessionValid && dumpCountersValid
-        val cpuFreqValid = kernelCounterSessionValid && ref.sourceAvailable("cpu") && now.sourceAvailable("cpu")
+        // A recovered policy/row can contain lifetime residency, not a proven zero baseline.
+        val cpuMembershipMatches =
+            ref.cpuFreq.map { it.policy to it.freqKhz }.toSet() ==
+                now.cpuFreq.map { it.policy to it.freqKhz }.toSet()
+        val cpuSourcesAvailable = ref.sourceAvailable("cpu") && now.sourceAvailable("cpu")
+        val cpuFreqValid = kernelCounterSessionValid && cpuSourcesAvailable && cpuMembershipMatches
+        if (kernelCounterSessionValid && cpuSourcesAvailable && !cpuMembershipMatches) {
+            problems += "cpu_freq_membership"
+        }
         val alarmDumpValid =
             batteryStatsSessionValid && kernelCounterSessionValid &&
                 ref.sourceAvailable("alarm") && now.sourceAvailable("alarm")
@@ -152,10 +160,11 @@ object SnapshotDiffer {
     ): List<CpuFreqDelta> {
         val refTimes = ref.groupBy { it.policy to it.freqKhz }.mapValues { (_, values) -> values.sumOf(CpuFreqTime::timeMs) }
         val nowTimes = now.groupBy { it.policy to it.freqKhz }.mapValues { (_, values) -> values.sumOf(CpuFreqTime::timeMs) }
-        return (refTimes.keys + nowTimes.keys)
+        // The caller admits only matching membership, so both cumulative baselines must exist.
+        return refTimes.keys
             .sortedWith(compareBy({ it.first }, { it.second }))
             .mapNotNull { key ->
-                val time = (nowTimes[key] ?: 0L) - (refTimes[key] ?: 0L)
+                val time = nowTimes.getValue(key) - refTimes.getValue(key)
                 if (time < 0) {
                     problems += "negative_cpu_freq:${key.first}:${key.second}"
                     null

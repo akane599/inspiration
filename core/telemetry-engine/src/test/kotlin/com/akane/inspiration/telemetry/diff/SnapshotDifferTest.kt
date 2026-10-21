@@ -525,7 +525,13 @@ class SnapshotDifferTest {
     fun `cpu freq delta is per policy and frequency sorted and only filled for valid kernel counters`() {
         val ref =
             snapshot(elapsed = 1_000).copy(
-                cpuFreq = listOf(CpuFreqTime(4, 2_000_000, 50), CpuFreqTime(0, 600_000, 100), CpuFreqTime(0, 1_200_000, 10)),
+                cpuFreq =
+                    listOf(
+                        CpuFreqTime(4, 2_000_000, 50),
+                        CpuFreqTime(0, 600_000, 60),
+                        CpuFreqTime(0, 1_200_000, 10),
+                        CpuFreqTime(0, 600_000, 40),
+                    ),
             )
         val now =
             snapshot(elapsed = 2_000, duration = 2_000).copy(
@@ -534,17 +540,17 @@ class SnapshotDifferTest {
                         CpuFreqTime(4, 2_000_000, 80),
                         CpuFreqTime(0, 600_000, 400),
                         CpuFreqTime(0, 1_200_000, 10),
-                        CpuFreqTime(0, 1_800_000, 7),
                     ),
             )
 
         val diff = SnapshotDiffer.diff(ref, now)
 
+        assertTrue(diff.validity.cpuFreq)
+        assertFalse(diff.validity.problems.contains("cpu_freq_membership"))
         assertEquals(
             listOf(
                 CpuFreqDelta(0, 600_000, 300),
                 CpuFreqDelta(0, 1_200_000, 0),
-                CpuFreqDelta(0, 1_800_000, 7),
                 CpuFreqDelta(4, 2_000_000, 30),
             ),
             diff.cpuFreqDelta,
@@ -553,6 +559,158 @@ class SnapshotDifferTest {
         val rebooted = SnapshotDiffer.diff(ref, now.copy(clock = now.clock.copy(bootCount = 2)))
         assertFalse(rebooted.validity.kernelCounters)
         assertTrue(rebooted.cpuFreqDelta.isEmpty())
+    }
+
+    @Test
+    fun `cpu policy recovery withholds residency but preserves independent telemetry`() {
+        val sources = listOf("usage", "dump", "cpu", "alarm").associateWith { SourceAvailability(true, null) }
+        val ref =
+            discharge(
+                snapshot(
+                    elapsed = 1_000,
+                    uids = listOf(uid(totalMah = 1.0)),
+                    components = mapOf("SCREEN" to 2.0),
+                    kernelWakelocks = listOf(KernelWakelock("kernel", 100, 1)),
+                    discharged = 10.0,
+                ),
+                total = 10.0,
+                screenOff = 4.0,
+            ).copy(cpuFreq = listOf(CpuFreqTime(0, 600_000, 100)), availability = sources)
+        val now =
+            discharge(
+                snapshot(
+                    elapsed = 2_000,
+                    duration = 2_000,
+                    uids = listOf(uid(totalMah = 2.0)),
+                    components = mapOf("SCREEN" to 2.5),
+                    kernelWakelocks = listOf(KernelWakelock("kernel", 150, 2)),
+                    discharged = 11.0,
+                ),
+                total = 11.0,
+                screenOff = 4.5,
+            ).copy(
+                cpuFreq = listOf(CpuFreqTime(0, 600_000, 200), CpuFreqTime(4, 2_000_000, 3_600_000)),
+                availability = sources,
+            )
+
+        val diff = SnapshotDiffer.diff(ref, now)
+
+        assertFalse(diff.validity.cpuFreq)
+        assertTrue(diff.cpuFreqDelta.isEmpty())
+        assertEquals(listOf("cpu_freq_membership"), diff.validity.problems)
+        assertTrue(diff.validity.batteryStats)
+        assertTrue(diff.validity.kernelCounters)
+        assertTrue(diff.validity.dumpCounters)
+        assertTrue(diff.validity.kernelWakelocks)
+        assertTrue(diff.validity.alarmDumpCounters)
+        assertTrue(diff.uids.single().valid)
+        assertEquals(1.0, diff.uids.single().totalMah, 0.0)
+        assertEquals(0.5, diff.deviceComponentsMah.getValue("SCREEN"), 0.0)
+        assertEquals(50L, diff.kernelWakelocks.single().durationMs)
+        assertEquals(1.0, diff.dischargedMah!!, 0.0)
+        assertEquals(1.0, diff.dischargeMah!!, 0.0)
+        assertEquals(0.5, diff.dischargeScreenOffMah!!, 0.0)
+        assertNotNull(diff.sleep)
+    }
+
+    @Test
+    fun `cpu frequency recovery never assumes a zero baseline even for a zero current counter`() {
+        val ref = snapshot(elapsed = 1_000).copy(cpuFreq = listOf(CpuFreqTime(0, 600_000, 100)))
+        for (recoveredTime in listOf(0L, 7L, 3_600_000L)) {
+            val now =
+                snapshot(elapsed = 2_000, duration = 2_000).copy(
+                    cpuFreq = listOf(CpuFreqTime(0, 600_000, 200), CpuFreqTime(0, 1_800_000, recoveredTime)),
+                )
+
+            val diff = SnapshotDiffer.diff(ref, now)
+
+            assertFalse("recovered $recoveredTime", diff.validity.cpuFreq)
+            assertTrue("recovered $recoveredTime", diff.cpuFreqDelta.isEmpty())
+            assertEquals(listOf("cpu_freq_membership"), diff.validity.problems)
+        }
+    }
+
+    @Test
+    fun `cpu policy row disappearance and topology changes invalidate all residency`() {
+        val before = listOf(CpuFreqTime(0, 600_000, 100), CpuFreqTime(0, 1_200_000, 50), CpuFreqTime(4, 2_000_000, 80))
+        val after = before.map { it.copy(timeMs = it.timeMs + 10) }
+        val cases =
+            mapOf(
+                "policy disappears" to (before to after.filter { it.policy == 0 }),
+                "row disappears" to (before to after.filter { it.freqKhz != 1_200_000L }),
+                "policy replaced" to (before to after.map { if (it.policy == 4) it.copy(policy = 6) else it }),
+                "frequency replaced" to
+                    (before to after.map { if (it.freqKhz == 1_200_000L) it.copy(freqKhz = 1_800_000) else it }),
+                "frequency moves between existing policies" to
+                    (before to after.map { if (it.freqKhz == 1_200_000L) it.copy(policy = 4) else it }),
+                "all rows disappear" to (before to emptyList()),
+                "all rows recover" to (emptyList<CpuFreqTime>() to after),
+            )
+        val sources = mapOf("cpu" to SourceAvailability(true, null))
+        for ((case, rows) in cases) {
+            val diff =
+                SnapshotDiffer.diff(
+                    snapshot(elapsed = 1_000).copy(cpuFreq = rows.first, availability = sources),
+                    snapshot(elapsed = 2_000, duration = 2_000).copy(cpuFreq = rows.second, availability = sources),
+                )
+
+            assertFalse(case, diff.validity.cpuFreq)
+            assertTrue(case, diff.cpuFreqDelta.isEmpty())
+            assertEquals(case, listOf("cpu_freq_membership"), diff.validity.problems)
+            assertTrue(case, diff.validity.kernelCounters)
+            assertTrue(case, diff.validity.batteryStats)
+        }
+    }
+
+    @Test
+    fun `cpu membership problem requires available endpoints and valid kernel clock session`() {
+        val ref =
+            snapshot(elapsed = 1_000).copy(
+                cpuFreq = listOf(CpuFreqTime(0, 600_000, 100)),
+                availability = mapOf("cpu" to SourceAvailability(true, null)),
+            )
+        val now =
+            snapshot(elapsed = 2_000, duration = 2_000).copy(
+                cpuFreq = ref.cpuFreq + CpuFreqTime(4, 2_000_000, 3_600_000),
+                availability = ref.availability,
+            )
+        val unavailableSources =
+            listOf(
+                mapOf("cpu" to SourceAvailability(false, "timeout")),
+                mapOf("dump" to SourceAvailability(true, null)),
+            )
+        val endpoints =
+            unavailableSources.flatMap { sources ->
+                listOf(ref.copy(availability = sources) to now, ref to now.copy(availability = sources))
+            } +
+                listOf(
+                    ref to now.copy(clock = now.clock.copy(bootCount = 2)),
+                    ref to now.copy(clock = now.clock.copy(elapsedRealtimeMs = 1_000)),
+                    ref to now.copy(clock = now.clock.copy(elapsedRealtimeMs = 500)),
+                )
+        for ((before, after) in endpoints) {
+            val diff = SnapshotDiffer.diff(before, after)
+
+            assertFalse(diff.validity.cpuFreq)
+            assertTrue(diff.cpuFreqDelta.isEmpty())
+            assertFalse(diff.validity.problems.contains("cpu_freq_membership"))
+            assertTrue(diff.validity.problems.none { it.startsWith("negative_cpu_freq:") })
+            assertEquals(!diff.validity.kernelCounters, diff.validity.problems.contains("kernel_clock_session"))
+        }
+    }
+
+    @Test
+    fun `unchanged empty cpu membership stays valid without a membership problem`() {
+        val sources = mapOf("cpu" to SourceAvailability(true, null))
+        val diff =
+            SnapshotDiffer.diff(
+                snapshot(elapsed = 1_000).copy(availability = sources),
+                snapshot(elapsed = 2_000, duration = 2_000).copy(availability = sources),
+            )
+
+        assertTrue(diff.validity.cpuFreq)
+        assertTrue(diff.cpuFreqDelta.isEmpty())
+        assertTrue(diff.validity.problems.isEmpty())
     }
 
     @Test
