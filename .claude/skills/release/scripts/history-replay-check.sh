@@ -10,7 +10,9 @@
 # Phase 1 is the control: it shows the framework still holds the START and the replay runs on this device.
 # On a PASS the database keeps the same rows; the START comes back under a new id, which is harmless for a START
 # alone at its instant (consumers order it by its own wall and history time). If the script stops part-way, an
-# exit trap removes the synthetic LEVEL row and re-arms the replay, so the next app start stores the START again.
+# exit trap removes any synthetic row at the START's instant and re-arms the replay; it does not put the START
+# back (the next app start does, under a new id) and does not undo the captures the launches stored. Exercised on
+# redroid on 2026-10-22 (AUDIT_REPORT.md, A03 follow-up). SIGKILL or a lost adb leave the out-dir backup as the way back.
 #
 # Safety: it edits the app database, so it runs only on a device named explicitly with --serial, confirmed with
 # --disposable, whose model is redroid15_x86_64 (--allow-model names another disposable model). It never uninstalls
@@ -162,15 +164,26 @@ IFS='|' read -r start_id ht wall <<<"$target"
 total=$(sql "SELECT COUNT(*) FROM history_event;")
 log "target  START id $start_id at historyTimeMs $ht, wallMs $wall (session $session); $total history rows"
 
-# From here on the database is edited: if the script stops part-way, remove the synthetic row and re-arm the replay.
+# From here on the database is edited. If the script stops part-way: remove every row of another kind at the target
+# instant (the target was chosen with none there, so any such row is ours, whether or not its id was parsed yet) and
+# re-arm the replay. The START is not put back; the next app start replays the history and stores it under a new id.
+# Rows the launches stored stay. When the device cannot confirm the result, the out-dir backup is the way back.
 companion=0
 undo() {
+  local left
   stop_app
-  [ "$companion" -gt 0 ] && sql "DELETE FROM history_event WHERE id = $companion;" >/dev/null
-  sql "DELETE FROM history_cursor WHERE id = $marker_id;" >/dev/null
+  left=$(sql "DELETE FROM history_event WHERE historyTimeMs = $ht AND wallMs = $wall AND kind != '$start_kind';
+    DELETE FROM history_cursor WHERE id = $marker_id;
+    SELECT COUNT(*) FROM history_event WHERE historyTimeMs = $ht AND wallMs = $wall AND kind != '$start_kind';
+    SELECT COUNT(*) FROM history_cursor WHERE id = $marker_id;" | tr '\n' ' ')
   own_db
-  echo "undo    stopped part-way: synthetic row removed, replay re-armed; the next app start stores the START again" |
-    tee -a "$report" >&2
+  if [ "$left" = "0 0 " ]; then
+    echo "undo    stopped part-way: synthetic rows at the START's instant removed, replay re-armed; the START returns at the next app start (Shizuku needed); nothing else was touched" |
+      tee -a "$report" >&2
+  else
+    echo "undo    stopped part-way and the cleanup could not confirm the database (got '$left'): restore from $out/inspiration.db*" |
+      tee -a "$report" >&2
+  fi
 }
 trap undo EXIT
 

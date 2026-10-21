@@ -5,9 +5,11 @@ description: Ship an Inspiration delivery end to end. Bump versionCode/versionNa
 
 # Release
 
-In this project every delivery ends the same way: a version bump, a signed release APK and a GitHub release on the private `akane599/inspiration` repo, with the APK and its `.sha256` attached. That is the user's standing instruction (auto memory: "Post-release push + APK"). This skill is that procedure, plus the step most likely to be skipped: a same-key in-place upgrade from the previous release. A user who updates the app keeps their database, preferences and Shizuku grant, and nothing else in the gate tests that path.
+In this project every delivery ends the same way: a version bump, a signed release APK and a GitHub release on the `akane599/inspiration` repo, with the APK and its `.sha256` attached. That is the user's standing instruction, recorded in the PROGRESS.md decision log (2026-10-18). This skill is that procedure, plus the step most likely to be skipped: a same-key in-place upgrade from the previous release. A user who updates the app keeps their database, preferences and Shizuku grant, and nothing else in the gate tests that path.
 
-Publishing to this private repo is pre-authorized. Every other outward-facing action still needs the user. Work on `main`, the integration branch; commit and push freely.
+The repository is **public** (`gh api repos/akane599/inspiration --jq .visibility`, checked 2026-10-22; its event feed shows no visibility change since it was created), so a release is visible to anyone the moment it is published. Earlier versions of this skill called it private.
+
+Publishing needs the user's explicit release authorization for a named candidate: "release 0.2.9 from `<sha>`", or "ship it" after they have seen the candidate line of step 4. Approval of a merge, of a plan or of the evidence is not release authorization. The blanket pre-authorization and the "commit and push freely" of earlier versions were written on the private-repo premise; until the user reconfirms them, push `main` only as part of an authorized release. Every other outward-facing action needs the user too. Work on `main`, the integration branch.
 
 ## Ground rules
 
@@ -19,7 +21,8 @@ Publishing to this private repo is pre-authorized. Every other outward-facing ac
 
 ### 1. Preconditions
 
-- Check that `git status` is clean apart from the known kit files: `.claude/settings.json`, `.codex/android-kit/*` and `.claude/worktrees/`. Everything that ships must be committed.
+- The user has authorized this release and named the commit it is built from: the **approved commit**. A message that reviews evidence or says a change "looks ready" authorizes neither a merge nor a release.
+- Check that `git status` is clean apart from the known kit files: `.claude/settings.json`, `.codex/android-kit/*` and `.claude/worktrees/`. Everything that ships must be committed. `release-candidate.sh` applies the same allowlist and refuses otherwise.
 - `git fetch`, then check that `main` contains `origin/main`.
 - Find the previous release: `gh release list -R akane599/inspiration --limit 1`. That tag is the upgrade check's starting point.
 - List what ships: `git log --oneline <prev-tag>..HEAD`.
@@ -30,7 +33,7 @@ In `app/build.gradle.kts`:
 - `versionCode` goes up by exactly 1.
 - `versionName` follows semver: a patch bump for fixes (0.2.3 → 0.2.4), a minor bump for a new feature phase (0.1.0 → 0.2.0).
 
-Commit it alone as `chore(release): bump version to X.Y.Z (N)`.
+Commit it alone as `chore(release): bump version to X.Y.Z (N)`. HEAD is now the **release commit**: the approved commit plus exactly this one bump. `release-candidate.sh stage` accepts only that shape (or the approved commit itself when the bump was already in it, as for 0.2.9) and refuses any other HEAD.
 
 ### 3. Full gate
 
@@ -39,25 +42,35 @@ The gate runs alone, as one invocation:
 - Check that no other Gradle invocation is running: `pgrep -f '[G]radleWrapperMain'` finds nothing. If one is, wait for it or use `--max-workers=4`.
 
 ```bash
+v=X.Y.Z; mkdir -p build/release/$v && touch build/release/$v/gate-started
 bash .claude/kit/gradle-check.sh testDebugUnitTest lintDebug validateDebugScreenshotTest :app:assembleDebug :app:minifyReleaseWithR8 :app:assembleRelease --max-workers=8 --rerun-tasks
 bash .claude/skills/release/scripts/gate-summary.sh
 ```
 
-`--rerun-tasks` makes every number come from this commit, not from a cached task. `gate-summary.sh` prints the totals the notes and PROGRESS cite: per-module test counts, failures, screenshot references and `:app` lint. A failing gate means no release; fix the code first.
+`gate-started` is the stamp step 4 uses to prove the APK was written by this gate, after the release commit existed. `--rerun-tasks` makes every number come from this commit, not from a cached task. `gate-summary.sh` prints the totals the notes and PROGRESS cite: per-module test counts, failures, screenshot references and `:app` lint. A failing gate means no release; fix the code first.
 
-### 4. Check the APK and stage the assets
+### 4. Identify the candidate APK, check it and stage the assets
+
+The candidate is exactly one file: `app/build/outputs/apk/release/app-release.apk` as written by the step 3 gate, in the main checkout, at the release commit. Several release-signed APKs with the same versionCode and versionName exist on this host (negative controls, remediation builds, worktree outputs), so **never choose an APK by file name, version string or badging alone, and never search `build/tmp`, `.claude/worktrees` or earlier `build/release/` directories for one.** The selection is mechanical:
 
 ```bash
-v=X.Y.Z; bt=$(ls -d "$ANDROID_HOME"/build-tools/* | sort -V | tail -1)
-mkdir -p build/release/$v && cp app/build/outputs/apk/release/app-release.apk build/release/$v/inspiration-$v.apk
-"$bt/apksigner" verify --print-certs build/release/$v/inspiration-$v.apk | grep 'SHA-256'
-"$bt/aapt2" dump badging build/release/$v/inspiration-$v.apk | head -1
-(cd build/release/$v && sha256sum inspiration-$v.apk > inspiration-$v.apk.sha256)
+bash .claude/skills/release/scripts/release-candidate.sh stage <approved-sha> $v
 ```
 
-- The certificate must equal the pin above. Note that build-tools 37 prints `V2 Signer: certificate SHA-256 digest: …`, not `Signer #1 …`.
-- The badging line must show the bumped versionCode/versionName.
-- The `.sha256` holds the bare file name, so `sha256sum -c` works in the download directory.
+It exits 1 with the reason, and stages nothing, unless all of the following hold:
+- it runs at the top level of the main checkout (not a linked worktree), on `main`;
+- HEAD is the approved commit, or the approved commit plus exactly one commit that changes only the `versionCode`/`versionName` lines of `app/build.gradle.kts`;
+- the tree is clean apart from the step 1 allowlist;
+- `build/release/$v/gate-started` exists, is newer than HEAD's commit time, and is older than the APK (so this gate wrote the APK after the release commit existed);
+- the APK's SHA-256 is not in `scripts/forbidden-release-apks.sha256`;
+- its signer is the pinned certificate (build-tools 37 prints `V2 Signer: certificate SHA-256 digest: …`, which the script accepts);
+- its badging is `com.akane.inspiration`, versionName `$v`, and the versionCode in `app/build.gradle.kts` at HEAD.
+
+On success it copies the APK to `build/release/$v/inspiration-$v.apk`, writes `inspiration-$v.apk.sha256` (bare file name, so `sha256sum -c` works in a download directory) and `candidate.txt` (commit, approved commit, version, versionCode, SHA-256, signer, paths), and prints one `candidate` line. Every later step takes the APK and its hash from `candidate.txt`, never from the shell's memory.
+
+`forbidden-release-apks.sha256` lists release-signed APKs on this host that must never be published or installed on anyone's phone (currently two A03 builds with migration 7→8 but without `9ee56de`). Add a line whenever a same-key, same-version APK that must not ship is built on purpose. `release-candidate.sh forbidden <apk>` checks any file against it.
+
+Report the candidate to the user as the `candidate` line (commit, version, versionCode, full SHA-256, signer) plus the gate log name and, after step 5, the upgrade-check and history-replay-check results. Publication (step 7) needs the user's release authorization for that candidate.
 
 ### 5. Upgrade check (required before publishing)
 
@@ -95,7 +108,7 @@ It edits the app database, so it refuses to run without an explicit `--serial` a
 2. Suppress: a LEVEL row takes the START's exact instant; the replay must not append the START after it.
 3. Restore: the LEVEL row and any START are deleted; the replay must store the START again.
 
-Exit codes and the FAIL rule are the same as for the upgrade check. Exit 2 is a setup problem with no verdict. If it stops after editing, an exit trap removes the LEVEL row and re-arms the replay. Most often the preflight finds no FULL capture because the Shizuku server isn't running: redroid doesn't restart it after a container restart. Start it as `upgrade-check.sh` does, then rerun.
+Exit codes and the FAIL rule are the same as for the upgrade check. Exit 2 is a setup problem with no verdict. If it stops after editing (a signal, a lost replay), an exit trap stops the app, removes every row of another kind at the target instant and re-arms the replay; it does **not** put the START back (the next app start does, under a new id, if Shizuku runs) and does not undo the captures the launches stored. Exercised once on redroid on 2026-10-22 with SIGTERM during phase 2: every other history row matched the backup by natural key with its id unchanged. After SIGKILL or a lost adb the trap can't run or can't confirm; the backup in the out dir is the way back. Most often the preflight finds no FULL capture because the Shizuku server isn't running: redroid doesn't restart it after a container restart. Start it as `upgrade-check.sh` does, then rerun.
 
 ### 6. Release notes
 
@@ -122,13 +135,15 @@ Take the substance from the commits since the previous tag, `PROGRESS.md` decisi
 ### 7. Publish
 
 ```bash
+bash .claude/skills/release/scripts/release-candidate.sh verify $v   # HEAD, staged hash and forbidden list, again
+sha=$(sed -n 's/^commit=//p' build/release/$v/candidate.txt)
 git push origin main
-sha=$(git rev-parse HEAD)
 gh release create v$v -R akane599/inspiration --target "$sha" --title "Inspiration $v" \
   --notes-file build/release/$v/notes.md build/release/$v/inspiration-$v.apk build/release/$v/inspiration-$v.apk.sha256
 ```
 
-- `--target` takes the full SHA. `gh` creates the tag on GitHub, so no local `git tag` is needed.
+- `verify` refuses (exit 1) when HEAD is no longer the candidate's commit, when the staged APK's hash differs from `candidate.txt`, or when the hash has since been added to the forbidden list. Publish only the staged file it verified.
+- `--target` takes the full SHA from `candidate.txt`. `gh` creates the tag on GitHub, so no local `git tag` is needed.
 - If Sidequest is active, its hook blocks a manual tag: acquire the publish lock (`sidequest publish lock`) first and release it afterwards.
 
 ### 8. Verify the published release
@@ -137,9 +152,11 @@ gh release create v$v -R akane599/inspiration --target "$sha" --title "Inspirati
 d=$(mktemp -d) && gh release download v$v -R akane599/inspiration -D "$d" && (cd "$d" && sha256sum -c inspiration-$v.apk.sha256)
 ```
 
-The downloaded APK must match the local hash. The upgrade check left this exact APK installed on redroid. To show the device runs the published bytes, compare against it:
+The downloaded APK must match the local hash. The upgrade check left this exact APK installed on redroid. To show the device runs the published bytes, compare against it, naming the device and checking its model first (through an SSH-forwarded adb server a bare `adb` can reach the user's phone):
 
 ```bash
+export ANDROID_SERIAL=localhost:5555
+[ "$(adb shell getprop ro.product.model | tr -d '\r')" = redroid15_x86_64 ] || echo "not redroid: stop"
 adb shell pm path com.akane.inspiration
 adb pull <path> "$d/installed.apk"
 sha256sum "$d/installed.apk"

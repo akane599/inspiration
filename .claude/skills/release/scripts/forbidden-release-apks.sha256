@@ -1,0 +1,5 @@
+# Release-signed APKs that exist on this host and must never be published or installed on anyone's phone.
+# Each shares its versionCode/versionName with a real or upcoming release, so only the hash tells them apart.
+# Format: sha256  reason. Checked by the release skill's step 4 before an APK is staged.
+5ffaa8ac2d4730424ef4befa131772a8294dbdac5f1c4602a10c1be7f542f79a  0.2.9 (11) built from 02e225d: migration 7->8 without 9ee56de (A03 negative control, build/tmp/negative-control-02e225d)
+516be36711db005a4f707d35fde618e104b7b21c5dd9e674858d6a40d15ed55d  0.2.8 (10) A03 remediation build: migration 7->8 without 9ee56de, never published (build/tmp/a03-native/installed.apk)
