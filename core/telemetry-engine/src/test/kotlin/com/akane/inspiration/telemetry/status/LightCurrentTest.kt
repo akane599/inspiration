@@ -24,13 +24,13 @@ class LightCurrentTest {
 
     @Test
     fun `an earlier build's settled values still apply`() {
-        val start = CalibrationStart(guesses = CalibrationLocks(batteryManagerMilliamps = false, dischargePositive = true))
+        val start = CalibrationStart(guesses = CalibrationLocks(batteryManagerMilliamps = false, batteryManagerDischargePositive = true))
         assertEquals(-120, LightCurrent.calibratedMa(120, start))
     }
 
     @Test
     fun `an unsettled unit is no reading, never a value that may be 1000x off`() {
-        assertNull(LightCurrent.calibratedMa(-300, CalibrationStart(CalibrationLocks(dischargePositive = false))))
+        assertNull(LightCurrent.calibratedMa(-300, CalibrationStart(CalibrationLocks(batteryManagerDischargePositive = false))))
     }
 
     @Test
@@ -41,6 +41,29 @@ class LightCurrentTest {
     @Test
     fun `an unsettled sign is no reading`() {
         assertNull(LightCurrent.calibratedMa(-300, CalibrationStart(CalibrationLocks(batteryManagerMilliamps = false))))
+    }
+
+    @Test
+    fun `sysfs locks and guesses never supply battery manager sign evidence`() {
+        val sysfsOnly = CalibrationLocks(batteryManagerMilliamps = false, dischargePositive = true)
+        assertNull(LightCurrent.calibratedMa(-300, CalibrationStart(locks = sysfsOnly)))
+        assertNull(LightCurrent.calibratedMa(-300, CalibrationStart(guesses = sysfsOnly)))
+
+        val independent = sysfsOnly.copy(batteryManagerDischargePositive = false)
+        val start = CalibrationStart(locks = independent)
+        assertEquals(-300, LightCurrent.calibratedMa(-300, start))
+        assertEquals(250, LightCurrent.calibratedMa(250, start))
+        assertEquals(ChargeState.Charging, chargeState(true, "charging", LightCurrent.calibratedMa(250, start)))
+        assertEquals(ChargeState.PluggedNotCharging, chargeState(true, "charging", LightCurrent.calibratedMa(-250, start)))
+    }
+
+    @Test
+    fun `battery manager lock overrides its own earlier build guess not the sysfs lock`() {
+        val start = CalibrationStart(
+            locks = CalibrationLocks(dischargePositive = false, batteryManagerMilliamps = false, batteryManagerDischargePositive = true),
+            guesses = CalibrationLocks(batteryManagerDischargePositive = false),
+        )
+        assertEquals(-300, LightCurrent.calibratedMa(300, start))
     }
 
     @Test
@@ -77,7 +100,7 @@ class LightCurrentTest {
     private fun locked(
         milliamps: Boolean,
         dischargePositive: Boolean,
-    ) = CalibrationStart(CalibrationLocks(batteryManagerMilliamps = milliamps, dischargePositive = dischargePositive))
+    ) = CalibrationStart(CalibrationLocks(batteryManagerMilliamps = milliamps, batteryManagerDischargePositive = dischargePositive))
 
     private fun store(start: CalibrationStart?) =
         object : CalibrationStore {

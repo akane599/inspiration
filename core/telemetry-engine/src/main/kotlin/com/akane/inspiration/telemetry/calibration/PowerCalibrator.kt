@@ -37,6 +37,8 @@ data class PowerCalibration(
     val currentUnitAssumed: Boolean = false,
     /** The same for BatteryManager's current. */
     val batteryManagerCurrentUnitAssumed: Boolean = false,
+    /** BatteryManager's sign convention is independent of the sysfs driver's. */
+    val batteryManagerDischargeIsNegative: Boolean = true,
 )
 
 enum class Confidence {
@@ -62,12 +64,14 @@ data class CalibrationLocks(
     val sysfsMilliamps: Boolean? = null,
     /** BatteryManager's current is in mA (true) or µA (false). */
     val batteryManagerMilliamps: Boolean? = null,
-    /** Proved by unplugged readings only, never by a plugged battery's status. */
+    /** sysfs sign, proved by unplugged readings only, never by a plugged battery's status. */
     val dischargePositive: Boolean? = null,
     /** sysfs reports the per-cell current of a two-cell pack. */
     val perCellCurrent: Boolean? = null,
     /** The sysfs voltage is in µV (true) or mV (false). */
     val sysfsMicrovolts: Boolean? = null,
+    /** BatteryManager sign, proved independently by its unplugged readings only. */
+    val batteryManagerDischargePositive: Boolean? = null,
 ) {
     /** Each value settled here, else the one [other] has. */
     fun orElse(other: CalibrationLocks): CalibrationLocks =
@@ -77,6 +81,7 @@ data class CalibrationLocks(
             dischargePositive = dischargePositive ?: other.dischargePositive,
             perCellCurrent = perCellCurrent ?: other.perCellCurrent,
             sysfsMicrovolts = sysfsMicrovolts ?: other.sysfsMicrovolts,
+            batteryManagerDischargePositive = batteryManagerDischargePositive ?: other.batteryManagerDischargePositive,
         )
 }
 
@@ -112,7 +117,8 @@ class PowerCalibrator {
             raw.sysfsCurrentRaw?.toDouble()?.times(cal.currentScaleToMa)
                 ?: raw.bmCurrentNowUa?.toDouble()?.times(cal.batteryManagerCurrentScaleToMa)
                 ?: return null
-        val currentMa = if (cal.dischargeIsNegative) unnormalizedCurrentMa else -unnormalizedCurrentMa
+        val dischargeIsNegative = if (raw.sysfsCurrentRaw != null) cal.dischargeIsNegative else cal.batteryManagerDischargeIsNegative
+        val currentMa = if (dischargeIsNegative) unnormalizedCurrentMa else -unnormalizedCurrentMa
         val voltageMv =
             raw.sysfsVoltageRaw?.toDouble()?.times(cal.voltageScaleToMv)
                 ?: raw.bmVoltageMv?.toDouble()
@@ -162,6 +168,8 @@ class CalibrationEvidence(
     // documented convention only by a clear majority and only without proof. A full or held battery casts none.
     private val unpluggedDischargePositive = Vote(start.locks.dischargePositive, guesses.dischargePositive)
     private val statusDischargePositive = Vote(lockable = false)
+    private val bmUnpluggedDischargePositive = Vote(start.locks.batteryManagerDischargePositive, guesses.batteryManagerDischargePositive)
+    private val bmStatusDischargePositive = Vote(lockable = false)
 
     private val microvolts = Vote(start.locks.sysfsMicrovolts, guesses.sysfsMicrovolts)
 
@@ -194,9 +202,11 @@ class CalibrationEvidence(
         if (!hasCurrent && !hasVoltage) return UNCALIBRATED
         val perCellCurrent = halfCurrent.lockedOrGuessed() == true
         val dischargePositive = unpluggedDischargePositive.decision() ?: statusDischargePositive.clearMajority() ?: false
-        val mixedSigns =
-            unpluggedDischargePositive.yes + statusDischargePositive.yes > 0 &&
-                unpluggedDischargePositive.no + statusDischargePositive.no > 0
+        fun mixedSigns(unplugged: Vote, status: Vote): Boolean =
+            unplugged.yes + status.yes > 0 && unplugged.no + status.no > 0
+        // Opposing conventions across sources are valid; only contradictions within a source lower confidence.
+        val mixedSigns = mixedSigns(unpluggedDischargePositive, statusDischargePositive) ||
+            mixedSigns(bmUnpluggedDischargePositive, bmStatusDischargePositive)
         return PowerCalibration(
             // Series pack voltage already includes both cells; only a per-cell current needs doubling.
             currentScaleToMa = sysfsUnit.scaleToMa() * if (perCellCurrent) 2 else 1,
@@ -207,6 +217,9 @@ class CalibrationEvidence(
             batteryManagerCurrentScaleToMa = batteryManagerUnit.scaleToMa(),
             currentUnitAssumed = sysfsUnit.assumed(),
             batteryManagerCurrentUnitAssumed = batteryManagerUnit.assumed(),
+            batteryManagerDischargeIsNegative = !(
+                bmUnpluggedDischargePositive.decision() ?: bmStatusDischargePositive.clearMajority() ?: false
+            ),
         )
     }
 
@@ -221,6 +234,7 @@ class CalibrationEvidence(
             dischargePositive = unpluggedDischargePositive.locked,
             perCellCurrent = halfCurrent.locked,
             sysfsMicrovolts = microvolts.locked,
+            batteryManagerDischargePositive = bmUnpluggedDischargePositive.locked,
         )
 
     private fun addHalfCurrentEvidence(sample: CalibrationInput) {
@@ -235,15 +249,21 @@ class CalibrationEvidence(
     }
 
     private fun addSignEvidence(sample: CalibrationInput) {
-        val currentMa =
-            sample.sysfsCurrentRaw?.let { it * sysfsUnit.scaleToMa() }
-                ?: sample.bmCurrentNowUa?.let { it * batteryManagerUnit.scaleToMa() }
-                ?: return
-        if (abs(currentMa) < NOISE_FLOOR_MA) return
-        when {
-            !sample.plugged -> unpluggedDischargePositive.add(currentMa > 0.0)
-            sample.isCharging -> statusDischargePositive.add(currentMa < 0.0)
+        fun add(currentMa: Double?, unplugged: Vote, status: Vote) {
+            if (currentMa == null || abs(currentMa) < NOISE_FLOOR_MA) return
+            when {
+                !sample.plugged -> unplugged.add(currentMa > 0.0)
+                sample.isCharging -> status.add(currentMa < 0.0)
+            }
         }
+        add(
+            sample.sysfsCurrentRaw?.let { it * sysfsUnit.scaleToMa() },
+            unpluggedDischargePositive, statusDischargePositive,
+        )
+        add(
+            sample.bmCurrentNowUa?.let { it * batteryManagerUnit.scaleToMa() },
+            bmUnpluggedDischargePositive, bmStatusDischargePositive,
+        )
     }
 
     private fun voltageScale(): Double = if (microvolts.decision() == false) 1.0 else MICRO_TO_MILLI

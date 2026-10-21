@@ -125,6 +125,34 @@ class LiveTelemetryTest {
         }
 
     @Test
+    fun `opposite source signs survive live restart and source disappearance without corrupting stored charge`() =
+        runTest {
+            val calibrationStore = MemoryCalibrationStore()
+            assertEquals(List(3) { -300 }, currents(calibrationStore, List(3) {
+                tick(lightRead(), sysfsCurrent = 300_000, bmCurrent = -300_000)
+            }))
+            assertEquals(true, calibrationStore.saved?.locks?.dischargePositive)
+            assertEquals(false, calibrationStore.saved?.locks?.batteryManagerDischargePositive)
+            val charging = lightRead().copy(plugged = true, status = "charging")
+            val both = tick(charging, sysfsCurrent = -250_000, bmCurrent = 250_000)
+            val bmOnly = both.copy(calibrationInput = both.calibrationInput!!.copy(sysfsCurrentRaw = null))
+            val sysfsOnly = both.copy(calibrationInput = both.calibrationInput!!.copy(bmCurrentNowUa = null))
+            val weakCharger = bmOnly.copy(calibrationInput = bmOnly.calibrationInput!!.copy(bmCurrentNowUa = -250_000))
+            val ticks = listOf(bmOnly, sysfsOnly, both, weakCharger)
+            val stored = java.util.concurrent.CopyOnWriteArrayList<LiveReading>()
+            val dispatcher = StandardTestDispatcher(testScheduler)
+            val readings = LiveTelemetry(
+                ScriptedSource(ticks), PowerCalibrator(), TestClocks(), SampleStore { stored += it }, dispatcher, calibrationStore,
+            ).readings(periodMs = 1).take(ticks.size).toList()
+            // A fresh LiveTelemetry owns fresh evidence, restored from the preceding process's saved start.
+            assertEquals(listOf(250, 250, 250, -250), readings.map { it.currentMa })
+            assertEquals(listOf(1.0, 1.0, 1.0, -1.0), readings.map { it.watts })
+            // flowOn may insert the final emitted sample before downstream take cancels it.
+            assertTrue(stored.size in 3..4)
+            assertEquals(listOf(250, 250, 250, -250).take(stored.size), stored.map { it.currentMa })
+        }
+
+    @Test
     fun `a milliamp kernel reads milliamps from the first unplugged tick`() =
         runTest {
             // The HAL passes current_now through: sysfs and BatteryManager both hold the kernel's mA.
@@ -153,6 +181,7 @@ class LiveTelemetryTest {
                     dischargePositive = false,
                     perCellCurrent = false,
                     sysfsMicrovolts = true,
+                    batteryManagerDischargePositive = false,
                 ),
                 calibrationStore.saved?.locks,
             )

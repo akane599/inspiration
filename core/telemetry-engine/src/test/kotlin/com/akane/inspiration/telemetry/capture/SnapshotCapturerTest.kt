@@ -523,27 +523,45 @@ class SnapshotCapturerTest {
     @Test
     fun `light and full captures store the light current calibrated by the persisted calibration`() =
         runTest {
-            // A kernel that reports discharge as positive: +300 is a 300 mA drain.
-            val settled = calibrationStore(CalibrationLocks(batteryManagerMilliamps = false, dischargePositive = true))
-            val store = FakeStore()
-            val capturer = SnapshotCapturer(FakeSource(lightCurrentMa = 300), store, TestClocks(), settled)
+            for (bmPositive in listOf(true, false)) {
+                val settled = calibrationStore(CalibrationLocks(
+                    batteryManagerMilliamps = false,
+                    dischargePositive = !bmPositive,
+                    batteryManagerDischargePositive = bmPositive,
+                ))
+                val store = FakeStore()
+                val rawCurrent = if (bmPositive) 300 else -300
+                val capturer = SnapshotCapturer(FakeSource(lightCurrentMa = rawCurrent), store, TestClocks(), settled)
 
-            capturer.captureLight(CaptureTrigger.SCREEN_ON)
-            capturer.captureFull(CaptureTrigger.APP_OPEN, deadlineMs = 100, ingestHistory = false)
+                capturer.captureLight(CaptureTrigger.SCREEN_ON)
+                capturer.captureFull(CaptureTrigger.APP_OPEN, deadlineMs = 100, ingestHistory = false)
 
-            assertEquals(listOf<Int?>(-300, -300), store.snapshots.map { it.battery.currentMa })
+                assertEquals(listOf<Int?>(-300, -300), store.snapshots.map { it.battery.currentMa })
+                assertEquals(listOf(SnapshotKind.LIGHT, SnapshotKind.FULL), store.snapshots.map { it.kind })
+            }
         }
 
     @Test
     fun `a light current whose unit is not settled is not stored`() =
         runTest {
-            val unsettled = calibrationStore(CalibrationLocks(dischargePositive = false))
+            val unsettled = calibrationStore(CalibrationLocks(batteryManagerDischargePositive = false))
             val store = FakeStore()
             val capturer = SnapshotCapturer(FakeSource(lightCurrentMa = 300), store, TestClocks(), unsettled)
 
             capturer.captureLight(CaptureTrigger.SCREEN_ON)
             capturer.captureFull(CaptureTrigger.APP_OPEN, deadlineMs = 100, ingestHistory = false)
 
+            assertEquals(listOf<Int?>(null, null), store.snapshots.map { it.battery.currentMa })
+        }
+
+    @Test
+    fun `a sysfs sign alone cannot supply current for light or full captures`() =
+        runTest {
+            val sysfsOnly = calibrationStore(CalibrationLocks(batteryManagerMilliamps = false, dischargePositive = true))
+            val store = FakeStore()
+            val capturer = SnapshotCapturer(FakeSource(lightCurrentMa = -300), store, TestClocks(), sysfsOnly)
+            capturer.captureLight(CaptureTrigger.SCREEN_ON)
+            capturer.captureFull(CaptureTrigger.APP_OPEN, deadlineMs = 100, ingestHistory = false)
             assertEquals(listOf<Int?>(null, null), store.snapshots.map { it.battery.currentMa })
         }
 

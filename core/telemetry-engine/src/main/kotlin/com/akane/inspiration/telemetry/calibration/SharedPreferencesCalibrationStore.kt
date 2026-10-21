@@ -39,7 +39,8 @@ class SharedPreferencesCalibrationStore(
         CalibrationLocks(
             sysfsMilliamps = flag(prefix + SYSFS_MILLIAMPS),
             batteryManagerMilliamps = flag(prefix + BATTERY_MANAGER_MILLIAMPS),
-            dischargePositive = flag(prefix + DISCHARGE_POSITIVE),
+            dischargePositive = flag(prefix + SYSFS_DISCHARGE_POSITIVE),
+            batteryManagerDischargePositive = flag(prefix + BATTERY_MANAGER_DISCHARGE_POSITIVE),
             perCellCurrent = flag(prefix + PER_CELL_CURRENT),
             sysfsMicrovolts = flag(prefix + SYSFS_MICROVOLTS),
         )
@@ -52,7 +53,8 @@ class SharedPreferencesCalibrationStore(
     ): SharedPreferences.Editor =
         putFlag(prefix + SYSFS_MILLIAMPS, values.sysfsMilliamps)
             .putFlag(prefix + BATTERY_MANAGER_MILLIAMPS, values.batteryManagerMilliamps)
-            .putFlag(prefix + DISCHARGE_POSITIVE, values.dischargePositive)
+            .putFlag(prefix + SYSFS_DISCHARGE_POSITIVE, values.dischargePositive)
+            .putFlag(prefix + BATTERY_MANAGER_DISCHARGE_POSITIVE, values.batteryManagerDischargePositive)
             .putFlag(prefix + PER_CELL_CURRENT, values.perCellCurrent)
             .putFlag(prefix + SYSFS_MICROVOLTS, values.sysfsMicrovolts)
 
@@ -68,7 +70,9 @@ class SharedPreferencesCalibrationStore(
         private const val GUESS_PREFIX = "guess."
         private const val SYSFS_MILLIAMPS = "sysfsMilliamps"
         private const val BATTERY_MANAGER_MILLIAMPS = "batteryManagerMilliamps"
-        private const val DISCHARGE_POSITIVE = "dischargePositive"
+        // The legacy shared dischargePositive has unknown source provenance. Relearn BOTH signs; keep unit/cell evidence.
+        private const val SYSFS_DISCHARGE_POSITIVE = "sysfsDischargePositive.v2"
+        private const val BATTERY_MANAGER_DISCHARGE_POSITIVE = "batteryManagerDischargePositive.v2"
         private const val PER_CELL_CURRENT = "perCellCurrent"
         private const val SYSFS_MICROVOLTS = "sysfsMicrovolts"
 

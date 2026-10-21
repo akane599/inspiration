@@ -153,6 +153,93 @@ class PowerCalibratorTest {
     }
 
     @Test
+    fun `opposite source conventions keep battery manager fallback discharge and charge correct`() {
+        for (sysfsPositive in listOf(true, false)) {
+            val direction = if (sysfsPositive) 1 else -1
+            val drain = discharge(sysfsCurrent = direction * 300_000L, bmCurrent = -direction * 300_000, sysfsVoltage = 3_900_000)
+            val evidence = CalibrationEvidence()
+            repeat(3) { evidence.add(drain) }
+
+            val calibration = evidence.calibration()
+            assertEquals(Confidence.HIGH, calibration.confidence)
+            assertEquals(sysfsPositive, evidence.locks().dischargePositive)
+            assertEquals(!sysfsPositive, evidence.locks().batteryManagerDischargePositive)
+            assertEquals(!sysfsPositive, calibration.dischargeIsNegative)
+            assertEquals(sysfsPositive, calibration.batteryManagerDischargeIsNegative)
+            assertEquals(-300.0, calibrator.toReading(drain, calibration)!!.currentMa, 0.0)
+
+            val fallbackDrain = discharge(bmCurrent = -direction * 300_000, bmVoltage = 3_900)
+            val fallbackCharge = charging(bmCurrent = direction * 250_000, bmVoltage = 3_900)
+            assertEquals(-300.0, calibrator.toReading(fallbackDrain, calibration)!!.currentMa, 0.0)
+            assertEquals(250.0, calibrator.toReading(fallbackCharge, calibration)!!.currentMa, 0.0)
+            assertEquals(0.975, calibrator.toReading(fallbackCharge, calibration)!!.watts, 1e-9)
+        }
+    }
+
+    @Test
+    fun `a missing source learns no sign from the other and keeps its own lock when it reappears`() {
+        for (sysfsFirst in listOf(true, false)) {
+            val evidence = CalibrationEvidence()
+            val sysfsOnly = discharge(sysfsCurrent = 300_000, sysfsVoltage = 3_900_000)
+            val bmOnly = discharge(bmCurrent = -300_000, bmVoltage = 3_900)
+            val first = if (sysfsFirst) sysfsOnly else bmOnly
+            val later = if (sysfsFirst) bmOnly else sysfsOnly
+            repeat(3) { evidence.add(first) }
+            assertEquals(if (sysfsFirst) true else null, evidence.locks().dischargePositive)
+            assertEquals(if (sysfsFirst) null else false, evidence.locks().batteryManagerDischargePositive)
+            assertTrue("an unseen source keeps its own documented default", if (sysfsFirst) {
+                evidence.calibration().batteryManagerDischargeIsNegative
+            } else {
+                evidence.calibration().dischargeIsNegative
+            })
+
+            repeat(6) { evidence.add(later) }
+            val restarted = CalibrationEvidence(evidence.start())
+            for (input in listOf(first, later, first)) {
+                restarted.add(input)
+                assertEquals(-300.0, calibrator.toReading(input, restarted.calibration())!!.currentMa, 0.0)
+            }
+            assertEquals(true, restarted.locks().dischargePositive)
+            assertEquals(false, restarted.locks().batteryManagerDischargePositive)
+            assertEquals(Confidence.HIGH, restarted.calibration().confidence)
+        }
+    }
+
+    @Test
+    fun `battery manager contradictions lower confidence without changing the sysfs sign`() {
+        val evidence = CalibrationEvidence()
+        repeat(3) { evidence.add(discharge(sysfsCurrent = 300_000, bmCurrent = -300_000, sysfsVoltage = 3_900_000)) }
+        // The sysfs status vote agrees with its proof, but BatteryManager's status contradicts its proof.
+        repeat(6) { evidence.add(charging(sysfsCurrent = -250_000, bmCurrent = -250_000, sysfsVoltage = 3_900_000)) }
+
+        assertEquals(Confidence.LOW, evidence.calibration().confidence)
+        assertFalse(evidence.calibration().dischargeIsNegative)
+        assertTrue(evidence.calibration().batteryManagerDischargeIsNegative)
+        assertEquals(false, evidence.locks().batteryManagerDischargePositive)
+    }
+
+    @Test
+    fun `opposite charging status votes are provisional and each source respects noise and held status`() {
+        val evidence = CalibrationEvidence()
+        val charging = charging(sysfsCurrent = 250_000, bmCurrent = -250_000, sysfsVoltage = 3_900_000)
+        repeat(5) { evidence.add(charging) }
+        assertTrue(evidence.calibration().batteryManagerDischargeIsNegative)
+        evidence.add(charging)
+        assertFalse(evidence.calibration().batteryManagerDischargeIsNegative)
+        assertTrue(evidence.calibration().dischargeIsNegative)
+        assertEquals(Confidence.HIGH, evidence.calibration().confidence)
+        assertNull(evidence.locks().dischargePositive)
+        assertNull(evidence.locks().batteryManagerDischargePositive)
+
+        val held = charging.copy(sysfsCurrentRaw = -300_000, bmCurrentNowUa = 300_000, isCharging = false)
+        val noise = charging.copy(sysfsCurrentRaw = -1_000, bmCurrentNowUa = 1_000, plugged = false)
+        repeat(10) { evidence.add(held); evidence.add(noise) }
+        assertFalse(evidence.calibration().batteryManagerDischargeIsNegative)
+        assertEquals(Confidence.HIGH, evidence.calibration().confidence)
+        assertNull(evidence.locks().batteryManagerDischargePositive)
+    }
+
+    @Test
     fun `a milliamp kernel matching battery manager reads milliamps from its first unplugged reading`() {
         // The HAL passes current_now through, so both read the same mA value and their ratio proves nothing.
         val evidence = CalibrationEvidence()
@@ -284,6 +371,7 @@ class PowerCalibratorTest {
                 dischargePositive = false,
                 perCellCurrent = false,
                 sysfsMicrovolts = true,
+                batteryManagerDischargePositive = false,
             ),
             evidence.locks(),
         )
@@ -338,6 +426,7 @@ class PowerCalibratorTest {
                         dischargePositive = false,
                         perCellCurrent = false,
                         sysfsMicrovolts = false,
+                        batteryManagerDischargePositive = false,
                     ),
                 guesses = guesses,
             ),
