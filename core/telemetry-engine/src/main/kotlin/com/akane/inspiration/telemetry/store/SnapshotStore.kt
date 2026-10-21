@@ -52,7 +52,8 @@ interface SnapshotStore {
 
     /**
      * The earliest snapshot with `wallMs >= [wallMs]` matching the non-null filters. [statsStartMs] selects the
-     * battery-stats session it starts ([com.akane.inspiration.telemetry.diff.BatteryStatsSession.sameStart]).
+     * snapshots whose own start lies within the session tolerance of it, with no wall-clock step correction
+     * ([com.akane.inspiration.telemetry.diff.BatteryStatsSession.sameStart]); [firstInSession] applies the full rule.
      */
     suspend fun firstAtOrAfter(
         wallMs: Long,
@@ -60,6 +61,20 @@ interface SnapshotStore {
         statsStartMs: Long?,
         bootCount: Int?,
     ): BatterySnapshot?
+
+    /**
+     * The earliest snapshot with `wallMs >= [wallMs]` matching [kind] and [bootCount] (when non-null) that shares
+     * [session]'s battery-stats session start, wall-clock steps included
+     * ([com.akane.inspiration.telemetry.diff.BatteryStatsSession.sameStart] on the two clocks), so the lookup agrees
+     * with the differ. A null [session] start filters nothing. The default compares raw starts only, for fakes; the
+     * Room store applies the full rule.
+     */
+    suspend fun firstInSession(
+        wallMs: Long,
+        kind: SnapshotKind?,
+        session: SnapshotClock,
+        bootCount: Int?,
+    ): BatterySnapshot? = firstAtOrAfter(wallMs, kind, session.statsStartMs, bootCount)
 
     suspend fun lastAtOrBefore(
         wallMs: Long,

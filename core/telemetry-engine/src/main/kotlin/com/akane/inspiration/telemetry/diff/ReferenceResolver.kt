@@ -221,10 +221,10 @@ class ReferenceResolver(
         end: BatterySnapshot,
     ): BatterySnapshot? =
         store
-            .firstAtOrAfter(
+            .firstInSession(
                 wallMs = boundaryWallMs,
                 kind = SnapshotKind.FULL,
-                statsStartMs = end.clock.statsStartMs,
+                session = end.clock,
                 bootCount = end.clock.bootCount,
             )?.takeIf { it.precedes(end) } ?: store
             .firstAtOrAfter(

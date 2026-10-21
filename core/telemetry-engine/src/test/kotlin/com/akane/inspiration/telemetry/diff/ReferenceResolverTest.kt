@@ -43,7 +43,7 @@ class ReferenceResolverTest {
             val resolved = ReferenceResolver(store).resolve(ReferenceKind.Last24h, NOW)!!
 
             assertEquals(NOW - 1_000L, resolved.now.clock.wallMs)
-            assertEquals(listOf("lastAtOrBefore", "firstAtOrAfter"), store.loads)
+            assertEquals(listOf("lastAtOrBefore", "firstInSession"), store.loads)
         }
 
     @Test
@@ -60,7 +60,7 @@ class ReferenceResolverTest {
             val resolved = ReferenceResolver(store).resolve(ReferenceKind.SinceUnplugged, NOW, emptyList())!!
 
             assertEquals(NOW - 5 * HOUR_MS, resolved.boundaryFromWallMs)
-            assertEquals(listOf("lastAtOrBefore", "firstAtOrAfter"), store.loads)
+            assertEquals(listOf("lastAtOrBefore", "firstInSession"), store.loads)
         }
 
     @Test
@@ -79,7 +79,7 @@ class ReferenceResolverTest {
 
             assertEquals(NOW - 3 * HOUR_MS, resolved.boundaryFromWallMs)
             assertEquals(NOW - 2 * HOUR_MS, resolved.now.clock.wallMs)
-            assertEquals(listOf("lastAtOrBefore", "firstAtOrAfter"), store.loads)
+            assertEquals(listOf("lastAtOrBefore", "firstInSession"), store.loads)
         }
 
     @Test
@@ -153,7 +153,27 @@ class ReferenceResolverTest {
             assertEquals(stepped, resolved.ref)
             assertEquals(end, resolved.now)
             assertTrue(resolved.perUidAvailable)
-            assertEquals(listOf("lastAtOrBefore", "firstAtOrAfter"), store.loads)
+            assertEquals(listOf("lastAtOrBefore", "firstInSession"), store.loads)
+        }
+
+    @Test
+    fun `the full reference lookup keeps the session across a clock step past the tolerance`() =
+        runTest {
+            // The wall clock stepped 5 s after the reference and the reported start moved with it; the boot-relative
+            // start is unchanged, so the reference before the step is still the end's session.
+            val step = 5_000L
+            val beforeStep = snapshot(NOW - 20 * HOUR_MS, CaptureTrigger.APP_OPEN)
+            val afterStep =
+                snapshot(NOW - 10 * HOUR_MS, CaptureTrigger.APP_OPEN, statsStartMs = STATS_START + step, elapsedMs = NOW - 10 * HOUR_MS - step)
+            val end = snapshot(NOW - 1_000L, CaptureTrigger.APP_OPEN, statsStartMs = STATS_START + step, elapsedMs = NOW - 1_000L - step)
+            val store = LoadCountingStore(listOf(beforeStep, afterStep, end))
+
+            val resolved = ReferenceResolver(store).resolve(ReferenceKind.Last24h, NOW, emptyList())!!
+
+            assertEquals(beforeStep, resolved.ref)
+            assertEquals(end, resolved.now)
+            assertTrue(resolved.perUidAvailable)
+            assertEquals(listOf("lastAtOrBefore", "firstInSession"), store.loads)
         }
 
     /*
@@ -469,11 +489,12 @@ class ReferenceResolverTest {
         ingestedHistory: Boolean = false,
         plugged: Boolean = false,
         statsStartMs: Long = STATS_START,
+        elapsedMs: Long = wallMs,
     ) = BatterySnapshot(
         id = wallMs,
         kind = kind,
         trigger = trigger,
-        clock = SnapshotClock(wallMs, wallMs, wallMs, 1, statsStartMs, null),
+        clock = SnapshotClock(wallMs, elapsedMs, elapsedMs, 1, statsStartMs, null),
         battery = BatteryState(60, plugged, "discharging", 300, 4_000, -200, 1_000_000L, null),
         system = null,
         uids = emptyList(),
@@ -518,6 +539,22 @@ class ReferenceResolverTest {
                     .filter {
                         it.clock.wallMs >= wallMs && (kind == null || it.kind == kind) &&
                             (statsStartMs == null || BatteryStatsSession.sameStart(it.clock.statsStartMs, statsStartMs)) &&
+                            (bootCount == null || it.clock.bootCount == bootCount)
+                    }.minByOrNull { it.clock.wallMs },
+            )
+
+        override suspend fun firstInSession(
+            wallMs: Long,
+            kind: SnapshotKind?,
+            session: SnapshotClock,
+            bootCount: Int?,
+        ): BatterySnapshot? =
+            loaded(
+                "firstInSession",
+                snapshots
+                    .filter {
+                        it.clock.wallMs >= wallMs && (kind == null || it.kind == kind) &&
+                            (session.statsStartMs == null || BatteryStatsSession.sameStart(it.clock, session)) &&
                             (bootCount == null || it.clock.bootCount == bootCount)
                     }.minByOrNull { it.clock.wallMs },
             )
