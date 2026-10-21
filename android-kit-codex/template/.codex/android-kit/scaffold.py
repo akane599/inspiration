@@ -36,6 +36,17 @@ SOURCES = {  # key: (metadata url, allow prerelease)
     "screenshot": (f"{G}/com/android/compose/screenshot/com.android.compose.screenshot.gradle.plugin/maven-metadata.xml", True),
 }
 PRE = re.compile(r"alpha|beta|rc|dev|eap|-M\d|snapshot", re.I)
+# Java reserved words/literals plus Kotlin hard keywords usable by the package
+# identifier regex. '_' and punctuation-bearing Kotlin tokens fail that regex.
+# Soft/contextual keywords remain valid package segments.
+PACKAGE_KEYWORDS = frozenset("""
+abstract assert boolean break byte case catch char class const continue
+ default do double else enum extends final finally float for goto if
+ implements import instanceof int interface long native new package
+ private protected public return short static strictfp super switch
+ synchronized this throw throws transient try void volatile while
+ true false null as fun in is object typealias typeof val var when
+""".split())
 
 
 def vkey(v):
@@ -166,7 +177,7 @@ def main():
         sys.exit(f"invalid package: {a.package} (lowercase, dot-separated, e.g. com.you.app)")
     if not a.name.strip() or any(ord(c) < 32 for c in a.name):
         ap.error("name must be non-empty and contain no control characters")
-    if any(part in {"class", "object", "fun", "when", "is", "in", "as", "package", "interface", "val", "var", "return", "for", "while", "do", "if", "else", "try", "throw", "true", "false", "null", "this", "super", "break", "continue", "import", "public", "private", "new", "int", "void", "switch", "case", "default", "static", "final", "enum", "extends", "implements"} for part in a.package.split('.')):
+    if any(part in PACKAGE_KEYWORDS for part in a.package.split('.')):
         ap.error("package contains a Kotlin/Java keyword")
     if a.offline and a.latest:
         ap.error("--offline and --latest cannot be combined")
