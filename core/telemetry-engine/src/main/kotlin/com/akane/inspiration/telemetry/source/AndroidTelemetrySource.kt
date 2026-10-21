@@ -25,6 +25,8 @@ import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
+import java.util.concurrent.Semaphore
+import java.util.concurrent.atomic.AtomicBoolean
 
 /**
  * Max stats age of a FULL capture's usage query (audit B-22). The `batterystats --proto` dump, read to its end just
@@ -250,25 +252,41 @@ class AndroidTelemetrySource(
      * One blocking service call, run on [ioDispatcher] without tying the caller to it. A Binder transaction
      * ignores Thread.interrupt, so withContext or runInterruptible would hold a cancelled caller, and its capture
      * deadline, until the call returned. Here the caller resumes as soon as it is cancelled; the abandoned call
-     * finishes on its IO thread and [release] frees its result. Null on failure; cancellation is propagated.
+     * finishes on its IO thread and [release] frees its result. A process-wide budget bounds these physical workers;
+     * exhaustion returns null without queueing. Cancellation never frees a slot before its worker exits.
+     * Null on failure; cancellation is propagated.
      */
     private suspend fun <T : Any> binderCall(
         release: (T) -> Unit = {},
         call: () -> T?,
     ): T? {
         currentCoroutineContext().ensureActive() // no new call once the deadline has passed
+        if (!binderSlots.tryAcquire()) return null
+        val released = AtomicBoolean(false)
+        fun releaseSlot() {
+            if (released.compareAndSet(false, true)) binderSlots.release()
+        }
         return suspendCancellableCoroutine { continuation ->
-            ioDispatcher.asExecutor().execute {
-                if (!continuation.isActive) return@execute
-                val value =
-                    runCatching(call).getOrElse { failure ->
-                        if (failure is CancellationException) {
-                            continuation.cancel(failure)
-                            return@execute
-                        }
-                        null
+            try {
+                ioDispatcher.asExecutor().execute {
+                    try {
+                        if (!continuation.isActive) return@execute
+                        val value =
+                            runCatching(call).getOrElse { failure ->
+                                if (failure is CancellationException) {
+                                    continuation.cancel(failure)
+                                    return@execute
+                                }
+                                null
+                            }
+                        continuation.resume(value) { _, unused, _ -> unused?.let(release) }
+                    } finally {
+                        releaseSlot()
                     }
-                continuation.resume(value) { _, unused, _ -> unused?.let(release) }
+                }
+            } catch (failure: Throwable) {
+                releaseSlot()
+                continuation.resumeWith(Result.failure(failure))
             }
         }
     }
@@ -293,6 +311,9 @@ class AndroidTelemetrySource(
         }
 
     private companion object {
+        // Shared by app, foreground and job sources; stuck Binder calls must not exhaust shared IO.
+        private val binderSlots = Semaphore(4)
+
         /** Room for a cold process: the Shizuku binder push, then the service process start (~0.3 s warm device). */
         const val DEFAULT_BIND_TIMEOUT_MS = 5_000L
         const val DEFAULT_DUMP_READ_TIMEOUT_MS = 2_000L
