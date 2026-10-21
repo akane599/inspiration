@@ -9,11 +9,11 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.res.stringResource
 import androidx.lifecycle.Lifecycle
-import androidx.lifecycle.compose.LifecycleStartEffect
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.repeatOnLifecycle
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.akane.inspiration.designsystem.component.VisibilityEffect
 import com.akane.inspiration.designsystem.component.format.currentLocale
 
 /**
@@ -43,10 +43,12 @@ fun XRayRoute(
     val snackbarHostState = remember { SnackbarHostState() }
     val refreshFailed = stringResource(R.string.xray_refresh_failed)
 
-    LifecycleStartEffect(viewModel) {
-        viewModel.onIntent(XRayIntent.Visible)
-        onStopOrDispose { viewModel.onIntent(XRayIntent.Hidden) }
-    }
+    // A rotation is not leaving: an open confirmation survives it (VisibilityEffect).
+    VisibilityEffect(
+        key = viewModel,
+        onVisible = { viewModel.onIntent(XRayIntent.Visible) },
+        onHidden = { viewModel.onIntent(XRayIntent.Hidden) },
+    )
     // One-shot results are shown only while the route is started; the ViewModel queues none while it is not.
     val lifecycle = LocalLifecycleOwner.current.lifecycle
     LaunchedEffect(viewModel, lifecycle, refreshFailed) {

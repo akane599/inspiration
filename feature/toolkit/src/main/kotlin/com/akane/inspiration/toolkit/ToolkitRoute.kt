@@ -13,9 +13,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalResources
-import androidx.lifecycle.compose.LifecycleStartEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.akane.inspiration.designsystem.component.VisibilityEffect
 
 /**
  * Entry point of the Toolkit destination; the signature is pinned (docs/plans/phase-5.md "Entry points").
@@ -41,10 +41,12 @@ fun ToolkitRoute(
     val context = LocalContext.current
     val resources = LocalResources.current
 
-    LifecycleStartEffect(viewModel) {
-        viewModel.onIntent(ToolkitIntent.Visible)
-        onStopOrDispose { viewModel.onIntent(ToolkitIntent.Hidden) }
-    }
+    // A rotation is not leaving: an open confirmation and a plan in flight survive it (VisibilityEffect).
+    VisibilityEffect(
+        key = viewModel,
+        onVisible = { viewModel.onIntent(ToolkitIntent.Visible) },
+        onHidden = { viewModel.onIntent(ToolkitIntent.Hidden) },
+    )
     LaunchedEffect(viewModel, context, resources) {
         viewModel.effects.collect { effect ->
             when (effect) {

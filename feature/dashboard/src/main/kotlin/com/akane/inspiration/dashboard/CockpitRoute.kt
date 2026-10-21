@@ -12,19 +12,19 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
 import androidx.lifecycle.Lifecycle
-import androidx.lifecycle.compose.LifecycleStartEffect
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.repeatOnLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.akane.inspiration.designsystem.component.VisibilityEffect
 
 /**
  * Entry point of the Cockpit destination; the signature is pinned (docs/plans/phase-5.md "Entry points").
  *
  * The ViewModel is Activity-scoped and outlives the tab, so visibility comes from composition (H13):
- * [LifecycleStartEffect] sends Visible on start and Hidden from `onStopOrDispose`, which fires both on activity
- * stop and when the tab leaves composition. The ViewModel owns the live reads and the Shizuku binding between
- * the two.
+ * [VisibilityEffect] sends Visible on start and Hidden on activity stop and when the tab leaves composition, but not
+ * across a configuration change, so a rotation keeps the live gauge. The ViewModel owns the live reads and the Shizuku
+ * binding between the two.
  */
 @Composable
 fun CockpitRoute(
@@ -40,10 +40,11 @@ fun CockpitRoute(
     val snackbarHost = remember { SnackbarHostState() }
     val refreshFailed = stringResource(R.string.cockpit_refresh_failed)
 
-    LifecycleStartEffect(viewModel) {
-        viewModel.onIntent(CockpitIntent.Visible)
-        onStopOrDispose { viewModel.onIntent(CockpitIntent.Hidden) }
-    }
+    VisibilityEffect(
+        key = viewModel,
+        onVisible = { viewModel.onIntent(CockpitIntent.Visible) },
+        onHidden = { viewModel.onIntent(CockpitIntent.Hidden) },
+    )
     // Effects belong to the visible visit: they are collected only while STARTED (the ViewModel drains them on Hidden).
     val lifecycle = LocalLifecycleOwner.current.lifecycle
     LaunchedEffect(viewModel, lifecycle, refreshFailed) {

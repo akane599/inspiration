@@ -13,11 +13,11 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalLocale
 import androidx.compose.ui.res.stringResource
 import androidx.lifecycle.Lifecycle
-import androidx.lifecycle.compose.LifecycleStartEffect
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.repeatOnLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.akane.inspiration.designsystem.component.VisibilityEffect
 import com.akane.inspiration.diagnostics.dictionary.EntryKind
 import com.akane.inspiration.diagnostics.dictionary.Explanation
 import java.util.Locale
@@ -26,8 +26,8 @@ import java.util.Locale
  * Entry point of the Sleep Lab destination; the signature is pinned (docs/plans/phase-5.md "Entry points").
  *
  * The ViewModel is Activity-scoped and outlives the tab, so visibility comes from composition (H13):
- * [LifecycleStartEffect] sends Visible on start (which refreshes, debounced by the container) and Hidden from
- * `onStopOrDispose`, which fires both on activity stop and when the tab leaves composition. Nothing polls.
+ * [VisibilityEffect] sends Visible on start (which refreshes, debounced by the container) and Hidden on activity stop
+ * and when the tab leaves composition, but neither across a configuration change. Nothing polls.
  */
 @Composable
 fun SleepLabRoute(
@@ -49,10 +49,11 @@ fun SleepLabRoute(
     val snackbarHost = remember { SnackbarHostState() }
     val refreshFailed = stringResource(R.string.sleeplab_refresh_failed)
 
-    LifecycleStartEffect(viewModel) {
-        viewModel.onIntent(SleepLabIntent.Visible)
-        onStopOrDispose { viewModel.onIntent(SleepLabIntent.Hidden) }
-    }
+    VisibilityEffect(
+        key = viewModel,
+        onVisible = { viewModel.onIntent(SleepLabIntent.Visible) },
+        onHidden = { viewModel.onIntent(SleepLabIntent.Hidden) },
+    )
     val lifecycle = LocalLifecycleOwner.current.lifecycle
     LaunchedEffect(viewModel, lifecycle, refreshFailed) {
         lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) {
