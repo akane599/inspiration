@@ -28,7 +28,8 @@ Release: `bash .claude/kit/gradle-check.sh :app:assembleRelease`. It is signed o
 - certificate pin check;
 - same-key in-place upgrade check from the previous GitHub release on redroid;
 - the A03 history replay check over the upgraded database;
-- the GitHub release and download verification.
+- mechanical candidate selection (`scripts/release-candidate.sh`): `gate <version> -- <command>` runs the gate from a clean main checkout on `main` and records HEAD, exit status and the hash of the `app-release.apk` it wrote in `build/release/<v>/gate-result`; `stage <approved-sha> <version>` accepts only that APK at the approved commit (plus at most one +1 version-bump commit), not on `scripts/forbidden-release-apks.sha256`, with the pinned signer and matching version, and writes `build/release/<v>/candidate.txt`; `verify <approved-sha> <version>` re-checks the staged file right before publishing;
+- the GitHub release (the repo is public) and download verification.
 
 Its `scripts/upgrade-check.sh` and `scripts/gate-summary.sh` also run on their own; their first run passed the v0.2.3→v0.2.4 upgrade.
 

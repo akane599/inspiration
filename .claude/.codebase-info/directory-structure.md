@@ -146,7 +146,7 @@ docs/plans/phase-4.md             # audited Phase 4 design (G1–G13)
 docs/plans/phase-5.md             # audited Phase 5 design (authoritative; H1–H18, pinned shared surface)
 .claude/skills/device-probe/       # SKILL.md + scripts/device-probe.sh (redroid probe runner)
 .claude/skills/{full-repo-audit,audit-remediate}/   # standalone review-mode audit + remediation skills
-.claude/skills/release/            # SKILL.md + scripts/{upgrade-check,history-replay-check,gate-summary}.sh (delivery, same-key upgrade and A03 replay checks)
+.claude/skills/release/            # SKILL.md + scripts/{release-candidate,upgrade-check,history-replay-check,gate-summary}.sh, forbidden-release-apks.sha256 (candidate selection, same-key upgrade and A03 replay checks)
 .claude/scripts/gradle-slot.sh     # host-wide Gradle slots shared by sessions/worktrees, then gradle-check.sh
 AGENTS.md, .agents/skills/, .codex/android-kit/     # Codex-side mirror of the hybrid android kit (instructions, skills, rules)
 PROGRESS.md                        # durable decisions and device evidence
