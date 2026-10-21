@@ -7,6 +7,7 @@ import android.util.Log
 import androidx.test.core.app.ApplicationProvider
 import com.akane.inspiration.diagnostics.model.SensorKind
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -74,6 +75,15 @@ class AndroidSensorCatalogTest {
         val catalog = AndroidSensorCatalog(broken)
         assertEquals(SensorKind.OTHER, catalog.kindOf(3))
         assertEquals(SensorKind.GPS, catalog.kindOf(-10000))
+        // SQ-44: the OTHER above is unknown, not "not a motion sensor".
+        assertFalse(catalog.available)
+    }
+
+    @Test
+    fun builtCatalogIsAvailableEvenWithNoSensorsRegistered() {
+        assertTrue(AndroidSensorCatalog(context).available)
+        addSensor(Sensor.TYPE_ACCELEROMETER, handle = 3)
+        assertTrue(AndroidSensorCatalog(context).available)
     }
 
     @Test
@@ -100,6 +110,7 @@ class AndroidSensorCatalogTest {
         assertEquals(SensorKind.OTHER, catalog.kindOf(5))
         assertEquals(SensorKind.OTHER, catalog.kindOf(3))
         assertEquals(SensorKind.GPS, catalog.kindOf(GPS_SENSOR_HANDLE))
+        assertFalse(catalog.available)
 
         val logs = ShadowLog.getLogsForTag("AndroidSensorCatalog")
         assertEquals(1, logs.size)
