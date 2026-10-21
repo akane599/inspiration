@@ -10,9 +10,13 @@ import com.akane.inspiration.ipc.toolkit.DozeProfile
 import com.akane.inspiration.ipc.toolkit.StandbyBucket
 import com.akane.inspiration.telemetry.store.ToolkitActionRecord
 import com.akane.inspiration.telemetry.store.ToolkitActionStatus
+import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.take
 import kotlinx.coroutines.flow.toList
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.test.TestScope
+import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
@@ -896,6 +900,34 @@ class ToolkitActionsTest {
             seen += actions.history(10).first().size
             assertEquals(listOf(0, 1), seen)
         }
+
+    @Test
+    fun restoreThatFindsTheTargetAlreadyRestoredDropsTheRowFromALiveCollector() =
+        runTest { assertAlreadyRestoredDropsLiveRow { actions.restore(it) } }
+
+    @Test
+    fun planRestoreThatFindsTheTargetAlreadyRestoredDropsTheRowFromALiveCollector() =
+        runTest { assertAlreadyRestoredDropsLiveRow { actions.planRestore(it) } }
+
+    /**
+     * A collector that stays subscribed (a started screen) lists the change; the target then goes back to its original
+     * outside Inspiration, and the Restore tap answers ALREADY_RESTORED. That answer must make the live collector
+     * recompute and drop the row, not leave it listed until the screen re-subscribes.
+     */
+    private suspend fun TestScope.assertAlreadyRestoredDropsLiveRow(tapRestore: suspend (Long) -> Any) {
+        val change = (actions.execute(ToolkitAction.SetBucket(PKG, StandbyBucket.RARE)) as ToolkitOutcome.Done).value
+        val emissions = Channel<List<Override>>(Channel.UNLIMITED)
+        backgroundScope.launch { actions.activeOverrides().collect { emissions.send(it) } }
+        runCurrent()
+        assertEquals(listOf(change.id), emissions.tryReceive().getOrNull()?.map { it.actionId })
+        backend.buckets[PKG] = checkNotNull(change.beforeRaw).toInt()
+        val writes = backend.writes.size
+        val answer = tapRestore(change.id)
+        assertTrue(answer == ToolkitOutcome.Refused(ToolkitRefusal.ALREADY_RESTORED) || answer == ToolkitPlan.Refused(ToolkitRefusal.ALREADY_RESTORED))
+        runCurrent()
+        assertEquals(emptyList<Override>(), emissions.tryReceive().getOrNull())
+        assertEquals(writes, backend.writes.size)
+    }
 
     private fun buckets(
         pkg: String,
