@@ -106,8 +106,17 @@ class SnapshotCapturer(
         return CaptureResult.Saved(id, SnapshotKind.FULL)
     }
 
-    suspend fun captureLight(trigger: CaptureTrigger): CaptureResult {
-        val read = LightCurrent.calibrate(source.light(), calibrationStore)
+    /** A light reading taken now, for a caller that stores it later with [captureLight] under this moment's clock. */
+    fun lightReading(): LightRead = source.light()
+
+    suspend fun captureLight(trigger: CaptureTrigger): CaptureResult = captureLight(trigger, source.light())
+
+    /** Stores [reading], taken earlier with [lightReading]; the row keeps that reading's clock. */
+    suspend fun captureLight(
+        trigger: CaptureTrigger,
+        reading: LightRead,
+    ): CaptureResult {
+        val read = LightCurrent.calibrate(reading, calibrationStore)
         val id = store.insert(read.toSnapshot(storedTrigger(trigger, read.clock)))
         return CaptureResult.Saved(id, SnapshotKind.LIGHT)
     }

@@ -6,6 +6,7 @@ import com.akane.inspiration.telemetry.capture.CaptureResult
 import com.akane.inspiration.telemetry.capture.SnapshotCapturer
 import com.akane.inspiration.telemetry.snapshot.CaptureTrigger
 import com.akane.inspiration.telemetry.snapshot.SnapshotClock
+import com.akane.inspiration.telemetry.source.LightRead
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.withContext
@@ -136,17 +137,25 @@ object CapturePolicy {
 /**
  * Captures one broadcast [plan]. A full capture that misses its deadline (the miss is recorded) falls back to a
  * light snapshot, so the trigger still has a row: the "since unplug" anchor and the charge job read it. The
- * fallback also runs when the receiver's guard has already cancelled the capture.
+ * fallback also runs when the receiver's guard has already cancelled the capture. It stores a light reading taken
+ * before the full read began, so its row carries the broadcast's clock: one stamped when the read gave up, seconds
+ * later, would land after the row of a quicker broadcast that followed (a SCREEN_OFF row after a quick unlock's
+ * SCREEN_ON one).
  */
 internal suspend fun SnapshotCapturer.captureFor(plan: CapturePlan): CaptureResult = when (plan) {
     is CapturePlan.Light -> captureLight(plan.trigger)
-    is CapturePlan.Full -> try {
-        captureFull(trigger = plan.trigger, deadlineMs = plan.deadlineMs, ingestHistory = false)
-    } catch (cancelled: CancellationException) {
-        lightFallback(plan.trigger)
-        throw cancelled
-    }.let { result -> if (result is CaptureResult.Missed) lightFallback(plan.trigger) else result }
+    is CapturePlan.Full -> {
+        val broadcastReading = lightReading()
+        try {
+            captureFull(trigger = plan.trigger, deadlineMs = plan.deadlineMs, ingestHistory = false)
+        } catch (cancelled: CancellationException) {
+            lightFallback(plan.trigger, broadcastReading)
+            throw cancelled
+        }.let { result -> if (result is CaptureResult.Missed) lightFallback(plan.trigger, broadcastReading) else result }
+    }
 }
 
-private suspend fun SnapshotCapturer.lightFallback(trigger: CaptureTrigger): CaptureResult =
-    withContext(NonCancellable) { captureLight(trigger) }
+private suspend fun SnapshotCapturer.lightFallback(
+    trigger: CaptureTrigger,
+    reading: LightRead,
+): CaptureResult = withContext(NonCancellable) { captureLight(trigger, reading) }

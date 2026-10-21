@@ -588,6 +588,18 @@ class SnapshotCapturerTest {
         }
 
     @Test
+    fun `a light reading taken earlier is stored with its own clock, not the source's current one`() =
+        runTest {
+            val earlier = SnapshotCapturer(FakeSource(lightClock = clock(elapsedMs = 10_000, bootCount = 7)), FakeStore(), TestClocks()).lightReading()
+            val store = FakeStore()
+            SnapshotCapturer(FakeSource(lightClock = clock(elapsedMs = 16_000, bootCount = 7)), store, TestClocks())
+                .captureLight(CaptureTrigger.SCREEN_OFF, earlier)
+
+            assertEquals(SnapshotKind.LIGHT, store.snapshots.single().kind)
+            assertEquals(earlier.clock, store.snapshots.single().clock)
+        }
+
+    @Test
     fun `a BOOT capture with nothing stored before it stays BOOT`() =
         runTest {
             val store = FakeStore()
