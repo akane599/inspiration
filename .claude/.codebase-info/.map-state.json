@@ -3,7 +3,7 @@
   "tool": "codebase-mapper",
   "version": "2.15.10",
   "mappedAt": "2026-10-21",
-  "gitCommit": "2f1114edcb0e3038edde434e5536c8cfe3b8c16a",
+  "gitCommit": "05429b4e46c307833d6a3d3d5f3a79ae50150a3d",
   "documents": [
     "architecture.md",
     "communication.md",
@@ -16,10 +16,10 @@
     "tech-landscape.md"
   ],
   "hashes": {
-    "INDEX.md": "cd6e775e6a5b9bf1ab8144993df67cc64c67d578610e6b90486a36a942ad9c6a",
+    "INDEX.md": "1332ffc1885af7b890caad0ac0e82b869764e0a5bd59c76827f684c0ae56eaed",
     "architecture.md": "4bfd5a6b3be4047d597d54a7d509a5006bf610c2797d4924663ea9c67260aef7",
     "communication.md": "c85a149179e2d908cc85a365d1cbe478a658f9e7e074c6c73c85a374d77f0825",
-    "database.md": "d68ce0803592a421ac7f0e3aabef3a8de0828ee4b2c7e45394e19fcdd657194e",
+    "database.md": "14f53d6ae24eed89a00d7745d1b04c8b88a194dad4f1dfe6d9b25545994bd872",
     "directory-structure.md": "be4aaaba8912513233731f1f26c0d95c741ff4629494032f52611b50899255c3",
     "entry-points.md": "2e49c590f49f096044ad0ddfb93804fbf8146c098e81ac52bfb538d722928b56",
     "modules.md": "e102b7e48932770e8936dbc6e3e1b9f77db8dbc200beb34a3c42bbc732f433c0",

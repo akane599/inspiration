@@ -49,6 +49,8 @@ The 2026-10-21 whole-repo bug hunt (SQ-42–SQ-60) adds the following.
   - a Cockpit time left that ignores a system estimate dated after the reading.
 - **Debug probes:** no silent latest-two fallback, plus an 8 s capture budget.
 
+The 2026-10-21 audit remediation A01–A10 (release 0.2.9, unreleased) and its A03 follow-up add, among others, Room schema 8 with an in-place START repair and re-armed replay, a reboot START dated by its own boot's anchor, and a history ingest that never appends a replayed START after the rows of its instant (`HistoryReplayOrderTest`).
+
 | Doc | What |
 |---|---|
 | [architecture.md](architecture.md) | Runtime layers, capture flow, persistence, and privileged data flow |

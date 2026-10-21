@@ -1062,5 +1062,7 @@ The correction is one ingest-side rule in `RoomSnapshotStore.persistHistoryPage`
 
 **Release ordering, stated as an assumption.** The rule only helps databases that have not yet run the re-armed replay. No published build contains migration 7→8 as far as local evidence shows (PROGRESS.md records releases through 0.2.8 at schema 7; the 0.2.9 bump is the last commit and no 0.2.9 release is recorded; GitHub could not be reached from this host to confirm, connection refused). If 0.2.9 turns out to have shipped without this change, an 8→9 data migration is the remedy: delete a START that has a lower-id row of another kind at the same (historyTimeMs, wallMs), which after this fix can only be an appended replay.
 
+**Status: A03 follow-up FIXED in `9ee56de`** (rule, DAO query, comments and `HistoryReplayOrderTest`); this record in `05429b4`; branch `audit-remediate-20261021-a03-followup` from `02e225d`, not merged, not pushed.
+
 **Remaining limitations and blockers.** Case 2 stays as pinned above. A START the framework no longer holds is not reconstructed. Hardware-dependent limits for A01, A02 and A06–A09 are unchanged. Nothing was pushed or released; the version was not bumped. The two superseded A03 candidate worktrees and the nine integrated worker worktrees from the earlier cycle still exist (not removed: unrelated cleanup).
 
