@@ -3,6 +3,7 @@ package com.akane.inspiration.telemetry.capacity
 import com.akane.inspiration.ipc.model.HistoryEvent
 import com.akane.inspiration.ipc.model.HistoryKind
 import com.akane.inspiration.telemetry.calibration.Confidence
+import com.akane.inspiration.telemetry.calibration.microampHourCounter
 import kotlin.math.abs
 
 data class ChargeSegment(
@@ -134,10 +135,10 @@ object ChargeSegmentExtractor {
             endWallMs = end.wallMs,
             startPct = start.levelPct,
             endPct = end.levelPct,
+            // A charge under the µAh floor (a mAh kernel's counter) is unknown, so the delta is too.
             deltaChargeUah =
-                start.chargeUah
-                    .takeIf { it > 0L }
-                    ?.let { startCharge -> end.chargeUah.takeIf { it > 0L }?.minus(startCharge) },
+                microampHourCounter(start.chargeUah)
+                    ?.let { startCharge -> microampHourCounter(end.chargeUah)?.minus(startCharge) },
             integratedMah = null,
             maxTemperatureDeciC = maxOfOrNull(HistoryEvent::temperatureDeciC),
         )
