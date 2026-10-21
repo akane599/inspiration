@@ -588,6 +588,23 @@ class SnapshotCapturerTest {
         }
 
     @Test
+    fun `a stopped-state BOOT compares with the last stored capture even when an earlier boot's clock ran ahead`() =
+        runTest {
+            // Boot 7 ran with its wall clock an hour ahead; boot 8 has the right time, so its rows sort before boot 7's
+            // by wall time. The BOOT_COMPLETED of a stopped-state exit in boot 8 continues boot 8's last capture.
+            val store = FakeStore()
+            val previousBoot = clock(elapsedMs = 5_000_000, bootCount = 7, wallMs = 10 * HOUR_MS)
+            val thisBoot = clock(elapsedMs = 100, bootCount = 8, wallMs = 9 * HOUR_MS)
+            SnapshotCapturer(FakeSource(lightClock = previousBoot), store, TestClocks()).captureLight(CaptureTrigger.SCREEN_OFF)
+            SnapshotCapturer(FakeSource(lightClock = thisBoot), store, TestClocks()).captureLight(CaptureTrigger.SCREEN_ON)
+
+            val stoppedStateExit = clock(elapsedMs = 200, bootCount = 8, wallMs = 9 * HOUR_MS + 100)
+            SnapshotCapturer(FakeSource(lightClock = stoppedStateExit), store, TestClocks()).captureLight(CaptureTrigger.BOOT)
+
+            assertEquals(CaptureTrigger.STOPPED_STATE_EXIT, store.snapshots.last().trigger)
+        }
+
+    @Test
     fun `a BOOT capture with nothing stored before it stays BOOT`() =
         runTest {
             val store = FakeStore()
@@ -611,8 +628,9 @@ class SnapshotCapturerTest {
     private fun clock(
         elapsedMs: Long,
         bootCount: Int,
+        wallMs: Long = 1_000_000 + elapsedMs,
     ) = com.akane.inspiration.telemetry.snapshot.SnapshotClock(
-        wallMs = 1_000_000 + elapsedMs,
+        wallMs = wallMs,
         elapsedRealtimeMs = elapsedMs,
         uptimeMs = elapsedMs,
         bootCount = bootCount,
@@ -731,6 +749,8 @@ class SnapshotCapturerTest {
 
         override suspend fun latest(kind: SnapshotKind?): BatterySnapshot? =
             snapshots.filter { kind == null || it.kind == kind }.maxByOrNull { it.clock.wallMs }
+
+        override suspend fun latestClock() = snapshots.lastOrNull()?.clock
 
         override suspend fun firstAtOrAfter(
             wallMs: Long,
@@ -876,6 +896,7 @@ class SnapshotCapturerTest {
     private fun historyEvent(time: Long) = HistoryEvent(time, time, HistoryKind.LEVEL, 70, 1_000_000, 250, 4000, 0)
 
     private companion object {
-        const val DAY_MS = 24L * 60L * 60L * 1_000L
+        const val HOUR_MS = 60L * 60L * 1_000L
+        const val DAY_MS = 24L * HOUR_MS
     }
 }

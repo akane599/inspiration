@@ -1205,6 +1205,18 @@ class RoomSnapshotStoreTest {
         }
 
     @Test
+    fun `latestClock reads the last inserted capture even when an earlier boot's wall clock ran ahead`() =
+        runBlocking {
+            assertNull(store.latestClock())
+            // Boot 1 ran an hour ahead; boot 2's correct clock stores its rows at smaller wall times.
+            val previousBoot = store.insert(fullSnapshot(wallMs = 10 * HOUR_MS, bootCount = 1))
+            val lastInserted = store.insert(fullSnapshot(kind = SnapshotKind.LIGHT, wallMs = 9 * HOUR_MS, bootCount = 2))
+
+            assertEquals(previousBoot, store.latest()?.id)
+            assertEquals(store.byId(lastInserted)!!.clock, store.latestClock())
+        }
+
+    @Test
     fun `unplugWindow starts its snapshots at the screen capture before the last plugged row and keeps the summary`() =
         runBlocking {
             val base = 40L * DAY_MS

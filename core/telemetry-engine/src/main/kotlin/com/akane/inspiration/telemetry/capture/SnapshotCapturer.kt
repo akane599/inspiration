@@ -114,7 +114,7 @@ class SnapshotCapturer(
 
     /**
      * [CaptureTrigger.STOPPED_STATE_EXIT] for a [CaptureTrigger.BOOT] capture whose [clock] continues the boot of the
-     * newest stored capture (Android 15 sends BOOT_COMPLETED when a force-stopped app leaves the stopped state); any
+     * last stored capture (Android 15 sends BOOT_COMPLETED when a force-stopped app leaves the stopped state); any
      * other trigger as is. Only the label: readers find boots from the clocks. A capture that ran in the new boot
      * before BOOT_COMPLETED arrived also labels a real reboot so.
      */
@@ -123,7 +123,7 @@ class SnapshotCapturer(
         clock: SnapshotClock,
     ): CaptureTrigger {
         if (trigger != CaptureTrigger.BOOT) return trigger
-        val previous = store.latest()?.clock ?: return trigger
+        val previous = store.latestClock() ?: return trigger
         return if (clock.sameBootAs(previous)) CaptureTrigger.STOPPED_STATE_EXIT else trigger
     }
 

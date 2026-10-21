@@ -91,6 +91,10 @@ interface SnapshotDao {
     @Query("SELECT * FROM snapshot WHERE (:kind IS NULL OR kind = :kind) ORDER BY wallMs DESC, id DESC LIMIT 1")
     suspend fun latest(kind: String? = null): SnapshotEntity?
 
+    /** The last inserted row: ids grow with each insert, whatever the wall clock said. */
+    @Query("SELECT * FROM snapshot ORDER BY id DESC LIMIT 1")
+    suspend fun lastInserted(): SnapshotEntity?
+
     @Query(
         """
         SELECT * FROM snapshot

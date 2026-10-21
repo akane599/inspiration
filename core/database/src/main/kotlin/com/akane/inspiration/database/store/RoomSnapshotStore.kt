@@ -106,6 +106,8 @@ class RoomSnapshotStore(
             database.snapshotDao().latest(kind?.name)?.let { readSnapshot(it) }
         }
 
+    override suspend fun latestClock(): SnapshotClock? = database.snapshotDao().lastInserted()?.toClock()
+
     override suspend fun firstAtOrAfter(
         wallMs: Long,
         kind: SnapshotKind?,
