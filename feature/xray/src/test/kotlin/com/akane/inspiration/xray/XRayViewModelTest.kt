@@ -152,11 +152,49 @@ class XRayViewModelTest {
     }
 
     @Test
-    fun `a failed capture is reported once and the last data stays`() =
+    fun `a failed capture the user asked for is reported once and the last data stays`() =
         runTest {
             start(FakeXRayDeps().apply { refreshResult = RefreshResult.Failed("deadline") })
 
-            assertEquals(XRayEffect.RefreshFailed, vm.effects.first())
+            vm.onIntent(XRayIntent.Capture)
+
+            assertEquals(XRayEffect.RefreshFailed, nextEffect())
+            assertNull("reported once", nextEffect())
+            assertEquals(XRayStatus.READY, state.status)
+            assertFalse(state.refreshing)
+        }
+
+    @Test
+    fun `a capture that joins the on-enter refresh reports its failure`() =
+        runTest {
+            val gate = CompletableDeferred<Unit>()
+            start(
+                FakeXRayDeps().apply {
+                    refreshGate = gate
+                    refreshResult = RefreshResult.Failed("deadline")
+                },
+            )
+
+            vm.onIntent(XRayIntent.Capture)
+            gate.complete(Unit)
+
+            assertEquals(1, deps.refreshCalls)
+            assertEquals(XRayEffect.RefreshFailed, nextEffect())
+        }
+
+    @Test
+    fun `an on-enter refresh that fails emits no effect`() =
+        runTest {
+            // Shizuku stopped, or the coordinator's backoff answering its cached failure without a capture.
+            start(FakeXRayDeps().apply { refreshResult = RefreshResult.Failed("no shizuku") })
+            assertNull(nextEffect())
+
+            // Coming back to the tab or the app refreshes on enter again, and says nothing again.
+            vm.onIntent(XRayIntent.Hidden)
+            vm.onIntent(XRayIntent.Visible)
+
+            assertEquals(2, deps.refreshCalls)
+            assertNull(nextEffect())
             assertEquals(XRayStatus.READY, state.status)
             assertFalse(state.refreshing)
         }
@@ -222,6 +260,7 @@ class XRayViewModelTest {
                     refreshResult = RefreshResult.Failed("deadline")
                 },
             )
+            vm.onIntent(XRayIntent.Capture) // the user waits for it
 
             vm.onIntent(XRayIntent.Hidden)
             gate.complete(Unit) // the capture fails after the user left
@@ -235,7 +274,8 @@ class XRayViewModelTest {
     @Test
     fun `a failure nobody collected is dropped on hidden instead of replaying on return`() =
         runTest {
-            start(FakeXRayDeps().apply { refreshResult = RefreshResult.Failed("deadline") }) // queued while visible
+            start(FakeXRayDeps().apply { refreshResult = RefreshResult.Failed("deadline") })
+            vm.onIntent(XRayIntent.Capture) // its failure is queued while visible
 
             vm.onIntent(XRayIntent.Hidden)
             deps.refreshResult = RefreshResult.Refreshed(0L)
