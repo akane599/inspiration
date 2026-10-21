@@ -83,6 +83,13 @@ class ProbeDiffReferenceTest {
                 .filter { bootCount == null || it.clock.bootCount == bootCount }
                 .minByOrNull { it.clock.wallMs }
 
+        override suspend fun firstInSession(
+            wallMs: Long,
+            kind: SnapshotKind?,
+            session: SnapshotClock,
+            bootCount: Int?,
+        ): BatterySnapshot? = super<SnapshotStore>.firstInSession(wallMs, kind, session, bootCount)
+
         override suspend fun latestByTrigger(trigger: CaptureTrigger): BatterySnapshot? =
             snapshots.filter { it.trigger == trigger }.maxByOrNull { it.clock.wallMs }
 
