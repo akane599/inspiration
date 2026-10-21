@@ -82,7 +82,10 @@ class XRayViewModel(
     private var visible = false
     private var pending: PendingAction? = null
 
-    /** The user asked to capture (Retry) while this refresh ran (main thread only, like every intent). */
+    /**
+     * The user asked to capture (Retry) while this refresh ran, on this visit (main thread only, like every intent):
+     * only then is its failure reported.
+     */
     private var retryWaiting = false
 
     /**
@@ -181,10 +184,13 @@ class XRayViewModel(
                     } finally {
                         _state.update { it.copy(refreshing = false) }
                     }
-                // No new capture means no refresh tick: what the user asked for is recomputed from what is stored.
-                if (retryWaiting && result !is RefreshResult.Refreshed) deps.recomputeAnalysis()
+                // Only a refresh the user asked for (or joined) on this visit reports its failure; an on-enter one fails
+                // silently, as the status already says why data is missing (Hidden ends the visit's ownership).
+                val asked = retryWaiting
                 retryWaiting = false
-                if (result == null || result is RefreshResult.Failed) emit(XRayEffect.RefreshFailed)
+                // No new capture means no refresh tick: what the user asked for is recomputed from what is stored.
+                if (asked && result !is RefreshResult.Refreshed) deps.recomputeAnalysis()
+                if (asked && (result == null || result is RefreshResult.Failed)) emit(XRayEffect.RefreshFailed)
             }
     }
 
