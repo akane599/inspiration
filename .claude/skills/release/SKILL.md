@@ -84,6 +84,19 @@ Exit codes: 0 PASS, 1 a check failed, 2 setup problem. The report lands in `buil
 
 A FAIL is a real bug for every user who updates, so it blocks the release. A WARN means a check couldn't run, for example the privileged path when Shizuku wasn't granted. Fix the setup and run it again, or list it under "Not checked" in the notes. Never present a warning as a pass.
 
+Then, over the database the upgrade check left on redroid, run the history replay check (audit A03, schema 8 on):
+
+```bash
+bash .claude/skills/release/scripts/history-replay-check.sh --serial localhost:5555 --disposable --apk build/release/$v/inspiration-$v.apk
+```
+
+It edits the app database, so it refuses to run without an explicit `--serial` and `--disposable`, or on a device whose model isn't `redroid15_x86_64`. It never uninstalls, and it copies the database files to its out dir before anything else. The installed APK must be byte-identical to `--apk`; it installs in place only with `--install`. Before any edit it needs a FULL capture with a finished history ingest and the database at the source's Room version. Then it picks a START the framework still holds and runs three phases, each re-arming the one-time replay and starting the app:
+1. Restore: the START is deleted; the replay must store it again.
+2. Suppress: a LEVEL row takes the START's exact instant; the replay must not append the START after it.
+3. Restore: the LEVEL row and any START are deleted; the replay must store the START again.
+
+Exit codes and the FAIL rule are the same as for the upgrade check. Exit 2 is a setup problem with no verdict. If it stops after editing, an exit trap removes the LEVEL row and re-arms the replay. Most often the preflight finds no FULL capture because the Shizuku server isn't running: redroid doesn't restart it after a container restart. Start it as `upgrade-check.sh` does, then rerun.
+
 ### 6. Release notes
 
 Write `build/release/$v/notes.md` for the user, not for the code. The structure follows the earlier releases (`gh release view v0.2.4 -R akane599/inspiration`):
