@@ -13,6 +13,7 @@ import com.akane.inspiration.telemetry.capacity.ChargeSegmentExtractor
 import com.akane.inspiration.telemetry.capacity.SegmentVerdict
 import com.akane.inspiration.telemetry.capture.SnapshotCapturer
 import com.akane.inspiration.telemetry.common.Clocks
+import com.akane.inspiration.telemetry.diff.BatteryStatsSession
 import com.akane.inspiration.telemetry.diff.ReferenceKind
 import com.akane.inspiration.telemetry.diff.ReferenceResolver
 import com.akane.inspiration.telemetry.diff.SnapshotDiffer
@@ -479,6 +480,28 @@ class RoomSnapshotStoreTest {
 
             assertEquals(shifted, store.firstAtOrAfter(1_500L, SnapshotKind.FULL, 10_000L, 1)?.id)
             assertNull(store.firstAtOrAfter(1_500L, SnapshotKind.FULL, 20_000L, 1))
+        }
+
+    @Test
+    fun `firstInSession finds the reference from before a wall-clock step past the tolerance`() =
+        runBlocking {
+            // The wall clock stepped 5 s between the two rows and the reported start moved with it.
+            val beforeStep = store.insert(fullSnapshot(wallMs = 2_000L, elapsedMs = 2_000L, statsStartMs = 10_000L))
+            val afterStep = store.insert(fullSnapshot(wallMs = 8_000L, elapsedMs = 3_000L, statsStartMs = 15_000L))
+            val session = SnapshotClock(14_000L, 9_000L, 4_500L, 1, 15_000L, 9_000L)
+
+            assertEquals(beforeStep, store.firstInSession(1_500L, SnapshotKind.FULL, session, 1)?.id)
+            assertTrue(BatteryStatsSession.sameStart(store.byId(beforeStep)!!.clock, session))
+            // The raw start lookup still sees only the row after the step.
+            assertEquals(afterStep, store.firstAtOrAfter(1_500L, SnapshotKind.FULL, 15_000L, 1)?.id)
+            // Another boot's elapsed clock proves nothing, so only the raw start matches there.
+            assertEquals(afterStep, store.firstInSession(1_500L, SnapshotKind.FULL, session.copy(bootCount = 2), null)?.id)
+            // A start shift the step does not explain is another session.
+            assertNull(store.firstInSession(1_500L, SnapshotKind.FULL, session.copy(statsStartMs = 18_000L), 1))
+            // A row not earlier on the session's elapsed clock is not matched through the step.
+            val notLater = session.copy(wallMs = 12_000L, elapsedRealtimeMs = 2_000L, statsStartMs = 20_000L)
+            assertNull(store.firstInSession(1_500L, SnapshotKind.FULL, notLater, 1))
+            assertEquals(beforeStep, store.firstInSession(1_500L, SnapshotKind.FULL, notLater.copy(elapsedRealtimeMs = 2_001L, statsStartMs = 20_001L), 1)?.id)
         }
 
     @Test
@@ -1451,6 +1474,7 @@ class RoomSnapshotStoreTest {
         wallMs: Long = 1_000L,
         statsStartMs: Long? = 10L,
         bootCount: Int = 1,
+        elapsedMs: Long = wallMs + 1L,
         system: SystemTimers? = timers(),
         uids: List<UidSnapshot> = listOf(uidSnapshot()),
         deviceComponentsMah: Map<String, Double> = linkedMapOf("screen" to 1.5, "wifi" to 2.5),
@@ -1466,7 +1490,7 @@ class RoomSnapshotStoreTest {
         id = 0L,
         kind = kind,
         trigger = trigger,
-        clock = SnapshotClock(wallMs, wallMs + 1L, wallMs + 2L, bootCount, statsStartMs, 9L),
+        clock = SnapshotClock(wallMs, elapsedMs, wallMs + 2L, bootCount, statsStartMs, 9L),
         battery = BatteryState(60, false, "Discharging", 300, 4_000, -200, 1_234_000L, 4.5),
         system = system,
         uids = uids,

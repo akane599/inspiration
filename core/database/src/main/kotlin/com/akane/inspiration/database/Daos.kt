@@ -91,13 +91,21 @@ interface SnapshotDao {
     @Query("SELECT * FROM snapshot WHERE (:kind IS NULL OR kind = :kind) ORDER BY wallMs DESC, id DESC LIMIT 1")
     suspend fun latest(kind: String? = null): SnapshotEntity?
 
+    /**
+     * [statsStartMs] matches starts within [statsStartToleranceMs]. The `session*` parameters, the session clock's
+     * boot, elapsed time and boot-relative start (`statsStart - wall + elapsed`), also match an earlier row of that
+     * boot whose start moved with a wall-clock step: the SQL form of `BatteryStatsSession.sameStart` on two clocks.
+     */
     @Query(
         """
         SELECT * FROM snapshot
         WHERE wallMs >= :wallMs
           AND (:kind IS NULL OR kind = :kind)
-          AND (:statsStartMs IS NULL OR statsStartMs BETWEEN :statsStartMs - :statsStartToleranceMs
-            AND :statsStartMs + :statsStartToleranceMs)
+          AND (:statsStartMs IS NULL
+            OR statsStartMs BETWEEN :statsStartMs - :statsStartToleranceMs AND :statsStartMs + :statsStartToleranceMs
+            OR (bootCount = :sessionBootCount AND elapsedRealtimeMs < :sessionElapsedMs
+              AND statsStartMs - wallMs + elapsedRealtimeMs BETWEEN :sessionStartElapsedMs - :statsStartToleranceMs
+                AND :sessionStartElapsedMs + :statsStartToleranceMs))
           AND (:bootCount IS NULL OR bootCount = :bootCount)
         ORDER BY wallMs ASC, id ASC
         LIMIT 1
@@ -109,6 +117,9 @@ interface SnapshotDao {
         statsStartMs: Long? = null,
         bootCount: Int? = null,
         statsStartToleranceMs: Long = 0L,
+        sessionBootCount: Int? = null,
+        sessionElapsedMs: Long? = null,
+        sessionStartElapsedMs: Long? = null,
     ): SnapshotEntity?
 
     @Query("SELECT * FROM snapshot WHERE wallMs <= :wallMs AND (:kind IS NULL OR kind = :kind) ORDER BY wallMs DESC, id DESC LIMIT 1")

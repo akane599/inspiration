@@ -124,6 +124,27 @@ class RoomSnapshotStore(
                 )?.let { readSnapshot(it) }
         }
 
+    override suspend fun firstInSession(
+        wallMs: Long,
+        kind: SnapshotKind?,
+        session: SnapshotClock,
+        bootCount: Int?,
+    ): BatterySnapshot? =
+        database.withTransaction {
+            database
+                .snapshotDao()
+                .firstAtOrAfter(
+                    wallMs = wallMs,
+                    kind = kind?.name,
+                    statsStartMs = session.statsStartMs,
+                    bootCount = bootCount,
+                    statsStartToleranceMs = BatteryStatsSession.START_TOLERANCE_MS,
+                    sessionBootCount = session.bootCount,
+                    sessionElapsedMs = session.elapsedRealtimeMs,
+                    sessionStartElapsedMs = BatteryStatsSession.startElapsedMs(session),
+                )?.let { readSnapshot(it) }
+        }
+
     override suspend fun lastAtOrBefore(
         wallMs: Long,
         kind: SnapshotKind?,

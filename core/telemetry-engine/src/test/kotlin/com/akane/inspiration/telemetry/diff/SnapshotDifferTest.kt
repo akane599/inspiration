@@ -1023,6 +1023,59 @@ class SnapshotDifferTest {
         }
 
     @Test
+    fun `a clock step past the tolerance keeps one session`() {
+        // TIME_SET moves BatteryStatsImpl's reported start by the full step: the wall clock gained 5 s on the
+        // elapsed clock over this hour and the start moved 5 s with it, so the boot-relative start is unchanged.
+        val ref = snapshot(wall = 10_000, elapsed = 1_000, uids = listOf(uid(totalMah = 2.0)), components = mapOf("screen" to 1.0))
+        val now =
+            snapshot(
+                wall = 10_000 + HOUR_MS + 5_000,
+                elapsed = 1_000 + HOUR_MS,
+                statsStart = 105_000,
+                duration = 1_000 + HOUR_MS,
+                uids = listOf(uid(totalMah = 3.5)),
+                components = mapOf("screen" to 1.25),
+            )
+
+        val diff = SnapshotDiffer.diff(ref, now)
+
+        assertTrue(diff.validity.batteryStats)
+        assertFalse(diff.validity.problems.contains("battery_stats_session"))
+        assertTrue(diff.uids.isNotEmpty())
+        assertEquals(1.5, diff.uids.single().totalMah, 0.0)
+        assertEquals(0.25, diff.deviceComponentsMah.getValue("screen"), 0.0)
+    }
+
+    @Test
+    fun `a start shift the clock step does not explain is a new session`() {
+        // The wall clock stepped 5 s but the start moved 8 s: a reset, not the step.
+        val ref = snapshot(wall = 10_000, elapsed = 1_000)
+        val now = snapshot(wall = 10_000 + HOUR_MS + 5_000, elapsed = 1_000 + HOUR_MS, statsStart = 108_000, duration = 1_000 + HOUR_MS)
+
+        val diff = SnapshotDiffer.diff(ref, now)
+
+        assertFalse(diff.validity.batteryStats)
+        assertTrue(diff.validity.problems.contains("battery_stats_session"))
+    }
+
+    @Test
+    fun `resolver pairs the FULL reference from before a clock step past the tolerance`() =
+        runTest {
+            // The wall clock stepped 5 s between the reference and the later rows; the start moved with it.
+            val beforeStep = snapshot(id = 1, wall = 2_000, elapsed = 2_000, duration = 2_000)
+            val afterStep = snapshot(id = 2, wall = 4 * HOUR_MS + 5_000, elapsed = 4 * HOUR_MS, duration = 4 * HOUR_MS, statsStart = 105_000)
+            val end = snapshot(id = 3, wall = 5 * HOUR_MS + 5_000, elapsed = 5 * HOUR_MS, duration = 5 * HOUR_MS, statsStart = 105_000)
+            val resolver = ReferenceResolver(FakeStore(listOf(beforeStep, afterStep, end), emptyList(), emptyMap()))
+
+            val resolved = resolver.resolve(ReferenceKind.TimeSlice(1_000, end.clock.wallMs), end.clock.wallMs)!!
+
+            assertEquals(beforeStep, resolved.ref)
+            assertEquals(end, resolved.now)
+            assertTrue(resolved.perUidAvailable)
+            assertTrue(SnapshotDiffer.diff(resolved.ref, resolved.now).validity.batteryStats)
+        }
+
+    @Test
     fun `resolver pairs a FULL reference whose stats start stepped within the session tolerance`() =
         runTest {
             // Same window as the discharge tolerance cases: 101_500 is one session with 100_000, 102_001 is not.
@@ -1166,6 +1219,18 @@ class SnapshotDifferTest {
             .filter { bootCount == null || it.clock.bootCount == bootCount }
             .minByOrNull { it.clock.wallMs }
 
+        override suspend fun firstInSession(
+            wallMs: Long,
+            kind: SnapshotKind?,
+            session: SnapshotClock,
+            bootCount: Int?,
+        ) = snapshots
+            .filterKind(kind)
+            .filter { it.clock.wallMs >= wallMs }
+            .filter { session.statsStartMs == null || BatteryStatsSession.sameStart(it.clock, session) }
+            .filter { bootCount == null || it.clock.bootCount == bootCount }
+            .minByOrNull { it.clock.wallMs }
+
         override suspend fun lastAtOrBefore(
             wallMs: Long,
             kind: SnapshotKind?,
@@ -1247,5 +1312,9 @@ class SnapshotDifferTest {
         override suspend fun pendingToolkitActions(): List<ToolkitActionRecord> = emptyList()
 
         private fun List<BatterySnapshot>.filterKind(kind: SnapshotKind?) = if (kind == null) this else filter { it.kind == kind }
+    }
+
+    private companion object {
+        const val HOUR_MS = 60L * 60_000L
     }
 }
