@@ -228,6 +228,12 @@ internal fun DexoptCard(
     }
 }
 
+internal fun finishedDexoptColor(
+    status: BgDexoptStatus.Finished,
+    success: Color,
+    failure: Color,
+): Color = if (status.succeeded) success else failure
+
 @Composable
 private fun DexoptStatusLine(
     status: BgDexoptStatus,
@@ -237,7 +243,7 @@ private fun DexoptStatusLine(
     val color =
         when (status) {
             is BgDexoptStatus.Running -> statusColors.ok
-            is BgDexoptStatus.Finished -> if (status.exitCode == 0) statusColors.ok else MaterialTheme.telemetryColors.critical
+            is BgDexoptStatus.Finished -> finishedDexoptColor(status, statusColors.ok, MaterialTheme.telemetryColors.critical)
             is BgDexoptStatus.Cancelled -> statusColors.warning
             BgDexoptStatus.Unknown -> statusColors.warning
             BgDexoptStatus.Idle, BgDexoptStatus.Unsupported -> statusColors.neutral

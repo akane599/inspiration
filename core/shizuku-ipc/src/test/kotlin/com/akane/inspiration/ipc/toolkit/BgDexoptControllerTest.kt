@@ -21,6 +21,8 @@ class BgDexoptControllerTest {
     private var monotonicMs = 1_000L
     private var jobExitsAtMs: Long? = null
     private var jobExit = 0
+    private var jobText = "Job finished. See logs for details\n"
+    private var jobTruncated = false
 
     /** False: our client lingers even once the shell has stopped our pass. */
     private var cancelEndsJob = true
@@ -58,7 +60,8 @@ class BgDexoptControllerTest {
             return false
         }
 
-        override fun output(timedOut: Boolean) = CommandOutput(exitCode = jobExit, text = "", timedOut = timedOut)
+        override fun output(timedOut: Boolean) =
+            CommandOutput(exitCode = jobExit, text = jobText, timedOut = timedOut, truncated = jobTruncated)
 
         override fun destroy() {
             destroyed = true
@@ -145,6 +148,8 @@ class BgDexoptControllerTest {
     private fun onApi(sdk: Int) {
         sdkInt = sdk
         shell = FakeDexoptShell(sdk)
+        jobText = if (sdk == 33) "Success\n" else "Job finished. See logs for details\n"
+        jobTruncated = false
         threads.clear()
         calls.clear()
         cancelWaits.clear()
@@ -561,6 +566,114 @@ class BgDexoptControllerTest {
 
         assertEquals(ToolkitStatus.DONE, controller.tryStart().status)
         assertEquals(2, threads.size)
+    }
+
+    @Test
+    fun `legacy and ART recognized terminal success requires complete zero exit`() {
+        for ((sdk, text) in listOf(
+            33 to "Success\n",
+            34 to "Job finished. See logs for details\n",
+            35 to "Job finished. See logs for details\r\n\n",
+            36 to "  Job finished. See logs for details  \n",
+        )) {
+            onApi(sdk)
+            jobExitsAtMs = clock.nowMs + 1_000
+            jobText = text
+            val controller = controller()
+            controller.tryStart()
+            threads.single().run()
+
+            val status = controller.status()
+            assertEquals("API $sdk", BgDexoptState.FINISHED, status.state)
+            assertEquals(0, status.exitCode)
+            assertEquals("API $sdk", BgDexoptReason.NONE, status.reason)
+            assertEquals(2_000L, status.endedAtMs)
+        }
+    }
+
+    @Test
+    fun `nonzero real exits are preserved even with a recognized success or cancellation line`() {
+        for (text in listOf("Failure\n", "Success\n", "Job finished. See logs for details\n", "Job cancelled. See logs for details\n")) {
+            onApi(35)
+            jobExitsAtMs = clock.nowMs + 1_000
+            jobText = text
+            jobExit = 7
+            val controller = controller()
+            controller.tryStart()
+            threads.single().run()
+
+            assertEquals(BgDexoptState.FINISHED, controller.status().state)
+            assertEquals(7, controller.status().exitCode)
+            assertEquals(BgDexoptReason.RESULT_NOT_SUCCESSFUL, controller.status().reason)
+        }
+    }
+
+    @Test
+    fun `local cancellation wins over terminal output and retains the real exit`() {
+        for (text in listOf("Job cancelled. See logs for details\n", "Job encountered a fatal error\n", "Success\n")) {
+            onApi(35)
+            jobExitsAtMs = null
+            jobText = text
+            jobExit = 9
+            val controller = controller()
+            userCancelNote = {
+                controller.beginUserCancel()
+                controller.endUserCancel(true)
+                jobExitsAtMs = clock.nowMs
+            }
+            controller.tryStart()
+            threads.single().run()
+
+            assertEquals(BgDexoptState.CANCELLED, controller.status().state)
+            assertEquals(BgDexoptReason.USER, controller.status().reason)
+            assertEquals(9, controller.status().exitCode)
+        }
+    }
+
+    @Test
+    fun `complete ART external cancellation is not successful completion`() {
+        jobExitsAtMs = clock.nowMs + 1_000
+        jobText = "Job cancelled. See logs for details\n"
+        val controller = controller()
+
+        controller.tryStart()
+        threads.single().run()
+
+        assertEquals(BgDexoptState.CANCELLED, controller.status().state)
+        assertEquals(BgDexoptReason.CALLER, controller.status().reason)
+        assertEquals(0, controller.status().exitCode)
+        assertEquals(0, shell.cancels)
+    }
+
+    @Test
+    fun `fatal empty unknown and truncated zero exits never verify success`() {
+        for ((text, truncated) in listOf(
+            "Job encountered a fatal error\n" to false,
+            "Failure\n" to false,
+            "" to false,
+            "\n  \r\n" to false,
+            "OEM job ended\n" to false,
+            "Job finished. See logs for detail" to false,
+            "Success\n" to true,
+            "Job finished. See logs for details\n" to true,
+            "Job cancelled. See logs for details\n" to true,
+            "Success\nUnexpected trailing result\n" to false,
+        )) {
+            onApi(35)
+            jobExitsAtMs = clock.nowMs + 1_000
+            jobText = text
+            jobTruncated = truncated
+            val controller = controller()
+
+            controller.tryStart()
+            threads.single().run()
+
+            val status = controller.status()
+            assertEquals("$text cut=$truncated", BgDexoptState.FINISHED, status.state)
+            assertEquals(0, status.exitCode)
+            assertEquals("$text cut=$truncated must not verify success", BgDexoptReason.RESULT_NOT_SUCCESSFUL, status.reason)
+            assertTrue(job.destroyed)
+        }
     }
 
     @Test

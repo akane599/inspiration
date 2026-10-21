@@ -102,7 +102,7 @@ internal object ToolkitPreviewData {
             apps = apps,
             overrides = overrides,
             history = history,
-            dexopt = DexoptSection(status = BgDexoptStatus.Finished(0, NOON_MS - 22 * HOUR_MS)),
+            dexopt = DexoptSection(status = BgDexoptStatus.Finished(0, NOON_MS - 22 * HOUR_MS, completionVerified = true)),
         )
 
     val customDoze = ready.copy(doze = custom)

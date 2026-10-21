@@ -1859,7 +1859,7 @@ class ToolkitActions internal constructor(
                 when (status) {
                     is BgDexoptStatus.Finished -> {
                         finalizeDexoptRows(
-                            if (status.exitCode == 0) ToolkitActionStatus.DONE else ToolkitActionStatus.FAILED,
+                            if (status.succeeded) ToolkitActionStatus.DONE else ToolkitActionStatus.FAILED,
                             status.exitCode,
                             afterRaw = "finished",
                             now = status.endedAtMs.takeIf { it > 0 },
@@ -1907,7 +1907,11 @@ class ToolkitActions internal constructor(
     private fun statusOf(service: ServiceBgDexoptStatus): BgDexoptStatus =
         when (service.state) {
             BgDexoptState.RUNNING -> BgDexoptStatus.Running(service.startedAtMs)
-            BgDexoptState.FINISHED -> BgDexoptStatus.Finished(service.exitCode, service.endedAtMs)
+            BgDexoptState.FINISHED -> BgDexoptStatus.Finished(
+                service.exitCode,
+                service.endedAtMs,
+                completionVerified = service.reason == BgDexoptReason.NONE,
+            )
             BgDexoptState.CANCELLED -> BgDexoptStatus.Cancelled(cancelReasonOf(service.reason), service.endedAtMs)
             BgDexoptState.IDLE -> BgDexoptStatus.Idle
             else -> if (service.reason == BgDexoptReason.UNSUPPORTED_API) BgDexoptStatus.Unsupported else BgDexoptStatus.Unknown

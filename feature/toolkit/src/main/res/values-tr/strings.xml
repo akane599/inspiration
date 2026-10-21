@@ -73,6 +73,7 @@
     <string name="toolkit_dexopt_running_since">%1$s tarihinden beri çalışıyor.</string>
     <string name="toolkit_dexopt_finished">Tamamlandı.</string>
     <string name="toolkit_dexopt_finished_code">Hatayla tamamlandı (kod %1$d).</string>
+    <string name="toolkit_dexopt_completion_unverified">Başarıyla tamamlandığı doğrulanamadı.</string>
     <string name="toolkit_dexopt_cancelled_user">Siz iptal ettiniz.</string>
     <string name="toolkit_dexopt_cancelled_unplugged">Telefon şarjdan çıkarıldığı için iptal edildi.</string>
     <string name="toolkit_dexopt_cancelled_timeout">Çok uzun sürdüğü için iptal edildi.</string>

@@ -305,12 +305,23 @@ internal class BgDexoptController(
     }
 
     private fun finishFromExit(process: CommandProcess) {
-        val exit = process.output(timedOut = false).exitCode
-        val cancelledByUser = synchronized(lock) { userCancelRequested }
-        if (cancelledByUser) {
-            finish(BgDexoptState.CANCELLED, exit = exit, why = BgDexoptReason.USER)
-        } else {
-            finish(BgDexoptState.FINISHED, exit = exit, why = BgDexoptReason.NONE)
+        // awaitExit has boundedly joined the drain thread. Never trust retained output without EOF or after a cut.
+        val output = process.output(timedOut = false)
+        val terminal = output.text.lineSequence().map(String::trim).lastOrNull(String::isNotEmpty)
+        when {
+            synchronized(lock) { userCancelRequested } ->
+                finish(BgDexoptState.CANCELLED, exit = output.exitCode, why = BgDexoptReason.USER)
+            output.complete && terminal == "Job cancelled. See logs for details" ->
+                finish(BgDexoptState.CANCELLED, exit = output.exitCode, why = BgDexoptReason.CALLER)
+            else -> finish(
+                BgDexoptState.FINISHED,
+                exit = output.exitCode,
+                why = if (output.complete && terminal in setOf("Success", "Job finished. See logs for details")) {
+                    BgDexoptReason.NONE
+                } else {
+                    BgDexoptReason.RESULT_NOT_SUCCESSFUL
+                },
+            )
         }
     }
 

@@ -1,5 +1,7 @@
 package com.akane.inspiration.ipc.toolkit
 
+import com.akane.inspiration.ipc.model.BgDexoptReason
+import com.akane.inspiration.ipc.model.BgDexoptState
 import java.io.ByteArrayInputStream
 import java.io.ByteArrayOutputStream
 import java.io.File
@@ -108,6 +110,46 @@ class ProcessCommandRunnerTest {
         assertTrue(process.stdout.closed)
         assertTrue(process.stderr.closed)
         assertTrue(process.stdinClosed)
+    }
+
+    @Test
+    fun `dexopt output at the cap verifies success but extra output is fully drained and fails closed`() {
+        val terminal = "Job finished. See logs for details\n"
+        val retainedSuccess = " ".repeat(RETENTION_CAP_BYTES - terminal.length) + terminal
+        for (suffix in listOf("", "Job encountered a fatal error\n".repeat(4_000))) {
+            val process = FakeProcess((retainedSuccess + suffix).toByteArray(), finishes = true)
+            val controller = BgDexoptController(
+                ProcessCommandRunner { process }, { true }, { 1_000L }, { it.run() }, sdkInt = 35,
+            )
+
+            controller.tryStart()
+
+            val status = controller.status()
+            assertEquals(BgDexoptState.FINISHED, status.state)
+            assertEquals(0, status.exitCode)
+            assertEquals(
+                if (suffix.isEmpty()) BgDexoptReason.NONE else BgDexoptReason.RESULT_NOT_SUCCESSFUL,
+                status.reason,
+            )
+            assertEquals("even overflow past a retained success is drained", 0, process.stdout.available())
+            assertTrue(process.stdout.closed)
+        }
+    }
+
+    @Test
+    fun `dexopt does not trust a success line before EOF and closes the reader after a bounded join`() {
+        val stdout = StalledStream("Job finished. See logs for details\n".toByteArray())
+        val process = FakeProcess(ByteArray(0), finishes = true, stdoutOverride = stdout)
+        val controller = BgDexoptController(
+            ProcessCommandRunner(readerJoinMs = 20L) { process }, { true }, { 1_000L }, { it.run() }, sdkInt = 35,
+        )
+
+        controller.tryStart()
+
+        assertEquals(BgDexoptState.FINISHED, controller.status().state)
+        assertEquals(0, controller.status().exitCode)
+        assertEquals(BgDexoptReason.RESULT_NOT_SUCCESSFUL, controller.status().reason)
+        assertTrue(stdout.isClosed)
     }
 
     @Test

@@ -74,6 +74,7 @@
     <string name="toolkit_dexopt_running_since">Running since %1$s.</string>
     <string name="toolkit_dexopt_finished">Finished.</string>
     <string name="toolkit_dexopt_finished_code">Finished with an error (code %1$d).</string>
+    <string name="toolkit_dexopt_completion_unverified">Successful completion was not confirmed.</string>
     <string name="toolkit_dexopt_cancelled_user">Cancelled by you.</string>
     <string name="toolkit_dexopt_cancelled_unplugged">Cancelled because the phone was unplugged.</string>
     <string name="toolkit_dexopt_cancelled_timeout">Cancelled after taking too long.</string>

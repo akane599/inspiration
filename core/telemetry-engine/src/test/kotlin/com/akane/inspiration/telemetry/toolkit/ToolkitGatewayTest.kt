@@ -15,9 +15,12 @@ import com.akane.inspiration.ipc.toolkit.AppOp
 import com.akane.inspiration.ipc.toolkit.AppOpMode
 import com.akane.inspiration.ipc.toolkit.DozeProfile
 import com.akane.inspiration.ipc.toolkit.StandbyBucket
+import com.akane.inspiration.telemetry.store.ToolkitActionRecord
+import com.akane.inspiration.telemetry.store.ToolkitActionStatus
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.test.advanceTimeBy
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
@@ -32,6 +35,9 @@ class ToolkitGatewayTest {
     private var apiVersion = ToolkitApi.VERSION
     private var returnNull = false
     private var dexoptState = BgDexoptState.RUNNING
+    private var dexoptReason = BgDexoptReason.NONE
+    private var dexoptExit = 0
+    private var dexoptEndedAtMs = 0L
 
     /** What every typed toolkit call answers (bg-dexopt status aside). */
     private var serviceResult: ToolkitResult = ToolkitResult.done(after = "x")
@@ -53,7 +59,7 @@ class ToolkitGatewayTest {
             serviceThrows?.let { throw it }
             sent += method.name + (args?.joinToString(prefix = "(", postfix = ")") { arg -> "$arg" } ?: "()")
             when {
-                method.name == "getBgDexoptStatus" -> BgDexoptStatus(dexoptState, 1L, 0L, 0, BgDexoptReason.NONE)
+                method.name == "getBgDexoptStatus" -> BgDexoptStatus(dexoptState, 1L, dexoptEndedAtMs, dexoptExit, dexoptReason)
                 returnNull -> null
                 else -> serviceResult
             }
@@ -293,6 +299,63 @@ class ToolkitGatewayTest {
             advanceTimeBy(60_000)
             runCurrent()
             assertEquals(0, shizuku.openHolds)
+        }
+
+    @Test
+    fun `gateway preserves completion evidence and durable settlement requires verified zero exit`() =
+        runTest {
+            dexoptState = BgDexoptState.FINISHED
+            dexoptEndedAtMs = 2_000L
+            for (reason in listOf(BgDexoptReason.NONE, BgDexoptReason.RESULT_NOT_SUCCESSFUL, 999)) {
+                for (exit in listOf(0, 7)) {
+                    dexoptReason = reason
+                    dexoptExit = exit
+                    assertEquals(
+                        GatewayReply.Reply(BgDexoptStatus(dexoptState, 1L, 2_000L, exit, reason)),
+                        gateway.bgDexoptStatus(),
+                    )
+                    val audit = FakeAudit()
+                    val id = audit.insert(ToolkitActionRecord(startedAt = 1L, kind = "dexopt", op = "bg_dexopt", status = ToolkitActionStatus.PENDING))
+                    // Recreated actions must settle an earlier process's durable PENDING row the same way.
+                    val actions = ToolkitActions(GatewayBackend(gateway), audit, shizuku::holdBinding, supervisorScope = backgroundScope)
+                    val status = actions.bgDexoptStatus().first() as com.akane.inspiration.telemetry.toolkit.BgDexoptStatus.Finished
+                    val succeeded = reason == BgDexoptReason.NONE && exit == 0
+                    assertEquals(exit, status.exitCode)
+                    assertEquals(reason == BgDexoptReason.NONE, status.completionVerified)
+                    assertEquals(succeeded, status.succeeded)
+                    val row = audit.byId(id)
+                    assertEquals(if (succeeded) ToolkitActionStatus.DONE else ToolkitActionStatus.FAILED, row.status)
+                    assertEquals(exit, row.code)
+                    assertEquals(2_000L, row.endedAt)
+                    assertEquals("finished", row.afterRaw)
+                    actions.reconcile()
+                    assertEquals("terminal evidence is durable", row, audit.byId(id))
+                    assertEquals(0, shizuku.openHolds)
+                }
+            }
+        }
+
+    @Test
+    fun `gateway and durable rows preserve external versus local cancellation`() =
+        runTest {
+            dexoptState = BgDexoptState.CANCELLED
+            dexoptEndedAtMs = 2_000L
+            for ((reason, expected) in listOf(BgDexoptReason.CALLER to BgDexoptCancelReason.OTHER, BgDexoptReason.USER to BgDexoptCancelReason.USER)) {
+                dexoptReason = reason
+                val audit = FakeAudit()
+                val id = audit.insert(ToolkitActionRecord(startedAt = 1L, kind = "dexopt", op = "bg_dexopt", status = ToolkitActionStatus.PENDING))
+                val actions = ToolkitActions(GatewayBackend(gateway), audit, shizuku::holdBinding, supervisorScope = backgroundScope)
+
+                assertEquals(
+                    com.akane.inspiration.telemetry.toolkit.BgDexoptStatus.Cancelled(expected, 2_000L),
+                    actions.bgDexoptStatus().first(),
+                )
+                assertEquals(ToolkitActionStatus.CANCELLED, audit.byId(id).status)
+                assertEquals(reason, audit.byId(id).code)
+                assertEquals(2_000L, audit.byId(id).endedAt)
+                assertEquals(0, shizuku.openHolds)
+            }
+            assertFalse(sent.any { it.startsWith("cancelBgDexopt") })
         }
 
     @Test

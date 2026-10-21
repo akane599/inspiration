@@ -324,7 +324,11 @@ sealed interface BgDexoptStatus {
     data class Finished(
         val exitCode: Int,
         val endedAtMs: Long,
-    ) : BgDexoptStatus
+        /** Only true for complete, recognized successful terminal output; an exit of 0 alone proves nothing. */
+        val completionVerified: Boolean = false,
+    ) : BgDexoptStatus {
+        val succeeded: Boolean get() = exitCode == 0 && completionVerified
+    }
 
     data class Cancelled(
         val reason: BgDexoptCancelReason,

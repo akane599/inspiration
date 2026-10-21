@@ -677,10 +677,29 @@ class ToolkitActionsTest {
             )
             val seen = actions.bgDexoptStatus().take(2).toList()
             assertEquals(BgDexoptStatus.Running(1_000L), seen[0])
-            assertEquals(BgDexoptStatus.Finished(0, 2_000L), seen[1])
+            assertEquals(BgDexoptStatus.Finished(0, 2_000L, completionVerified = true), seen[1])
             assertEquals(1, holds.opened) // acquired once, not per poll
             assertEquals(0, holds.open)
             assertEquals(ToolkitActionStatus.DONE, audit.byId(started.id).status)
+        }
+
+    @Test
+    fun unverifiedZeroExitReleasesTheHoldAndFinalizesFailedNotDone() =
+        runTest {
+            val started = (actions.startBgDexopt() as ToolkitOutcome.Done).value
+            assertEquals(1, holds.open)
+            backend.dexoptStatuses.clear()
+            backend.dexoptStatuses.add(serviceStatus(BgDexoptState.FINISHED, exit = 0, reason = BgDexoptReason.RESULT_NOT_SUCCESSFUL))
+
+            val status = actions.bgDexoptStatus().first() as BgDexoptStatus.Finished
+
+            assertEquals(BgDexoptStatus.Finished(0, 2_000L, completionVerified = false), status)
+            assertEquals(false, status.succeeded)
+            assertEquals(0, holds.open)
+            assertEquals(ToolkitActionStatus.FAILED, audit.byId(started.id).status)
+            assertEquals(0, audit.byId(started.id).code)
+            assertEquals(2_000L, audit.byId(started.id).endedAt)
+            assertEquals(ToolkitActionStatus.FAILED, actions.history(10).first().single().status)
         }
 
     @Test

@@ -4,7 +4,9 @@ import kotlinx.parcelize.Parcelize
 
 /**
  * Background dexopt job state. [state] is a [BgDexoptState] constant; [exitCode] is meaningful for
- * FINISHED, [reason] ([BgDexoptReason]) for CANCELLED and UNKNOWN. Times are wall-clock ms, 0 when unknown.
+ * FINISHED and exited CANCELLED jobs; [reason] ([BgDexoptReason]) describes FINISHED, CANCELLED and UNKNOWN.
+ * FINISHED is successful only with exit 0 and reason NONE (complete, recognized successful terminal output).
+ * Times are wall-clock ms, 0 when unknown.
  */
 @Parcelize
 data class BgDexoptStatus(
@@ -35,4 +37,7 @@ object BgDexoptReason {
      * so the service never starts one ([ToolkitCode.UNSUPPORTED_API]). A job an older service started may still run.
      */
     const val UNSUPPORTED_API = 5
+
+    /** With FINISHED: the real exit/output did not verify successful completion (including incomplete output). */
+    const val RESULT_NOT_SUCCESSFUL = 6
 }

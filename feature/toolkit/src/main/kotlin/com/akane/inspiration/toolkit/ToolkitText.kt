@@ -356,6 +356,15 @@ internal fun statusRes(status: ToolkitActionStatus): Int =
 @StringRes
 internal fun historyStatusRes(item: HistoryItem): Int = if (item.unverified) R.string.toolkit_status_unverified else statusRes(item.status)
 
+/** Matches the success predicate used by durable settlement and the dexopt status dot. */
+@StringRes
+internal fun finishedDexoptTextRes(status: BgDexoptStatus.Finished): Int =
+    when {
+        status.succeeded -> R.string.toolkit_dexopt_finished
+        status.exitCode != 0 -> R.string.toolkit_dexopt_finished_code
+        else -> R.string.toolkit_dexopt_completion_unverified
+    }
+
 @Composable
 internal fun dexoptStatusText(
     status: BgDexoptStatus,
@@ -376,11 +385,7 @@ internal fun dexoptStatusText(
         }
 
         is BgDexoptStatus.Finished -> {
-            if (status.exitCode == 0) {
-                stringResource(R.string.toolkit_dexopt_finished)
-            } else {
-                stringResource(R.string.toolkit_dexopt_finished_code, status.exitCode)
-            }
+            stringResource(finishedDexoptTextRes(status), status.exitCode)
         }
 
         is BgDexoptStatus.Cancelled -> {
