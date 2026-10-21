@@ -299,56 +299,22 @@ class ProbeReceiver : BroadcastReceiver() {
         logJournalMode(app)
     }
 
-    /** The snapshot pair a diff probe works on, with the covered bounds and per-UID availability. */
-    private class ProbeDiffInput(
-        val ref: BatterySnapshot,
-        val now: BatterySnapshot,
-        val coveredFromWallMs: Long,
-        val coveredToWallMs: Long,
-        val perUidAvailable: Boolean,
-    )
-
     /** Resolves the PROBE_DIFF / PROBE_INSIGHTS snapshot pair; logs the reason under [section] when none exists. */
     private suspend fun resolveProbeDiffInput(
         store: SnapshotStore,
         intent: Intent,
         section: String,
-    ): ProbeDiffInput? {
-        val latest = store.latest()
-        if (latest == null) {
-            log(JSONObject().put(section, JSONObject().put("available", false).put("reason", "no_snapshots")))
-            return null
-        }
-        val resolved =
-            intent
-                .getStringExtra(EXTRA_REFERENCE_KIND)
-                ?.let(::referenceKind)
-                ?.let { ReferenceResolver(store).resolve(it, latest.clock.wallMs) }
-        val input =
-            if (resolved != null) {
-                ProbeDiffInput(
-                    resolved.ref,
-                    resolved.now,
-                    resolved.coveredFromWallMs,
-                    resolved.coveredToWallMs,
-                    resolved.perUidAvailable,
-                )
-            } else {
-                store.lastAtOrBefore(latest.clock.wallMs - 1, null)?.let { ref ->
-                    ProbeDiffInput(
-                        ref,
-                        latest,
-                        ref.clock.wallMs,
-                        latest.clock.wallMs,
-                        ref.kind == SnapshotKind.FULL && latest.kind == SnapshotKind.FULL,
-                    )
-                }
+    ): ProbeDiffInput? =
+        when (val pair = store.resolveProbePair(intent.getStringExtra(EXTRA_REFERENCE_KIND))) {
+            is ProbePair.Found -> {
+                pair.input
             }
-        if (input == null) {
-            log(JSONObject().put(section, JSONObject().put("available", false).put("reason", "no_reference")))
+
+            is ProbePair.Unavailable -> {
+                log(JSONObject().put(section, JSONObject().put("available", false).put("reason", pair.reason)))
+                null
+            }
         }
-        return input
-    }
 
     // Usage: adb shell am broadcast -a com.akane.inspiration.debug.PROBE_INSIGHTS [--es reference_kind since_unplugged] -n com.akane.inspiration/.debug.ProbeReceiver
     private suspend fun probeInsights(
@@ -367,7 +333,7 @@ class ProbeReceiver : BroadcastReceiver() {
         val report = container.ruleEngine.evaluate(DiagnosticInput(diff, metrics, input.perUidAvailable))
         val story = BatteryStoryBuilder().build(metrics, diff.sleep, report, endsNow = true)
 
-        log(JSONObject().put("insightsMetrics", metrics.toJson().put("perUidAvailable", input.perUidAvailable)))
+        log(JSONObject().put("insightsMetrics", metrics.toJson().put("perUidAvailable", input.perUidAvailable).put("reference", input.reference)))
         report.insights.forEach { log(JSONObject().put("insight", it.toJson())) }
         log(
             JSONObject().put(
@@ -513,7 +479,7 @@ class ProbeReceiver : BroadcastReceiver() {
                 "diff",
                 JSONObject()
                     .put("available", true)
-                    .put("reference", intent.getStringExtra(EXTRA_REFERENCE_KIND) ?: "latest_two")
+                    .put("reference", input.reference)
                     .put("durationMs", diff.durationMs)
                     .put("batteryStatsValid", diff.validity.batteryStats)
                     .put("kernelCountersValid", diff.validity.kernelCounters)
@@ -523,15 +489,6 @@ class ProbeReceiver : BroadcastReceiver() {
         )
         logJournalMode(app)
     }
-
-    private fun referenceKind(value: String): ReferenceKind? =
-        when (value) {
-            "since_unplugged" -> ReferenceKind.SinceUnplugged
-            "since_screen_off" -> ReferenceKind.SinceScreenOff
-            "screen_on_session" -> ReferenceKind.ScreenOnSession
-            "last_24h" -> ReferenceKind.Last24h
-            else -> null
-        }
 
     private fun logJournalMode(app: InspirationApplication) {
         SQLiteDatabase
@@ -748,6 +705,62 @@ internal suspend fun SnapshotStore.probeIntervalMetrics(
     val horizon = if (now.ingestedHistory()) now.clock.wallMs else historyHorizonWallMs() ?: Long.MIN_VALUE
     return IntervalMetricsCalculator.compute(intervalHistory(fromWallMs, toWallMs), fromWallMs, toWallMs, horizon)
 }
+
+/** The snapshot pair a diff probe works on: the covered bounds, per-UID availability and the [reference] it measures. */
+internal class ProbeDiffInput(
+    val ref: BatterySnapshot,
+    val now: BatterySnapshot,
+    val coveredFromWallMs: Long,
+    val coveredToWallMs: Long,
+    val perUidAvailable: Boolean,
+    val reference: String,
+)
+
+/** A PROBE_DIFF / PROBE_INSIGHTS snapshot pair, or the reason the probe logs when there is none. */
+internal sealed interface ProbePair {
+    class Found(
+        val input: ProbeDiffInput,
+    ) : ProbePair
+
+    data class Unavailable(
+        val reason: String,
+    ) : ProbePair
+}
+
+/**
+ * The pair for the probe's `reference_kind` extra ([requested], null when absent). Only an absent extra pairs the
+ * latest snapshot with the one before it ("latest_two"); a requested kind that is unknown or resolves to no pair is
+ * unavailable, so the evidence never carries one reference's label over another's diff.
+ */
+internal suspend fun SnapshotStore.resolveProbePair(requested: String?): ProbePair {
+    val latest = latest() ?: return ProbePair.Unavailable("no_snapshots")
+    if (requested == null) {
+        val ref = lastAtOrBefore(latest.clock.wallMs - 1, null) ?: return ProbePair.Unavailable("no_reference")
+        val perUidAvailable = ref.kind == SnapshotKind.FULL && latest.kind == SnapshotKind.FULL
+        return ProbePair.Found(ProbeDiffInput(ref, latest, ref.clock.wallMs, latest.clock.wallMs, perUidAvailable, "latest_two"))
+    }
+    val kind = probeReferenceKind(requested) ?: return ProbePair.Unavailable("unknown_reference_kind")
+    val resolved = ReferenceResolver(this).resolve(kind, latest.clock.wallMs) ?: return ProbePair.Unavailable("no_reference")
+    return ProbePair.Found(
+        ProbeDiffInput(
+            resolved.ref,
+            resolved.now,
+            resolved.coveredFromWallMs,
+            resolved.coveredToWallMs,
+            resolved.perUidAvailable,
+            requested,
+        ),
+    )
+}
+
+private fun probeReferenceKind(value: String): ReferenceKind? =
+    when (value) {
+        "since_unplugged" -> ReferenceKind.SinceUnplugged
+        "since_screen_off" -> ReferenceKind.SinceScreenOff
+        "screen_on_session" -> ReferenceKind.ScreenOnSession
+        "last_24h" -> ReferenceKind.Last24h
+        else -> null
+    }
 
 private fun InputStream.readAtMost(maxBytes: Int): Int {
     val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
