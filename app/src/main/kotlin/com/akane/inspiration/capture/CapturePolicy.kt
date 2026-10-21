@@ -140,22 +140,23 @@ object CapturePolicy {
  * fallback also runs when the receiver's guard has already cancelled the capture. It stores a light reading taken
  * before the full read began, so its row carries the broadcast's clock: one stamped when the read gave up, seconds
  * later, would land after the row of a quicker broadcast that followed (a SCREEN_OFF row after a quick unlock's
- * SCREEN_ON one).
+ * SCREEN_ON one). A LIGHT plan's insert survives the guard the same way: a Room write lock held past it would
+ * otherwise drop the trigger's row with no miss.
  */
 internal suspend fun SnapshotCapturer.captureFor(plan: CapturePlan): CaptureResult = when (plan) {
-    is CapturePlan.Light -> captureLight(plan.trigger)
+    is CapturePlan.Light -> storeLight(plan.trigger, lightReading())
     is CapturePlan.Full -> {
         val broadcastReading = lightReading()
         try {
             captureFull(trigger = plan.trigger, deadlineMs = plan.deadlineMs, ingestHistory = false)
         } catch (cancelled: CancellationException) {
-            lightFallback(plan.trigger, broadcastReading)
+            storeLight(plan.trigger, broadcastReading)
             throw cancelled
-        }.let { result -> if (result is CaptureResult.Missed) lightFallback(plan.trigger, broadcastReading) else result }
+        }.let { result -> if (result is CaptureResult.Missed) storeLight(plan.trigger, broadcastReading) else result }
     }
 }
 
-private suspend fun SnapshotCapturer.lightFallback(
+private suspend fun SnapshotCapturer.storeLight(
     trigger: CaptureTrigger,
     reading: LightRead,
 ): CaptureResult = withContext(NonCancellable) { captureLight(trigger, reading) }
