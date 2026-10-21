@@ -5,7 +5,6 @@ import java.time.Instant
 import java.time.LocalDate
 import java.time.LocalTime
 import java.time.ZoneId
-import java.time.ZonedDateTime
 
 private const val MINUTE_MS = 60_000L
 private const val MINUTES_PER_DAY = 1_440
@@ -31,7 +30,7 @@ data class NiceTimeTicks(
 /**
  * Tick instants inside [window] (inclusive), at most [maxTicks], aligned to wall-clock boundaries of
  * [zone] (so 3-hour ticks land on 00:00, 03:00, ...), using the finest step that fits the budget.
- * A wall-clock time skipped by a DST gap is dropped or shifted by the zone rules, never duplicated.
+ * Sub-day slots skipped by a DST gap are dropped; overlaps include both distinct instants in time order.
  */
 fun niceTimeTickSet(
     window: TimeRange,
@@ -76,13 +75,17 @@ private fun wallClockTicks(
     while (!date.isAfter(lastDate)) {
         var minute = 0
         while (minute < MINUTES_PER_DAY) {
-            val t = ZonedDateTime.of(date, LocalTime.ofSecondOfDay(minute * 60L), zone).toInstant().toEpochMilli()
-            if (t in window.startMs..window.endMs && (out.isEmpty() || t > out.last())) out += t
+            val local = date.atTime(LocalTime.ofSecondOfDay(minute * 60L))
+            for (offset in zone.rules.getValidOffsets(local)) {
+                val t = local.toInstant(offset).toEpochMilli()
+                if (t in window.startMs..window.endMs) out += t
+            }
             minute += stepMinutes
         }
         date = date.plusDays(1)
     }
-    return out
+    // Local slots interleave the two overlap offsets, so order only after enumerating all instants.
+    return out.distinct().sorted()
 }
 
 private fun dayTicks(

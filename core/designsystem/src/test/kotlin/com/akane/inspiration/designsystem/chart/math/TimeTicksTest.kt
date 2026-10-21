@@ -113,6 +113,81 @@ class TimeTicksTest {
     }
 
     @Test
+    fun berlinSecondRepeatedHourHasFiveTenMinuteTicksIncludingEndpoints() {
+        val start = Instant.parse("2025-10-26T01:10:00Z").toEpochMilli()
+        val window = TimeRange.of(start, start + 40 * 60_000L)
+        val set = niceTimeTickSet(window, maxTicks = 5, zone = berlin)
+
+        assertEquals(false, set.dayAligned)
+        assertEquals((0..4).map { start + it * 10 * 60_000L }, set.ticksMs)
+        assertStrictlyIncreasingInside(set.ticksMs, window)
+    }
+
+    @Test
+    fun berlinBothRepeatedHoursHaveTwentyOneOrderedFiveMinuteInstants() {
+        val start = Instant.parse("2025-10-26T00:10:00Z").toEpochMilli()
+        val window = TimeRange.of(start, start + 100 * 60_000L)
+        val set = niceTimeTickSet(window, maxTicks = 21, zone = berlin)
+
+        assertEquals(false, set.dayAligned)
+        assertEquals((0..20).map { start + it * 5 * 60_000L }, set.ticksMs)
+        assertEquals(2, set.ticksMs.count { local(it, berlin) == LocalDateTime.parse("2025-10-26T02:10") })
+        assertEquals(2, set.ticksMs.count { local(it, berlin) == LocalDateTime.parse("2025-10-26T02:50") })
+        assertStrictlyIncreasingInside(set.ticksMs, window)
+    }
+
+    @Test
+    fun berlinOverlapWindowWithReversedLocalEndpointsKeepsBothOccurrences() {
+        val start = Instant.parse("2025-10-26T00:50:00Z").toEpochMilli()
+        val window = TimeRange.of(start, start + 20 * 60_000L)
+        val ticks = tickTimes(window, maxTicks = 5, zone = berlin)
+
+        assertEquals((0..4).map { start + it * 5 * 60_000L }, ticks)
+        assertEquals(listOf(50, 55, 0, 5, 10), ticks.map { local(it, berlin).minute })
+        assertStrictlyIncreasingInside(ticks, window)
+    }
+
+    @Test
+    fun berlinOverlapCountsBothOccurrencesAgainstBudget() {
+        val start = Instant.parse("2025-10-26T00:10:00Z").toEpochMilli()
+        val window = TimeRange.of(start, start + 100 * 60_000L)
+        val set = niceTimeTickSet(window, maxTicks = 11, zone = berlin)
+
+        assertEquals(false, set.dayAligned)
+        assertEquals((0..10).map { start + it * 10 * 60_000L }, set.ticksMs)
+        for (budget in listOf(0, 1, 5, 11, 21)) {
+            val ticks = tickTimes(window, maxTicks = budget, zone = berlin)
+            assertTrue(ticks.size <= budget)
+            assertStrictlyIncreasingInside(ticks, window)
+        }
+    }
+
+    @Test
+    fun berlinRepeatedHourExcludesTicksJustOutsideWindow() {
+        val start = Instant.parse("2025-10-26T01:10:00Z").toEpochMilli()
+        val window = TimeRange.of(start + 1L, start + 40 * 60_000L - 1L)
+        val ticks = tickTimes(window, maxTicks = 5, zone = berlin)
+
+        assertEquals((1..3).map { start + it * 10 * 60_000L }, ticks)
+        assertStrictlyIncreasingInside(ticks, window)
+    }
+
+    @Test
+    fun berlinSpringGapSkipsNonexistentTwoHourSlotRatherThanShiftingIt() {
+        val window = TimeRange.of(ms("2025-03-30T00:00:00", berlin), ms("2025-03-30T06:00:00", berlin))
+        val set = niceTimeTickSet(window, maxTicks = 4, zone = berlin)
+
+        assertEquals(false, set.dayAligned)
+        assertEquals(
+            listOf("2025-03-29T23:00:00Z", "2025-03-30T02:00:00Z", "2025-03-30T04:00:00Z")
+                .map { Instant.parse(it).toEpochMilli() },
+            set.ticksMs,
+        )
+        assertEquals(listOf(0, 4, 6), set.ticksMs.map { local(it, berlin).hour })
+        assertStrictlyIncreasingInside(set.ticksMs, window)
+    }
+
+    @Test
     fun berlinDstGapNeverDuplicatesOrReorders() {
         val window = TimeRange.of(ms("2025-03-30T00:00:00", berlin), ms("2025-03-30T12:00:00", berlin))
         val ticks = tickTimes(window, maxTicks = 8, zone = berlin)
