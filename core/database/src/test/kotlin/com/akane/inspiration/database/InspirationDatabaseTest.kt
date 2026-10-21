@@ -572,6 +572,55 @@ class InspirationDatabaseTest {
         }
 
     @Test
+    fun `a late sample in an already aggregated hour merges into the aggregate instead of replacing it`() =
+        runBlocking {
+            val now = 100L * DAY_MS
+            val hour = Math.floorDiv(now - 40L * DAY_MS, MaintenanceDao.HOUR_MS) * MaintenanceDao.HOUR_MS
+            database.telemetryDao().insertSamples(
+                listOf(
+                    TelemetrySampleEntity(
+                        wallMs = hour + 5, elapsedRealtimeMs = 5, bootCount = 1, currentMa = 10, voltageMv = 4_000,
+                        watts = 40.0, temperatureDeciC = 300, levelPct = 40,
+                    ),
+                    TelemetrySampleEntity(
+                        wallMs = hour + 10, elapsedRealtimeMs = 10, bootCount = 1, currentMa = 20, voltageMv = 4_100,
+                        watts = 50.0, temperatureDeciC = 320, levelPct = 50,
+                    ),
+                    TelemetrySampleEntity(
+                        wallMs = hour + 15, elapsedRealtimeMs = 15, bootCount = 1, currentMa = 30, voltageMv = 4_200,
+                        watts = 60.0, temperatureDeciC = 310, levelPct = 60,
+                    ),
+                ),
+            )
+            val maintenance = database.maintenanceDao()
+            maintenance.prune(now)
+            assertEquals(3L, database.telemetryDao().hourly(hour)!!.sampleCount)
+
+            // A wall-clock correction lands one more sample in the pruned hour; it carries no watts or temperature.
+            database.telemetryDao().insertSamples(
+                listOf(
+                    TelemetrySampleEntity(
+                        wallMs = hour + 20, elapsedRealtimeMs = 20, bootCount = 2, currentMa = 50, voltageMv = 4_300,
+                        levelPct = 30,
+                    ),
+                ),
+            )
+            maintenance.prune(now)
+
+            val merged = database.telemetryDao().hourly(hour)!!
+            assertEquals(4L, merged.sampleCount)
+            assertEquals(27.5, merged.avgCurrentMa!!, 0.001)
+            assertEquals(10, merged.minCurrentMa)
+            assertEquals(50, merged.maxCurrentMa)
+            assertEquals(4_150.0, merged.avgVoltageMv!!, 0.001)
+            // The late sample has no watts, so the earlier average stands rather than becoming null.
+            assertEquals(50.0, merged.avgWatts!!, 0.001)
+            assertEquals(320, merged.maxTemperatureDeciC)
+            assertEquals(30, merged.minLevelPct)
+            assertEquals(60, merged.maxLevelPct)
+        }
+
+    @Test
     fun `prune keeps hourly aggregates for a year and then deletes them`() =
         runBlocking {
             val oldHour = 12L * MaintenanceDao.HOUR_MS
