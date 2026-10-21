@@ -906,6 +906,55 @@ class ToolkitViewModelTest {
     }
 
     @Test
+    fun `a warning that appears between a ready plan and the write is asked about, not refused`() {
+        start()
+        open(CHATTY)
+        val planReply = device.holdNextReply("getStandbyBucket")
+        act(ToolkitRequest.SetBucket(StandbyBucket.RARE)) // planned Ready: no warning when the plan read the app
+        device.updatedSystemPackages += CHATTY // the app is updated while the plan's answer is on its way
+        planReply.complete(Unit)
+
+        assertTrue("nothing may be written unconfirmed: ${device.writes}", device.writes.isEmpty())
+        val again = state.confirmation
+        assertNotNull("the new warning is shown as a confirmation", again)
+        assertEquals(listOf(ToolkitWarning.UPDATED_SYSTEM_APP), again!!.warnings)
+        assertNull("no Rejected notice: ${detail.notice}", detail.notice)
+        assertFalse(state.busy)
+
+        confirm()
+
+        assertEquals(listOf("setStandbyBucket"), device.writes)
+        assertEquals(StandbyBucket.RARE, controls.bucket)
+        assertEquals(ToolkitNotice.Applied(Change.BucketSet(StandbyBucket.RARE)), detail.notice)
+    }
+
+    @Test
+    fun `a restore whose target moves between a ready plan and the write is asked about, not refused`() {
+        start()
+        open(CHATTY)
+        act(ToolkitRequest.SetBucket(StandbyBucket.RARE))
+        vm.onIntent(ToolkitIntent.CloseApp)
+        val override = state.overrides.single()
+        val planReply = device.holdNextReply("getStandbyBucket")
+        act(ToolkitRequest.Restore(override.actionId)) // planned Ready: the bucket is still the one we wrote
+        device.app(CHATTY).bucket = StandbyBucket.FREQUENT.rawValue // moved elsewhere before the write
+        planReply.complete(Unit)
+
+        assertEquals("nothing may be written unconfirmed", listOf("setStandbyBucket"), device.writes)
+        val again = state.confirmation
+        assertNotNull("the new warning is shown as a confirmation", again)
+        assertEquals(listOf(ToolkitWarning.RESTORE_STATE_CHANGED), again!!.warnings)
+        assertNull("no Rejected notice: ${state.overridesNotice}", state.overridesNotice)
+        assertFalse(state.busy)
+
+        confirm()
+
+        assertEquals(listOf("setStandbyBucket", "setStandbyBucket"), device.writes)
+        assertEquals(StandbyBucket.ACTIVE.rawValue, device.app(CHATTY).bucket)
+        assertEquals(ToolkitNotice.Applied(Change.Restored), state.overridesNotice)
+    }
+
+    @Test
     fun `force stop is confirmed before it runs`() {
         start()
         open(CHATTY)
