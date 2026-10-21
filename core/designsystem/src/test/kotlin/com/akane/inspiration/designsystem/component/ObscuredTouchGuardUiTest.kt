@@ -17,6 +17,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.AndroidUiDispatcher
 import androidx.compose.ui.platform.ComposeView
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
@@ -26,6 +27,8 @@ import androidx.savedstate.SavedStateRegistry
 import androidx.savedstate.SavedStateRegistryController
 import androidx.savedstate.SavedStateRegistryOwner
 import androidx.savedstate.setViewTreeSavedStateRegistryOwner
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.launch
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
@@ -101,6 +104,7 @@ class ObscuredTouchGuardUiTest {
 
     @Test
     fun `an obscured drag on a guarded container still scrolls its parent without pressing a control`() {
+        assertMainDispatcherRuns()
         val scroll = ScrollState(initial = 0)
         show {
             // 1000 dp of guarded controls in a shorter viewport, as a screen of guarded rows inside verticalScroll.
@@ -173,6 +177,18 @@ class ObscuredTouchGuardUiTest {
         } finally {
             event.recycle()
         }
+    }
+
+    /**
+     * The scroll runs in a coroutine on Compose's main dispatcher, a process-wide singleton. A test class that
+     * destroys its activity without draining the looper leaves it stalled for every class after it, so name that
+     * cause here rather than report it as a guard that blocks scrolling (SQ-66).
+     */
+    private fun assertMainDispatcherRuns() {
+        var ran = false
+        CoroutineScope(AndroidUiDispatcher.Main).launch { ran = true }
+        idle()
+        assertTrue("Compose's main dispatcher ran nothing: an earlier test class left it stalled at teardown", ran)
     }
 
     private fun idle() {
