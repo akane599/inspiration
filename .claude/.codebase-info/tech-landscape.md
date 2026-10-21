@@ -1,5 +1,5 @@
 # Tech Landscape
-*Last Updated: 2026-10-20*
+*Last Updated: 2026-10-21*
 
 Source of truth: [`gradle/libs.versions.toml`](../../gradle/libs.versions.toml), module build files, and the convention plugins under [`build-logic/convention`](../../build-logic/convention).
 
@@ -32,7 +32,7 @@ Source of truth: [`gradle/libs.versions.toml`](../../gradle/libs.versions.toml),
 | `androidx.test:core` | 1.7.0 | Room test application context support |
 | AndroidX Compose UI / Runtime / Material3 | BOM-managed | UI shell and feature convention dependencies |
 
-**Release build** ([`app/build.gradle.kts`](../../app/build.gradle.kts)): version 0.2.4 (code 6).
+**Release build** ([`app/build.gradle.kts`](../../app/build.gradle.kts)): version 0.2.7 (code 9).
 - **Shrinking:** R8 minify plus `isShrinkResources` (N-27; safe because nothing calls `getIdentifier`).
 - **Locales:** `localeFilters` en/tr, so library translations follow the app's languages.
 - **Excluded from the APK:** `**/*.proto`, `DebugProbesKt.bin` and, for release, `META-INF/*.version`.
