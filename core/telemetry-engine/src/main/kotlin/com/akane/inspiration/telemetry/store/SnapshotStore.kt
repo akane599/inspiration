@@ -39,11 +39,16 @@ interface SnapshotStore {
      */
     suspend fun byId(id: Long): BatterySnapshot?
 
-    /**
-     * The newest snapshot, of one [kind] or of either. Read by the debug probe, the store tests and a BOOT capture
-     * telling a reboot from a stopped-state exit.
-     */
+    /** The newest snapshot by wall time, of one [kind] or of either. Read by the debug probe and the store tests. */
     suspend fun latest(kind: SnapshotKind? = null): BatterySnapshot?
+
+    /**
+     * The clock of the last stored snapshot in insertion order, not wall time: a previous boot whose clock ran ahead
+     * does not hide the current boot's captures. A BOOT capture reads it to tell a reboot from a stopped-state exit.
+     * The default derives it from [latest] (for fakes); the Room store reads the newest row by id alone, never its
+     * child rows.
+     */
+    suspend fun latestClock(): SnapshotClock? = latest()?.clock
 
     /**
      * The earliest snapshot with `wallMs >= [wallMs]` matching the non-null filters. [statsStartMs] selects the
