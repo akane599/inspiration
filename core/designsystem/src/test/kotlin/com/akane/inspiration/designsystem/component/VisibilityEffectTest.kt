@@ -48,6 +48,9 @@ class VisibilityEffectTest {
     @After
     fun tearDown() {
         controller.pause().stop().destroy()
+        // Drain what the teardown posted: Compose's main dispatcher outlives the test, and a dispatch left pending
+        // when Robolectric clears the queue stalls every coroutine in the classes that run after this one (SQ-66).
+        idle()
     }
 
     @Test
