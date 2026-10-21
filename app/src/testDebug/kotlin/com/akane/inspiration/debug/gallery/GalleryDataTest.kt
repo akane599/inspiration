@@ -5,6 +5,8 @@ import com.akane.inspiration.designsystem.chart.model.SeriesKind
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import java.time.Instant
+import java.time.ZoneOffset
 
 class GalleryDataTest {
     private val data = GalleryDataGenerator.generate()
@@ -22,6 +24,13 @@ class GalleryDataTest {
             assertEquals(GalleryDataGenerator.WINDOW_START_MS, series.points.first().tMs)
             assertTrue(series.points.last().tMs < data.chart.window.endMs)
         }
+    }
+
+    @Test
+    fun `window starts at midday UTC`() {
+        val start = Instant.ofEpochMilli(GalleryDataGenerator.WINDOW_START_MS).atZone(ZoneOffset.UTC)
+        assertEquals(12, start.hour)
+        assertEquals(0, start.minute)
     }
 
     @Test
