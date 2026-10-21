@@ -286,6 +286,52 @@ class HealthMappersTest {
     }
 
     @Test
+    fun `newer stored charge excludes the completed boundary even across a short sample gap`() {
+        val previous = ChargeSpan(0, 30 * MIN_MS)
+        val older = listOf(point(29 * MIN_MS, level = 90), point(30 * MIN_MS, level = 91))
+        val newer = listOf(point(31 * MIN_MS, level = 40), point(31 * MIN_MS + 3 * SEC_MS, level = 41))
+        val history = older.map { it.copy(fromHistory = true) }
+        for (hasLive in listOf(false, true)) {
+            val span = effectiveChargeSpan(previous, older + newer, hasLive)
+            assertEquals("live=$hasLive", ChargeSpan(newer.first().wallMs, null), span)
+            val session = chargeSession(span, older + newer, history, hasLive)
+            assertEquals("live=$hasLive", newer, session)
+            val analysis = checkNotNull(wearAnalysis(session, span, 5 * HOUR_MS, liveActive = false))
+            assertEquals(CurveSource.Recorded, analysis.source)
+            assertEquals("no current reading means no extension to now", 3 * SEC_MS, analysis.chargeMs)
+        }
+    }
+
+    @Test
+    fun `samples before or at a completed end do not reopen it`() {
+        val previous = ChargeSpan(0, 30 * MIN_MS)
+        val samples = listOf(point(29 * MIN_MS), point(30 * MIN_MS))
+        for (hasLive in listOf(false, true)) {
+            assertEquals(previous, effectiveChargeSpan(previous, samples, hasLive))
+            assertEquals(previous, effectiveChargeSpan(previous, emptyList(), hasLive))
+        }
+    }
+
+    @Test
+    fun `only the newest later stored run is selected without live readings`() {
+        val previous = ChargeSpan(0, 30 * MIN_MS)
+        val earlier = listOf(point(31 * MIN_MS), point(32 * MIN_MS))
+        val latest = listOf(point(2 * HOUR_MS, level = 40), point(2 * HOUR_MS + 3 * SEC_MS, level = 41))
+        val samples = (earlier + latest).reversed()
+        val span = effectiveChargeSpan(previous, samples, hasLive = false)
+        assertEquals(ChargeSpan(2 * HOUR_MS, null), span)
+        assertEquals(latest, chargeSession(span, samples, emptyList(), hasLive = false))
+    }
+
+    @Test
+    fun `resolved observed end is authoritative over later samples without live inference`() {
+        val observed = ChargeSpan(0, 4 * SEC_MS)
+        val selected = listOf(point(SEC_MS, level = 40), point(3 * SEC_MS, level = 41))
+        val later = listOf(point(6 * SEC_MS, level = 42), point(9 * SEC_MS, level = 43))
+        assertEquals(selected, chargeSession(observed, selected + later, emptyList(), hasLive = false))
+    }
+
+    @Test
     fun `history after and between foreground observations remains available`() {
         val history = (0..12).map { point(it * 5 * MIN_MS, fromHistory = true) }
         val samples =

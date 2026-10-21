@@ -291,28 +291,33 @@ internal fun mergeByTime(
     return merged
 }
 
-/** Resolve the same span for both the curve points and their duration analysis. */
+/**
+ * Resolve the same span for both the curve points and their duration analysis. Persisted plugged observations after
+ * a completed history span are a later charge even when this visit has received no live reading.
+ */
 internal fun effectiveChargeSpan(
     span: ChargeSpan?,
     samples: List<CurvePoint>,
     hasLive: Boolean,
 ): ChargeSpan? {
-    val newest = samples.maxOfOrNull { it.wallMs }
-    val extendsCompleted = span?.endMs?.let { end -> newest != null && newest > end } ?: false
-    return if (hasLive && (span == null || extendsCompleted)) {
-        lastRun(samples).firstOrNull()?.let { ChargeSpan(it.wallMs, null) }
-    } else {
-        span
-    }
+    // A known unplug splits charges even when adjacent samples are closer than the inferred session gap.
+    val later = span?.endMs?.let { end -> samples.filter { it.wallMs > end } }.orEmpty()
+    val inferred =
+        when {
+            later.isNotEmpty() -> later
+            hasLive && span == null -> samples
+            else -> return span
+        }
+    return lastRun(inferred).firstOrNull()?.let { ChargeSpan(it.wallMs, null) }
 }
 
 /**
  * The points of the charge to draw and analyse: history outside continuous observed sample runs, merged with recorded
  * samples. Samples win where both exist because they carry power and current as well.
  *
- * [span] is the history's view of the charge. While a live reading is flowing the history may not have ingested the
- * plug-in yet and would still point at the previous charge, so a live reading outside an open span re-derives the
- * span from the samples themselves.
+ * [span] is resolved by [effectiveChargeSpan], then overridden by any observed plug edges. When [hasLive] is false,
+ * keep that resolved span authoritative: the caller also disables live inference to preserve an observed boundary.
+ * With live inference enabled, a history span that has not ingested the new plug-in can be re-derived from samples.
  */
 internal fun chargeSession(
     span: ChargeSpan?,
@@ -320,7 +325,7 @@ internal fun chargeSession(
     history: List<CurvePoint>,
     hasLive: Boolean,
 ): List<CurvePoint> {
-    val effective = effectiveChargeSpan(span, samples, hasLive)
+    val effective = if (hasLive) effectiveChargeSpan(span, samples, hasLive = true) else span
     val sampleSession =
         if (effective == null) {
             lastRun(samples)

@@ -543,6 +543,14 @@ class HealthViewModelTest {
                 runCurrent()
                 deps.clocks.wall = NOW_MS + 8 * SEC_MS
                 deps.history = deps.history.orEmpty() + event(NOW_MS + 6 * SEC_MS, level = 39, tempDeciC = 410)
+                // Even a later stored plugged observation cannot override this visit's observed unplug.
+                deps.samples =
+                    listOf(
+                        sample(NOW_MS, level = 40, tempDeciC = 410),
+                        sample(NOW_MS + 3 * SEC_MS, level = 41, tempDeciC = 410),
+                        sample(NOW_MS + 6 * SEC_MS, level = 42, tempDeciC = 410),
+                        sample(NOW_MS + 8 * SEC_MS, level = 43, tempDeciC = 410),
+                    )
                 vm.onIntent(HealthIntent.Refresh)
                 runCurrent()
 
@@ -1230,6 +1238,68 @@ class HealthViewModelTest {
             assertEquals(100 * SEC_MS, analysis?.hotMs)
             assertEquals(100 * SEC_MS, analysis?.highVoltageMs)
             vm.onIntent(HealthIntent.Hidden)
+        }
+
+    @Test
+    fun `returning unplugged with unavailable Shizuku keeps a newer persisted charge despite stale history`() =
+        runTest(dispatcher) {
+            deps.history =
+                listOf(
+                    event(NOW_MS - 5 * HOUR_MS, HistoryKind.PLUGGED),
+                    event(NOW_MS - 5 * HOUR_MS + MIN_MS, level = 80),
+                    event(NOW_MS - 5 * HOUR_MS + 2 * MIN_MS, level = 81),
+                    event(NOW_MS - 4 * HOUR_MS, HistoryKind.UNPLUGGED),
+                )
+            val readings = MutableSharedFlow<LiveReading>()
+            val vm = viewModel(readings)
+            try {
+                vm.onIntent(HealthIntent.Visible)
+                vm.onIntent(HealthIntent.PlugChanged(true))
+                runCurrent()
+                readings.emit(liveReading(NOW_MS, levelPct = 40, tempDeciC = 410, voltageMv = 4_400))
+                deps.clocks.wall = NOW_MS + 3 * SEC_MS
+                readings.emit(liveReading(deps.clocks.wall, levelPct = 41, tempDeciC = 410, voltageMv = 4_400))
+                runCurrent()
+                assertEquals(CurveSource.Live, (vm.state.value.curve as CurveUi.Ready).source)
+
+                // The live source persisted these readings without repairing the old history span.
+                deps.samples =
+                    listOf(
+                        sample(NOW_MS, level = 40, tempDeciC = 410, voltageMv = 4_400),
+                        sample(NOW_MS + 3 * SEC_MS, level = 41, tempDeciC = 410, voltageMv = 4_400),
+                    )
+                vm.onIntent(HealthIntent.Hidden)
+                runCurrent()
+                assertEquals(0, vm.heldLivePoints)
+
+                deps.kernel = null
+                deps.refreshResult = RefreshResult.Failed("Shizuku unavailable")
+                deps.clocks.wall = NOW_MS + HOUR_MS
+                vm.onIntent(HealthIntent.Visible)
+                vm.onIntent(HealthIntent.PlugChanged(false))
+                runCurrent()
+
+                val curve = vm.state.value.curve as CurveUi.Ready
+                assertEquals(HealthPhase.Ready, vm.state.value.phase)
+                assertEquals(CurveSource.Recorded, curve.source)
+                assertEquals(40, curve.startLevelPct)
+                assertEquals(41, curve.endLevelPct)
+                assertTrue(curve.series.all { it.points.size == 2 })
+                val analysis = checkNotNull(vm.state.value.analysis)
+                assertEquals(CurveSource.Recorded, analysis.source)
+                assertEquals("only the stored run, never old history or now", 3 * SEC_MS, analysis.chargeMs)
+                assertEquals(3 * SEC_MS, analysis.hotMs)
+                assertEquals(3 * SEC_MS, analysis.highVoltageMs)
+                assertEquals("no new live collection on the unplugged return", 1, deps.bindingsOpened)
+                assertEquals(1, deps.bindingsClosed)
+
+                deps.clocks.wall += HOUR_MS
+                vm.onIntent(HealthIntent.Refresh)
+                runCurrent()
+                assertEquals(analysis, vm.state.value.analysis)
+            } finally {
+                vm.onIntent(HealthIntent.Hidden)
+            }
         }
 
     @Test
