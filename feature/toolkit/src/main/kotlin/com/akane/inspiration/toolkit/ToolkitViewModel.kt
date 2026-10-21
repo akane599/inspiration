@@ -602,7 +602,8 @@ class ToolkitViewModel(
                     deps.toolkit.execute(action, confirmed)
                 }
             }
-        if (outcome is ToolkitOutcome.Refused && outcome.reason == ToolkitRefusal.STALE) {
+        // NOT_CONFIRMED after a Ready plan: a warning appeared between plan and write. Either way the user decides again.
+        if (outcome is ToolkitOutcome.Refused && (outcome.reason == ToolkitRefusal.STALE || outcome.reason == ToolkitRefusal.NOT_CONFIRMED)) {
             askAgain(prepared)
             return
         }
@@ -618,7 +619,10 @@ class ToolkitViewModel(
         )
     }
 
-    /** The setting moved between plan and write: read it again and let the user decide with the value that is there now. */
+    /**
+     * The setting moved between plan and write (STALE, or a new warning: NOT_CONFIRMED): read it again and let the user
+     * decide with the value, and the warnings, that are there now.
+     */
     private suspend fun askAgain(stalePrepared: PreparedRequest) {
         val request = stalePrepared.request
         if (!canAsk(stalePrepared)) {

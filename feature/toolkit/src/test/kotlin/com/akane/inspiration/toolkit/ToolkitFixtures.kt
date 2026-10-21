@@ -127,6 +127,9 @@ internal class FakeDevice {
     /** Reads still answer for these packages, but every write is refused (it became protected after the read). */
     val refuseWritesFor = mutableSetOf<String>()
 
+    /** Updated system apps: their reads answer DONE with the [ToolkitCode.WARN_UPDATED_SYSTEM] warning. */
+    val updatedSystemPackages = mutableSetOf<String>()
+
     val calls = mutableListOf<String>()
     val writes = mutableListOf<String>()
     var holds = 0
@@ -147,6 +150,7 @@ internal class FakeDevice {
         when {
             pkg in systemPackages -> ToolkitResult.refused(ToolkitCode.DENY_SYSTEM)
             pkg in protectedPackages -> ToolkitResult.refused(ToolkitCode.DENY_PROTECTED, after = value)
+            pkg in updatedSystemPackages -> ToolkitResult.done(code = ToolkitCode.WARN_UPDATED_SYSTEM, after = value)
             else -> ToolkitResult.done(after = value)
         }
 
