@@ -462,9 +462,15 @@ interface CaptureMissDao {
 
 @Dao
 interface MaintenanceDao {
+    /**
+     * Aggregates the samples before [cutoffWallMs] into `telemetry_hourly`, merging into an hour that already has a
+     * row (late samples after a wall-clock correction): counts add, MIN/MAX combine and a side that is null keeps the
+     * other. The table holds no per-column non-null counts, so averages are weighted by `sampleCount`; this is exact
+     * when every sample in the hour carries the column and approximate when only some do.
+     */
     @Query(
         """
-        INSERT OR REPLACE INTO telemetry_hourly (
+        INSERT INTO telemetry_hourly (
             hourStartWallMs, sampleCount, avgCurrentMa, minCurrentMa, maxCurrentMa, avgVoltageMv,
             avgWatts, maxTemperatureDeciC, minLevelPct, maxLevelPct
         )
@@ -482,6 +488,34 @@ interface MaintenanceDao {
         FROM telemetry_sample
         WHERE wallMs < :cutoffWallMs
         GROUP BY (wallMs / :hourMs) * :hourMs
+        ON CONFLICT(hourStartWallMs) DO UPDATE SET
+            sampleCount = sampleCount + excluded.sampleCount,
+            avgCurrentMa = CASE
+                WHEN avgCurrentMa IS NULL THEN excluded.avgCurrentMa
+                WHEN excluded.avgCurrentMa IS NULL THEN avgCurrentMa
+                ELSE (avgCurrentMa * sampleCount + excluded.avgCurrentMa * excluded.sampleCount)
+                    / (sampleCount + excluded.sampleCount)
+            END,
+            minCurrentMa = MIN(COALESCE(minCurrentMa, excluded.minCurrentMa), COALESCE(excluded.minCurrentMa, minCurrentMa)),
+            maxCurrentMa = MAX(COALESCE(maxCurrentMa, excluded.maxCurrentMa), COALESCE(excluded.maxCurrentMa, maxCurrentMa)),
+            avgVoltageMv = CASE
+                WHEN avgVoltageMv IS NULL THEN excluded.avgVoltageMv
+                WHEN excluded.avgVoltageMv IS NULL THEN avgVoltageMv
+                ELSE (avgVoltageMv * sampleCount + excluded.avgVoltageMv * excluded.sampleCount)
+                    / (sampleCount + excluded.sampleCount)
+            END,
+            avgWatts = CASE
+                WHEN avgWatts IS NULL THEN excluded.avgWatts
+                WHEN excluded.avgWatts IS NULL THEN avgWatts
+                ELSE (avgWatts * sampleCount + excluded.avgWatts * excluded.sampleCount)
+                    / (sampleCount + excluded.sampleCount)
+            END,
+            maxTemperatureDeciC = MAX(
+                COALESCE(maxTemperatureDeciC, excluded.maxTemperatureDeciC),
+                COALESCE(excluded.maxTemperatureDeciC, maxTemperatureDeciC)
+            ),
+            minLevelPct = MIN(COALESCE(minLevelPct, excluded.minLevelPct), COALESCE(excluded.minLevelPct, minLevelPct)),
+            maxLevelPct = MAX(COALESCE(maxLevelPct, excluded.maxLevelPct), COALESCE(excluded.maxLevelPct, maxLevelPct))
         """,
     )
     suspend fun downsampleSamples(
