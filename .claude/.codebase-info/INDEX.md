@@ -40,11 +40,13 @@ The 2026-10-21 whole-repo bug hunt (SQ-42–SQ-60) adds the following.
 - **Toolkit:**
   - bg-dexopt cancels that prove idle only when none began during our pass;
   - a Restore that finds the target already restored drops the override at once;
-  - a same-target PENDING guard that says nothing was sent (`PENDING_CHECK`).
+  - a same-target PENDING guard that says nothing was sent (`PENDING_CHECK`);
+  - a NOT_CONFIRMED answer after a Ready plan that asks the user again.
 - **UI:**
   - a rotation-safe `VisibilityEffect` for every route;
   - obscured drags that still scroll;
-  - X-Ray failure notices only for refreshes the user asked for.
+  - X-Ray failure notices only for refreshes the user asked for;
+  - a Cockpit time left that ignores a system estimate dated after the reading.
 - **Debug probes:** no silent latest-two fallback, plus an 8 s capture budget.
 
 | Doc | What |
