@@ -523,6 +523,7 @@ class ToolkitActions internal constructor(
 
             is Prep.Ok -> {
                 if (alreadyRestored(action, prep, restoring)) {
+                    changes.value += 1 // see run: a live overrides collector drops the row this read found restored
                     ToolkitPlan.Refused(ToolkitRefusal.ALREADY_RESTORED)
                 } else {
                     confirmationPlan(warningsOf(prep, restoring))
@@ -745,7 +746,12 @@ class ToolkitActions internal constructor(
                 is Prep.Stop -> return stopOutcome(spec, restoresId, prepared.outcome)
                 is Prep.Ok -> prepared
             }
-        if (alreadyRestored(action, prep, restoring)) return ToolkitOutcome.Refused(ToolkitRefusal.ALREADY_RESTORED)
+        if (alreadyRestored(action, prep, restoring)) {
+            // Nothing is written, but the target went back to its original outside Inspiration: a collector that stays
+            // subscribed must recompute [activeOverrides] to drop the row. The recompute itself never comes back here.
+            changes.value += 1
+            return ToolkitOutcome.Refused(ToolkitRefusal.ALREADY_RESTORED)
+        }
         // Reset all confirms only the enumerated override, not a later external change. This is a fresh-read
         // guard, not atomic compare-and-set: bucket and app-op commands cannot enforce a platform-side CAS.
         if (requireExpectedCurrent && restoring != null && !sameState(restoring.kind, prep.current, restoring.afterRaw)) {
