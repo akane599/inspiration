@@ -1,5 +1,5 @@
 # Onboarding
-*Last Updated: 2026-10-20*
+*Last Updated: 2026-10-22*
 
 ## Read first
 
@@ -27,9 +27,12 @@ Release: `bash .claude/kit/gradle-check.sh :app:assembleRelease`. It is signed o
 - version bump and full gate;
 - certificate pin check;
 - same-key in-place upgrade check from the previous GitHub release on redroid;
+- the A03 history replay check over the upgraded database;
 - the GitHub release and download verification.
 
-Its `scripts/upgrade-check.sh` and `scripts/gate-summary.sh` also run on their own. Their first run passed the v0.2.3→v0.2.4 upgrade.
+Its `scripts/upgrade-check.sh` and `scripts/gate-summary.sh` also run on their own; their first run passed the v0.2.3→v0.2.4 upgrade.
+
+`scripts/history-replay-check.sh` edits the app database. It checks that a re-armed history replay restores a missing START and doesn't append one after a stored row at its instant, using the three phases restore, suppress, restore. It runs only on a device named with `--serial` and `--disposable`, and refuses any model other than `redroid15_x86_64`. It backs up the database first, installs only with `--install`, and edits nothing until a FULL capture proves Shizuku works. A `02e225d` build fails it; `9ee56de` passes.
 
 Diagnostics tests run under Robolectric (org.json and resources are needed by the dictionary loader and story writer), as do `:core:designsystem`'s touch-guard UI test and the Room tests. Room tests use Robolectric and cover WAL, cascades, history deduplication, snapshot round trips, and 30-day maintenance behavior. Schema v5 adds nullable UID identity proof through `MIGRATION_4_5`; existing v4 data must migrate without a clear or inferred historical proof. Schema v6 (`MIGRATION_5_6`) only adds the `history_event(kind, wallMs)` index. Not yet checked on a device: the v5 to v6 upgrade, the R-08 binding rework and the R-03 screen captures need the `release` skill's same-key upgrade check (`AUDIT_REPORT.md` remediation log). Run the focused database gate with `bash .claude/kit/gradle-check.sh :core:database:testDebugUnitTest --tests '*InspirationDatabaseTest' --tests '*RoomSnapshotStoreTest'`. The current audit's same-key v0.2.1→v0.2.2 redroid upgrade evidence is recorded in [`AUDIT_REPORT.md`](../../AUDIT_REPORT.md) under "Current-build Mobile MCP/redroid verification". Protobuf tests use committed API 35/36/37 fixtures under [`core/telemetry-engine/src/test/resources/proto`](../../core/telemetry-engine/src/test/resources/proto).
 
