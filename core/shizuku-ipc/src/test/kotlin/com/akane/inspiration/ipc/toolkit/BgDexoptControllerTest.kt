@@ -475,6 +475,57 @@ class BgDexoptControllerTest {
     }
 
     @Test
+    fun `a user cancel begun while our job runs does not prove idle when it ends after the worker reports unknown`() {
+        cancelEndsJob = false
+        val controller = controller()
+        // Begun while the worker supervises our running client; it returns only after the worker gave up on it.
+        userCancelNote = {
+            userCancelNote = null
+            controller.beginUserCancel()
+        }
+        controller.tryStart()
+        threads.single().run()
+        assertEquals(BgDexoptState.UNKNOWN, controller.status().state)
+
+        controller.endUserCancel(true)
+
+        // The cancel was sent while our pass ran, so it may only have stopped a job ours waited behind.
+        assertEquals(BgDexoptState.UNKNOWN, controller.status().state)
+        assertEquals(BgDexoptReason.USER, controller.status().reason)
+        assertEquals("the pending pass still blocks a new one", ToolkitCode.BUSY, controller.tryStart().code)
+        cancel(controller, true)
+        assertEquals("a cancel begun after the worker settled still proves idle", BgDexoptState.IDLE, controller.status().state)
+    }
+
+    @Test
+    fun `overlapping cancels prove idle only when none of them began while our job ran`() {
+        cancelEndsJob = false
+        val controller = controller()
+        userCancelNote = {
+            userCancelNote = null
+            controller.beginUserCancel() // sent while our pass runs
+        }
+        controller.tryStart()
+        threads.single().run()
+        assertEquals(BgDexoptState.UNKNOWN, controller.status().state)
+        controller.beginUserCancel() // overlaps the first, after the worker reported UNKNOWN
+
+        controller.endUserCancel(true)
+        controller.endUserCancel(true)
+
+        // Neither end can tell which cancel it closes, so the overlap proves nothing.
+        assertEquals(BgDexoptState.UNKNOWN, controller.status().state)
+
+        val fresh = controller()
+        fresh.beginUserCancel()
+        fresh.beginUserCancel()
+        fresh.endUserCancel(true)
+        assertEquals("overlapping cancels with no job of ours still prove idle", BgDexoptState.IDLE, fresh.status().state)
+        fresh.endUserCancel(true)
+        assertEquals(BgDexoptState.IDLE, fresh.status().state)
+    }
+
+    @Test
     fun `a second start while the job is running is refused`() {
         val controller = controller()
         jobExitsAtMs = clock.nowMs + 5 * 60_000
