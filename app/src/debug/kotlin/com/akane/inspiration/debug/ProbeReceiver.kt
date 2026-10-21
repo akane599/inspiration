@@ -60,6 +60,12 @@ import rikka.shizuku.SystemServiceHelper
 import java.io.InputStream
 import java.util.Locale
 
+/** The outer budget of every probe action (within the 10 s goAsync window). */
+internal const val PROBE_ACTION_TIMEOUT_MS = 10_000L
+
+/** The capture's read deadline ends 2 s before the outer timeout, so a slow read reports Missed, not a probe timeout. */
+internal const val PROBE_CAPTURE_DEADLINE_MS = PROBE_ACTION_TIMEOUT_MS - 2_000L
+
 class ProbeReceiver : BroadcastReceiver() {
     override fun onReceive(
         context: Context,
@@ -279,7 +285,7 @@ class ProbeReceiver : BroadcastReceiver() {
         val result =
             app.appContainer.capturer.captureFull(
                 trigger = CaptureTrigger.MARKER,
-                deadlineMs = PROBE_TIMEOUT_MS,
+                deadlineMs = PROBE_CAPTURE_DEADLINE_MS,
                 ingestHistory = true,
             )
         // Like every history-ingesting capture: a screen open meanwhile re-reads what it stored.
@@ -656,7 +662,7 @@ class ProbeReceiver : BroadcastReceiver() {
         const val DATABASE_NAME = "inspiration.db"
         const val MAX_DUMP_BYTES = 4 * 1024 * 1024
         const val MAX_HISTORY_EVENTS = 4096
-        const val PROBE_TIMEOUT_MS = 10_000L
+        const val PROBE_TIMEOUT_MS = PROBE_ACTION_TIMEOUT_MS
         const val TAG = "InspirationProbe"
         const val UNKNOWN_STATUS = -1
 
