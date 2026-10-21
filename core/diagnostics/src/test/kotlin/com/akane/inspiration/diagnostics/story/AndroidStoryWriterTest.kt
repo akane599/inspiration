@@ -54,6 +54,26 @@ class AndroidStoryWriterTest {
     }
 
     @Test
+    fun anUnshippedUiLocaleFormatsNumbersLikeItsEnglishText() {
+        // Only en and tr ship, so a German UI resolves to the English sentences and must not get "1,5%".
+        val story =
+            BatteryStory(
+                listOf(
+                    StorySentence.Summary(hours = 2.5, levelUsedPct = 5, endsNow = true),
+                    StorySentence.ScreenOnRate(1.5, UsageRating.NORMAL),
+                ),
+            )
+        assertEquals(
+            "In the last 2.5 hours you used 5% of your battery. With the screen on you used 1.5% per hour (normal).",
+            writer.render(story, Locale.GERMANY),
+        )
+        assertEquals(
+            "Son 2,5 saatte pilin %5 kadarını kullandın. Ekran açıkken saatte %1,5 tükettin (normal).",
+            writer.render(story, Locale.forLanguageTag("tr-TR")),
+        )
+    }
+
+    @Test
     fun anomalySentenceNamesTheTopRuleInBothLocales() {
         val story = BatteryStory(listOf(StorySentence.Anomalies(3, RuleId.AWAKE_VIOLATION)))
         assertEquals("3 anomalies detected, most notable: Awake violation.", writer.render(story, Locale.ENGLISH))

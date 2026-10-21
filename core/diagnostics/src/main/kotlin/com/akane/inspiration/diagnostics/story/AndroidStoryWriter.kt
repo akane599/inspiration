@@ -13,17 +13,19 @@ import kotlin.math.roundToLong
 /** Renders a [BatteryStory] as one paragraph from `res/values` (en) or `res/values-tr` (tr). */
 class AndroidStoryWriter(private val context: Context) {
 
-    // Callers pass the current UI locale (whose split is always installed) or English (the base values),
-    // and the app ships as an APK, so no language split can be missing.
+    // The app ships as an APK, so no language split can be missing for the en or tr resources used here.
     @SuppressLint("AppBundleLocaleChanges")
     fun render(story: BatteryStory, locale: Locale): String {
-        val config = Configuration(context.resources.configuration).apply { setLocale(locale) }
+        // Only en and tr ship, so any other UI language reads the English text; its numbers must match that
+        // text, not the UI locale ("1.5%", never "1,5%"). Same rule as DiagnosticDictionary's explanations.
+        val textLocale = if (locale.language == "tr") locale else Locale.ENGLISH
+        val config = Configuration(context.resources.configuration).apply { setLocale(textLocale) }
         val resources = context.createConfigurationContext(config).resources
-        val oneDecimal = NumberFormat.getNumberInstance(locale).apply {
+        val oneDecimal = NumberFormat.getNumberInstance(textLocale).apply {
             minimumFractionDigits = 1
             maximumFractionDigits = 1
         }
-        val trimmedDecimal = NumberFormat.getNumberInstance(locale).apply {
+        val trimmedDecimal = NumberFormat.getNumberInstance(textLocale).apply {
             minimumFractionDigits = 0
             maximumFractionDigits = 1
         }
