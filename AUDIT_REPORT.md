@@ -1041,7 +1041,7 @@ Scope: review the integrated A03 fix (`4ce857d`) independently, turn its two doc
 
 The correction is one ingest-side rule in `RoomSnapshotStore.persistHistoryPage`, inside the existing transaction, after `judgePage` and before `insertIgnore`: a kept START is left out, and not counted, when a stored row of another kind exists at exactly its (historyTimeMs, wallMs) (`HistoryDao.hasOtherKindAt`, one seek on the unique index). Rows written with a START take the same anchor, so their wall time equals the START's repaired one to the millisecond, whatever label each was stored under; this build stores a START before the rows of its instant in one page, so a START missing from a stored group was dated by an earlier build and kept out; the watermark cannot recognise it under its repaired wall, and a new id would order it after those rows. The stored history stays as it was before the upgrade rather than gaining a misordered boundary. Ids, order of existing rows, cursor (`resumeCursor`/`advanceCursor`), watermark (`judgePage`) and retention are unchanged; in steady state the rule is equivalent to the unique key's dedupe. The reviewer's "gap-fill" alternative (insert the START at the id just below its next stored event) would restore order exactly but needs an explicit-id insert path and changes the "id is ingest order" rule; not taken, recorded here.
 
-**Case 2, wall-clock relabel with an open charge: CONFIRMED, pinned, not fixed.** The same test class reproduces it end to end: a lone mis-dated START, a backward step relabelling the session (L1 to L2), a charge from the L1 run closed in the L2 run (found, one segment), then the migration's deletion and re-armed replay. The START comes back under L2, `historySessions()` puts it in the L2 run, `ChargeSegmentExtractor.fromSessions` orders that run by history time and walks the START first, and the charge spanning the relabel is discarded (zero segments). Bound, corrected per review: every misplaced START heads the run current at replay time, so at most one charge is lost, and only one not yet evaluated at replay time (saved `charge_session` rows are reused by `ChargingCaptureRunner`); nothing wrong is produced; any label change triggers it, not only the one-time replay. Not fixed because the ingest cannot place the START in an older run without an explicit-id insert; the cost of that path outweighs one unevaluated estimate. The migration comment now says so.
+**Case 2, wall-clock relabel with an open charge: CONFIRMED defect, DEFERRED (open, not fixed), pinned by `HistoryReplayOrderTest` "a lone START replayed after a relabel joins the current run, which drops a charge spanning the relabel".** It stays on the open list. The test asserts today's wrong-but-bounded result (zero segments), so a fix will turn it red on purpose, and the assertion then flips. The same test class reproduces it end to end: a lone mis-dated START, a backward step relabelling the session (L1 to L2), a charge from the L1 run closed in the L2 run (found, one segment), then the migration's deletion and re-armed replay. The START comes back under L2, `historySessions()` puts it in the L2 run, `ChargeSegmentExtractor.fromSessions` orders that run by history time and walks the START first, and the charge spanning the relabel is discarded (zero segments). Bound, corrected per review: every misplaced START heads the run current at replay time, so at most one charge is lost, and only one not yet evaluated at replay time (saved `charge_session` rows are reused by `ChargingCaptureRunner`); nothing wrong is produced; any label change triggers it, not only the one-time replay. Not fixed because the ingest cannot place the START in an older run without an explicit-id insert; the cost of that path outweighs one unevaluated estimate. The migration comment now says so.
 
 **Shared contracts (missing vs zero, per-source calibration, clock domains, logical cancel vs physical completion): no recurring defect in current source; no shared change proposed.** The survey traced the A01–A06 fixes in place and found no second confirmed instance of any theme. Plausible, unconfirmed observations recorded for later triage, none a confirmed bug: `TimelineBuilder` plots a history temperature of 0 as measured while `HealthMappers` treats 0 as unlogged (only matters if a zeroed non-START record is ever emitted, not shown); `IntervalMetrics` uses the synthetic START level 0 as a baseline inside the seconds between a boot's START and its first update; `UnplugSummary` counts a null capture level as a zero drop; `TimelineBuilder`/`IntervalMetrics` order history by wall time, so a large backward step would interleave two periods (one shared design limit); `ToolkitExecutor.applyDozeProfile` does not treat a timed-out `cmd settings put` as unverified the way `restoreDozeRaw` does.
 
@@ -1060,9 +1060,93 @@ The correction is one ingest-side rule in `RoomSnapshotStore.persistHistoryPage`
 
 **Independent final-diff review (fresh Opus/xhigh context, raw diff plus red/green evidence): INTEGRATE, no blocking finding.** It confirmed by tracing that the red case is the documented failure, that the query seeks the unique index (`EXPLAIN QUERY PLAN` on host SQLite, empty and 20,000 rows: one `historyTimeMs=?` seek), that the filter runs after `judgePage` and before `insertIgnore` inside the one transaction, that cursor and watermark still come from the unfiltered page, and that in the fixed build the rule removes only STARTs the unique key would have ignored. Its low findings were applied: the positive control now stores rows sharing only the START's wall time and only its history time (so a match on either alone would fail the test); the rule's name and comments say "a START whose instant already has a stored row of another kind" rather than "missing from"; the test KDoc says the relabel case can lose one not-yet-evaluated estimate; the mis-dated fixture is one history tick after the SHUTDOWN; the earlier "Known limits" sentence is marked superseded. After those comment and test edits the database module and both lints were re-run (row below); the production rule did not change after the gate.
 
-**Release ordering, stated as an assumption.** The rule only helps databases that have not yet run the re-armed replay. No published build contains migration 7→8 as far as local evidence shows (PROGRESS.md records releases through 0.2.8 at schema 7; the 0.2.9 bump is the last commit and no 0.2.9 release is recorded; GitHub could not be reached from this host to confirm, connection refused). If 0.2.9 turns out to have shipped without this change, an 8→9 data migration is the remedy: delete a START that has a lower-id row of another kind at the same (historyTimeMs, wallMs), which after this fix can only be an appended replay.
+**Release ordering (superseded by the distribution check below).** The rule only helps databases that have not yet run the re-armed replay. When this was first written, GitHub could not be reached, so whether a build with migration 7→8 had shipped was an open assumption.
+
+### Distribution check, 2026-10-22: no distributed build carries migration 7→8; the 8→9 repair is not needed
+
+GitHub was reachable on 2026-10-22, and everything below was checked read-only, then re-verified by an independent Opus/xhigh reviewer.
+
+- **Releases.** `gh api repos/akane599/inspiration/releases --paginate` lists ten releases, v0.1.0–v0.2.8. None is a draft or prerelease.
+  - The newest is v0.2.8: target `250d7c0`, published 2026-10-21T06:10:26Z, asset uploaded 06:10:25Z and not replaced since.
+  - `4ce857d`, the first commit with migration 7→8, was committed at 17:34Z, and the first build containing it was installed (on redroid) at 17:25Z from the uncommitted tree.
+  - The v0.2.8 tree has Room `version = 7`, migrations only up to `MIGRATION_6_7`, and no `schemas/8.json`.
+- **The published bytes.** The downloaded `inspiration-0.2.8.apk` passes `sha256sum -c` and reports versionCode 10 / 0.2.8, signed `88292f23…4d723`. Its dex has none of migration 7→8's strings (`UPDATE OR IGNORE history_event`, `DELETE FROM history_cursor WHERE id`) and none of `9ee56de`'s query.
+  - Controls: the 6→7 `history_watermark` DDL is found (1 hit), and the gate APK from `9ee56de` does contain the 7→8 string (1 hit).
+- **Refs and pushes.** The remote has `main` (`8cbe51f`), `Review-n-fix` (`89ca16d`), `refs/pull/1/head` (`f4661a0`, merged 2026-10-18) and tags up to v0.2.8. None contains `4ce857d`. The repository's `pushed_at` and its activity feed both end at the 06:10Z push.
+- **Other channels.** No CI: no `.github` directory, 0 Actions runs, 0 artifacts. There are 0 deployments and no packages. No Play or Firebase publishing plugin is in the build. The repository is public, with 0 forks and 1 collaborator.
+- **Local copies and installs**, searched from 06:10Z on:
+  - **APK files.** The only APKs with migration 7→8 on this host are local build outputs, an agent worktree's debug APK, redroid's installed copy, and two release-signed APKs without `9ee56de`:
+    - `build/tmp/a03-native/installed.apk`: 0.2.8 (10), sha256 `516be367…`;
+    - `build/tmp/negative-control-02e225d/…/app-release.apk`: 0.2.9 (11), sha256 `5ffaa8ac…`, built for the negative control below.
+
+    Neither was distributed. Because each shares a version number with a real or upcoming release, only the APK hash or the dex string tells them apart.
+  - **Installs.** The session transcripts show every install of a build with 7→8 going to redroid, gated on `ro.product.model`. That covers `adb install`, Gradle `install*` and `upgrade-check.sh`. zsh history has no adb or install command after the commit.
+- **What remains unknown.** Anything the user did outside Claude sessions, such as copying a local APK to their own phone over SSH or running adb from their own machine, can't be seen from this host. No session was authorized to touch that phone. It can be settled read-only on the phone by the user:
+  - `adb shell dumpsys package com.akane.inspiration | grep -E 'versionCode|lastUpdateTime'`;
+  - the `sha256sum` of the `pm path` base.apk, against `5cfdd669…` (the published 0.2.8).
+
+  A phone on 0.2.8 (10) whose hash matches the published APK never ran migration 7→8.
+
+**Decision:** no distributed database can hold a replayed START appended after its companions. The 8→9 cleanup sketched above isn't needed and wasn't implemented, so no review of it was due. If the phone check finds a build with 7→8, that sketch has to be reviewed against an already-replayed database before anyone implements it. The sketch: delete a START that has a lower-id row of another kind at the same (historyTimeMs, wallMs).
+
+### Repeatable device regression check
+
+`.claude/skills/release/scripts/history-replay-check.sh` turns the hand-run fixture into a repeatable check, and the release skill's step 5 now runs it after `upgrade-check.sh`.
+
+**Safety:**
+- It refuses to run without an explicit `--serial` and `--disposable`, or on a device whose `ro.product.model` isn't `redroid15_x86_64`. Only an explicit `--allow-model` names another model.
+- It copies the database files (`-wal`/`-shm` included, size checked) before anything else.
+- It never uninstalls, and installs in place only with `--install`.
+- Before any edit, it requires: the installed APK byte-identical to `--apk`, its versionCode, a FULL capture with a finished history ingest (proof the privileged path works), and `user_version` equal to the source's Room version.
+- If it stops after an edit, an exit trap removes its synthetic row and re-arms the replay.
+
+**Phases.** It uses the newest START of the live stats session that stands alone at its instant, so the replay pages the framework's real history:
+1. **Restore (control):** delete the START and re-arm; it must come back.
+2. **Suppress:** store a LEVEL row at the START's exact instant and re-arm; no START may be appended.
+3. **Restore:** delete the LEVEL row and any START, then re-arm; the START must come back.
+
+**Review.** The independent Opus/xhigh reviewer judged it ADOPT WITH CHANGES. All its findings were applied:
+- a phase-1 failure is a FAIL (exit 1), not a setup error;
+- the preflight checks the privileged path before any edit, and the exit-trap undo was added;
+- the step-1 wait covers a replay already running;
+- the backup comes first, and installing is opt-in;
+- a flag without a value no longer hangs;
+- there is no environment override of the model check;
+- the crash buffer is compared before and after instead of cleared;
+- the WAL files are given back to the app's owner;
+- the header's "same rows" claim is corrected.
+
+**Runs on redroid** (container evidence only, not physical-battery evidence), all on the same START (history time 187085829, wall 1792614499621):
+
+| Run | Result |
+|---|---|
+| First draft, fixed build `b65a4148…` | exit 2: phase 1's replay never finished. The Shizuku server hadn't run since a container restart at 20:28Z, and the app's captures logged `deadline_or_service_unavailable`. After the server was restarted as `upgrade-check.sh` does, the pending replay restored the deleted START. This is why the preflight was added. |
+| First draft, fixed build, rerun | PASS, 19 s |
+| First draft, negative control: `02e225d` release build (`5ffaa8ac…`, same key; migration 7→8 without `9ee56de`) | exit 1: **phase 2 FAIL**, START 177 appended after LEVEL 160 at the same instant. Case 1 reproduced on real framework records. |
+| Revised, negative control without `--install` | exit 2, refused: the installed APK differs. Only the backup was taken; nothing installed or edited. |
+| Revised, negative control with `--install` | exit 1: phase 2 FAIL (START 292 after LEVEL 275); phases 1 and 3 restore |
+| Revised, fixed build with `--install` | **PASS**: phases 1–3 ok, 19 → 19 history rows, no new crash |
+| Revised, `REPLAY_TIMEOUT_S=0` | exit 2 at the preflight, "nothing was edited". The database was confirmed unchanged afterwards. |
+
+Reports are under `build/release-check/history-replay-*`. The exit-trap undo was not exercised on the device. redroid is left on the gate's release build (`b65a4148…`), with a database at schema 8 and 19 history rows. Each run re-ids its target START, and that START stands alone at its instant, so the new id is harmless.
+
+### Release readiness
+
+**Decision: ready to release as 0.2.9 once this branch is integrated. There is no code blocker.**
+- No distributed build carries migration 7→8, so no repair migration is needed. The phone check above is the only open question.
+- Case 1 is fixed, and the device check shows the fixed build suppresses it while the unfixed one doesn't.
+- Case 2 is a confirmed, deferred defect with a bounded impact: at most one not-yet-evaluated charge estimate lost, nothing wrong produced.
+
+**Procedural preconditions, none of them authorized in this round:**
+- merging `audit-remediate-20261021-a03-followup` into `main`;
+- the release skill's full gate with `--rerun-tasks` at the merged HEAD (this round's gate was incremental);
+- `upgrade-check.sh` from v0.2.8;
+- `history-replay-check.sh`;
+- publishing.
+
+The 0.2.9 release must include `9ee56de`: every APK with migration 7→8 but without it must stay unpublished. That includes the negative-control APK and `build/tmp/a03-native/installed.apk`.
 
 **Status: A03 follow-up FIXED in `9ee56de`** (rule, DAO query, comments and `HistoryReplayOrderTest`); this record in `05429b4`; branch `audit-remediate-20261021-a03-followup` from `02e225d`, not merged, not pushed.
 
-**Remaining limitations and blockers.** Case 2 stays as pinned above. A START the framework no longer holds is not reconstructed. Hardware-dependent limits for A01, A02 and A06–A09 are unchanged. Nothing was pushed or released; the version was not bumped. The two superseded A03 candidate worktrees and the nine integrated worker worktrees from the earlier cycle still exist (not removed: unrelated cleanup).
+**Remaining limitations and blockers.** Case 2 stays open as a confirmed, deferred defect, pinned above. A START the framework no longer holds is not reconstructed. Hardware-dependent limits for A01, A02 and A06–A09 are unchanged. Nothing was pushed or released; the version was not bumped. The two superseded A03 candidate worktrees and the nine integrated worker worktrees from the earlier cycle still exist (not removed: unrelated cleanup).
 
