@@ -134,6 +134,12 @@ clean_or_refuse() { # clean_or_refuse <when>
   [ -z "$dirty" ] || refuse "the tree is not clean outside the kit allowlist $1:"$'\n'"$dirty"
 }
 clean_or_refuse "now"
+# One gate, stage or verify at a time in this checkout: they all read app/build/outputs/apk/release/app-release.apk
+# or the staged copy, which a second gate here would rewrite under them. (Gradle's host-wide slots are
+# gradle-slot.sh's business; this lock is only about this checkout's release output.)
+mkdir -p build/release
+exec 8>build/release/.lock
+flock -n 8 || refuse "another release-candidate.sh run holds this checkout's release output (build/release/.lock)"
 
 if [ "$mode" = gate ]; then
   [ -f .claude/scripts/gradle-slot.sh ] || cannot "no .claude/scripts/gradle-slot.sh in this checkout"

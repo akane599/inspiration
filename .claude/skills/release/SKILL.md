@@ -21,7 +21,8 @@ Approval of a merge, of a plan or of the evidence is neither. The blanket pre-au
 
 - **Signing secrets stay unseen.** Gradle reads the four `INSPIRATION_RELEASE_*` properties from `~/.gradle/gradle.properties`. Never read, print or commit that file, a keystore, `local.properties` or `.env*`. If release packaging fails over missing signing keys, tell the user; don't work around it.
 - **One certificate, forever.** Every release from 0.2.5 on is signed with SHA-256 `88292f2344df4095f69e70db728ece8ac6ffcde4564d355a20181391d054d723`. 0.1.0–0.2.4 used a lost key (`1d344dd2…3de60`), so the upgrade check's previous tag must be v0.2.5 or later. A different key can't upgrade an existing install: Android refuses it, and the user's only way out is uninstalling, which loses all their data. A mismatch stops the release.
-- **The upgrade check uses redroid** (`ANDROID_SERIAL=localhost:5555`), which the user lets you use without asking, and refuses any device whose `ro.product.model` is not `redroid15_x86_64` (through an SSH-forwarded adb server that serial can be the user's phone). It uninstalls the app there, which clears the app's data on the device. It also restarts the Shizuku server once, which briefly drops other apps' Shizuku connections. Say both in the report.
+- **The device checks use redroid** (`ANDROID_SERIAL=localhost:5555`), which the user lets you use without asking, and refuse any device whose `ro.product.model` is not `redroid15_x86_64` (through an SSH-forwarded adb server that serial can be the user's phone). The upgrade check uninstalls the app there, which clears Inspiration's data on that disposable device, and restarts the Shizuku server once, which drops other apps' Shizuku connections for a moment; the replay check edits the app database. Say all of that in the report. The device is shared with a peer session through the flock `$HOME/.cache/akastudio-emulator-5554.lock`: hold it once around the whole step 5 sequence and pass the descriptor down (`DEVICE_LOCK_FD`), so neither script takes it a second time.
+- **Gradle daemons are shared too.** Never stop or kill Gradle or Kotlin daemons, even ones that look stray or orphaned: the peer AkaStudio session relies on them (no-stop agreement, 2026-10-22). `gradle-slot.sh` queues on the host-wide slots; `release-candidate.sh` holds `build/release/.lock` so one gate, stage or verify at a time uses this checkout's release output.
 
 ## Steps
 
@@ -44,8 +45,9 @@ Commit it alone as `chore(release): bump version to X.Y.Z (N)`. HEAD is now the 
 ### 3. Full gate
 
 The gate runs alone, as one invocation:
-- First end orphaned `GradleWorkerMain` processes and stray Kotlin daemons (redroid-gradle-memory rule).
-- Check that no other Gradle invocation is running: `pgrep -f '[G]radleWrapperMain'` finds nothing. If one is, wait for it or use `--max-workers=4`.
+- Check whether another Gradle invocation is running: `pgrep -f '[G]radleWrapperMain'`. If one is, wait for it or use `--max-workers=4`. Do not stop daemons or end leftover worker processes to make room (ground rules): `gradle-slot.sh` waits for a free host-wide slot by itself.
+- Nothing else may build in this checkout while the gate runs. `release-candidate.sh` takes `build/release/.lock` for the duration, but that excludes only other `release-candidate.sh` runs: a plain Gradle build in the same checkout can still write `app-release.apk` under the gate, and the record cannot detect it. Not running Gradle here during the gate is the control.
+- Send the peer session its "gate starting" and "gate finished" notices (redroid-device-lock memory).
 
 ```bash
 v=X.Y.Z
@@ -78,45 +80,45 @@ On success it copies the APK to `build/release/$v/inspiration-$v.apk`, writes `i
 
 Report the candidate to the user as the `candidate` line (commit, approved commit, version, versionCode, full SHA-256, signer) plus the gate log name and, after step 5, the upgrade-check and history-replay-check results. Publication (step 7) needs the **publish** gate for that candidate.
 
-### 5. Upgrade check (required before publishing)
+### 5. Upgrade check and history replay check (required before publishing)
+
+Both run under one hold of the shared device lock, passed down as a descriptor so neither script takes it again; a FAIL or a setup problem in the upgrade check stops the sequence before the replay check, and the subshell's status is the sequence's (a busy lock is exit 2, not silence). The hold lasts the whole sequence, several minutes, which is longer than the peer's usual 120 s wait: tell the peer session before starting.
 
 ```bash
 v=X.Y.Z
-bash .claude/skills/release/scripts/upgrade-check.sh <prev-tag> build/release/$v/inspiration-$v.apk
+( flock -w 600 9 || { echo "device lock busy" >&2; exit 2; }
+  DEVICE_LOCK_FD=9 bash .claude/skills/release/scripts/upgrade-check.sh <prev-tag> build/release/$v/inspiration-$v.apk || exit
+  DEVICE_LOCK_FD=9 bash .claude/skills/release/scripts/history-replay-check.sh --serial localhost:5555 --disposable --apk build/release/$v/inspiration-$v.apk
+) 9>>"$HOME/.cache/akastudio-emulator-5554.lock"; echo "step 5 exit $?"
 ```
 
-What the script does:
+What the upgrade check does:
 1. Downloads the previous release and checks it against its own `.sha256`.
 2. Confirms both APKs carry the same certificate.
 3. Installs the previous release cleanly and grants it Shizuku and notifications.
 4. Lets the previous release store data: an app-open full capture plus screen off/on snapshots.
 5. Upgrades in place with `adb install -r` and starts the new version.
 
-It then checks:
+It then checks, and the report says which scope each line has:
 - the install was in place (same first-install time, new versionCode);
-- Room `user_version` and every table's row count only grew;
-- the shared_prefs files survived;
+- smoke scope: Room `user_version` did not go down and no table's row count went down (counts only; a count cannot show that a row's contents survived), and every shared_prefs file is still there;
+- content scope, where the 7→8 migration edits data: every `history_event` row that is not a START and was stored before the upgrade is identical afterwards, column for column with the same id; the history cursor keeps its stats session; every shared_prefs key present before is present after (values are rewritten by the app on start and are not compared; the files are copied to the out dir). The START rows stored before the upgrade are listed with a diff, not judged: the migration re-dates or deletes a START without a same-wall companion, and the replay check below is what covers the STARTs;
 - the new version stored a new snapshot;
 - a full (Shizuku) capture still works;
 - the process is alive and the crash buffer is clean.
+
+What it does not show: the contents of any other table (a row count that holds says nothing about the row), preference values, or anything about a START.
 
 Exit codes: 0 PASS, 1 a check failed, 2 setup problem. The report lands in `build/release-check/<prev>-to-<apk>/upgrade-check.txt`.
 
 A FAIL is a real bug for every user who updates, so it blocks the release. A WARN means a check couldn't run, for example the privileged path when Shizuku wasn't granted. Fix the setup and run it again, or list it under "Not checked" in the notes. Never present a warning as a pass.
 
-Then, over the database the upgrade check left on redroid, run the history replay check (audit A03, schema 8 on):
-
-```bash
-v=X.Y.Z
-bash .claude/skills/release/scripts/history-replay-check.sh --serial localhost:5555 --disposable --apk build/release/$v/inspiration-$v.apk
-```
-
-It edits the app database, so it refuses to run without an explicit `--serial` and `--disposable`, or on a device whose model isn't `redroid15_x86_64`. It never uninstalls, and it copies the database files to its out dir before anything else. The installed APK must be byte-identical to `--apk`; it installs in place only with `--install`. Before any edit it needs a FULL capture with a finished history ingest and the database at the source's Room version. Then it picks a START the framework still holds and runs three phases, each re-arming the one-time replay and starting the app:
+The history replay check (audit A03, schema 8 on) then runs over the database the upgrade check left on redroid. It edits the app database, so it refuses to run without an explicit `--serial` and `--disposable`, or on a device whose model isn't `redroid15_x86_64`. It never uninstalls, and it copies the database files to its out dir before anything else. The installed APK must be byte-identical to `--apk`; it installs in place only with `--install`. Before any edit it needs a FULL capture with a finished history ingest and the database at the source's Room version. Then it picks a START the framework still holds and runs three phases, each re-arming the one-time replay and starting the app:
 1. Restore: the START is deleted; the replay must store it again.
-2. Suppress: a LEVEL row takes the START's exact instant; the replay must not append the START after it.
-3. Restore: the LEVEL row and any START are deleted; the replay must store the START again.
+2. Suppress: a LEVEL row takes the START's exact instant; the replay must not append the START after it. The row's id is recorded in `<out>/fixture-row` the moment it is stored.
+3. Restore: that LEVEL row and any START are deleted; the replay must store the START again.
 
-Exit codes and the FAIL rule are the same as for the upgrade check. Exit 2 is a setup problem with no verdict. If it stops after editing (a signal, a lost replay), an exit trap runs. For TERM, INT or HUP sent to the script's own pid it runs after the foreground command has returned; a signal to the whole process group also kills the adb client, and then only the wait protects. It force-stops the app and waits for two consecutive empty `pidof` samples, removes every row of another kind at the target instant and re-arms the replay; it does **not** put the START back (the next app start does, under a new id, if Shizuku runs) and does not undo the captures the launches stored or the cursor's position. Exercised on redroid on 2026-10-22 with SIGTERM to the script's pid during phase 2 (four runs, the first three on earlier versions of the trap; the second showed the status foreground service surviving a force-stop that raced the launch; the third and fourth, with the signal sent after the app was up, left the process stopped): every other history row matched the backup by natural key with its id unchanged. After SIGKILL or a lost adb the trap can't run or can't confirm; the backup in the out dir is the way back. Most often the preflight finds no FULL capture because the Shizuku server isn't running: redroid doesn't restart it after a container restart. Start it as `upgrade-check.sh` does, then rerun.
+Exit codes and the FAIL rule are the same as for the upgrade check. Exit 2 is a setup problem with no verdict. If it stops after editing (a signal, a lost replay), an exit trap runs and the exit status stays the signal's (143/130/129) or `die`'s (2). For TERM, INT or HUP sent to the script's own pid it runs after the foreground command has returned; a signal to the whole process group also kills the adb client, and then only the wait protects. Every device command in the trap is bounded by `timeout -k 2` (an earlier trap ignored further signals with `trap ''`, which adb inherited, so the uutils `timeout`'s TERM was a no-op and a hung client was waited for: runs 7 and 11 below measured 62 s per probe; the trap now catches the signal with `trap ':'`, so children keep the default TERM disposition, and the KILL stays as defence in depth; run 12 measured the bound); the worst case for the whole trap is about six minutes. PIPE is ignored for the whole script, so a gone stderr reader cannot turn `die`'s 2 or the kept signal status into 141. The trap force-stops the app and asks the device until two consecutive probes, each an adb call that returned 0 and printed exactly `ABSENT` (the probe also checks it can see `system_server`, so a blind `pidof` cannot pass as absence), confirm the process is gone; empty output, an error, a timeout, `BLIND` or `RUNNING` are not evidence. Only then does it look up the fixture row (a lookup that fails is reported, not read as "no row"), delete that LEVEL row by its recorded id (never every row at the instant) and the rewind marker in one transaction, and give the `-wal`/`-shm` files back to the app. Without that confirmation it leaves the database as the interruption left it; when sqlite3 refused the transaction, none of it applied; when the client was killed or adb failed, the outcome is all-or-nothing but unknown, and the message says to check; when only the ownership step fails, the rows are clean and the message says what to chown. Each case is an `undo    FAILED …` line with the fixture row and the backup path, and means cleaning up by hand from `<out>/fixture-row` and, if needed, `<out>/inspiration.db*`. It does **not** put the START back (the next app start does, under a new id, if Shizuku runs) and does not undo the captures the launches stored or the cursor's position. Exercised on redroid on 2026-10-22 with SIGTERM to the script's pid during phase 2: runs 1–4 on earlier versions of the trap (the second showed the status foreground service surviving a force-stop that raced the launch), then the hardened trap (positive process evidence, fixture row by id, exit status kept, `timeout` on every command but, until run 12, without the KILL; still `trap ''`, no transaction and no BLIND check) once ordinarily (run 5) and with an injected probe transport failure (6), probe timeout (7, 11 and 12), persistent process (8), SQL failure (9) and ownership failure (10); then the reviewed trap (`trap ':'`, BLIND-aware probe, lookup status check, one transaction) ordinarily (13) and with the SQL failure (14); then the trap as committed (PIPE ignored, counts read inside the transaction, outcome worded by sqlite3's real error format) ordinarily (16) and with an injected SQL failure in that format (17) (`build/release-check/history-replay-interrupt-*`). Not repeated on the committed trap: the transport, timeout, persistent-process and ownership injections; never exercised: a failed lookup, a real mid-transaction failure, the BLIND branch, a closed stderr. After SIGKILL or a lost adb the trap can't run or can't confirm; the backup in the out dir is the way back. Most often the preflight finds no FULL capture because the Shizuku server isn't running: redroid doesn't restart it after a container restart. Start it as `upgrade-check.sh` does, then rerun.
 
 ### 6. Release notes
 
