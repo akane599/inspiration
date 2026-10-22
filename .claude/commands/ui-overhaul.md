@@ -7,7 +7,7 @@ Overhaul the Compose UI. Scope and direction: $ARGUMENTS
 Load the `compose-design` skill. You orchestrate: you decide the design direction; executors write the code.
 
 ## 1. Inventory and baseline
-- One bounded `codebase-exploration` ticket on its Claude-only route. Return, don't dump: the screen-level composables with paths; the theme files and whether tokens are real or defaults; counts of `Color(0x…)` and raw `.dp`/`.sp` outside the theme package; existing `@PreviewTest`s; whether `com.android.compose.screenshot` is applied.
+- One bounded `codebase-exploration` ticket on its hybrid route. Return, don't dump: the screen-level composables with paths; the theme files and whether tokens are real or defaults; counts of `Color(0x…)` and raw `.dp`/`.sp` outside the theme package; existing `@PreviewTest`s; whether `com.android.compose.screenshot` is applied.
 - Baseline: `./gradlew :app:updateDebugScreenshotTest --console=plain -q`, then copy the reference PNGs to `design/before/`. Without screenshot testing, the first ticket of the story adds it (compose-design §5).
 - Read 3–4 baseline images and write a 5-line honest critique.
 
@@ -24,7 +24,7 @@ Following compose-design §4 steps 1–3: palette hexes with roles, type pairing
 - Before Gradle verification, run `python3 .claude/kit/resource-policy.py` and use its current `gradle_command_limit` and `gradle_workers_per_command` (pass `--max-workers=N`); whole-project gates keep android-build's measured worker caps. This limits only the verification command, never ticket dispatch or the whole wave. Dispatch independent UI/logic work within normal Sidequest worker and file-ownership limits; queue only Gradle verification when capacity is occupied.
 
 ## 4. Run the waves
-Dispatch per the Sidequest skill: theme → screens → reviews. Integrate each wave once. Issues raised by both reviews come first. Each fix becomes a follow-up ticket (`ui.tweak` when mechanical, else `interaction-design-implementation`); no inline patching. UI and review tickets follow their named Claude-only categories and explicit fallbacks; logic changes it uncovers go to separate `coding.*` tickets.
+Dispatch per the Sidequest skill: theme → screens → reviews. Integrate each wave once. Issues raised by both reviews come first. Each fix becomes a follow-up ticket (`ui.tweak` when mechanical, else `interaction-design-implementation`); no inline patching. UI and review tickets follow their named hybrid categories and explicit fallbacks; logic changes it uncovers go to separate `coding.*` tickets.
 
 ## 5. Prove and record
 - `rg -n "Color\(0x|[0-9]+\.(dp|sp)\b" <ui dir> --glob '!**/theme/**'` → near-empty; justify survivors.

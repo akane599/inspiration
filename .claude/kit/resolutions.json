@@ -1,8 +1,8 @@
 {
   ".claude/commands/bootstrap.md": {
-    "merged_sha256": "865a80baf9c660c7e97a682d8ac607b87b247c0bd3234239f157c262fe2de051",
-    "resolved_at": "2026-10-20T00:38:57.523893+00:00",
-    "template_sha256": "da540dd35fa26e9f4d9c55a4a9b39207a3e4c184d2d09fe12d0b58b05822738c"
+    "merged_sha256": "7a365a0b94358fd935ce35a86302173d3d24ebf6bc653ddf7f8ddf9574db2c16",
+    "resolved_at": "2026-10-21T13:07:10.732193+00:00",
+    "template_sha256": "29900942db11f4ed87e42e1e6d83f6a1524fbb15c022e7c0534f4ffb4f5df498"
   },
   ".claude/commands/bug-hunt.md": {
     "merged_sha256": "9f5c1d599c711282753674640c1c081dd53c2d009be4f717313dd905638cc32c",
@@ -10,14 +10,14 @@
     "template_sha256": "9f5c1d599c711282753674640c1c081dd53c2d009be4f717313dd905638cc32c"
   },
   ".claude/commands/kit-doctor.md": {
-    "merged_sha256": "40646de76e26c018786bddd8326692e160d6f665db89b07d08731941b17cc933",
-    "resolved_at": "2026-10-20T00:38:57.524317+00:00",
-    "template_sha256": "f7f874f7542e50655c298422c4cb383119d5bb394ebd4216fa65444b76d749e5"
+    "merged_sha256": "ebaf9a73db2e75741310fe7713091c5acd044f847bb67059f5903824ced3c34d",
+    "resolved_at": "2026-10-21T13:07:10.732395+00:00",
+    "template_sha256": "fbda45004873c8a0bd025d1b22f6bfa08ec38973111731e97b5ccfd0239703f9"
   },
   ".claude/commands/kit-merge.md": {
-    "merged_sha256": "8cda1005ea89c39e13f1d603c59cec831a32a677ca3dd842cf6781aa73552587",
-    "resolved_at": "2026-10-20T00:38:57.524505+00:00",
-    "template_sha256": "773a1845295e00f9cda0ed5022bb2f9a7bc8aa40746e0b99e70ecd895717106f"
+    "merged_sha256": "587772aa14e5f031635eac40b91415c1ea816742736b92bac9ea7f76d0a5ee79",
+    "resolved_at": "2026-10-21T13:07:10.732551+00:00",
+    "template_sha256": "cb363ec26325f2796966f5be0d47d39950133b895ac93933504f4e0dd124b38d"
   },
   ".claude/commands/kit-usage.md": {
     "merged_sha256": "0c83a9471cc891f57bd47f5d19083c878839d0b6445ba22f5871dc9a7b7a0288",
@@ -25,9 +25,9 @@
     "template_sha256": "7324a60771cc4565763f5e1e63a7c0ff2159e8be9dbf98699994bfac87a8da04"
   },
   ".claude/commands/ui-overhaul.md": {
-    "merged_sha256": "f5f6b0c660aee5389aaf81804164904534025b505b232c95f2d70c3f909d5522",
-    "resolved_at": "2026-10-20T00:38:57.524861+00:00",
-    "template_sha256": "4bc860e0c54e4659e41e8e7ef6d3cfa809f4db4d3a8c34923224b7668178fa36"
+    "merged_sha256": "132e878d017ddf2262733882f820e03362e9cb2534b20ab481f0a9a770df85a1",
+    "resolved_at": "2026-10-21T13:07:10.732698+00:00",
+    "template_sha256": "af60c2f60f09cf03c7606d6719433cf4c5433ae9cfc2c8eb39bf6577ca42e02c"
   },
   ".claude/commands/wrap-up.md": {
     "merged_sha256": "700683d0dc8f47a3ae8c468bbfd305b687b36b51dd5d18e6b56650b241fd9dfd",
@@ -45,9 +45,9 @@
     "template_sha256": "b792f5a08b202d1423d4e6fcb337fdddd435ece5eaf767384f5a551e0efa4306"
   },
   ".claude/live-rules/rules/android-orchestration.md": {
-    "merged_sha256": "de2ad2d63c45d5aa1efe800e4578cb92dcad5555e077f87182c5faf7ec57a311",
-    "resolved_at": "2026-10-20T01:00:20.800719+00:00",
-    "template_sha256": "10d6e7a2fea27f2790f980cef94dbbd06baf2afa80a1c0363640a369a2dcf6d8"
+    "merged_sha256": "e24831041aae91052b3f272aa45926deb21a0584a930e84934313cb36c8f1749",
+    "resolved_at": "2026-10-21T13:07:10.732868+00:00",
+    "template_sha256": "2782f54318e32d8764454f82cb167e836703fda4beb1e257b974eee28d2f4bc7"
   },
   ".claude/skills/audit-remediate/SKILL.md": {
     "merged_sha256": "d243de689f7a58300fded2423700c2e8a31986bc0f1d440e4f42f9eeb74b12bf",
@@ -78,5 +78,10 @@
     "merged_sha256": "ba2c3951f0c580c6df3b2fd7ae233275a4e497850a0f4a401921047c08aa8c4b",
     "resolved_at": "2026-10-20T00:38:57.528355+00:00",
     "template_sha256": "1e8dee5a5eb52f522191acd23a24af2a804a171d3c6856be1d0aa7765a13069e"
+  },
+  ".claude/skills/full-repo-audit/scripts/audit-guard.py": {
+    "merged_sha256": "3ffb0ff843ef4ed75e6a3d9513143858196b334353235c1c3b3215c66fc3e78a",
+    "resolved_at": "2026-10-21T13:07:10.734807+00:00",
+    "template_sha256": "71e7c2ced1c88dfa089b6d048ab247dc746356f11f0f48e8aa29e32addbeeb03"
   }
 }
